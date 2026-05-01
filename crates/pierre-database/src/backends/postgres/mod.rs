@@ -290,8 +290,8 @@ impl PostgresDatabase {
             .max_connections(max_connections)
             .min_connections(min_connections)
             .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
-            .idle_timeout(Some(Duration::from_secs(300)))
-            .max_lifetime(Some(Duration::from_secs(600)))
+            .idle_timeout(Some(Duration::from_mins(5)))
+            .max_lifetime(Some(Duration::from_mins(10)))
             // Test connections before returning to caller to detect stale connections
             .test_before_acquire(true);
 

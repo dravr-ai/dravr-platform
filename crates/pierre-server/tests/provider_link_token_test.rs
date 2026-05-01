@@ -152,7 +152,7 @@ async fn nonce_store_accepts_distinct_jtis() {
 #[tokio::test]
 async fn mint_rate_limiter_allows_up_to_limit() {
     let cache = test_cache().await;
-    let limiter = MintRateLimiter::new(3, Duration::from_secs(3600), cache);
+    let limiter = MintRateLimiter::new(3, Duration::from_hours(1), cache);
     let user = Uuid::new_v4();
 
     assert!(limiter.record_attempt(user).await.is_ok());
@@ -169,7 +169,7 @@ async fn mint_rate_limiter_allows_up_to_limit() {
 #[tokio::test]
 async fn mint_rate_limiter_buckets_per_user() {
     let cache = test_cache().await;
-    let limiter = MintRateLimiter::new(1, Duration::from_secs(3600), cache);
+    let limiter = MintRateLimiter::new(1, Duration::from_hours(1), cache);
     let alice = Uuid::new_v4();
     let bob = Uuid::new_v4();
 

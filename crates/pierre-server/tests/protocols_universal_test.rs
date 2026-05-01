@@ -232,7 +232,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     };
@@ -658,7 +658,7 @@ async fn test_set_goal_tool() -> Result<()> {
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     };
@@ -1412,7 +1412,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     };

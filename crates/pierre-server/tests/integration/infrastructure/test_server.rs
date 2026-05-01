@@ -69,7 +69,7 @@ impl IntegrationTestServer {
         let cache = Cache::new(CacheConfig {
             max_entries: 1000,
             redis_url: None,
-            cleanup_interval: Duration::from_secs(60),
+            cleanup_interval: Duration::from_mins(1),
             enable_background_cleanup: false,
             redis_connection: RedisConnectionConfig::default(),
             ttl: CacheTtlConfig::default(),

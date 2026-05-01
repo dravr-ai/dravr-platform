@@ -84,7 +84,7 @@ impl SlackCreds {
             "MESSAGING_EVAL_SLACK_CHANNEL",
             "MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID",
         ] {
-            if env::var(name).ok().filter(|v| !v.is_empty()).is_none() {
+            if env::var(name).ok().is_none_or(|v| v.is_empty()) {
                 eprintln!("[skip] {name} not set — real-Slack scenario skipped");
                 return None;
             }
@@ -372,8 +372,7 @@ async fn real_slack_post_and_read_smoke() {
         "messaging-eval smoke probe — ignore — nonce={}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+            .map_or(0, |d| d.as_nanos())
     );
     let post_ts = post_user_message(&client, &creds, &probe_text)
         .await

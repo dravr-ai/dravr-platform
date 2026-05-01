@@ -677,11 +677,10 @@ pub(super) async fn handle_get_user_rate_limit(
         .usage
         .get_top_tools_analysis(user_uuid, today_start, now)
         .await
-        .map(|tools| {
+        .map_or(0, |tools| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             tools.iter().map(|t| t.request_count as u32).sum::<u32>()
-        })
-        .unwrap_or(0);
+        });
 
     let monthly_limit = user.tier.monthly_limit();
     let daily_limit = monthly_limit.map(|m| m / 30);

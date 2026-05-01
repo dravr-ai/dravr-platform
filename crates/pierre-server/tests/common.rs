@@ -208,7 +208,7 @@ pub async fn create_test_cache() -> Result<Cache> {
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: StdDuration::from_secs(60),
+        cleanup_interval: StdDuration::from_mins(1),
         enable_background_cleanup: false, // Disable background cleanup for tests
         ..Default::default()
     };
@@ -456,7 +456,7 @@ async fn create_test_server_resources_inner(
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: StdDuration::from_secs(60),
+        cleanup_interval: StdDuration::from_mins(1),
         enable_background_cleanup: false, // Disable background cleanup for tests
         ..Default::default()
     };
@@ -758,7 +758,7 @@ pub async fn spawn_sdk_bridge(jwt_token: &str, server_port: u16) -> Result<SdkBr
         .spawn()?;
 
     // Wait for process to initialize (longer on CI where startup can be slow)
-    sleep(Duration::from_millis(2000)).await;
+    sleep(Duration::from_secs(2)).await;
 
     // Check if process is still alive
     if let Ok(Some(status)) = process.try_wait() {

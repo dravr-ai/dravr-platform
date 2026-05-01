@@ -76,7 +76,7 @@ impl ToolSelectionService {
         Self {
             repos,
             cache: Arc::new(RwLock::new(LruCache::new(CACHE_SIZE))),
-            cache_ttl: Duration::from_secs(300),
+            cache_ttl: Duration::from_mins(5),
             config,
         }
     }

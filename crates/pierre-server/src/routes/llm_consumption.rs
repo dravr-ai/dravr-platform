@@ -10,6 +10,7 @@
 //! Two variants: user-scoped (`/api/usage/llm-consumption`) and admin-scoped
 //! (`/admin/usage/llm-consumption`) with tenant override support.
 
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -527,7 +528,7 @@ fn merge_breakdown_by_group(
     }
 
     let mut result: Vec<ConsumptionBreakdownItem> = merged.into_values().collect();
-    result.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
+    result.sort_by_key(|b| Reverse(b.total_tokens));
     result
 }
 

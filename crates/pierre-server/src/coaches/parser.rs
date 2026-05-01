@@ -493,7 +493,7 @@ pub fn parse_coach_content(content: &str, source_name: Option<&str>) -> AppResul
 
     let source_file = source_name.map_or_else(
         || format!("imported/{}.md", frontmatter.name),
-        ToString::to_string,
+        str::to_owned,
     );
 
     Ok(CoachDefinition {

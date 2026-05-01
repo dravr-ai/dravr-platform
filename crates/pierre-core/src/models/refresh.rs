@@ -248,27 +248,27 @@ mod tests {
             DataFreshness::Fresh
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(1800)),
+            DataFreshness::from_age(Duration::from_mins(30)),
             DataFreshness::Fresh
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(3600)),
+            DataFreshness::from_age(Duration::from_hours(1)),
             DataFreshness::Recent
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(7200)),
+            DataFreshness::from_age(Duration::from_hours(2)),
             DataFreshness::Recent
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(14_400)),
+            DataFreshness::from_age(Duration::from_hours(4)),
             DataFreshness::Stale
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(86_400)),
+            DataFreshness::from_age(Duration::from_hours(24)),
             DataFreshness::Outdated
         );
         assert_eq!(
-            DataFreshness::from_age(Duration::from_secs(604_800)),
+            DataFreshness::from_age(Duration::from_hours(24 * 7)),
             DataFreshness::Expired
         );
     }
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn should_refresh_on_chat() {
         let cfg = RefreshConfig::default();
-        assert!(!cfg.should_refresh_on_chat(Duration::from_secs(3600))); // 1h < 4h threshold
+        assert!(!cfg.should_refresh_on_chat(Duration::from_hours(1))); // 1h < 4h threshold
         assert!(cfg.should_refresh_on_chat(Duration::from_secs(14_401))); // > 4h
 
         let disabled = RefreshConfig {

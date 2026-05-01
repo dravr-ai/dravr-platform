@@ -79,8 +79,9 @@ where
     // and PG DEFAULT filled 'user'), upgrade to Admin for consistency.
     let mut role = row
         .try_get::<String, _>("role")
-        .map(|role_str| super::enums::str_to_user_role(&role_str))
-        .unwrap_or(UserRole::User);
+        .map_or(UserRole::User, |role_str| {
+            super::enums::str_to_user_role(&role_str)
+        });
     if is_admin && role == UserRole::User {
         role = UserRole::Admin;
     }

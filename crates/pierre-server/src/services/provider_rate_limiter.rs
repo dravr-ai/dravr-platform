@@ -23,7 +23,7 @@ pub struct ProviderRateLimiter {
 }
 
 /// One day as a `Duration`.
-const ONE_DAY: Duration = Duration::from_secs(86_400);
+const ONE_DAY: Duration = Duration::from_hours(24);
 
 /// Result of a rate limit check.
 #[derive(Debug, Clone, PartialEq, Eq)]

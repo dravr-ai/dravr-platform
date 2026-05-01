@@ -536,7 +536,7 @@ impl ActivityRetrievalContext {
             .collect();
 
         // Sort by count descending
-        breakdown.sort_by(|a, b| b.count.cmp(&a.count));
+        breakdown.sort_by_key(|b| Reverse(b.count));
         breakdown
     }
 

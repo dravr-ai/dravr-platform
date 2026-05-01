@@ -1193,8 +1193,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.11"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.11#87dfc617630e3db7cc2bb48dd91cf69a21aa90e2"
+version = "0.4.12"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.12#7c7fe8b8b7abe4682fa03559747c571c9ff6d440"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1376,8 +1376,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.2.3"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.2.3#0622a7c088a6878184aba42e19698788ae1990b9"
+version = "0.2.4"
+source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.2.4#6153aad2329077a4464ad0615186cb57db7d4adf"
 dependencies = [
  "async-trait",
  "axum",
@@ -1477,8 +1477,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.15.3"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.3#ee3f7882700f3996a07675a478b6805ab5454ae3"
+version = "0.15.5"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.5#91f57c5863170f891b355796539494e813863ebe"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -2125,7 +2125,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3388,7 +3388,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3425,7 +3425,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]

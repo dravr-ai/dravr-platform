@@ -23,7 +23,7 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 bytes = "1.11"
 futures-util = "0.3"
 bitflags = { version = "2.11", features = ["serde"] }
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.3", features = ["copilot-headless", "openai-api"] }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.5", features = ["copilot-headless", "openai-api"] }
 
 [lints]
 workspace = true

@@ -389,7 +389,7 @@ fn spawn_activity_prefetch(
                         sport_type: None,
                     },
                 );
-                let ttl = Duration::from_secs(900);
+                let ttl = Duration::from_mins(15);
                 if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
                     warn!(error = %e, "Background pre-fetch: failed to cache activities");
                 } else {

@@ -83,7 +83,7 @@ impl CircuitBreakerConfig {
     pub const fn strict() -> Self {
         Self {
             failure_threshold: 3,
-            recovery_timeout: Duration::from_secs(60),
+            recovery_timeout: Duration::from_mins(1),
             success_threshold: 3,
         }
     }

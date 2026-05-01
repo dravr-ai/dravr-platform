@@ -123,7 +123,7 @@ async fn test_cache_invalidate() -> Result<()> {
     };
 
     // Set value
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
     assert!(cache.exists(&key).await?);
 
     // Invalidate
@@ -168,9 +168,9 @@ async fn test_cache_invalidate_pattern() -> Result<()> {
         CacheResource::Stats { athlete_id: 456 },
     );
 
-    cache.set(&key1, &data, Duration::from_secs(60)).await?;
-    cache.set(&key2, &data, Duration::from_secs(60)).await?;
-    cache.set(&key3, &data, Duration::from_secs(60)).await?;
+    cache.set(&key1, &data, Duration::from_mins(1)).await?;
+    cache.set(&key2, &data, Duration::from_mins(1)).await?;
+    cache.set(&key3, &data, Duration::from_mins(1)).await?;
 
     // All should exist
     assert!(cache.exists(&key1).await?);
@@ -221,8 +221,8 @@ async fn test_cache_tenant_isolation() -> Result<()> {
         CacheResource::AthleteProfile,
     );
 
-    cache.set(&key1, &data1, Duration::from_secs(60)).await?;
-    cache.set(&key2, &data2, Duration::from_secs(60)).await?;
+    cache.set(&key1, &data1, Duration::from_mins(1)).await?;
+    cache.set(&key2, &data2, Duration::from_mins(1)).await?;
 
     // Each tenant should only see their own data
     let retrieved1: Option<TestData> = cache.get(&key1).await?;
@@ -252,7 +252,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
     // Fill cache beyond capacity
     for i in 0..20 {
         let key = test_cache_key(CacheResource::Activity { activity_id: i });
-        cache.set(&key, &data, Duration::from_secs(60)).await?;
+        cache.set(&key, &data, Duration::from_mins(1)).await?;
     }
 
     // Cache should have evicted some entries to stay within capacity
@@ -344,7 +344,7 @@ async fn test_cache_clear_all() -> Result<()> {
 
     // Add multiple entries
     for key in &keys {
-        cache.set(key, &data, Duration::from_secs(60)).await?;
+        cache.set(key, &data, Duration::from_mins(1)).await?;
     }
 
     // All should exist
@@ -401,7 +401,7 @@ async fn test_cache_different_resource_types() -> Result<()> {
 
     for resource in &resources {
         let key = CacheKey::new(tenant_id, user_id, "strava".to_owned(), resource.clone());
-        cache.set(&key, &data, Duration::from_secs(60)).await?;
+        cache.set(&key, &data, Duration::from_mins(1)).await?;
     }
 
     // All should be retrievable

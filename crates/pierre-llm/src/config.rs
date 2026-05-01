@@ -190,8 +190,7 @@ impl LlmProviderType {
     #[must_use]
     pub fn is_fallback_enabled() -> bool {
         env::var(Self::FALLBACK_ENABLED_ENV_VAR)
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(false)
+            .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
     }
 
     /// Get fallback provider from environment

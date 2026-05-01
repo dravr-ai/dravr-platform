@@ -680,11 +680,10 @@ pub(crate) async fn compute_user_rate_limits(
         .usage
         .get_top_tools_analysis(target_user_id, today_start, now)
         .await
-        .map(|tools| {
+        .map_or(0, |tools| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             tools.iter().map(|t| t.request_count as u32).sum::<u32>()
-        })
-        .unwrap_or(0);
+        });
 
     // Calculate limits based on tier
     let monthly_limit = user.tier.monthly_limit();

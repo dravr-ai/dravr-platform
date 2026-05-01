@@ -239,7 +239,7 @@ impl UsdaClient {
     /// Create a new USDA API client using the shared HTTP client
     #[must_use]
     pub fn new(config: UsdaClientConfig) -> Self {
-        let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, Duration::from_secs(60));
+        let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, Duration::from_mins(1));
 
         Self {
             config,

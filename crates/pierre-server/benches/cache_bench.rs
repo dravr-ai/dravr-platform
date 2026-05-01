@@ -94,7 +94,7 @@ fn test_cache_config() -> CacheConfig {
     CacheConfig {
         max_entries: 10_000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(3600),
+        cleanup_interval: Duration::from_hours(1),
         enable_background_cleanup: false,
         ..Default::default()
     }
@@ -129,11 +129,7 @@ fn bench_cache_set(c: &mut Criterion) {
                     key_index = key_index.wrapping_add(1);
                     rt.block_on(async {
                         cache
-                            .set(
-                                black_box(&key),
-                                black_box(payload),
-                                Duration::from_secs(3600),
-                            )
+                            .set(black_box(&key), black_box(payload), Duration::from_hours(1))
                             .await
                     })
                 });
@@ -159,7 +155,7 @@ fn bench_cache_get(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..1000 {
             let key = make_cache_key(i);
-            let _ = cache.set(&key, &payload, Duration::from_secs(3600)).await;
+            let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
         }
     });
 
@@ -206,7 +202,7 @@ fn bench_cache_invalidate(c: &mut Criterion) {
         b.iter(|| {
             let key = make_cache_key(0);
             rt.block_on(async {
-                let _ = cache.set(&key, &payload, Duration::from_secs(3600)).await;
+                let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
                 let _ = cache.invalidate(black_box(&key)).await;
             });
         });
@@ -226,7 +222,7 @@ fn bench_cache_invalidate(c: &mut Criterion) {
             rt.block_on(async {
                 for i in 0..100 {
                     let key = make_cache_key(i);
-                    let _ = cache.set(&key, &payload, Duration::from_secs(3600)).await;
+                    let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
                 }
             });
 
@@ -271,7 +267,7 @@ fn bench_cache_activities(c: &mut Criterion) {
                     .set(
                         black_box(&key),
                         black_box(&activities_small),
-                        Duration::from_secs(3600),
+                        Duration::from_hours(1),
                     )
                     .await
             })
@@ -291,7 +287,7 @@ fn bench_cache_activities(c: &mut Criterion) {
                     .set(
                         black_box(&key),
                         black_box(&activities_medium),
-                        Duration::from_secs(3600),
+                        Duration::from_hours(1),
                     )
                     .await
             })
@@ -302,11 +298,7 @@ fn bench_cache_activities(c: &mut Criterion) {
     let retrieval_key = make_cache_key(99999);
     rt.block_on(async {
         let _ = cache
-            .set(
-                &retrieval_key,
-                &activities_medium,
-                Duration::from_secs(3600),
-            )
+            .set(&retrieval_key, &activities_medium, Duration::from_hours(1))
             .await;
     });
 
@@ -337,7 +329,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..1000 {
             let key = make_cache_key(i);
-            let _ = cache.set(&key, &payload, Duration::from_secs(3600)).await;
+            let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
         }
     });
 
@@ -386,7 +378,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                     let key = make_cache_key(write_index + i);
                     let payload = payload.clone();
                     handles.push(tokio::spawn(async move {
-                        let _ = cache.set(&key, &payload, Duration::from_secs(3600)).await;
+                        let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
                     }));
                 }
 

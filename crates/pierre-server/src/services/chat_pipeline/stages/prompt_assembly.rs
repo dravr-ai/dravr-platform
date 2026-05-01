@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use tracing::{field, info, trace, Span};
+
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
     KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
@@ -144,6 +146,17 @@ async fn resolve_user_persona(resources: &Arc<ServerResources>, user_id: &str) -
 /// when the conversation is group-scoped and repository lookups
 /// surface errors. All other assembly steps are infallible or
 /// log-and-continue.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        turn_id = %input.turn_id,
+        channel = profile.channel.as_str(),
+        coach_id = conv.coach_id.as_deref().unwrap_or("none"),
+        history_len = history.len(),
+        prompt_len = field::Empty,
+        msg_count = field::Empty,
+    )
+)]
 pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     resources: &Arc<ServerResources>,
     input: &TurnInput,
@@ -276,6 +289,33 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
 
     // Stage 8: Flatten into the LLM message list.
     let llm_messages = build_llm_messages(Some(&prompt_guard.hardened_prompt), history);
+
+    let span = Span::current();
+    span.record("prompt_len", prompt_guard.hardened_prompt.len());
+    span.record("msg_count", llm_messages.len());
+
+    info!(
+        prompt_len = prompt_guard.hardened_prompt.len(),
+        msg_count = llm_messages.len(),
+        "prompt assembled"
+    );
+
+    // Trace-level dump of the full hardened system prompt and the flattened
+    // message list. Operators bump `RUST_LOG=...=trace` to see exactly what
+    // the LLM will receive; otherwise the events are filtered out.
+    if tracing::enabled!(tracing::Level::TRACE) {
+        trace!(
+            prompt = %prompt_guard.hardened_prompt,
+            "prompt assembled: hardened system prompt"
+        );
+        match serde_json::to_string(&llm_messages) {
+            Ok(messages_json) => trace!(
+                messages = %messages_json,
+                "prompt assembled: flattened llm messages"
+            ),
+            Err(e) => trace!(error = %e, "failed to serialize llm messages for trace"),
+        }
+    }
 
     Ok((prompt_guard, pending_followup_ids, llm_messages))
 }

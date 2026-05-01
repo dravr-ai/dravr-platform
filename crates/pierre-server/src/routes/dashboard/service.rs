@@ -17,6 +17,7 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::models::{LlmUsageDailyRow, RequestLog, ToolUsage};
 use serde::Serialize;
 use serde_json::Value;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -511,7 +512,7 @@ impl DashboardRoutes {
         }
 
         // Sort by timestamp (newest first) and limit
-        recent_activity.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        recent_activity.sort_by_key(|b| Reverse(b.timestamp));
         recent_activity.truncate(limit as usize);
 
         Ok(recent_activity)
@@ -610,7 +611,7 @@ impl DashboardRoutes {
             .collect();
 
         // Sort by request count (descending) and take top 10
-        tool_usage.sort_by(|a, b| b.request_count.cmp(&a.request_count));
+        tool_usage.sort_by_key(|b| Reverse(b.request_count));
         tool_usage.truncate(10);
 
         Ok(tool_usage)
