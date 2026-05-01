@@ -17,7 +17,7 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence + config, 4 = adds strings)
+    /// Schema version (5 = locale-keyed coaches, single source of truth in contremaitre)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
@@ -52,8 +52,10 @@ pub struct Manifest {
 pub struct ManifestPrompts {
     /// System prompts keyed by name (e.g., `pierre_system`, `coach_generation`)
     pub system: HashMap<String, ManifestEntry>,
-    /// Coach personas keyed by slug (e.g., "marathon-coach", "5k-speed-coach")
-    pub coaches: HashMap<String, ManifestEntry>,
+    /// Coach personas keyed by slug → locale → entry. The path encodes the
+    /// category as `prompts/coaches/<category>/<slug>/<locale>.md`, so the
+    /// manifest entry itself carries no separate category field.
+    pub coaches: HashMap<String, HashMap<String, ManifestEntry>>,
 }
 
 /// Top-level manifest structure (version 2+) adds tool description entries.
@@ -107,9 +109,6 @@ pub struct ManifestEntry {
     pub path: String,
     /// SHA-256 hex digest of the file contents
     pub sha256: String,
-    /// Coach category (only for coach entries)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
 }
 
 /// Parse a manifest JSON string into a `Manifest` struct.
@@ -122,9 +121,9 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ContremaitreError> {
     let manifest: Manifest =
         serde_json::from_str(json).map_err(|e| ContremaitreError::ManifestParse(e.to_string()))?;
 
-    if manifest.version == 0 || manifest.version > 4 {
+    if manifest.version != 5 {
         return Err(ContremaitreError::ManifestParse(format!(
-            "unsupported manifest version: {} (expected 1, 2, 3, or 4)",
+            "unsupported manifest version: {} (expected 5)",
             manifest.version
         )));
     }

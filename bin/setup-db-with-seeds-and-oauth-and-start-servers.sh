@@ -189,9 +189,20 @@ echo "    Creating admin user (runs migrations)..."
     --password "$ADMIN_PASSWORD" \
     --force 2>&1 | tail -3
 
-# Seed coaches
-echo "    Seeding AI coaches (9 personas)..."
-"$PIERRE_CLI" seed coaches 2>&1 | tail -3
+# Seed coaches from a contremaitre checkout. Coach definitions live in the
+# dravr-contremaitre repo as the single source of truth; expect either
+# PIERRE_COACHES_DIR set in .envrc or a sibling working-copy at
+# ../dravr-contremaitre. Override with PIERRE_COACHES_DIR if your checkout
+# lives elsewhere.
+echo "    Seeding AI coaches from contremaitre..."
+COACHES_DIR="${PIERRE_COACHES_DIR:-../dravr-contremaitre/prompts/coaches}"
+if [ ! -d "$COACHES_DIR" ]; then
+    echo "    ! Coach source not found at $COACHES_DIR"
+    echo "      Clone https://github.com/dravr-ai/dravr-contremaitre"
+    echo "      next to this repo, or set PIERRE_COACHES_DIR explicitly."
+    exit 1
+fi
+"$PIERRE_CLI" seed coaches --coaches-dir "$COACHES_DIR" 2>&1 | tail -3
 
 # Seed demo users (direct DB, no server needed)
 echo "    Seeding demo users..."

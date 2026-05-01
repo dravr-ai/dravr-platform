@@ -76,6 +76,7 @@ fn apply_system_prompt(
 fn apply_coach_prompt(
     registry: &PromptRegistry,
     slug: &str,
+    locale: &str,
     entry: &ManifestEntry,
     file: super::github::GitHubFile,
 ) {
@@ -83,13 +84,14 @@ fn apply_coach_prompt(
     if actual_sha != entry.sha256 {
         warn!(
             slug,
+            locale,
             expected = entry.sha256,
             actual = actual_sha,
             "manifest hash mismatch for coach prompt, using downloaded content"
         );
     }
-    registry.update_coach_prompt(slug, file.content, actual_sha);
-    info!(slug, "synced coach prompt from contremaitre");
+    registry.update_coach_prompt(slug, locale, file.content, actual_sha);
+    info!(slug, locale, "synced coach prompt from contremaitre");
 }
 
 /// Fetch and apply a single system prompt if its hash changed.
@@ -115,24 +117,25 @@ async fn sync_single_system_prompt(
     }
 }
 
-/// Fetch and apply a single coach prompt if its hash changed.
+/// Fetch and apply a single coach-locale prompt if its hash changed.
 async fn sync_single_coach_prompt(
     registry: &PromptRegistry,
     client: &GitHubContentsClient,
     slug: &str,
+    locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    if registry.coach_prompt_sha256(slug).as_deref() == Some(&entry.sha256) {
-        debug!(slug, "coach prompt unchanged, skipping");
+    if registry.coach_prompt_sha256(slug, locale).as_deref() == Some(&entry.sha256) {
+        debug!(slug, locale, "coach prompt unchanged, skipping");
         return SyncOutcome::Skipped;
     }
     match client.read_file(&entry.path).await {
         Ok(file) => {
-            apply_coach_prompt(registry, slug, entry, file);
+            apply_coach_prompt(registry, slug, locale, entry, file);
             SyncOutcome::Synced
         }
         Err(e) => {
-            warn!(slug, error = %e, "failed to sync coach prompt");
+            warn!(slug, locale, error = %e, "failed to sync coach prompt");
             SyncOutcome::Failed
         }
     }
@@ -167,11 +170,13 @@ async fn sync_all_system_prompts(
     Ok(result)
 }
 
-/// Helper to sync all coach prompts during full sync.
+/// Helper to sync all coach prompts during full sync. Iterates the
+/// `slug → locale → entry` map and treats each locale as an independent
+/// sync target so an `fr` failure never blocks `en`.
 async fn sync_all_coach_prompts(
     registry: &PromptRegistry,
     client: &GitHubContentsClient,
-    manifest_coaches: &HashMap<String, ManifestEntry>,
+    manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
         synced: 0,
@@ -179,9 +184,11 @@ async fn sync_all_coach_prompts(
         failed: 0,
     };
 
-    for (slug, entry) in manifest_coaches {
-        let outcome = sync_single_coach_prompt(registry, client, slug, entry).await;
-        accumulate_outcome(&mut result, outcome);
+    for (slug, locales) in manifest_coaches {
+        for (locale, entry) in locales {
+            let outcome = sync_single_coach_prompt(registry, client, slug, locale, entry).await;
+            accumulate_outcome(&mut result, outcome);
+        }
     }
 
     Ok(result)
@@ -274,22 +281,23 @@ async fn hot_reload_system_prompt(
     }
 }
 
-/// Hot-reload a single coach prompt from a webhook event.
+/// Hot-reload a single coach-locale prompt from a webhook event.
 async fn hot_reload_coach_prompt(
     registry: &PromptRegistry,
     client: &GitHubContentsClient,
     slug: &str,
+    locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
     match client.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
-            registry.update_coach_prompt(slug, file.content, actual_sha);
-            info!(slug, "hot-reloaded coach prompt");
+            registry.update_coach_prompt(slug, locale, file.content, actual_sha);
+            info!(slug, locale, "hot-reloaded coach prompt");
             SyncOutcome::Synced
         }
         Err(e) => {
-            warn!(slug, error = %e, "failed to hot-reload coach prompt");
+            warn!(slug, locale, error = %e, "failed to hot-reload coach prompt");
             SyncOutcome::Failed
         }
     }
@@ -319,11 +327,13 @@ async fn sync_changed_system_prompts(
     Ok(result)
 }
 
-/// Helper to sync changed coach prompts during selective sync.
+/// Helper to sync changed coach prompts during selective sync. Iterates
+/// every `(slug, locale)` pair and re-fetches the ones whose path appears
+/// in `changed_set`.
 async fn sync_changed_coach_prompts(
     registry: &PromptRegistry,
     client: &GitHubContentsClient,
-    manifest_coaches: &HashMap<String, ManifestEntry>,
+    manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -332,12 +342,14 @@ async fn sync_changed_coach_prompts(
         failed: 0,
     };
 
-    for (slug, entry) in manifest_coaches {
-        if !changed_set.contains(entry.path.as_str()) {
-            continue;
+    for (slug, locales) in manifest_coaches {
+        for (locale, entry) in locales {
+            if !changed_set.contains(entry.path.as_str()) {
+                continue;
+            }
+            let outcome = hot_reload_coach_prompt(registry, client, slug, locale, entry).await;
+            accumulate_outcome(&mut result, outcome);
         }
-        let outcome = hot_reload_coach_prompt(registry, client, slug, entry).await;
-        accumulate_outcome(&mut result, outcome);
     }
 
     Ok(result)

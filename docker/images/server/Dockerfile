@@ -78,7 +78,6 @@ RUN useradd -m -u 1001 appuser \
 # Copy server binary, pierre-cli (seeders + admin tools), and entrypoint scripts
 COPY --from=builder /app/target/release/pierre-mcp-server /app/pierre-mcp-server
 COPY --from=builder /app/target/release/pierre-cli /app/pierre-cli
-COPY --from=builder /app/coaches /app/coaches
 COPY --from=builder /app/commands /app/commands
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
