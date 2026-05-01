@@ -1,0 +1,40 @@
+# ABOUTME: Endurance cornerstone workout — Threshold 4×8 min @ LT2 (Coggan FTP-anchored)
+# ABOUTME: Classic threshold builder for half-marathon and 10k specific phases
+
+id = "00000000-0000-0000-0000-000000000002"
+slug = "threshold_4x8"
+name = "Threshold — 4 × 8 min"
+sport = "run"
+duration_minutes = 75
+intensity_distribution = "threshold"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.0, 1.15]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Build from easy to steady; finish with 2-3 strides."
+
+[[structure]]
+label = "Threshold interval"
+duration_seconds = 480
+target_zone = "Threshold"
+repeat = 4
+note = "Hold LT2 / FTP — 'comfortably hard'. RPE 7."
+
+[[structure]]
+label = "Recovery jog"
+duration_seconds = 180
+target_zone = "Z1"
+repeat = 4
+note = "Slow easy jog between intervals."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Bring HR back into Z1 for a full 10 min."

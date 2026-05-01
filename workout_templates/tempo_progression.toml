@@ -1,0 +1,43 @@
+# ABOUTME: Endurance cornerstone workout — Tempo progression Z2→Z3 building toward LT2
+# ABOUTME: Continuous run with negative-split tempo to teach pace discipline
+
+id = "00000000-0000-0000-0000-000000000005"
+slug = "tempo_progression"
+name = "Tempo Progression"
+sport = "run"
+duration_minutes = 60
+intensity_distribution = "pyramid"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.88, 0.95, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Conversational pace."
+
+[[structure]]
+label = "Tempo block 1"
+duration_seconds = 900
+target_zone = "Z2"
+note = "Steady aerobic, just below 'comfortable'."
+
+[[structure]]
+label = "Tempo block 2"
+duration_seconds = 900
+target_zone = "Tempo"
+note = "Lift to controlled tempo (Z3 lower band). RPE 6."
+
+[[structure]]
+label = "Tempo block 3"
+duration_seconds = 900
+target_zone = "Tempo"
+note = "Hold the same pace; HR will drift. Resist the urge to slow."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy back to Z1; long stretch optional."

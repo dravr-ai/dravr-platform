@@ -1,0 +1,40 @@
+# ABOUTME: Endurance cornerstone workout — Sweet Spot 2×20 min @ 88-94 % FTP (cycling-friendly)
+# ABOUTME: Long sub-threshold blocks for time-trialists and tempo-builders
+
+id = "00000000-0000-0000-0000-000000000006"
+slug = "sweet_spot_2x20"
+name = "Sweet Spot — 2 × 20 min"
+sport = "ride"
+duration_minutes = 75
+intensity_distribution = "threshold"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.75, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.88, 0.94, 1.05]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Spin easy → 2 × 30 s openers near FTP."
+
+[[structure]]
+label = "Sweet spot interval"
+duration_seconds = 1200
+target_zone = "Tempo"
+repeat = 2
+note = "Hold 88-94 % FTP. RPE 6-7. Cadence comfortable."
+
+[[structure]]
+label = "Recovery spin"
+duration_seconds = 600
+target_zone = "Z1"
+repeat = 2
+note = "Easy spin between intervals; HR back into Z1-Z2."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Spin out the legs."

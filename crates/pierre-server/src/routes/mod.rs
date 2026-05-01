@@ -280,6 +280,8 @@ pub type OAuthRoutes = OAuthService;
 
 /// Phase 5 Stripe-backed billing routes (checkout, portal, webhook, subscription, invoices).
 pub mod billing;
+/// Endurance Phase 1 read-side endpoints (`GET /api/v1/endurance/{latest,dossier}`).
+pub mod endurance;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).
 #[cfg(feature = "health-sync")]
 pub mod webhooks;

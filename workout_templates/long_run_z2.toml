@@ -1,0 +1,31 @@
+# ABOUTME: Endurance cornerstone workout — Long Run in Zone 2 (Seiler polarized base)
+# ABOUTME: Single-block aerobic-base session prescribed during base + early build phases
+
+id = "00000000-0000-0000-0000-000000000001"
+slug = "long_run_z2"
+name = "Long Run — Zone 2"
+sport = "run"
+duration_minutes = 90
+intensity_distribution = "polarized"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.8, 0.9, 1.0]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Conversational. RPE 2-3."
+
+[[structure]]
+label = "Main set"
+duration_seconds = 4500
+target_zone = "Z2"
+note = "Steady aerobic base. Nasal breathing if you can."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 300
+target_zone = "Z1"
+note = "Easy jog → walk."

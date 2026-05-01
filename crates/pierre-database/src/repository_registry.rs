@@ -11,15 +11,18 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachesRepository, CoachingGroupRepository, DataSourceRepository, FitnessConfigRepository,
-    HarnessMemoryRepository, HealthSnapshotRepository, ImpersonationRepository, InsightRepository,
-    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
-    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
-    RecipeRepository, RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository,
-    SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, ToolSelectionRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserRepository, WeatherCacheRepository,
+    CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
+    FitnessConfigRepository, HarnessMemoryRepository, HealthSnapshotRepository,
+    ImpersonationRepository, InsightRepository, LlmCredentialRepository, LlmUsageRepository,
+    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
+    RecoveryRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SleepRepository, SocialRepository, StoreListingsRepository, SubscriptionsRepository,
+    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserPhysiologicalProfileRepository, UserRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -108,6 +111,20 @@ pub struct RepositoryRegistry {
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
     pub weather_cache: Arc<dyn WeatherCacheRepository>,
+    /// Endurance typed physiological profile (FTP, threshold pace, zones)
+    pub user_physiological_profile: Arc<dyn UserPhysiologicalProfileRepository>,
+    /// Endurance dossier composer (read-time aggregate from physiology /
+    /// goals / zones / nutrition / equipment)
+    pub dossier: Arc<dyn DossierRepository>,
+    /// Endurance daily training-state rollups (CTL/ATL/TSB/ACWR/monotony/
+    /// strain/`ramp_rate`/`daily_load`)
+    pub training_history: Arc<dyn TrainingHistoryRepository>,
+    /// Endurance cached GPX terrain + climbs per activity
+    pub route_summaries: Arc<dyn RouteSummaryRepository>,
+    /// Endurance prescribed-workout audit trail (one row per push to a provider calendar)
+    pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
+    /// Endurance user-authored workout-template overrides (cornerstones live in TOML)
+    pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
 }
 
 impl RepositoryRegistry {
@@ -157,7 +174,13 @@ impl RepositoryRegistry {
             memory: db.clone(),
             claim_verdicts: db.clone(),
             subscriptions: db.clone(),
-            weather_cache: db,
+            weather_cache: db.clone(),
+            user_physiological_profile: db.clone(),
+            dossier: db.clone(),
+            training_history: db.clone(),
+            route_summaries: db.clone(),
+            prescribed_workouts: db.clone(),
+            workout_templates: db,
         }
     }
 
@@ -205,7 +228,13 @@ impl RepositoryRegistry {
             memory: db.clone(),
             claim_verdicts: db.clone(),
             subscriptions: db.clone(),
-            weather_cache: db,
+            weather_cache: db.clone(),
+            user_physiological_profile: db.clone(),
+            dossier: db.clone(),
+            training_history: db.clone(),
+            route_summaries: db.clone(),
+            prescribed_workouts: db.clone(),
+            workout_templates: db,
         }
     }
 }

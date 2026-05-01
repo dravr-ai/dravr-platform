@@ -16,7 +16,9 @@ use crate::intelligence::physiological_constants::api_limits::{
 };
 use crate::intelligence::weather::build_provider as build_weather_provider;
 use crate::intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
-use crate::models::{resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId};
+use crate::models::{
+    resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId, ZoneDistribution,
+};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
@@ -90,6 +92,27 @@ pub struct ActivitySummary {
     /// the recovery record, not the activity).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Endurance Intensity Factor — `normalized_power / ftp` (Coggan).
+    /// Populated by the Endurance latest-snapshot pipeline; `None` for
+    /// activities without a power stream or for users without an FTP.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intensity_factor: Option<f64>,
+    /// Endurance Efficiency Factor — `normalized_power / average_heart_rate`.
+    /// `None` when either input is missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub efficiency_factor: Option<f64>,
+    /// Endurance Variability Index — `normalized_power / average_power`.
+    /// `None` when the activity has no power stream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variability_index: Option<f64>,
+    /// Endurance aerobic decoupling percentage. `None` when the activity
+    /// has fewer than 20 paired HR+speed samples (Coggan threshold).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decoupling_pct: Option<f64>,
+    /// Endurance time-in-zone distribution computed against the user's
+    /// configured `HrZoneSet`. `None` when no HR stream or no user zones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_distribution: Option<ZoneDistribution>,
 }
 
 impl From<&Activity> for ActivitySummary {
@@ -109,6 +132,14 @@ impl From<&Activity> for ActivitySummary {
             average_power: activity.average_power(),
             suffer_score: activity.suffer_score(),
             temperature: activity.temperature(),
+            // Endurance metrics are derived in the latest_snapshot pipeline,
+            // not at the per-activity summary boundary. Keep them None here
+            // so the JSON shape is stable for non-Section-11 callers.
+            intensity_factor: None,
+            efficiency_factor: None,
+            variability_index: None,
+            decoupling_pct: None,
+            zone_distribution: None,
         }
     }
 }

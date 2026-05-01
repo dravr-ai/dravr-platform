@@ -38,9 +38,9 @@ use pierre_core::models::{
     CoachingPersona, ConnectionType, ConversationRecord, ConversationSummary,
     CreateUserMcpTokenRequest, FriendConnection, FriendStatus, InsightReaction, OAuth2AuthCode,
     OAuth2Client, OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
-    ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride, ToolCatalogEntry,
-    ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp,
-    UserOAuthToken, UserSocialSettings, UserStatus, UserTier,
+    PrescribedWorkout, ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride,
+    ToolCatalogEntry, ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
+    UserOAuthApp, UserOAuthToken, UserSocialSettings, UserStatus, UserTier,
 };
 use pierre_core::models::{
     AddMessageParams, ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
@@ -50,7 +50,10 @@ use pierre_core::models::{
     AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, Subscription,
     SubscriptionStatus, TenantId, TenantOAuthCredentials,
 };
-use pierre_core::models::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
+use pierre_core::models::{
+    DailyTrainingState, Dossier, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    UserPhysiologicalProfile, WorkoutTemplate,
+};
 use pierre_core::pagination::{CursorPage, PaginationParams, StoreSortOrder};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_memory::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
@@ -3006,6 +3009,188 @@ pub trait SyncCursorRepository: Send + Sync {
         &self,
         provider: &str,
     ) -> AppResult<Vec<ConnectedUserRow>>;
+}
+
+// ================================
+// Endurance typed physiological profile + dossier repos
+// ================================
+
+/// Typed CRUD for [`UserPhysiologicalProfile`] backed by the
+/// `user_physiological_profiles` table.
+///
+/// Row layout: see `migrations/20260430000002_user_profile_endurance_fields.sql`
+/// (`SQLite`) and `migrations_pg/20260430000002_user_profile_endurance_fields.sql`
+/// (`PostgreSQL`).
+///
+/// Every method scopes by `tenant_id` to satisfy the multi-tenant isolation
+/// invariant in CLAUDE.md.
+#[async_trait]
+pub trait UserPhysiologicalProfileRepository: Send + Sync {
+    /// Insert or update the profile row for `(tenant_id, user_id)`.
+    ///
+    /// `profile.user_id` must match `user_id`; the implementation rejects
+    /// mismatches with [`pierre_core::errors::AppError`] to prevent
+    /// cross-user writes from a confused caller.
+    async fn upsert_user_physiological_profile(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        profile: &UserPhysiologicalProfile,
+    ) -> AppResult<()>;
+
+    /// Fetch the profile for `(tenant_id, user_id)`. Returns `None` when
+    /// the user has no row yet.
+    async fn get_user_physiological_profile(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Option<UserPhysiologicalProfile>>;
+}
+
+/// Read-time composer for the Endurance [`Dossier`] aggregate.
+///
+/// Per the locked architectural decision the dossier is **not** persisted as
+/// its own row — the implementation pulls from the existing tables
+/// (`user_physiological_profiles` for physiology + zones, `user_profiles`
+/// JSON column for goals / nutrition / equipment) and assembles the
+/// aggregate per request. Cache invalidation is therefore unnecessary on
+/// the dossier itself; only the underlying tables need cache hooks.
+#[async_trait]
+pub trait DossierRepository: Send + Sync {
+    /// Compose the dossier for `(tenant_id, user_id)`.
+    ///
+    /// Returns an empty dossier shell (all slots `None` / empty) when the
+    /// user has no underlying rows so the API endpoint can return a 200
+    /// rather than a 404 for fresh accounts.
+    async fn compose_dossier(&self, tenant_id: TenantId, user_id: Uuid) -> AppResult<Dossier>;
+}
+
+/// Audit-trail CRUD for the `prescribed_workouts` table.
+///
+/// Each row records a single prescription pushed to a provider calendar
+/// (Endurance Phase 5). The table is append-only from the API path; the
+/// repo exposes upsert by id (so retries can update the
+/// `provider_event_id`) plus a tenant-scoped recent-list read.
+#[async_trait]
+pub trait PrescribedWorkoutRepository: Send + Sync {
+    /// Insert or update a prescription audit row.
+    async fn upsert_prescribed_workout(&self, prescribed: &PrescribedWorkout) -> AppResult<()>;
+
+    /// List the most recent `limit` prescriptions for a (`tenant_id`, `user_id`).
+    async fn list_prescribed_workouts(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        limit: u32,
+    ) -> AppResult<Vec<PrescribedWorkout>>;
+}
+
+/// CRUD for user-authored Endurance workout templates.
+///
+/// The six compiled-in cornerstones live in `workout_templates/*.toml` and
+/// are loaded by `pierre_server::services::workout_library`. This repo only
+/// owns rows the user authored at runtime: every persisted row therefore
+/// carries `tenant_id` and `user_id` (the migration tolerates `NULL` for
+/// historical reasons but the trait rejects either as `None` so the table
+/// never duplicates the read-only cornerstone library).
+#[async_trait]
+pub trait WorkoutTemplateRepository: Send + Sync {
+    /// Insert or update a user-authored workout template.
+    ///
+    /// `template.tenant_id` and `template.user_id` MUST both be `Some` — the
+    /// implementation returns an [`AppError::invalid_input`] otherwise.
+    async fn upsert_workout_template(&self, template: &WorkoutTemplate) -> AppResult<()>;
+
+    /// List all user-authored templates for (`tenant_id`, `user_id`),
+    /// ordered by `updated_at` descending.
+    async fn list_user_workout_templates(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Vec<WorkoutTemplate>>;
+
+    /// Look up a single user-authored template by slug. Returns `None`
+    /// when no row matches the (`tenant_id`, `user_id`, `slug`) tuple.
+    async fn get_user_workout_template(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        slug: &str,
+    ) -> AppResult<Option<WorkoutTemplate>>;
+}
+
+/// CRUD for the `route_summaries` cache table.
+///
+/// Stores parsed-GPX terrain + climbs JSON keyed by `(tenant_id, user_id,
+/// activity_id)` so the route endpoint can skip re-parsing when the
+/// underlying GPX hash matches. Cache freshness check is the
+/// caller's responsibility — `get_route_summary` returns `None` when the
+/// row is missing OR when the supplied `expected_hash` does not match.
+#[async_trait]
+pub trait RouteSummaryRepository: Send + Sync {
+    /// Insert or update the cached terrain + climbs JSON for an activity.
+    async fn upsert_route_summary(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        activity_id: &str,
+        gpx_hash: &str,
+        terrain_summary_json: &str,
+        climbs_json: &str,
+    ) -> AppResult<()>;
+
+    /// Fetch the cached entry. Returns `None` when the row is missing or
+    /// when `expected_hash` does not match the stored `gpx_hash`.
+    async fn get_route_summary(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        activity_id: &str,
+        expected_hash: &str,
+    ) -> AppResult<Option<(String, String)>>;
+}
+
+/// Daily training-state rollup CRUD backing the `training_history` table.
+///
+/// Each row captures one day of derived training metrics (CTL/ATL/TSB/ACWR/
+/// monotony/strain/`ramp_rate`/`daily_load`) for a single (`tenant_id`, `user_id`).
+/// Computation is the responsibility of
+/// [`pierre_intelligence::training_history_compute`]; this repo only persists.
+#[async_trait]
+pub trait TrainingHistoryRepository: Send + Sync {
+    /// Insert or update a single day's row.
+    async fn upsert_training_history_day(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        state: &DailyTrainingState,
+    ) -> AppResult<()>;
+
+    /// Insert or update many days at once. Implementations may batch the
+    /// underlying writes; callers must not assume atomicity across rows.
+    async fn upsert_training_history_batch(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        states: &[DailyTrainingState],
+    ) -> AppResult<()>;
+
+    /// Fetch all rows in `[from, to]` (inclusive on both ends) in
+    /// chronological order (oldest first).
+    async fn get_training_history(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> AppResult<Vec<DailyTrainingState>>;
+
+    /// Fetch the most recent row for the user, if any.
+    async fn latest_training_history(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Option<DailyTrainingState>>;
 }
 
 // ================================

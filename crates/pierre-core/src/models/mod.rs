@@ -32,13 +32,25 @@
 // Domain modules
 pub mod a2a;
 mod athlete;
+/// Endurance athlete dossier composed at read time from physiology, goals,
+/// zones, nutrition, and equipment slots.
+pub mod dossier;
 mod health;
 mod nutrition;
 mod oauth;
 mod sleep;
 mod tenant;
 mod tool_selection;
+/// Endurance daily training-state rollup (`DailyTrainingState`) backing
+/// the `training_history` table and `GET /api/v1/endurance/history`.
+pub mod training_history;
 mod user;
+/// Endurance Phase 5 workout-template + prescription audit shapes
+/// backing the `workout_templates` + `prescribed_workouts` tables.
+pub mod workout_template;
+/// Endurance per-user training-zone boundaries (HR + power) and the
+/// zone-distribution aggregate computed across one or more activities.
+pub mod zones;
 
 /// Data source and device tracking (from dravr-equilibre)
 pub mod data_source;
@@ -94,6 +106,14 @@ pub use athlete::{Athlete, PersonalRecord, PrMetric, Stats};
 pub use user::{
     default_locale, CoachingPersona, User, UserPhysiologicalProfile, UserStatus, UserTier,
 };
+
+// Endurance zones + dossier + training-history + workout-template domain
+pub use dossier::Dossier;
+pub use training_history::{DailyTrainingKey, DailyTrainingState};
+pub use workout_template::{
+    IntensityDistribution, PrescribedWorkout, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
+};
+pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 
 // OAuth domain
 pub use oauth::{

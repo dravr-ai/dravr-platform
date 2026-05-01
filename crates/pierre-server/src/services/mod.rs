@@ -160,3 +160,10 @@ pub mod provider_rate_limiter;
 /// Lazy weather backfill — fills missing ambient temperature on activities
 /// from start coordinates + start time via dravr-meteo.
 pub mod weather_backfill;
+
+/// Endurance Phase 2 training-history compute service — fetches activities + physiology,
+/// runs `pierre_intelligence::training_history_compute`, persists rows.
+pub mod training_history_compute;
+
+/// Endurance Phase 5 workout library — loads compiled-in cornerstone TOML templates.
+pub mod workout_library;
