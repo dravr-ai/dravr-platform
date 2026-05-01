@@ -165,6 +165,8 @@ fn convert_activity(sciotte: &SciotteActivity) -> Activity {
     .city_opt(sciotte.city.clone())
     .region_opt(sciotte.region.clone())
     .country_opt(sciotte.country.clone())
+    .start_latitude_opt(sciotte.start_latitude)
+    .start_longitude_opt(sciotte.start_longitude)
     .splits_opt(splits)
     .laps_opt(laps)
     .build()
