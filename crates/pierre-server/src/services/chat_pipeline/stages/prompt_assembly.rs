@@ -19,7 +19,8 @@ use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::prompts::get_coaching_persona_prompt;
+use pierre_llm::prompts::{get_coaching_persona_prompt, unsubstituted_placeholders};
+use tracing::error;
 
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
@@ -81,22 +82,31 @@ fn interpolate_prompt_placeholders(
     let has_capability = prompt.contains("{{CAPABILITY_REFUSAL}}");
     let has_carve_out = prompt.contains("{{COACH_SCOPE_CARVE_OUT}}");
     let has_persona = prompt.contains("{{COACHING_PERSONA_RULES}}");
-    if !has_scope && !has_capability && !has_carve_out && !has_persona {
-        return prompt.to_owned();
+    let assembled = if !has_scope && !has_capability && !has_carve_out && !has_persona {
+        prompt.to_owned()
+    } else {
+        let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
+        let registry = &resources.messaging_strings_registry;
+        let scope = registry.get(KEY_SCOPE_REFUSAL, locale);
+        let capability = registry.get(KEY_CAPABILITY_REFUSAL, locale);
+        let carve_out = coach_ctx
+            .and_then(|c| coach_scope_carve_out_key(c.category))
+            .map_or_else(String::new, |key| registry.get(key, locale));
+        let persona_block = get_coaching_persona_prompt(persona);
+        prompt
+            .replace("{{SCOPE_REFUSAL}}", &scope)
+            .replace("{{CAPABILITY_REFUSAL}}", &capability)
+            .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
+            .replace("{{COACHING_PERSONA_RULES}}", persona_block)
+    };
+    let stray = unsubstituted_placeholders(&assembled);
+    if !stray.is_empty() {
+        error!(
+            ?stray,
+            "prompt assembly produced unsubstituted {{IDENT}} placeholders — contremaitre drift slipped past load-time validation, or this assembler is missing a substitution branch"
+        );
     }
-    let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
-    let registry = &resources.messaging_strings_registry;
-    let scope = registry.get(KEY_SCOPE_REFUSAL, locale);
-    let capability = registry.get(KEY_CAPABILITY_REFUSAL, locale);
-    let carve_out = coach_ctx
-        .and_then(|c| coach_scope_carve_out_key(c.category))
-        .map_or_else(String::new, |key| registry.get(key, locale));
-    let persona_block = get_coaching_persona_prompt(persona);
-    prompt
-        .replace("{{SCOPE_REFUSAL}}", &scope)
-        .replace("{{CAPABILITY_REFUSAL}}", &capability)
-        .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
-        .replace("{{COACHING_PERSONA_RULES}}", persona_block)
+    assembled
 }
 
 /// Look up the user's selected coaching persona, falling back to the

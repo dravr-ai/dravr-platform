@@ -215,3 +215,76 @@ pub const fn get_coaching_persona_prompt(persona: CoachingPersona) -> &'static s
         CoachingPersona::Coach => COACH_PERSONA_PROMPT,
     }
 }
+
+/// Required `{{PLACEHOLDER}}` tokens that every system prompt key MUST
+/// contain to be acceptable as a hot-reloaded replacement.
+///
+/// Manifest keys mirror those used by `manifest.json::prompts.system` in
+/// the contremaitre repo. Keys absent from this table have no required
+/// placeholders; their content is accepted as-is by the hot-reload layer.
+///
+/// This is consumed by the contremaitre sync engine to refuse drift —
+/// e.g. when a new placeholder ships in [`PIERRE_SYSTEM_PROMPT`] but the
+/// mirrored copy in contremaitre lags behind. Without this gate the
+/// runtime substitution silently turns into a no-op and the feature
+/// behind the placeholder (persona, scope refusal, …) disappears in
+/// production. See `crates/pierre-server/src/contremaitre/sync.rs`.
+pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[(
+    "pierre_system",
+    &[
+        "{{SCOPE_REFUSAL}}",
+        "{{CAPABILITY_REFUSAL}}",
+        "{{COACH_SCOPE_CARVE_OUT}}",
+        "{{COACHING_PERSONA_RULES}}",
+    ],
+)];
+
+/// Look up the placeholders that the given system-prompt manifest key
+/// must contain. Returns `None` for keys with no declared requirements.
+#[must_use]
+pub fn required_placeholders_for_system_prompt(key: &str) -> Option<&'static [&'static str]> {
+    REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, p)| *p)
+}
+
+/// Return the subset of `required` placeholders that are NOT present in
+/// `content`. Empty result means the content satisfies all requirements.
+#[must_use]
+pub fn missing_placeholders<'a>(content: &str, required: &'a [&'a str]) -> Vec<&'a str> {
+    required
+        .iter()
+        .copied()
+        .filter(|p| !content.contains(p))
+        .collect()
+}
+
+/// Find any `{{IDENT}}` patterns remaining in `prompt` where `IDENT` is a
+/// non-empty sequence of uppercase ASCII letters and underscores.
+///
+/// Used after placeholder interpolation to detect substitution gaps —
+/// either drift in contremaitre content (the load-time check should
+/// already have rejected this) or a missing branch in the assembler.
+/// Strict character class avoids false positives from JSON examples
+/// like `{{ "key": ... }}` that legitimately appear in some prompts.
+#[must_use]
+pub fn unsubstituted_placeholders(prompt: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = prompt;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let ident_len = after
+            .bytes()
+            .take_while(|b| b.is_ascii_uppercase() || *b == b'_')
+            .count();
+        if ident_len > 0 && after.as_bytes().get(ident_len..ident_len + 2) == Some(b"}}") {
+            let end = start + 2 + ident_len + 2;
+            out.push(rest[start..end].to_owned());
+            rest = &rest[end..];
+        } else {
+            rest = &rest[start + 2..];
+        }
+    }
+    out
+}
