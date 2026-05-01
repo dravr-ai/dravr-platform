@@ -14,11 +14,15 @@ use crate::intelligence::physiological_constants::api_limits::{
     DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
+use crate::intelligence::weather::build_provider as build_weather_provider;
+use crate::intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
 use crate::models::{resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
+use crate::services::weather_backfill;
 use crate::utils::uuid::parse_user_id_for_protocol;
+use dravr_meteo::WeatherProvider;
 use serde::Serialize;
 use serde_json::{json, to_value, Value};
 use std::cmp::Reverse;
@@ -112,7 +116,14 @@ impl From<&Activity> for ActivitySummary {
 /// Format activities as a numbered human-readable list for LLM output
 /// This helps smaller models include the list in their response without transforming JSON
 /// Activities are sorted by date descending (newest first) for better user experience
-fn format_activities_as_list(activities: &[Activity]) -> String {
+///
+/// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
+/// used when the provider didn't surface ambient temp on the row itself
+/// (sciotte / Whoop / Fitbit / Terra all leave it empty).
+fn format_activities_as_list(
+    activities: &[Activity],
+    backfill_temps: &HashMap<String, f32>,
+) -> String {
     let mut lines = Vec::with_capacity(activities.len() + 2);
     lines.push("Your Activities:".to_owned());
     lines.push(String::new());
@@ -170,7 +181,13 @@ fn format_activities_as_list(activities: &[Activity]) -> String {
         if let Some(calories) = activity.calories() {
             let _ = write!(extras, " - {calories} kcal");
         }
-        if let Some(temp) = activity.temperature() {
+        // Prefer the provider-surfaced temperature; fall back to the
+        // weather-backfill side-table for activities whose provider
+        // didn't capture ambient temp (sciotte / Whoop / Fitbit / Terra).
+        let temp = activity
+            .temperature()
+            .or_else(|| backfill_temps.get(activity.id()).copied());
+        if let Some(temp) = temp {
             // Round to whole degrees — sub-degree precision is meaningless to
             // the coach reasoning loop and the providers report 1-decimal at
             // best. The leading sign survives `{:.0}` for sub-zero readings.
@@ -539,6 +556,10 @@ struct CachedActivitiesParams<'a> {
     default_time_window_applied: bool,
     /// Analysis type for sufficiency calculation
     analysis_type: AnalysisType,
+    /// Optional weather provider used to backfill ambient temperature on
+    /// activities whose source provider didn't surface it. `None` when
+    /// `WEATHER_BACKFILL_ENABLED=false`.
+    weather_provider: Option<Arc<dyn WeatherProvider>>,
 }
 
 /// Create metadata for activity analysis responses
@@ -731,6 +752,15 @@ async fn try_get_cached_activities(
             returned_count: sorted_activities.len(),
             has_more: sorted_activities.len() == params.limit,
         };
+
+        // Backfill missing ambient temperatures from weather provider
+        // (cheap on warm cache; the weather_cache table fronts the API).
+        let backfill_temps = if let Some(provider) = params.weather_provider {
+            weather_backfill::fill_activity_temperatures(&sorted_activities, provider).await
+        } else {
+            HashMap::new()
+        };
+
         // Use the same response builder as the non-cached path to apply mode/format
         let mut response = build_activities_success_response(ActivitiesResponseParams {
             activities: &sorted_activities,
@@ -742,6 +772,7 @@ async fn try_get_cached_activities(
             pagination: Some(&pagination),
             default_time_window_applied: params.default_time_window_applied,
             analysis_type: params.analysis_type,
+            backfill_temps: &backfill_temps,
         });
         // Mark as cached in metadata
         if let Some(ref mut metadata) = response.metadata {
@@ -875,13 +906,26 @@ fn build_activities_metadata(
 
 /// Prepare activity data for response based on mode (summary or detailed)
 /// Returns the JSON value and mode string, or error message string if serialization fails
+///
+/// `backfill_temps` is consulted when the provider didn't surface ambient
+/// temperature; values fill `ActivitySummary::temperature` so the JSON
+/// payload mirrors the inline activity-list rendering.
 fn prepare_activity_data(
     activities: &[Activity],
     mode: &str,
+    backfill_temps: &HashMap<String, f32>,
 ) -> Result<(Value, &'static str), String> {
     if mode == "summary" {
-        let summaries: Vec<ActivitySummary> =
-            activities.iter().map(ActivitySummary::from).collect();
+        let summaries: Vec<ActivitySummary> = activities
+            .iter()
+            .map(|a| {
+                let mut summary = ActivitySummary::from(a);
+                if summary.temperature.is_none() {
+                    summary.temperature = backfill_temps.get(a.id()).copied();
+                }
+                summary
+            })
+            .collect();
         to_value(&summaries)
             .map(|v| (v, "summary"))
             .map_err(|e| format!("Failed to serialize activity summaries: {e}"))
@@ -922,6 +966,10 @@ struct ActivitiesResponseParams<'a> {
     default_time_window_applied: bool,
     /// Analysis type for sufficiency calculation (defaults to `GeneralOverview`)
     analysis_type: AnalysisType,
+    /// Weather-backfilled ambient temperatures keyed by activity id.
+    /// Empty when backfill is disabled or no candidates qualified
+    /// (no GPS, no start time, or temp already present on the row).
+    backfill_temps: &'a HashMap<String, f32>,
 }
 
 /// Build success response for activities with mode and format support
@@ -941,10 +989,11 @@ fn build_activities_success_response(params: ActivitiesResponseParams<'_>) -> Un
         pagination,
         default_time_window_applied,
         analysis_type,
+        backfill_temps,
     } = params;
 
     // Prepare the data based on mode
-    let (data_value, mode_used) = match prepare_activity_data(activities, mode) {
+    let (data_value, mode_used) = match prepare_activity_data(activities, mode, backfill_temps) {
         Ok(result) => result,
         Err(error) => {
             return UniversalResponse {
@@ -957,7 +1006,7 @@ fn build_activities_success_response(params: ActivitiesResponseParams<'_>) -> Un
     };
 
     // Create pre-formatted activity list for LLM output (helps models include the list)
-    let activity_list = format_activities_as_list(activities);
+    let activity_list = format_activities_as_list(activities, backfill_temps);
 
     // Calculate token estimate for context management
     let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);
@@ -1317,6 +1366,20 @@ pub fn handle_get_activities(
         let auto_promote_to_detail =
             !mode_explicit && detail_threshold > 0 && limit <= detail_threshold;
 
+        // Construct a weather provider once per request — both the cache and
+        // live response paths reuse it for the temperature backfill pass.
+        // None when WEATHER_BACKFILL_ENABLED=false; the persistent
+        // weather_cache table fronts repeat lookups so the steady-state
+        // cost is a few SELECTs per hour-bucket.
+        let weather_provider: Option<Arc<dyn WeatherProvider>> = if weather_backfill::is_enabled() {
+            let cache_store = Arc::new(WeatherCacheRepoAdapter::new(
+                executor.resources.repos.weather_cache.clone(),
+            ));
+            Some(build_weather_provider(cache_store))
+        } else {
+            None
+        };
+
         // Try to get from cache first. Skip when auto-promoting because the
         // cache key does not include mode — a cached summary cannot satisfy a
         // detail-promoted response, and a cached detailed payload cannot satisfy
@@ -1334,6 +1397,7 @@ pub fn handle_get_activities(
                 offset: offset.unwrap_or(0),
                 default_time_window_applied,
                 analysis_type,
+                weather_provider: weather_provider.clone(),
             })
             .await
             {
@@ -1477,6 +1541,20 @@ pub fn handle_get_activities(
                         // Create pagination info for fresh results
                         let pagination = create_pagination(filtered_activities.len());
 
+                        // Backfill missing ambient temperatures via the
+                        // configured weather provider (cheap on warm cache;
+                        // first call per (lat, lng, hour) bucket hits the
+                        // vendor API, all subsequent calls hit weather_cache).
+                        let backfill_temps = if let Some(provider) = weather_provider.clone() {
+                            weather_backfill::fill_activity_temperatures(
+                                &filtered_activities,
+                                provider,
+                            )
+                            .await
+                        } else {
+                            HashMap::new()
+                        };
+
                         Ok(build_activities_success_response(
                             ActivitiesResponseParams {
                                 activities: &filtered_activities,
@@ -1488,6 +1566,7 @@ pub fn handle_get_activities(
                                 pagination: Some(&pagination),
                                 default_time_window_applied,
                                 analysis_type,
+                                backfill_temps: &backfill_temps,
                             },
                         ))
                     }

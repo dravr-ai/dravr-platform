@@ -22,6 +22,7 @@
 //! These tools use the intelligence module directly for efficient analysis.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -29,7 +30,8 @@ use tracing::info;
 
 use crate::config::environment::default_provider;
 use crate::errors::AppResult;
-use crate::intelligence::weather::WeatherService;
+use crate::intelligence::weather::{analyze_weather_impact, build_provider};
+use crate::intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::protocols::universal::auth_service::AuthService;
 use crate::protocols::universal::handlers;
@@ -38,6 +40,7 @@ use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
 use crate::tools::universal_delegate::delegate_to_handler;
+use dravr_meteo::WeatherQuery;
 
 /// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
 fn analytics_annotations() -> ToolAnnotations {
@@ -382,7 +385,9 @@ impl McpTool for AnalyzeWeatherImpactTool {
         };
 
         // GPS location is needed for weather lookup
-        if activity.start_latitude().is_none() || activity.start_longitude().is_none() {
+        let (Some(latitude), Some(longitude)) =
+            (activity.start_latitude(), activity.start_longitude())
+        else {
             return Ok(ToolResult::ok(json!({
                 "activity_id": activity_id,
                 "activity_name": activity.name(),
@@ -391,28 +396,28 @@ impl McpTool for AnalyzeWeatherImpactTool {
                 "note": "Activity has no GPS location data — weather analysis requires start coordinates",
                 "units": units
             })));
-        }
+        };
 
-        let cageux_config = context.cageux_config();
-        let mut weather_service =
-            WeatherService::with_default_config(cageux_config.weather_analysis.clone());
+        let cache_repo = context.resources.repos.weather_cache.clone();
+        let cache_store = Arc::new(WeatherCacheRepoAdapter::new(cache_repo));
+        let provider = build_provider(cache_store);
 
-        let weather = match weather_service
-            .get_weather_for_activity(
-                activity.start_latitude(),
-                activity.start_longitude(),
-                activity.start_date(),
-            )
+        let weather = match provider
+            .weather_at(WeatherQuery {
+                latitude,
+                longitude,
+                timestamp: activity.start_date(),
+            })
             .await
         {
-            Ok(Some(w)) => w,
-            Ok(None) => {
+            Ok(sample) => sample,
+            Err(dravr_meteo::WeatherError::Disabled) => {
                 return Ok(ToolResult::ok(json!({
                     "activity_id": activity_id,
                     "activity_name": activity.name(),
                     "weather": null,
                     "impact": null,
-                    "note": "Weather data unavailable — the weather API may be disabled or unconfigured",
+                    "note": "Weather provider is disabled by configuration",
                     "units": units
                 })));
             }
@@ -425,7 +430,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
             }
         };
 
-        let impact = weather_service.analyze_weather_impact(&weather);
+        let impact = analyze_weather_impact(&weather);
 
         let weather_json = if units == "imperial" {
             json!({

@@ -1,17 +1,30 @@
-// ABOUTME: Weather data integration and environmental impact analysis for fitness activities
-// ABOUTME: Provides weather context, environmental adjustments, and performance correlations
+// ABOUTME: Weather impact analytics + dravr-meteo provider factory for the platform
+// ABOUTME: Vendor abstraction (Open-Meteo, OpenWeatherMap, cache decorator) lives in dravr-meteo
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Weather service integration for contextual activity analysis
+//! Weather analytics + provider construction.
+//!
+//! Vendor logic (HTTP calls, parsing, caching) lives in the `dravr-meteo`
+//! crate — this module is the platform-side glue:
+//!
+//! - [`analyze_weather_impact`] scores a sample against the cageux
+//!   physiological thresholds (heat stress, wind drag, precipitation).
+//! - [`build_provider`] reads `WEATHER_PROVIDER` / `OPENWEATHER_API_KEY`
+//!   and returns a cached provider ready for use by tools and the
+//!   activity-list backfill orchestrator.
 
-use super::WeatherConditions;
-use crate::config::fitness::WeatherApiConfig;
-use crate::config::intelligence::{IntelligenceConfig, WeatherAnalysisConfig};
-use crate::constants::get_server_config;
+use std::env;
+use std::sync::Arc;
+
+use dravr_meteo::{
+    CachedProvider, OpenMeteoArchiveProvider, OpenWeatherMapProvider, WeatherCacheStore,
+    WeatherProvider, WeatherSample,
+};
+use serde::{Deserialize, Serialize};
+
 use crate::intelligence::physiological_constants::{
-    unit_conversions::MS_TO_KMH_FACTOR,
     weather_impact_factors::{
         COLD_DIFFICULTY, EXTREME_COLD_DIFFICULTY, EXTREME_HOT_DIFFICULTY, HIGH_HUMIDITY_DIFFICULTY,
         MODERATE_WIND_DIFFICULTY, RAIN_DIFFICULTY, SNOW_DIFFICULTY, STRONG_WIND_DIFFICULTY,
@@ -23,423 +36,148 @@ use crate::intelligence::physiological_constants::{
         MODERATE_WIND_THRESHOLD, STRONG_WIND_THRESHOLD,
     },
 };
-use crate::utils::http_client::create_client_with_timeout;
-use chrono::{DateTime, Utc};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
-use tracing::{debug, error};
 
-/// Safe casting helper functions to avoid clippy warnings
-#[inline]
-#[allow(clippy::cast_possible_truncation)] // Safe: clamped to f32 range
-fn safe_f64_to_f32(value: f64) -> f32 {
-    // Handle special cases
-    if value.is_nan() {
-        return 0.0_f32;
-    }
+/// Default weather vendor when `WEATHER_PROVIDER` is unset.
+const DEFAULT_WEATHER_PROVIDER: &str = "openmeteo";
 
-    // Use total_cmp for proper comparison without casting warnings
-    if value.total_cmp(&f64::from(f32::MAX)) == Ordering::Greater {
-        f32::MAX
-    } else if value.total_cmp(&f64::from(f32::MIN)) == Ordering::Less {
-        f32::MIN
+/// Build a fully-cached `WeatherProvider` from environment configuration.
+///
+/// `WEATHER_PROVIDER` selects the vendor (`openmeteo` default,
+/// `openweathermap` opt-in).
+///
+/// The returned provider is wrapped in a `CachedProvider` against the
+/// supplied `cache` so geographic+hourly buckets are reused across
+/// activities.
+#[must_use]
+pub fn build_provider(cache: Arc<dyn WeatherCacheStore>) -> Arc<dyn WeatherProvider> {
+    let provider_name =
+        env::var("WEATHER_PROVIDER").unwrap_or_else(|_| DEFAULT_WEATHER_PROVIDER.to_owned());
+
+    if provider_name == "openweathermap" {
+        let api_key = env::var("OPENWEATHER_API_KEY").unwrap_or_default();
+        let inner = OpenWeatherMapProvider::new(api_key);
+        Arc::new(CachedProvider::new(inner, CacheStoreArc(cache)))
     } else {
-        // Value is within f32 range, use rounding conversion
-        let rounded = value.round();
-        if rounded > f64::from(f32::MAX) {
-            f32::MAX
-        } else if rounded < f64::from(f32::MIN) {
-            f32::MIN
-        } else {
-            // Safe conversion using IEEE 754 standard rounding
-            rounded as f32
-        }
+        let inner = OpenMeteoArchiveProvider::new();
+        Arc::new(CachedProvider::new(inner, CacheStoreArc(cache)))
     }
 }
 
-/// Weather service for fetching historical weather data
-pub struct WeatherService {
-    /// HTTP client for weather API requests
-    client: Client,
-    /// Weather API configuration
-    api_config: WeatherApiConfig,
-    /// Weather analysis configuration
-    weather_config: WeatherAnalysisConfig,
-    /// In-memory cache of weather data
-    cache: HashMap<String, CachedWeatherData>,
-    /// Optional API key for weather service
-    api_key: Option<String>,
+/// Newtype wrapper letting `Arc<dyn WeatherCacheStore>` satisfy the
+/// `WeatherCacheStore: Sized` bound expected by `CachedProvider`.
+struct CacheStoreArc(Arc<dyn WeatherCacheStore>);
+
+#[async_trait::async_trait]
+impl WeatherCacheStore for CacheStoreArc {
+    async fn get(
+        &self,
+        key: &dravr_meteo::CacheKey,
+        provider: &str,
+    ) -> Result<Option<WeatherSample>, dravr_meteo::CacheError> {
+        self.0.get(key, provider).await
+    }
+
+    async fn put(
+        &self,
+        key: dravr_meteo::CacheKey,
+        provider: &str,
+        sample: WeatherSample,
+    ) -> Result<(), dravr_meteo::CacheError> {
+        self.0.put(key, provider, sample).await
+    }
 }
 
-/// Cached weather data with timestamp
-#[derive(Debug, Clone)]
-struct CachedWeatherData {
-    /// Weather conditions data
-    weather: WeatherConditions,
-    /// When this data was cached
-    cached_at: SystemTime,
-}
+/// Analyze weather impact on performance using physiological thresholds.
+///
+/// Pure function over a `WeatherSample` — no I/O, deterministic from
+/// the input. Used by the `analyze_weather_impact` MCP tool and by the
+/// backfill orchestrator's annotation pass.
+#[must_use]
+pub fn analyze_weather_impact(weather: &WeatherSample) -> WeatherImpact {
+    let mut impact_factors = Vec::new();
+    let mut overall_difficulty = 0.0_f64;
 
-/// `OpenWeatherMap` historical API response structure
-#[derive(Debug, Deserialize)]
-struct OpenWeatherResponse {
-    /// Array of hourly weather data points
-    data: Vec<OpenWeatherHourlyData>,
-}
-
-/// Hourly weather data from `OpenWeatherMap` API
-#[derive(Debug, Deserialize)]
-struct OpenWeatherHourlyData {
-    /// Unix timestamp for this data point
-    dt: i64,
-    /// Temperature in Celsius
-    temp: f64,
-    /// Humidity percentage (0-100)
-    humidity: Option<f64>,
-    /// Wind speed in meters per second
-    wind_speed: Option<f64>,
-    /// Weather condition descriptions
-    weather: Vec<OpenWeatherCondition>,
-}
-
-/// Weather condition description from `OpenWeatherMap`
-#[derive(Debug, Deserialize)]
-struct OpenWeatherCondition {
-    /// Main weather category (e.g., "Rain", "Clear")
-    main: String,
-    /// Detailed description (e.g., "light rain")
-    description: String,
-}
-
-impl WeatherService {
-    /// Create a new weather service with configuration, weather analysis
-    /// config, and API key.
-    ///
-    /// The `weather_config` should come from the caller's cageux config
-    /// snapshot (`ctx.cageux_config().weather_analysis.clone()`) so weather
-    /// analysis stays consistent with the rest of the request and picks up
-    /// contremaitre hot-reloads on the next call.
-    #[must_use]
-    pub fn new(
-        api_config: WeatherApiConfig,
-        weather_config: WeatherAnalysisConfig,
-        api_key: Option<String>,
-    ) -> Self {
-        Self {
-            client: create_client_with_timeout(api_config.request_timeout_seconds, 10),
-            api_config,
-            weather_config,
-            cache: HashMap::new(),
-            api_key,
+    match weather.temperature_celsius {
+        t if t < EXTREME_COLD_CELSIUS => {
+            impact_factors.push("Extremely cold conditions increase energy expenditure".into());
+            overall_difficulty += EXTREME_COLD_DIFFICULTY;
+        }
+        t if t < COLD_THRESHOLD_CELSIUS => {
+            impact_factors.push("Cold conditions may affect performance".into());
+            overall_difficulty += COLD_DIFFICULTY;
+        }
+        t if t > EXTREME_HOT_THRESHOLD_CELSIUS => {
+            impact_factors.push("Hot conditions increase heat stress".into());
+            overall_difficulty += EXTREME_HOT_DIFFICULTY;
+        }
+        t if t > HOT_THRESHOLD_CELSIUS => {
+            impact_factors.push("Warm conditions may increase perceived effort".into());
+            overall_difficulty += WARM_DIFFICULTY;
+        }
+        _ => {
+            impact_factors.push("Ideal temperature conditions".into());
         }
     }
 
-    /// Create weather service with an explicit weather analysis config,
-    /// defaulting the API config and pulling the API key from the server
-    /// config file.
-    #[must_use]
-    pub fn with_default_config(weather_config: WeatherAnalysisConfig) -> Self {
-        Self::new(
-            WeatherApiConfig::default(),
-            weather_config,
-            get_server_config().and_then(|c| c.external_services.weather.api_key.clone()),
-        )
-    }
-
-    /// Create weather service with custom weather analysis configuration
-    #[must_use]
-    pub fn with_weather_config(
-        api_config: WeatherApiConfig,
-        weather_config: WeatherAnalysisConfig,
-        api_key: Option<String>,
-    ) -> Self {
-        Self {
-            client: create_client_with_timeout(api_config.request_timeout_seconds, 10),
-            api_config,
-            weather_config,
-            cache: HashMap::new(),
-            api_key,
-        }
-    }
-
-    /// Get the current weather service configuration
-    #[must_use]
-    pub const fn get_config(&self) -> &WeatherApiConfig {
-        &self.api_config
-    }
-
-    /// Get the weather analysis configuration
-    #[must_use]
-    pub const fn get_weather_config(&self) -> &WeatherAnalysisConfig {
-        &self.weather_config
-    }
-
-    /// Get weather conditions for a specific time and location
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the weather API is disabled, the API request fails,
-    /// or the response cannot be parsed
-    pub async fn get_weather_at_time(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        timestamp: DateTime<Utc>,
-    ) -> Result<WeatherConditions, WeatherError> {
-        // Check if weather API is enabled
-        if !self.api_config.enabled {
-            return Err(WeatherError::ApiDisabled);
-        }
-
-        // Create cache key
-        let cache_key = format!(
-            "{}_{}_{}_{}",
-            latitude,
-            longitude,
-            timestamp.timestamp() / 3600, // Hour-based caching
-            self.api_config.provider
-        );
-
-        // Check cache first
-        if let Some(cached) = self.cache.get(&cache_key) {
-            if cached.cached_at.elapsed().unwrap_or(Duration::MAX)
-                < Duration::from_secs(self.api_config.cache_duration_hours * 3600)
-            {
-                return Ok(cached.weather.clone());
+    if let Some(wind_speed) = weather.wind_speed_kmh {
+        match wind_speed {
+            w if w > STRONG_WIND_THRESHOLD => {
+                impact_factors.push("Strong winds significantly impact performance".into());
+                overall_difficulty += STRONG_WIND_DIFFICULTY;
             }
+            w if w > MODERATE_WIND_THRESHOLD => {
+                impact_factors.push("Moderate winds may affect pace".into());
+                overall_difficulty += MODERATE_WIND_DIFFICULTY;
+            }
+            _ => {}
         }
+    }
 
-        // Try to fetch from API
-        match self
-            .fetch_weather_from_api(latitude, longitude, timestamp)
-            .await
+    if weather.conditions.contains("rain") {
+        impact_factors.push("Wet conditions require extra caution and mental focus".into());
+        overall_difficulty += RAIN_DIFFICULTY;
+    } else if weather.conditions.contains("snow") {
+        impact_factors.push("Snow conditions significantly increase difficulty".into());
+        overall_difficulty += SNOW_DIFFICULTY;
+    }
+
+    if let Some(humidity) = weather.humidity_percentage {
+        if humidity > HIGH_HUMIDITY_THRESHOLD
+            && weather.temperature_celsius > HUMIDITY_IMPACT_TEMP_THRESHOLD
         {
-            Ok(weather) => {
-                // Cache the result
-                self.cache.insert(
-                    cache_key,
-                    CachedWeatherData {
-                        weather: weather.clone(),
-                        cached_at: SystemTime::now(),
-                    },
-                );
-                Ok(weather)
-            }
-            Err(e) => {
-                error!("Weather API request failed: {}", e);
-                Err(e)
-            }
+            impact_factors.push("High humidity makes cooling less efficient".into());
+            overall_difficulty += HIGH_HUMIDITY_DIFFICULTY;
         }
     }
 
-    /// Fetch weather data from the configured API
-    async fn fetch_weather_from_api(
-        &self,
-        latitude: f64,
-        longitude: f64,
-        timestamp: DateTime<Utc>,
-    ) -> Result<WeatherConditions, WeatherError> {
-        match self.api_config.provider.as_str() {
-            "openweathermap" => {
-                self.fetch_from_openweather(latitude, longitude, timestamp)
-                    .await
-            }
-            _ => Err(WeatherError::ApiError(format!(
-                "Unsupported weather provider: {}",
-                self.api_config.provider
-            ))),
-        }
-    }
+    let difficulty_level = match overall_difficulty {
+        d if d < 1.0 => WeatherDifficulty::Ideal,
+        d if d < 2.5 => WeatherDifficulty::Challenging,
+        d if d < 5.0 => WeatherDifficulty::Difficult,
+        _ => WeatherDifficulty::Extreme,
+    };
 
-    /// Fetch weather from `OpenWeatherMap` Historical API
-    async fn fetch_from_openweather(
-        &self,
-        latitude: f64,
-        longitude: f64,
-        timestamp: DateTime<Utc>,
-    ) -> Result<WeatherConditions, WeatherError> {
-        let api_key = self
-            .api_key
-            .as_ref()
-            .ok_or_else(|| WeatherError::ApiError("OpenWeather API key not configured".into()))?;
-
-        let url = format!(
-            "{}/data/3.0/onecall/timemachine?lat={}&lon={}&dt={}&appid={}&units=metric",
-            &self.api_config.base_url,
-            latitude,
-            longitude,
-            timestamp.timestamp(),
-            api_key
-        );
-
-        debug!(
-            "Fetching weather from: {}/data/3.0/onecall/timemachine?lat={}&lon={}&dt={}&appid=[REDACTED]&units=metric",
-            &self.api_config.base_url, latitude, longitude, timestamp.timestamp()
-        );
-
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".into());
-            return Err(WeatherError::ApiError(format!(
-                "OpenWeather API returned status {status}: {error_text}"
-            )));
-        }
-
-        let weather_response: OpenWeatherResponse = response.json().await?;
-
-        // Find the closest data point to our timestamp
-        let target_timestamp = timestamp.timestamp();
-        let closest_data = weather_response
-            .data
-            .into_iter()
-            .min_by_key(|data| (data.dt - target_timestamp).abs())
-            .ok_or_else(|| WeatherError::DataUnavailable)?;
-
-        // Convert to our format - use both main and description for detailed conditions
-        let conditions = closest_data.weather.first().map_or_else(
-            || "clear".into(),
-            |weather| {
-                // Combine main weather type with detailed description
-                if weather.description.to_lowercase() == weather.main.to_lowercase() {
-                    weather.main.clone()
-                } else {
-                    format!("{} - {}", weather.main, weather.description)
-                }
-            },
-        );
-        Ok(WeatherConditions {
-            temperature_celsius: safe_f64_to_f32(closest_data.temp),
-            humidity_percentage: closest_data.humidity.map(safe_f64_to_f32),
-            wind_speed_kmh: closest_data
-                .wind_speed
-                .map(|ws| safe_f64_to_f32(ws * MS_TO_KMH_FACTOR)), // Convert m/s to km/h
-            conditions,
-        })
-    }
-
-    /// Get weather conditions for an activity's start location and time
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if weather API calls fail or location data is invalid
-    pub async fn get_weather_for_activity(
-        &mut self,
-        start_latitude: Option<f64>,
-        start_longitude: Option<f64>,
-        start_time: DateTime<Utc>,
-    ) -> Result<Option<WeatherConditions>, WeatherError> {
-        if let (Some(lat), Some(lon)) = (start_latitude, start_longitude) {
-            match self.get_weather_at_time(lat, lon, start_time).await {
-                Ok(weather) => Ok(Some(weather)),
-                Err(WeatherError::ApiDisabled) => Ok(None), // Gracefully handle disabled API
-                Err(e) => Err(e),
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Analyze weather impact on performance
-    #[must_use]
-    pub fn analyze_weather_impact(&self, weather: &WeatherConditions) -> WeatherImpact {
-        let mut impact_factors = Vec::new();
-        let mut overall_difficulty = 0.0;
-
-        // Temperature impact using physiological constants
-        match weather.temperature_celsius {
-            t if t < EXTREME_COLD_CELSIUS => {
-                impact_factors.push("Extremely cold conditions increase energy expenditure".into());
-                overall_difficulty += EXTREME_COLD_DIFFICULTY;
-            }
-            t if t < COLD_THRESHOLD_CELSIUS => {
-                impact_factors.push("Cold conditions may affect performance".into());
-                overall_difficulty += COLD_DIFFICULTY;
-            }
-            t if t > EXTREME_HOT_THRESHOLD_CELSIUS => {
-                impact_factors.push("Hot conditions increase heat stress".into());
-                overall_difficulty += EXTREME_HOT_DIFFICULTY;
-            }
-            t if t > HOT_THRESHOLD_CELSIUS => {
-                impact_factors.push("Warm conditions may increase perceived effort".into());
-                overall_difficulty += WARM_DIFFICULTY;
-            }
-            _ => {
-                impact_factors.push("Ideal temperature conditions".into());
-            }
-        }
-
-        // Wind impact using established thresholds
-        if let Some(wind_speed) = weather.wind_speed_kmh {
-            match wind_speed {
-                w if w > STRONG_WIND_THRESHOLD => {
-                    impact_factors.push("Strong winds significantly impact performance".into());
-                    overall_difficulty += STRONG_WIND_DIFFICULTY;
-                }
-                w if w > MODERATE_WIND_THRESHOLD => {
-                    impact_factors.push("Moderate winds may affect pace".into());
-                    overall_difficulty += MODERATE_WIND_DIFFICULTY;
-                }
-                _ => {}
-            }
-        }
-
-        // Precipitation impact
-        if weather.conditions.contains("rain") {
-            impact_factors.push("Wet conditions require extra caution and mental focus".into());
-            overall_difficulty += RAIN_DIFFICULTY;
-        } else if weather.conditions.contains("snow") {
-            impact_factors.push("Snow conditions significantly increase difficulty".into());
-            overall_difficulty += SNOW_DIFFICULTY;
-        }
-
-        // Humidity impact using physiological thresholds
-        if let Some(humidity) = weather.humidity_percentage {
-            if humidity > HIGH_HUMIDITY_THRESHOLD
-                && weather.temperature_celsius > HUMIDITY_IMPACT_TEMP_THRESHOLD
-            {
-                impact_factors.push("High humidity makes cooling less efficient".into());
-                overall_difficulty += HIGH_HUMIDITY_DIFFICULTY;
-            }
-        }
-
-        let difficulty_level = match overall_difficulty {
-            d if d < 1.0 => WeatherDifficulty::Ideal,
-            d if d < 2.5 => WeatherDifficulty::Challenging,
-            d if d < 5.0 => WeatherDifficulty::Difficult,
-            _ => WeatherDifficulty::Extreme,
-        };
-
-        WeatherImpact {
-            difficulty_level,
-            impact_factors,
-            performance_adjustment: safe_f64_to_f32(-overall_difficulty * 2.0), // Negative adjustment for difficulty
-        }
+    WeatherImpact {
+        difficulty_level,
+        impact_factors,
+        performance_adjustment: clamp_f64_to_f32(-overall_difficulty * 2.0),
     }
 }
 
-impl Default for WeatherService {
-    /// Default weather service built from a freshly loaded cageux weather
-    /// analysis config.
-    ///
-    /// Used by tests and call sites that have no easy access to a live
-    /// [`crate::cageux_config::CageuxConfigRegistry`] snapshot. Production
-    /// code paths that already hold a `ToolExecutionContext` should go
-    /// through [`Self::with_default_config`] with a snapshot from
-    /// `ctx.cageux_config().weather_analysis.clone()` instead.
-    fn default() -> Self {
-        let weather_config = IntelligenceConfig::load()
-            .map(|c| c.weather_analysis)
-            .unwrap_or_default();
-        Self::with_default_config(weather_config)
+/// Clamp an `f64` into the representable `f32` range without `as` casts.
+#[inline]
+#[allow(clippy::cast_possible_truncation)] // Safe: clamped to f32 range above
+fn clamp_f64_to_f32(value: f64) -> f32 {
+    if value.is_nan() {
+        return 0.0;
     }
+    if value > f64::from(f32::MAX) {
+        return f32::MAX;
+    }
+    if value < f64::from(f32::MIN) {
+        return f32::MIN;
+    }
+    value as f32
 }
 
 /// Weather impact analysis result
@@ -465,33 +203,4 @@ pub enum WeatherDifficulty {
     Difficult,
     /// Dangerous or extreme conditions
     Extreme,
-}
-
-/// Weather service errors
-#[derive(Debug, thiserror::Error)]
-pub enum WeatherError {
-    /// Weather API request failed
-    #[error("Weather API request failed: {0}")]
-    ApiError(String),
-
-    /// Invalid coordinate values provided
-    #[error("Invalid coordinates: lat={lat}, lon={lon}")]
-    InvalidCoordinates {
-        /// Latitude value
-        lat: f64,
-        /// Longitude value
-        lon: f64,
-    },
-
-    /// Weather data not available for the requested time
-    #[error("Weather data unavailable for requested time")]
-    DataUnavailable,
-
-    /// Weather API is disabled in configuration
-    #[error("Weather API is disabled")]
-    ApiDisabled,
-
-    /// Network communication error
-    #[error("Network error: {0}")]
-    NetworkError(#[from] reqwest::Error),
 }

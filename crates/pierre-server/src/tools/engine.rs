@@ -9,7 +9,6 @@
 //! used by multi-tenant MCP servers with comprehensive authentication and user isolation.
 
 use crate::errors::{AppError, AppResult};
-use crate::intelligence::weather::WeatherService;
 use crate::intelligence::ActivityAnalyzer;
 use crate::mcp::schema::{JsonSchema, ToolSchema};
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
@@ -43,7 +42,6 @@ impl ToolEngine {
     pub fn new(
         _database: Arc<Database>,
         _intelligence: Arc<ActivityAnalyzer>,
-        _weather: Arc<WeatherService>,
         universal_executor: Arc<UniversalToolExecutor>,
     ) -> Self {
         Self { universal_executor }

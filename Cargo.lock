@@ -1285,6 +1285,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dravr-meteo"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.1.0#91fdb7ef3ded949f4c64c8f2d72f143ce1460440"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-riviere"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3151,6 +3166,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-enforme",
  "dravr-equilibre 0.2.1",
+ "dravr-meteo",
  "dravr-sciotte 0.5.10",
  "dravr-tronc",
  "ed25519-dalek",
