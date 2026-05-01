@@ -64,6 +64,11 @@ pub enum ErrorCode {
     AuthExpired,
     /// Authentication format is malformed
     AuthMalformed,
+    /// A connected fitness provider's session expired or was never established;
+    /// `details` carries `provider` and `hosted_login_url` so callers can hand
+    /// the user a one-time link to complete the (re)auth flow without a generic
+    /// refusal. Distinct from `AuthExpired`, which is about the Pierre session.
+    ProviderAuthRequired,
     /// User lacks permission for the requested operation
     PermissionDenied,
     /// User account is pending admin approval
@@ -145,7 +150,8 @@ impl ErrorCode {
             | Self::AuthMalformed
             | Self::PermissionDenied
             | Self::AccountPending
-            | Self::AccountSuspended => FORBIDDEN,
+            | Self::AccountSuspended
+            | Self::ProviderAuthRequired => FORBIDDEN,
 
             // 404 Not Found
             Self::ResourceNotFound => NOT_FOUND,
@@ -183,6 +189,9 @@ impl ErrorCode {
             Self::AuthInvalid => "The provided authentication credentials are invalid",
             Self::AuthExpired => "The authentication token has expired",
             Self::AuthMalformed => "The authentication token is malformed or corrupted",
+            Self::ProviderAuthRequired => {
+                "A connected fitness provider needs to be (re)authenticated"
+            }
             Self::PermissionDenied => "You do not have permission to perform this action",
             Self::RateLimitExceeded => "Rate limit exceeded. Please slow down your requests",
             Self::QuotaExceeded => "Usage quota exceeded for your current plan",
@@ -232,6 +241,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "AuthInvalid" => Ok(Self::AuthInvalid),
             "AuthExpired" => Ok(Self::AuthExpired),
             "AuthMalformed" => Ok(Self::AuthMalformed),
+            "ProviderAuthRequired" => Ok(Self::ProviderAuthRequired),
             "PermissionDenied" => Ok(Self::PermissionDenied),
             "AccountPending" => Ok(Self::AccountPending),
             "AccountSuspended" => Ok(Self::AccountSuspended),
@@ -405,6 +415,39 @@ impl AppError {
     #[must_use]
     pub fn auth_expired() -> Self {
         Self::new(ErrorCode::AuthExpired, "Authentication token has expired")
+    }
+
+    /// A connected fitness provider's session expired or was never established.
+    /// Carries the provider name in `details` so the chat pipeline can mint a
+    /// hosted-login URL (which needs channel/chat-thread context the provider
+    /// layer doesn't hold) and short-circuit a reply with the actionable link
+    /// instead of letting the LLM rephrase a generic refusal.
+    #[must_use]
+    pub fn provider_auth_required(provider: impl Into<String>) -> Self {
+        let provider_str = provider.into();
+        let mut err = Self::new(
+            ErrorCode::ProviderAuthRequired,
+            format!("Provider {provider_str} requires authentication"),
+        );
+        err.details = Some(Box::new(serde_json::json!({
+            "provider": provider_str,
+        })));
+        err
+    }
+
+    /// If this is a `ProviderAuthRequired` error, returns the provider slug
+    /// extracted from `details`. Returns `None` for any other error code or
+    /// malformed payload.
+    #[must_use]
+    pub fn provider_auth_required_provider(&self) -> Option<String> {
+        if !matches!(self.code, ErrorCode::ProviderAuthRequired) {
+            return None;
+        }
+        self.details
+            .as_ref()?
+            .get("provider")?
+            .as_str()
+            .map(ToOwned::to_owned)
     }
 
     /// Rate limit exceeded
@@ -692,6 +735,9 @@ impl From<ProtocolError> for AppError {
             )),
             ProtocolError::OperationCancelled(message) => {
                 Self::invalid_input(format!("Operation cancelled: {message}"))
+            }
+            ProtocolError::ProviderAuthRequired { provider } => {
+                Self::provider_auth_required(provider)
             }
         }
     }

@@ -225,6 +225,16 @@ impl UniversalExecutor {
 fn app_error_to_protocol_error(tool_name: &str, e: &AppError) -> ProtocolError {
     use pierre_core::errors::ErrorCode;
     match e.code {
+        ErrorCode::ProviderAuthRequired => {
+            // Preserve the provider slug across the protocol boundary so the
+            // tool loop can short-circuit and the chat pipeline can mint a
+            // hosted-login URL. Falls back to a placeholder if `details` was
+            // somehow malformed — the loop still detects the variant.
+            let provider = e
+                .provider_auth_required_provider()
+                .unwrap_or_else(|| "unknown".to_owned());
+            ProtocolError::ProviderAuthRequired { provider }
+        }
         ErrorCode::InvalidInput
         | ErrorCode::AuthRequired
         | ErrorCode::AuthInvalid
