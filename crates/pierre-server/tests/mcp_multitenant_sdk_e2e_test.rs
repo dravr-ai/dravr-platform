@@ -214,7 +214,7 @@ async fn test_http_transport_tools_list_parity() -> Result<()> {
     println!("✓ SDK bridge process spawned successfully");
 
     // Give SDK bridge time to initialize
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // Test SDK stdio communication - call tools/list
     println!("\n=== Testing SDK stdio Protocol ===");

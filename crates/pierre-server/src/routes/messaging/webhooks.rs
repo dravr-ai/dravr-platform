@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, field, info, warn, Instrument, Span};
 
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
@@ -118,6 +118,20 @@ pub async fn verify_webhook(
 /// 2. Persist inbound messages (synchronous, fast)
 /// 3. Return HTTP 200 immediately
 /// 4. Spawn background tasks for LLM dispatch + outbound response
+///
+/// The `#[instrument]` span is the root span for every messaging turn —
+/// `dispatch_and_respond` and the chat pipeline inherit it via
+/// `in_current_span` on the spawned task, so structured fields
+/// (`channel`, `tenant_id`, `message_count`) propagate to every log line
+/// emitted while the turn is in flight.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        channel = %channel,
+        tenant_id = field::Empty,
+        message_count = field::Empty,
+    )
+)]
 pub async fn handle_webhook(
     State(resources): State<Arc<ServerResources>>,
     Path(channel): Path<String>,
@@ -150,6 +164,13 @@ pub async fn handle_webhook(
 
     let verification = parse_and_verify(&resources, &channel, &headers, &body).await?;
 
+    // Populate the parent span so downstream log lines (including those
+    // emitted from the spawned dispatch task via `in_current_span`) carry
+    // these identifiers without each callee needing to repeat them.
+    let span = Span::current();
+    span.record("tenant_id", field::display(&verification.tenant_id));
+    span.record("message_count", verification.messages.len());
+
     info!(
         channel = %channel,
         tenant_id = %verification.tenant_id,
@@ -177,11 +198,19 @@ pub async fn handle_webhook(
         }
     }
 
-    // Spawn LLM dispatch as background tasks (non-blocking, webhook returns immediately)
+    // Spawn LLM dispatch as background tasks (non-blocking, webhook returns immediately).
+    // `in_current_span` carries the webhook handler's span into the detached
+    // task so every log line emitted during LLM dispatch (prompt assembly,
+    // tool loop, embacle HTTP call) inherits the same `turn_id`, `channel`,
+    // and `tenant_id` fields. Without this, the spawned future starts with
+    // an empty span and the message-flow trace fragments.
     for dispatch in pending_dispatches {
-        tokio::spawn(async move {
-            messaging_ingress::dispatch_and_respond(dispatch).await;
-        });
+        tokio::spawn(
+            async move {
+                messaging_ingress::dispatch_and_respond(dispatch).await;
+            }
+            .in_current_span(),
+        );
     }
 
     Ok((

@@ -209,7 +209,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     let cache_config = MemoryCacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     };

@@ -74,7 +74,7 @@ use uuid::Uuid;
 /// );
 ///
 /// // Store a value with 1-hour TTL
-/// cache.set(&key, &"cached_data", Duration::from_secs(3600)).await?;
+/// cache.set(&key, &"cached_data", Duration::from_hours(1)).await?;
 ///
 /// // Retrieve the value
 /// let value: Option<String> = cache.get(&key).await?;

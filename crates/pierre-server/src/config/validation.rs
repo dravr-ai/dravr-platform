@@ -153,19 +153,19 @@ impl ConfigValidator {
         // Validate range if specified
         if let Some(valid_range) = &param_def.valid_range {
             match (value, valid_range) {
-                (ConfigValue::Float(v), ConfigValue::FloatRange { min, max }) => {
-                    if v < min || v > max {
-                        return Err(format!(
-                            "Value {v} is outside valid range [{min}, {max}] for {key}"
-                        ));
-                    }
+                (ConfigValue::Float(v), ConfigValue::FloatRange { min, max })
+                    if v < min || v > max =>
+                {
+                    return Err(format!(
+                        "Value {v} is outside valid range [{min}, {max}] for {key}"
+                    ));
                 }
-                (ConfigValue::Integer(v), ConfigValue::IntegerRange { min, max }) => {
-                    if v < min || v > max {
-                        return Err(format!(
-                            "Value {v} is outside valid range [{min}, {max}] for {key}"
-                        ));
-                    }
+                (ConfigValue::Integer(v), ConfigValue::IntegerRange { min, max })
+                    if v < min || v > max =>
+                {
+                    return Err(format!(
+                        "Value {v} is outside valid range [{min}, {max}] for {key}"
+                    ));
                 }
                 _ => {}
             }

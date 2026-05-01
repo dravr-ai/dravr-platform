@@ -113,9 +113,7 @@ impl TokenEfficiencyMetrics {
         let estimated_tokens = Self::estimate_tokens(&output.data);
 
         // Calculate JSON equivalent size for comparison
-        let json_equivalent_size = serde_json::to_string(data)
-            .map(|s| s.len())
-            .unwrap_or(byte_size);
+        let json_equivalent_size = serde_json::to_string(data).map_or(byte_size, |s| s.len());
 
         let (token_savings_percent, compression_ratio) =
             if json_equivalent_size > 0 && byte_size > 0 {

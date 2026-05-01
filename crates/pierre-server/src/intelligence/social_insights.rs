@@ -11,6 +11,8 @@
 //! with friends without exposing sensitive information like GPS coordinates,
 //! exact paces, or recovery scores.
 
+use std::cmp::Reverse;
+
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -139,7 +141,7 @@ impl SharedInsightGenerator {
 
         // Filter by minimum relevance and sort by score
         suggestions.retain(|s| s.relevance_score >= self.min_relevance_score);
-        suggestions.sort_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        suggestions.sort_by_key(|b| Reverse(b.relevance_score));
 
         suggestions
     }

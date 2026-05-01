@@ -124,7 +124,7 @@ fn limiter_error_carries_configured_retry_after_hint() {
     assert_eq!(err.retry_after_secs(), 2);
 
     let err = LimiterError::Closed {
-        retry_after: Duration::from_secs(60),
+        retry_after: Duration::from_mins(1),
     };
     assert_eq!(err.retry_after_secs(), 60);
 }

@@ -42,7 +42,7 @@ async fn create_redis_cache() -> Result<Option<Cache>> {
     let config = CacheConfig {
         max_entries: 1000, // Not used for Redis, but required by config
         redis_url: Some(redis_url),
-        cleanup_interval: Duration::from_secs(300),
+        cleanup_interval: Duration::from_mins(5),
         enable_background_cleanup: false, // Disable in tests
         ..Default::default()
     };
@@ -88,7 +88,7 @@ async fn test_redis_cache_set_and_get() -> Result<()> {
     let _ = cache.invalidate(&key).await;
 
     // Set value
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
 
     // Get value back
     let retrieved: Option<TestData> = cache.get(&key).await?;
@@ -157,7 +157,7 @@ async fn test_redis_cache_ttl() -> Result<()> {
     let _ = cache.invalidate(&key).await;
 
     // Set value with 60-second TTL
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
 
     // Check TTL immediately
     let ttl = cache.ttl(&key).await?;
@@ -203,7 +203,7 @@ async fn test_redis_cache_exists() -> Result<()> {
     assert!(!cache.exists(&key).await?);
 
     // Set value
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
 
     // Should exist now
     assert!(cache.exists(&key).await?);
@@ -230,7 +230,7 @@ async fn test_redis_cache_invalidate() -> Result<()> {
     let _ = cache.invalidate(&key).await;
 
     // Set value
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
     assert!(cache.exists(&key).await?);
 
     // Invalidate
@@ -283,9 +283,9 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
     let _ = cache.invalidate(&key3).await;
 
     // Set all values
-    cache.set(&key1, &data, Duration::from_secs(60)).await?;
-    cache.set(&key2, &data, Duration::from_secs(60)).await?;
-    cache.set(&key3, &data, Duration::from_secs(60)).await?;
+    cache.set(&key1, &data, Duration::from_mins(1)).await?;
+    cache.set(&key2, &data, Duration::from_mins(1)).await?;
+    cache.set(&key3, &data, Duration::from_mins(1)).await?;
 
     // All should exist
     assert!(cache.exists(&key1).await?);
@@ -341,8 +341,8 @@ async fn test_redis_cache_tenant_isolation() -> Result<()> {
     let _ = cache.invalidate(&key2).await;
 
     // Set data for both tenants
-    cache.set(&key1, &data1, Duration::from_secs(60)).await?;
-    cache.set(&key2, &data2, Duration::from_secs(60)).await?;
+    cache.set(&key1, &data1, Duration::from_mins(1)).await?;
+    cache.set(&key2, &data2, Duration::from_mins(1)).await?;
 
     // Each tenant should only see their own data
     let retrieved1: Option<TestData> = cache.get(&key1).await?;
@@ -394,7 +394,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
 
     // Add entries
     for key in &keys {
-        cache.set(key, &data, Duration::from_secs(60)).await?;
+        cache.set(key, &data, Duration::from_mins(1)).await?;
     }
 
     // All should exist
@@ -451,7 +451,7 @@ async fn test_redis_cache_different_resource_types() -> Result<()> {
 
     // Set all values
     for key in &keys {
-        cache.set(key, &data, Duration::from_secs(60)).await?;
+        cache.set(key, &data, Duration::from_mins(1)).await?;
     }
 
     // All should be retrievable
@@ -486,14 +486,14 @@ async fn test_redis_cache_overwrite() -> Result<()> {
     let _ = cache.invalidate(&key).await;
 
     // Set initial value
-    cache.set(&key, &data1, Duration::from_secs(60)).await?;
+    cache.set(&key, &data1, Duration::from_mins(1)).await?;
 
     // Verify initial value
     let retrieved1: Option<TestData> = cache.get(&key).await?;
     assert_eq!(retrieved1, Some(data1));
 
     // Overwrite with new value
-    cache.set(&key, &data2, Duration::from_secs(60)).await?;
+    cache.set(&key, &data2, Duration::from_mins(1)).await?;
 
     // Should get updated value
     let retrieved2: Option<TestData> = cache.get(&key).await?;
@@ -521,7 +521,7 @@ async fn test_redis_cache_large_value() -> Result<()> {
     let _ = cache.invalidate(&key).await;
 
     // Set large value
-    cache.set(&key, &data, Duration::from_secs(60)).await?;
+    cache.set(&key, &data, Duration::from_mins(1)).await?;
 
     // Get value back
     let retrieved: Option<TestData> = cache.get(&key).await?;
@@ -558,9 +558,7 @@ async fn test_redis_cache_concurrent_operations() -> Result<()> {
             };
 
             // Set value
-            cache_clone
-                .set(&key, &data, Duration::from_secs(60))
-                .await?;
+            cache_clone.set(&key, &data, Duration::from_mins(1)).await?;
 
             // Get value back
             let retrieved: Option<TestData> = cache_clone.get(&key).await?;
@@ -630,8 +628,8 @@ async fn test_redis_cache_tenant_pattern_invalidation() -> Result<()> {
     let _ = cache.invalidate(&key2).await;
 
     // Set both values
-    cache.set(&key1, &data, Duration::from_secs(60)).await?;
-    cache.set(&key2, &data, Duration::from_secs(60)).await?;
+    cache.set(&key1, &data, Duration::from_mins(1)).await?;
+    cache.set(&key2, &data, Duration::from_mins(1)).await?;
 
     // Both should exist
     assert!(cache.exists(&key1).await?);

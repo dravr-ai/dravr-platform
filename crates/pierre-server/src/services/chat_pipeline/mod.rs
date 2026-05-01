@@ -311,6 +311,14 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
 /// Returns `AppError` variants produced by any stage: database errors
 /// on persistence, LLM provider errors during the tool loop, quota
 /// exhaustion from a [`QuotaGate`], etc.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        turn_id = %input.turn_id,
+        channel = profile.channel.as_str(),
+        conversation_id = %input.conversation_id,
+    )
+)]
 pub async fn run(
     resources: &Arc<ServerResources>,
     input: TurnInput,

@@ -2116,6 +2116,18 @@ async fn report_dispatch_failure(
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
 /// Acquires a per-conversation lock to ensure messages are processed in order.
+///
+/// The `#[instrument]` span pins `turn_id`, `channel`, and `conversation_id`
+/// onto every downstream log line (chat pipeline stages, embacle HTTP call)
+/// so an operator can grep a single `turn_id=...` across the whole flow.
+#[tracing::instrument(
+    skip(dispatch),
+    fields(
+        turn_id = %dispatch.turn_id,
+        channel = %dispatch.channel,
+        conversation_id = %dispatch.session.conversation,
+    )
+)]
 pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let lock = CONVERSATION_DISPATCH_LOCKS
         .entry(dispatch.session.conversation.clone())
@@ -2126,6 +2138,17 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let start = Instant::now();
     let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
     let hashed_user = hash_id(&dispatch.session.user_id);
+
+    // Log the inbound user message at debug. The full body is dumped at
+    // trace level so an operator can run `RUST_LOG=...=trace` to follow a
+    // typed message all the way to the LLM call without needing to enable
+    // payload events at the ingress layer in prod.
+    info!(
+        text_len = dispatch.text_content.len(),
+        hashed_user = %hashed_user,
+        "messaging dispatch starting"
+    );
+    tracing::trace!(text = %dispatch.text_content, "messaging dispatch user message");
 
     let profile = build_messaging_profile(&dispatch);
     // Reuse the turn id canot generated at the webhook boundary

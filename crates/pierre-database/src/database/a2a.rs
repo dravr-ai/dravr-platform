@@ -605,10 +605,7 @@ impl Database {
                 .transpose()?;
 
             let granted_scopes_str: String = row.get("granted_scopes");
-            let granted_scopes = granted_scopes_str
-                .split(',')
-                .map(ToString::to_string)
-                .collect();
+            let granted_scopes = granted_scopes_str.split(',').map(str::to_owned).collect();
 
             Ok(Some(A2ASession {
                 id: row.get("session_token"),
@@ -676,10 +673,7 @@ impl Database {
                 .transpose()?;
 
             let granted_scopes_str: String = row.get("granted_scopes");
-            let granted_scopes = granted_scopes_str
-                .split(',')
-                .map(ToString::to_string)
-                .collect();
+            let granted_scopes = granted_scopes_str.split(',').map(str::to_owned).collect();
 
             sessions.push(A2ASession {
                 id: row.get("session_token"),

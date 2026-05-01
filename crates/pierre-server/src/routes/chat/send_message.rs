@@ -12,6 +12,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
+use tracing::{field, info, instrument, trace, Span};
 use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
@@ -105,6 +106,24 @@ fn setup_agui(
 /// tools, no memory — because they run on the insight-generation
 /// system prompt and expect JSON output. All other turns go through
 /// [`pipeline::run`].
+///
+/// The `#[instrument]` span is the root span for every web/mobile chat
+/// turn — same shape as the messaging webhook root span — so an operator
+/// can grep a single `turn_id` across web, mobile, and Telegram/Messenger
+/// traffic uniformly.
+#[instrument(
+    skip_all,
+    fields(
+        channel = "web_chat",
+        conversation_id = %conversation_id,
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+        turn_id = field::Empty,
+        content_len = request.content.len(),
+        is_command = request.content.trim_start().starts_with('/'),
+        is_insight = request.content.starts_with(INSIGHT_PROMPT_PREFIX),
+    )
+)]
 pub async fn send_message(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
@@ -115,6 +134,23 @@ pub async fn send_message(
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
+
+    // Populate the parent span so downstream pipeline log lines (already
+    // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the
+    // resolved tenant + user without each callee needing to re-record them.
+    let span = Span::current();
+    span.record("user_id", field::display(&user_id_str));
+    span.record("tenant_id", field::display(&tenant_id_str));
+
+    info!(
+        channel = "web_chat",
+        conversation_id = %conversation_id,
+        content_len = request.content.len(),
+        "Processed inbound chat message"
+    );
+    if tracing::enabled!(tracing::Level::TRACE) {
+        trace!(content = %request.content, "web_chat user message body");
+    }
 
     // Resolve the conversation row once so the per-conversation and
     // per-coach scoped caps fire in the same call as the global daily/
@@ -214,13 +250,17 @@ pub async fn send_message(
         .flatten()
         .map_or_else(default_locale, |u| u.locale);
     let turn_locale = detect_turn_locale(&request.content, &stored_locale);
+
+    let turn_id = ConversationTurnId::new();
+    span.record("turn_id", field::display(&turn_id));
+
     let turn_input = pipeline::TurnInput {
         conversation_id: conversation_id.clone(),
         user_id: user_id_str.clone(),
         conversation_tenant_id: tenant_id,
         tool_tenant_id: tenant_id,
         content: request.content.clone(),
-        turn_id: ConversationTurnId::new(),
+        turn_id,
         locale: Some(turn_locale),
     };
     let profile = pipeline::ChannelProfile::web_chat();

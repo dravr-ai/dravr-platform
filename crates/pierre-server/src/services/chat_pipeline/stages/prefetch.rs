@@ -193,16 +193,33 @@ pub async fn inject_startup_context(
                 "The following activity data has been pre-loaded for your analysis:\n\n\
                  {activity_context}"
             );
+            log_inject("activity context", &context_msg);
             llm_messages.insert(1, ChatMessage::system(&context_msg));
         }
 
         // Inject the startup query as the analysis instruction (after data context)
         if let Some(query) = &startup_query {
+            log_inject("startup query", query);
             let insert_pos = llm_messages.len().saturating_sub(1);
             llm_messages.insert(insert_pos, ChatMessage::user(query));
         }
     } else if let Some(query) = &startup_query {
         // No data_requirements: inject startup query for LLM tool-calling
+        log_inject("startup query (no data_requirements)", query);
         llm_messages.insert(1, ChatMessage::user(query));
     }
+}
+
+/// Emit `info!` (length) + `trace!` (full body) for a prefetch injection.
+///
+/// Centralized so each call site in [`inject_startup_context`] stays a
+/// single line and the function fits inside the workspace cognitive
+/// complexity budget.
+fn log_inject(kind: &'static str, body: &str) {
+    info!(
+        kind,
+        body_len = body.len(),
+        "prefetch: injecting into prompt"
+    );
+    tracing::trace!(kind, body = %body, "prefetch: injection body");
 }

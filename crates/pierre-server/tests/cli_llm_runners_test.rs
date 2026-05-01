@@ -389,7 +389,7 @@ async fn test_runner_config_builder_pattern() {
 #[tokio::test]
 async fn test_parse_timeout() {
     let duration = parse_timeout("60").expect("parse_timeout succeeds");
-    assert_eq!(duration, Duration::from_secs(60));
+    assert_eq!(duration, Duration::from_mins(1));
 
     let err = parse_timeout("not_a_number");
     assert!(err.is_err(), "non-numeric input should fail");

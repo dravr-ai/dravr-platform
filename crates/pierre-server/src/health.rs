@@ -621,14 +621,10 @@ impl HealthChecker {
         let total_megabytes = total_kilobytes / KB_TO_MB_DIVISOR;
         let available_megabytes = available_kilobytes / KB_TO_MB_DIVISOR;
         let used_megabytes = total_megabytes.saturating_sub(available_megabytes);
-        let used_percent = if total_megabytes > 0 {
-            // Use integer division for percentage calculation
-            // Since result is always 0-100%, safe to convert to u32
-            let percentage_int = (used_megabytes * 100) / total_megabytes;
-            u32::try_from(percentage_int).map_or(100.0, f64::from)
-        } else {
-            0.0
-        };
+        // Result is always 0-100%, safe to convert to u32
+        let used_percent = (used_megabytes * 100)
+            .checked_div(total_megabytes)
+            .map_or(0.0, |p| u32::try_from(p).map_or(100.0, f64::from));
 
         Ok(MemoryInfo {
             total_mb: total_megabytes,

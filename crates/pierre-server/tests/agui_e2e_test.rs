@@ -96,10 +96,7 @@ async fn read_n_agui_frames(
             let bytes = chunk.expect("stream chunk");
             buffer.push_str(str::from_utf8(&bytes).expect("utf-8 frames"));
 
-            loop {
-                let Some(end) = buffer.find("\n\n") else {
-                    break;
-                };
+            while let Some(end) = buffer.find("\n\n") {
                 let raw = buffer[..end].to_owned();
                 buffer.drain(..=end + 1);
 

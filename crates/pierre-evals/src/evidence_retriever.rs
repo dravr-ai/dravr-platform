@@ -378,7 +378,7 @@ citation: B
 
 Second proposition about creatine dosing.
 ";
-        let corpus = EvidenceCorpus::from_markdown_files([("a.md", a), ("b.md", b)].into_iter())?;
+        let corpus = EvidenceCorpus::from_markdown_files([("a.md", a), ("b.md", b)])?;
         assert_eq!(corpus.len(), 2);
         Ok(())
     }

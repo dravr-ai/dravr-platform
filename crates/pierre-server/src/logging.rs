@@ -155,8 +155,7 @@ impl LoggingConfig {
             features: LogFeatures {
                 telemetry: is_production || env::var("ENABLE_TELEMETRY").is_ok(),
                 truncate_mcp: env::var("MCP_LOG_TRUNCATE")
-                    .map(|v| v != "false" && v != "0")
-                    .unwrap_or(true), // Default to true (truncated) unless explicitly disabled
+                    .map_or(true, |v| v != "false" && v != "0"), // Default to true (truncated) unless explicitly disabled
             },
             request_id_header: env::var("REQUEST_ID_HEADER")
                 .unwrap_or_else(|_| "x-request-id".into()),

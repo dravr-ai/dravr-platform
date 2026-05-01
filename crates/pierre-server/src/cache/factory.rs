@@ -68,7 +68,7 @@ impl Cache {
             || CacheConfig {
                 max_entries: 1000,
                 redis_url: None,
-                cleanup_interval: Duration::from_secs(300),
+                cleanup_interval: Duration::from_mins(5),
                 enable_background_cleanup: true,
                 redis_connection: RedisConnectionConfig::default(),
                 ttl: CacheTtlConfig::default(),

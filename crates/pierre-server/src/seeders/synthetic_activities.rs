@@ -492,8 +492,7 @@ fn init_rng(seed: Option<u64>) -> StdRng {
     let resolved = seed.unwrap_or_else(|| {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(12345)
+            .map_or(12345, |d| d.as_secs())
     });
     info!("   Random seed: {resolved}");
     StdRng::seed_from_u64(resolved)

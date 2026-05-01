@@ -91,7 +91,7 @@ impl UserCache {
             if self.activities.len() > max_items {
                 // Remove oldest entries
                 self.activities
-                    .sort_by(|a, b| b.data.start_date().cmp(&a.data.start_date()));
+                    .sort_by_key(|b| Reverse(b.data.start_date()));
                 self.activities.truncate(max_items);
             }
         }
@@ -106,7 +106,7 @@ impl UserCache {
             // Enforce max items limit
             if self.sleep_sessions.len() > max_items {
                 self.sleep_sessions
-                    .sort_by(|a, b| b.data.start_time.cmp(&a.data.start_time));
+                    .sort_by_key(|b| Reverse(b.data.start_time));
                 self.sleep_sessions.truncate(max_items);
             }
         }
@@ -122,8 +122,7 @@ impl UserCache {
 
         // Enforce max items limit
         if self.health_metrics.len() > max_items {
-            self.health_metrics
-                .sort_by(|a, b| b.data.date.cmp(&a.data.date));
+            self.health_metrics.sort_by_key(|b| Reverse(b.data.date));
             self.health_metrics.truncate(max_items);
         }
     }
@@ -138,8 +137,7 @@ impl UserCache {
 
         // Enforce max items limit
         if self.recovery_metrics.len() > max_items {
-            self.recovery_metrics
-                .sort_by(|a, b| b.data.date.cmp(&a.data.date));
+            self.recovery_metrics.sort_by_key(|b| Reverse(b.data.date));
             self.recovery_metrics.truncate(max_items);
         }
     }
@@ -154,8 +152,7 @@ impl UserCache {
 
         // Enforce max items limit
         if self.nutrition_logs.len() > max_items {
-            self.nutrition_logs
-                .sort_by(|a, b| b.data.date.cmp(&a.data.date));
+            self.nutrition_logs.sort_by_key(|b| Reverse(b.data.date));
             self.nutrition_logs.truncate(max_items);
         }
     }
@@ -303,7 +300,7 @@ impl TerraDataCache {
             return Vec::new();
         };
 
-        sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        sessions.sort_by_key(|b| Reverse(b.start_time));
         sessions
     }
 
@@ -357,7 +354,7 @@ impl TerraDataCache {
             return Vec::new();
         };
 
-        metrics.sort_by(|a, b| b.date.cmp(&a.date));
+        metrics.sort_by_key(|b| Reverse(b.date));
         metrics
     }
 
@@ -395,7 +392,7 @@ impl TerraDataCache {
             return Vec::new();
         };
 
-        metrics.sort_by(|a, b| b.date.cmp(&a.date));
+        metrics.sort_by_key(|b| Reverse(b.date));
         metrics
     }
 
@@ -433,7 +430,7 @@ impl TerraDataCache {
             return Vec::new();
         };
 
-        logs.sort_by(|a, b| b.date.cmp(&a.date));
+        logs.sort_by_key(|b| Reverse(b.date));
         logs
     }
 

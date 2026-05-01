@@ -17,6 +17,7 @@
 //! read is bounded by `MAX_VERDICTS_SCANNED` and lets the admin tab
 //! show fresh state without a separate aggregation table.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -189,7 +190,7 @@ fn top_claim_patterns(flagged: &[&ClaimVerdict]) -> Vec<ClaimPattern> {
             last_seen_at: b.last_seen.map(|d| d.to_rfc3339()),
         })
         .collect();
-    patterns.sort_by(|a, b| b.occurrences.cmp(&a.occurrences));
+    patterns.sort_by_key(|b| Reverse(b.occurrences));
     patterns.truncate(TOP_N);
     patterns
 }
@@ -219,7 +220,7 @@ fn top_coach_patterns(flagged: &[&ClaimVerdict]) -> Vec<CoachPattern> {
             categories: b.categories.into_iter().collect(),
         })
         .collect();
-    patterns.sort_by(|a, b| b.unsupported_total.cmp(&a.unsupported_total));
+    patterns.sort_by_key(|b| Reverse(b.unsupported_total));
     patterns.truncate(TOP_N);
     patterns
 }
@@ -249,7 +250,7 @@ fn top_category_patterns(flagged: &[&ClaimVerdict]) -> Vec<CategoryPattern> {
             coach_count: usize_to_u64(b.coaches.len()),
         })
         .collect();
-    patterns.sort_by(|a, b| b.flagged_total.cmp(&a.flagged_total));
+    patterns.sort_by_key(|b| Reverse(b.flagged_total));
     patterns.truncate(TOP_N);
     patterns
 }

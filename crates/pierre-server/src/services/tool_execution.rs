@@ -26,8 +26,8 @@ use tracing::{info, warn};
 
 use crate::errors::AppError;
 use crate::llm::{
-    ChatMessage, ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse,
-    TokenUsage, Tool,
+    ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
+    FunctionDeclaration, FunctionResponse, TokenUsage, Tool,
 };
 use crate::models::TenantId;
 use crate::protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -161,6 +161,9 @@ pub async fn run_api_tool_loop(
                 None => req,
             }
         };
+
+        log_iteration_start(iteration, params, llm_messages.len());
+
         let call_start = Instant::now();
         let cached_slot = Arc::new(AtomicU32::new(0));
         let slot_for_scope = cached_slot.clone();
@@ -210,6 +213,8 @@ pub async fn run_api_tool_loop(
                 return Err(e);
             }
         };
+
+        log_iteration_response(iteration, latency_ms, &response);
 
         // Accumulate token usage from every LLM call
         if let Some(ref usage) = response.usage {
@@ -493,6 +498,36 @@ fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::Func
 fn millis_elapsed(start: Instant) -> i64 {
     let ms = start.elapsed().as_millis();
     i64::try_from(ms).unwrap_or(i64::MAX)
+}
+
+/// Emit a structured log marking the start of one tool-loop iteration.
+///
+/// Extracted from [`run_api_tool_loop`] to keep the loop body inside
+/// the workspace cognitive complexity budget. Records the iteration
+/// index and resolved provider/model so an operator can tie the call
+/// to its eventual `llm_usage` row by `turn_id` + `call_sequence`.
+fn log_iteration_start(iteration: usize, params: &ToolLoopParams<'_>, message_count: usize) {
+    info!(
+        iteration,
+        provider = params.provider.name(),
+        model = params.model,
+        message_count,
+        "tool loop iteration: dispatching to provider"
+    );
+}
+
+/// Emit a structured log summarizing the provider's response for one
+/// tool-loop iteration.
+fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResponseWithTools) {
+    info!(
+        iteration,
+        latency_ms,
+        content_len = response.content.as_deref().map_or(0, str::len),
+        function_calls = response.function_calls.as_ref().map_or(0, Vec::len),
+        prompt_tokens = response.usage.as_ref().map_or(0, |u| u.prompt_tokens),
+        completion_tokens = response.usage.as_ref().map_or(0, |u| u.completion_tokens),
+        "tool loop iteration: provider response received"
+    );
 }
 
 /// Hand one [`LlmCallRecord`] to the optional sink. Centralises token

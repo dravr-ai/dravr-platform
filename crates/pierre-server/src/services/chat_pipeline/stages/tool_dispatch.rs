@@ -36,6 +36,17 @@ use super::prefetch::inject_startup_context;
 /// Returns [`AppError`] from LLM provider creation or from the tool
 /// loop (e.g. provider rate limits, tool handler failures).
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(
+    skip_all,
+    fields(
+        turn_id = %input.turn_id,
+        channel = profile.channel.as_str(),
+        conversation_id = %input.conversation_id,
+        model = %active_model,
+        max_iterations,
+        message_count = llm_messages.len(),
+    )
+)]
 pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
     resources: &Arc<ServerResources>,
     input: &TurnInput,
@@ -77,6 +88,13 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
         llm_messages,
     )
     .await;
+
+    info!(
+        provider = %provider_name,
+        message_count = llm_messages.len(),
+        max_iterations,
+        "Chat pipeline dispatch starting tool loop"
+    );
 
     // Stage 14: Multi-turn tool execution loop.
     //

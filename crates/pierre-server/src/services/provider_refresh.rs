@@ -887,7 +887,7 @@ impl SyncMetrics {
         let max_latency = SYNC_LATENCY_MAX_MS.load(Ordering::Relaxed);
 
         let total = successes + failures;
-        let avg_latency_ms = if total > 0 { latency_sum / total } else { 0 };
+        let avg_latency_ms = latency_sum.checked_div(total).unwrap_or(0);
 
         Self {
             successes,

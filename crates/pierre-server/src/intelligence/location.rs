@@ -142,7 +142,7 @@ impl LocationService {
             client: shared_client(),
             cache: HashMap::new(),
             forward_cache: HashMap::new(),
-            cache_duration: Duration::from_secs(24 * 60 * 60), // 24 hours
+            cache_duration: Duration::from_hours(24),
             base_url,
             enabled,
         }

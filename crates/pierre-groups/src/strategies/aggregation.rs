@@ -204,7 +204,7 @@ impl CachedAggregation {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            ttl: Duration::from_secs(3600),
+            ttl: Duration::from_hours(1),
         }
     }
 

@@ -147,10 +147,7 @@ async fn read_agui_frames_until(
             };
             buffer.push_str(decoded);
 
-            loop {
-                let Some(end) = buffer.find("\n\n") else {
-                    break;
-                };
+            while let Some(end) = buffer.find("\n\n") {
                 let raw = buffer[..end].to_owned();
                 buffer.drain(..=end + 1);
 

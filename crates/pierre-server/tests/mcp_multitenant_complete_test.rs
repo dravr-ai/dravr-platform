@@ -542,7 +542,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     let cache = Cache::new(CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     })
@@ -579,7 +579,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     });
 
     // Give server time to start
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // Wait for server to be ready (single-port architecture)
     for _attempt in 0..10 {
@@ -726,7 +726,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
     let cache = Cache::new(CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     })
@@ -763,7 +763,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
     });
 
     // Give server time to start
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // Wait for server to be ready (using single-port architecture)
     for _attempt in 0..10 {
@@ -833,7 +833,7 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
     let cache = Cache::new(CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     })
@@ -870,7 +870,7 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
     });
 
     // Give server time to start
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // Wait for server to be ready (using single-port architecture)
     for _attempt in 0..10 {
@@ -922,7 +922,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
     let cache = Cache::new(CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     })
@@ -959,7 +959,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
     });
 
     // Give server time to start
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // Wait for server to be ready (single-port architecture)
     for _attempt in 0..10 {
@@ -1035,7 +1035,7 @@ async fn test_multitenant_server_config() -> Result<()> {
     let cache = Cache::new(CacheConfig {
         max_entries: 1000,
         redis_url: None,
-        cleanup_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_mins(1),
         enable_background_cleanup: false,
         ..Default::default()
     })

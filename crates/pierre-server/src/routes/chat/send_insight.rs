@@ -37,6 +37,15 @@ use super::{
 /// and tools entirely, and expect the LLM to emit structured JSON that
 /// is parsed out of the raw reply.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(
+    skip_all,
+    fields(
+        channel = "web_insight",
+        conversation_id = %conversation_id,
+        user_id = %user_id_str,
+        content_len = request.content.len(),
+    )
+)]
 pub async fn send_insight_message(
     resources: Arc<ServerResources>,
     conversation_id: String,

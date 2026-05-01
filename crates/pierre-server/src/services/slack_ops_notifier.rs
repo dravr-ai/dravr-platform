@@ -24,9 +24,7 @@ static OPS_NOTIFIER: OnceLock<Box<dyn OpsNotifier>> = OnceLock::new();
 /// least one channel are configured, a live Slack notifier is created.
 /// Otherwise a noop notifier is installed so callers never need null checks.
 pub fn init_ops_notifier() {
-    let enabled = env::var("SLACK_OPS_ENABLED")
-        .map(|v| v != "false" && v != "0")
-        .unwrap_or(true);
+    let enabled = env::var("SLACK_OPS_ENABLED").map_or(true, |v| v != "false" && v != "0");
 
     let notifier: Box<dyn OpsNotifier> = if enabled {
         if let Some(slack) = SlackOpsNotifier::from_env() {

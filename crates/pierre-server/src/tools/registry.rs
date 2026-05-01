@@ -15,6 +15,7 @@
 //! This design mirrors `ProviderRegistry` from `src/providers/registry.rs`
 //! to maintain consistency across the codebase.
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -811,7 +812,7 @@ impl ToolRegistry {
         }
 
         // Sort by token cost descending for easy identification of largest tools
-        per_tool.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+        per_tool.sort_by_key(|b| Reverse(b.tokens));
 
         SchemaTokenEstimate {
             total_bytes,

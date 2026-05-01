@@ -32,9 +32,7 @@ pub fn hash_id(value: &str) -> String {
 /// a live `PostHog` tracker is created. Otherwise a noop tracker is installed
 /// so callers never need null checks.
 pub fn init_analytics() {
-    let enabled = env::var("POSTHOG_ENABLED")
-        .map(|v| v != "false" && v != "0")
-        .unwrap_or(true);
+    let enabled = env::var("POSTHOG_ENABLED").map_or(true, |v| v != "false" && v != "0");
 
     let tracker: Box<dyn AnalyticsTracker> = create_posthog_tracker().unwrap_or_else(|| {
         if enabled {
