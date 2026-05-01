@@ -3018,8 +3018,8 @@ pub trait SyncCursorRepository: Send + Sync {
 /// Typed CRUD for [`UserPhysiologicalProfile`] backed by the
 /// `user_physiological_profiles` table.
 ///
-/// Row layout: see `migrations/20260430000002_user_profile_endurance_fields.sql`
-/// (`SQLite`) and `migrations_pg/20260430000002_user_profile_endurance_fields.sql`
+/// Row layout: see `migrations/20260430000003_user_profile_endurance_fields.sql`
+/// (`SQLite`) and `migrations_pg/20260430000003_user_profile_endurance_fields.sql`
 /// (`PostgreSQL`).
 ///
 /// Every method scopes by `tenant_id` to satisfy the multi-tenant isolation
