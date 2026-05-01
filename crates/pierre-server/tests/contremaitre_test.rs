@@ -35,7 +35,7 @@ use std::path::Path;
 #[test]
 fn test_parse_manifest_valid() {
     let json = r#"{
-        "version": 1,
+        "version": 5,
         "prompts": {
             "system": {
                 "pierre_system": {
@@ -45,16 +45,21 @@ fn test_parse_manifest_valid() {
             },
             "coaches": {
                 "marathon-coach": {
-                    "path": "prompts/coaches/training/marathon-coach.md",
-                    "sha256": "def456",
-                    "category": "training"
+                    "en": {
+                        "path": "prompts/coaches/training/marathon-coach/en.md",
+                        "sha256": "def456"
+                    },
+                    "fr": {
+                        "path": "prompts/coaches/training/marathon-coach/fr.md",
+                        "sha256": "789aaa"
+                    }
                 }
             }
         }
     }"#;
 
     let manifest = parse_manifest(json).expect("valid manifest");
-    assert_eq!(manifest.version, 1);
+    assert_eq!(manifest.version, 5);
     assert_eq!(manifest.prompts.system.len(), 1);
     assert_eq!(manifest.prompts.coaches.len(), 1);
 
@@ -62,8 +67,13 @@ fn test_parse_manifest_valid() {
     assert_eq!(pierre.path, "prompts/system/pierre_system.md");
     assert_eq!(pierre.sha256, "abc123");
 
-    let marathon = &manifest.prompts.coaches["marathon-coach"];
-    assert_eq!(marathon.category.as_deref(), Some("training"));
+    let marathon_locales = &manifest.prompts.coaches["marathon-coach"];
+    assert_eq!(marathon_locales.len(), 2);
+    assert_eq!(
+        marathon_locales["en"].path,
+        "prompts/coaches/training/marathon-coach/en.md"
+    );
+    assert_eq!(marathon_locales["fr"].sha256, "789aaa");
 }
 
 #[test]
@@ -110,7 +120,7 @@ fn test_compute_sha256_empty() {
 #[test]
 fn test_manifest_round_trip() {
     let manifest = Manifest {
-        version: 1,
+        version: 5,
         prompts: ManifestPrompts {
             system: {
                 let mut m = HashMap::new();
@@ -119,7 +129,6 @@ fn test_manifest_round_trip() {
                     ManifestEntry {
                         path: "prompts/system/test_prompt.md".to_owned(),
                         sha256: "abc".to_owned(),
-                        category: None,
                     },
                 );
                 m
@@ -134,7 +143,7 @@ fn test_manifest_round_trip() {
 
     let json = serde_json::to_string(&manifest).expect("serialize");
     let parsed = parse_manifest(&json).expect("parse");
-    assert_eq!(parsed.version, 1);
+    assert_eq!(parsed.version, 5);
     assert_eq!(parsed.prompts.system.len(), 1);
     assert!(parsed.prompts.system.contains_key("test_prompt"));
 }
@@ -210,45 +219,70 @@ fn test_update_system_prompt() {
 fn test_coach_prompt_crud() {
     let registry = PromptRegistry::new();
 
-    assert!(registry.get_coach_prompt("marathon-coach").is_none());
+    assert!(registry.get_coach_prompt("marathon-coach", "en").is_none());
 
     registry.update_coach_prompt(
         "marathon-coach",
+        "en",
         "Marathon coaching instructions".to_owned(),
         "sha123".to_owned(),
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach").as_deref(),
+        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
         Some("Marathon coaching instructions")
     );
 
+    // Adding a second locale leaves the first one intact.
     registry.update_coach_prompt(
         "marathon-coach",
+        "fr",
+        "Instructions de coaching marathon".to_owned(),
+        "sha789".to_owned(),
+    );
+    assert_eq!(
+        registry.get_coach_prompt("marathon-coach", "fr").as_deref(),
+        Some("Instructions de coaching marathon")
+    );
+    assert_eq!(
+        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
+        Some("Marathon coaching instructions")
+    );
+
+    // Updating a locale replaces only that locale's entry.
+    registry.update_coach_prompt(
+        "marathon-coach",
+        "en",
         "Updated marathon instructions".to_owned(),
         "sha456".to_owned(),
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach").as_deref(),
+        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
         Some("Updated marathon instructions")
     );
 
-    assert!(registry.remove_coach_prompt("marathon-coach"));
-    assert!(registry.get_coach_prompt("marathon-coach").is_none());
-    assert!(!registry.remove_coach_prompt("nonexistent"));
+    // Removing one locale keeps siblings; removing the last clears the slug.
+    assert!(registry.remove_coach_prompt("marathon-coach", "fr"));
+    assert!(registry.get_coach_prompt("marathon-coach", "fr").is_none());
+    assert!(registry.get_coach_prompt("marathon-coach", "en").is_some());
+    assert!(registry.remove_coach_prompt("marathon-coach", "en"));
+    assert!(registry.get_coach_prompt("marathon-coach", "en").is_none());
+    assert!(!registry.remove_coach_prompt("marathon-coach", "en"));
+    assert!(!registry.remove_coach_prompt("nonexistent", "en"));
 }
 
 #[test]
 fn test_stats_counts() {
     let registry = PromptRegistry::new();
-    registry.update_coach_prompt("coach-a", "A".to_owned(), "sha_a".to_owned());
-    registry.update_coach_prompt("coach-b", "B".to_owned(), "sha_b".to_owned());
+    registry.update_coach_prompt("coach-a", "en", "A".to_owned(), "sha_a".to_owned());
+    registry.update_coach_prompt("coach-a", "fr", "A-fr".to_owned(), "sha_a_fr".to_owned());
+    registry.update_coach_prompt("coach-b", "en", "B".to_owned(), "sha_b".to_owned());
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
     assert_eq!(stats.system_count, 12);
-    assert_eq!(stats.coach_count, 2);
+    assert_eq!(stats.coach_count, 3, "3 per-locale coach entries");
     assert_eq!(stats.compiled_in_count, 11);
-    assert_eq!(stats.contremaitre_count, 3);
+    assert_eq!(stats.contremaitre_count, 4);
 }
 
 #[test]
@@ -259,12 +293,24 @@ fn test_sha256_tracking() {
     assert!(sha.is_some());
     assert!(!sha.unwrap().is_empty());
 
-    assert!(registry.coach_prompt_sha256("marathon-coach").is_none());
-    registry.update_coach_prompt("marathon-coach", "content".to_owned(), "abc".to_owned());
+    assert!(registry
+        .coach_prompt_sha256("marathon-coach", "en")
+        .is_none());
+    registry.update_coach_prompt(
+        "marathon-coach",
+        "en",
+        "content".to_owned(),
+        "abc".to_owned(),
+    );
     assert_eq!(
-        registry.coach_prompt_sha256("marathon-coach").as_deref(),
+        registry
+            .coach_prompt_sha256("marathon-coach", "en")
+            .as_deref(),
         Some("abc")
     );
+    assert!(registry
+        .coach_prompt_sha256("marathon-coach", "fr")
+        .is_none());
 }
 
 #[test]
@@ -341,8 +387,8 @@ fn test_parse_push_event_changed_paths() {
             },
             {
                 "added": [],
-                "modified": ["prompts/coaches/training/marathon-coach.md"],
-                "removed": ["prompts/coaches/old-coach.md"]
+                "modified": ["prompts/coaches/training/marathon-coach/en.md"],
+                "removed": ["prompts/coaches/training/old-coach/en.md"]
             }
         ]
     }"#;
@@ -366,7 +412,7 @@ fn test_parse_push_event_changed_paths() {
 
     assert_eq!(changed.len(), 5);
     assert!(changed.contains("prompts/system/pierre_system.md"));
-    assert!(changed.contains("prompts/coaches/training/marathon-coach.md"));
+    assert!(changed.contains("prompts/coaches/training/marathon-coach/en.md"));
 }
 
 // ── Tool description YAML parsing tests ────────────────────────────────
@@ -429,12 +475,12 @@ fn test_parse_tool_yaml_empty_parameters_block_allowed() {
     assert_eq!(overlay.parameters.len(), 0);
 }
 
-// ── Manifest v2 (tools section) tests ──────────────────────────────────
+// ── Manifest tools / optional-section tests ────────────────────────────
 
 #[test]
-fn test_parse_manifest_v2_with_tools() {
+fn test_parse_manifest_with_tools() {
     let json = r#"{
-        "version": 2,
+        "version": 5,
         "prompts": { "system": {}, "coaches": {} },
         "tools": {
             "analyze_activity": {
@@ -448,8 +494,8 @@ fn test_parse_manifest_v2_with_tools() {
         }
     }"#;
 
-    let manifest = parse_manifest(json).expect("valid v2 manifest");
-    assert_eq!(manifest.version, 2);
+    let manifest = parse_manifest(json).expect("valid manifest");
+    assert_eq!(manifest.version, 5);
     assert_eq!(manifest.tools.0.len(), 2);
 
     let analyze = &manifest.tools.0["analyze_activity"];
@@ -458,15 +504,16 @@ fn test_parse_manifest_v2_with_tools() {
 }
 
 #[test]
-fn test_parse_manifest_v1_without_tools_section() {
-    // v1 manifests predate the tools section — must still parse with empty tools.
+fn test_parse_manifest_without_tools_section() {
+    // The tools, evidence, config, and strings sections are all optional
+    // and default to empty when omitted from the JSON payload.
     let json = r#"{
-        "version": 1,
+        "version": 5,
         "prompts": { "system": {}, "coaches": {} }
     }"#;
 
-    let manifest = parse_manifest(json).expect("valid v1 manifest");
-    assert_eq!(manifest.version, 1);
+    let manifest = parse_manifest(json).expect("valid manifest");
+    assert_eq!(manifest.version, 5);
     assert!(manifest.tools.0.is_empty());
 }
 

@@ -174,9 +174,17 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "warn"
 
+      - name: Checkout dravr-contremaitre for coach seed source
+        uses: actions/checkout@v4
+        with:
+          repository: dravr-ai/dravr-contremaitre
+          token: ${{ secrets.DRAVR_CONTREMAITRE_WRITE_TOKEN }}
+          path: contremaitre
+
       - name: Seed system coaches for Maestro tests
         run: |
-          ./target/release/pierre-cli seed coaches
+          ./target/release/pierre-cli seed coaches \
+            --coaches-dir "${{ github.workspace }}/contremaitre/prompts/coaches"
         env:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="

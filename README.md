@@ -315,13 +315,19 @@ User-created coaches appear in a "Personalized" section above system coaches and
 
 ### Coach Seeder
 
-To seed or refresh the default coaches:
+Coach definitions are owned by the [dravr-contremaitre](https://github.com/dravr-ai/dravr-contremaitre)
+repository under `prompts/coaches/<category>/<slug>/<locale>.md`. To seed or
+refresh the default coaches, point the seeder at a checkout of that repo:
 
 ```bash
-cargo run --bin pierre-cli -- seed coaches
+git clone https://github.com/dravr-ai/dravr-contremaitre /tmp/contremaitre
+cargo run --bin pierre-cli -- seed coaches \
+    --coaches-dir /tmp/contremaitre/prompts/coaches
 ```
 
-This creates the 9 default AI coaching personas if they don't already exist.
+The path can also be supplied via `PIERRE_COACHES_DIR`. The Cloud Run seed
+job clones contremaitre on every run; in CI the workflows check out the
+repo through `actions/checkout` and pass the path explicitly.
 
 ## Documentation
 

@@ -68,7 +68,11 @@ impl fmt::Display for RegistryStats {
 /// All getter methods return owned `String` values cloned from the registry.
 pub struct PromptRegistry {
     system_prompts: RwLock<HashMap<String, PromptEntry>>,
-    coach_prompts: RwLock<HashMap<String, PromptEntry>>,
+    /// Coach prompts keyed by slug → locale → entry. The outer map is keyed
+    /// by canonical coach slug; the inner map by BCP-47 locale (e.g., `en`,
+    /// `fr`). Each locale carries its own SHA-256 so the sync layer can hot
+    /// reload a single translation without touching its siblings.
+    coach_prompts: RwLock<HashMap<String, HashMap<String, PromptEntry>>>,
 }
 
 impl PromptRegistry {
@@ -192,10 +196,15 @@ impl PromptRegistry {
         )
     }
 
-    /// Get a coach prompt by slug. Returns `None` if the coach is not in the registry.
-    pub fn get_coach_prompt(&self, slug: &str) -> Option<String> {
+    /// Get a coach prompt by slug and locale. Returns `None` if the coach or
+    /// the requested locale is not present in the registry. Callers wanting
+    /// fallback behavior (e.g. fall back to `en`) must layer it on top.
+    pub fn get_coach_prompt(&self, slug: &str, locale: &str) -> Option<String> {
         let guard = self.read_coaches();
-        guard.get(slug).map(|e| e.content.clone())
+        guard
+            .get(slug)
+            .and_then(|locales| locales.get(locale))
+            .map(|e| e.content.clone())
     }
 
     // ── Mutators (called by sync) ──────────────────────────────────────
@@ -214,11 +223,11 @@ impl PromptRegistry {
         );
     }
 
-    /// Update or insert a coach prompt in the registry.
-    pub fn update_coach_prompt(&self, slug: &str, content: String, sha256: String) {
+    /// Update or insert a single coach-locale prompt in the registry.
+    pub fn update_coach_prompt(&self, slug: &str, locale: &str, content: String, sha256: String) {
         let mut guard = self.write_coaches();
-        guard.insert(
-            slug.to_owned(),
+        guard.entry(slug.to_owned()).or_default().insert(
+            locale.to_owned(),
             PromptEntry {
                 content,
                 sha256,
@@ -228,10 +237,19 @@ impl PromptRegistry {
         );
     }
 
-    /// Remove a coach prompt from the registry.
-    pub fn remove_coach_prompt(&self, slug: &str) -> bool {
+    /// Remove a single coach-locale prompt from the registry. Drops the
+    /// entire slug entry once its last locale is gone so the registry never
+    /// holds an empty per-slug map.
+    pub fn remove_coach_prompt(&self, slug: &str, locale: &str) -> bool {
         let mut guard = self.write_coaches();
-        guard.remove(slug).is_some()
+        let Some(locales) = guard.get_mut(slug) else {
+            return false;
+        };
+        let removed = locales.remove(locale).is_some();
+        if removed && locales.is_empty() {
+            guard.remove(slug);
+        }
+        removed
     }
 
     // ── Listing / diagnostics ──────────────────────────────────────────
@@ -242,10 +260,18 @@ impl PromptRegistry {
         guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
-    /// List all coach prompts with their metadata.
-    pub fn list_coach_prompts(&self) -> Vec<(String, PromptEntry)> {
+    /// List every coach-locale entry with its metadata. The returned tuple is
+    /// `(slug, locale, entry)`; iterate or filter on the caller side.
+    pub fn list_coach_prompts(&self) -> Vec<(String, String, PromptEntry)> {
         let guard = self.read_coaches();
-        guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        guard
+            .iter()
+            .flat_map(|(slug, locales)| {
+                locales
+                    .iter()
+                    .map(move |(locale, entry)| (slug.clone(), locale.clone(), entry.clone()))
+            })
+            .collect()
     }
 
     /// Get the current SHA-256 hash for a system prompt.
@@ -254,23 +280,29 @@ impl PromptRegistry {
         guard.get(key).map(|e| e.sha256.clone())
     }
 
-    /// Get the current SHA-256 hash for a coach prompt.
-    pub fn coach_prompt_sha256(&self, slug: &str) -> Option<String> {
+    /// Get the current SHA-256 hash for a coach prompt at the given locale.
+    pub fn coach_prompt_sha256(&self, slug: &str, locale: &str) -> Option<String> {
         let guard = self.read_coaches();
-        guard.get(slug).map(|e| e.sha256.clone())
+        guard
+            .get(slug)
+            .and_then(|locales| locales.get(locale))
+            .map(|e| e.sha256.clone())
     }
 
-    /// Get registry statistics for diagnostics.
+    /// Get registry statistics for diagnostics. `coach_count` counts every
+    /// per-locale entry (so a coach with both `en` and `fr` contributes 2).
     pub fn stats(&self) -> RegistryStats {
         let system = self.read_system();
         let coaches = self.read_coaches();
+
+        let coach_entries = coaches.values().flat_map(HashMap::values);
 
         let compiled_in = system
             .values()
             .filter(|e| e.source == PromptSource::CompiledIn)
             .count()
-            + coaches
-                .values()
+            + coach_entries
+                .clone()
                 .filter(|e| e.source == PromptSource::CompiledIn)
                 .count();
 
@@ -278,14 +310,15 @@ impl PromptRegistry {
             .values()
             .filter(|e| e.source == PromptSource::Contremaitre)
             .count()
-            + coaches
-                .values()
+            + coach_entries
                 .filter(|e| e.source == PromptSource::Contremaitre)
                 .count();
 
+        let coach_count: usize = coaches.values().map(HashMap::len).sum();
+
         RegistryStats {
             system_count: system.len(),
-            coach_count: coaches.len(),
+            coach_count,
             compiled_in_count: compiled_in,
             contremaitre_count: contremaitre,
         }
@@ -306,14 +339,14 @@ impl PromptRegistry {
     }
 
     /// Acquire a read lock on coach prompts, recovering from poison.
-    fn read_coaches(&self) -> RwLockReadGuard<'_, HashMap<String, PromptEntry>> {
+    fn read_coaches(&self) -> RwLockReadGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
         self.coach_prompts
             .read()
             .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Acquire a write lock on coach prompts, recovering from poison.
-    fn write_coaches(&self) -> RwLockWriteGuard<'_, HashMap<String, PromptEntry>> {
+    fn write_coaches(&self) -> RwLockWriteGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
         self.coach_prompts
             .write()
             .unwrap_or_else(PoisonError::into_inner)

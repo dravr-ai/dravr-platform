@@ -403,14 +403,16 @@ async fn handle_promote_coach(
     // Build markdown content from coach fields
     let markdown = build_coach_markdown(&coach);
 
-    // Determine the file path based on category
+    // Determine the file path based on category. Promotion writes the
+    // canonical English copy at `prompts/coaches/<category>/<slug>/en.md`;
+    // any French translation is added directly in the contremaitre repo.
     let slug = coach
         .title
         .to_lowercase()
         .replace(' ', "-")
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
     let category = coach.category.as_str().to_lowercase();
-    let path = format!("prompts/coaches/{category}/{slug}.md");
+    let path = format!("prompts/coaches/{category}/{slug}/en.md");
     let message = format!("Promote coach: {}", coach.title);
 
     // Commit to GitHub (create new file)

@@ -1,22 +1,29 @@
 // ABOUTME: System coaches seeding utility for Pierre MCP Server
-// ABOUTME: Loads coach definitions from markdown files in coaches/ directory
+// ABOUTME: Loads coach definitions from a contremaitre checkout (single source of truth)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Coach Markdown Seeder
 //!
-//! This binary loads coach definitions from markdown files and syncs them to the database.
-//! Coaches are defined in `coaches/` directory with YAML frontmatter and structured sections.
+//! This binary loads coach definitions from markdown files and syncs them
+//! to the database. Coaches are defined in the dravr-contremaitre repo
+//! under `prompts/coaches/<category>/<slug>/<locale>.md`, with `en.md` as
+//! the canonical source and per-locale siblings (e.g. `fr.md`) layered on
+//! top via [`pierre_database::CoachesRepository::apply_translations`].
 //!
 //! ## Usage
 //!
 //! ```bash
-//! # Seed coaches from markdown files
-//! pierre-cli seed coaches
+//! # Seed coaches from a contremaitre checkout (path required)
+//! pierre-cli seed coaches --coaches-dir /tmp/contremaitre/prompts/coaches
+//!
+//! # The flag can also come from PIERRE_COACHES_DIR; the seed-entrypoint
+//! # script clones contremaitre and exports it before invoking the binary.
+//! PIERRE_COACHES_DIR=/tmp/contremaitre/prompts/coaches pierre-cli seed coaches
 //!
 //! # Dry run (show what would be done)
-//! pierre-cli seed coaches --dry-run
+//! pierre-cli seed coaches --coaches-dir <path> --dry-run
 //! ```
 
 use std::cmp::Ordering;
@@ -41,8 +48,14 @@ use crate::coaches::{
 /// CLI arguments for the coaches seeder.
 #[derive(clap::Args)]
 pub struct SeedArgs {
-    /// Path to coaches directory
-    #[arg(long, default_value = "coaches")]
+    /// Path to a `prompts/coaches` checkout from the dravr-contremaitre
+    /// repository. Coach definitions live in the contremaitre repo as the
+    /// single source of truth, laid out as
+    /// `<category>/<slug>/<locale>.md`. Set via the flag or
+    /// `$PIERRE_COACHES_DIR`. The Cloud Run seed-entrypoint clones
+    /// contremaitre to a temp dir and exports this variable; local
+    /// development can point it at a sibling checkout.
+    #[arg(long, env = "PIERRE_COACHES_DIR")]
     pub coaches_dir: PathBuf,
 
     /// Dry run - show what would be done without making changes
