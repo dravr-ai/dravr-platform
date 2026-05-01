@@ -212,8 +212,7 @@ pub async fn send_message(
         .await
         .ok()
         .flatten()
-        .map(|u| u.locale)
-        .unwrap_or_else(default_locale);
+        .map_or_else(default_locale, |u| u.locale);
     let turn_locale = detect_turn_locale(&request.content, &stored_locale);
     let turn_input = pipeline::TurnInput {
         conversation_id: conversation_id.clone(),
