@@ -80,6 +80,8 @@ pub mod user_mcp_tokens;
 pub mod user_oauth_tokens;
 /// User account management and authentication
 pub mod users;
+/// dravr-meteo persistent weather cache (geographic + hourly buckets)
+pub mod weather_cache;
 
 /// Test utilities for database operations
 pub mod test_utils;

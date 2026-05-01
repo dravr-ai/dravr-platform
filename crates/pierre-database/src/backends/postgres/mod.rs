@@ -52,6 +52,8 @@ pub mod tenant;
 pub mod usage;
 /// User and profile repository implementations
 pub mod user;
+/// dravr-meteo persistent weather cache (geographic + hourly buckets)
+pub mod weather_cache;
 
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{

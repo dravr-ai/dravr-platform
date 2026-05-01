@@ -156,3 +156,7 @@ pub mod provider_refresh;
 
 /// App-wide rate limiter for external fitness provider APIs
 pub mod provider_rate_limiter;
+
+/// Lazy weather backfill — fills missing ambient temperature on activities
+/// from start coordinates + start time via dravr-meteo.
+pub mod weather_backfill;

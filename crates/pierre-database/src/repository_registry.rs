@@ -19,7 +19,7 @@ use crate::repositories::{
     RecipeRepository, RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository,
     SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserRepository,
+    UserMcpTokenRepository, UserRepository, WeatherCacheRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -106,6 +106,8 @@ pub struct RepositoryRegistry {
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
     /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
+    /// dravr-meteo persistent weather cache (geographic + hourly buckets)
+    pub weather_cache: Arc<dyn WeatherCacheRepository>,
 }
 
 impl RepositoryRegistry {
@@ -154,7 +156,8 @@ impl RepositoryRegistry {
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),
-            subscriptions: db,
+            subscriptions: db.clone(),
+            weather_cache: db,
         }
     }
 
@@ -201,7 +204,8 @@ impl RepositoryRegistry {
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),
-            subscriptions: db,
+            subscriptions: db.clone(),
+            weather_cache: db,
         }
     }
 }

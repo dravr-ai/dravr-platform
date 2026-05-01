@@ -32,6 +32,12 @@ pub mod location;
 pub mod routes;
 /// Weather data integration and analysis
 pub mod weather;
+// Outer doc intentionally omitted — `weather_cache_adapter.rs`'s
+// inner `//!` header is authoritative. When both an outer `///` on the
+// mod declaration and an inner `//!` exist, rustdoc concatenates them
+// into one virtual doc block whose first paragraph trips
+// `clippy::too_long_first_doc_paragraph`.
+pub mod weather_cache_adapter;
 
 pub use routes::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
 
