@@ -161,6 +161,14 @@ pub const KEY_LINK_SESSION_EXPIRED: &str = "messaging.link.session_expired";
 /// Key: account linked successfully, flow complete.
 pub const KEY_LINK_SUCCESS: &str = "messaging.link.success";
 
+/// Key: a connected fitness provider needs to be (re)authenticated.
+///
+/// Surfaced deterministically by the chat pipeline's auth-recovery
+/// short-circuit when the underlying scrape returns
+/// `AppError::ProviderAuthRequired`. `{0}` = provider display name
+/// (e.g. `Garmin Connect`, `Strava`); `{1}` = one-time hosted-login URL.
+pub const KEY_PROVIDER_REAUTH_REQUIRED: &str = "messaging.provider.reauth_required";
+
 // ── /status command keys ──────────────────────────────────────────────────
 
 /// Key: `/status` opening line.
@@ -347,6 +355,8 @@ pub(crate) const FR_LINK_SESSION_EXPIRED: &str =
     "Ta session de liaison a expiré. Envoie un message pour recommencer.";
 pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu peux discuter avec Dravr depuis ce canal.\n\nTape « logout » à tout moment pour te déconnecter.";
 
+pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 20 minutes) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
+
 pub(crate) const FR_STATUS_HEADER: &str = "Ton statut Dravr :\n";
 pub(crate) const FR_STATUS_PROVIDERS_NONE: &str = "\nFournisseurs : aucun connecté";
 pub(crate) const FR_STATUS_PROVIDERS_LABEL: &str = "\nFournisseurs : {0}";
@@ -476,6 +486,8 @@ pub(crate) const EN_LINK_OTP_PROMPT: &str =
 pub(crate) const EN_LINK_SESSION_EXPIRED: &str =
     "Your linking session has expired. Send a message to start again.";
 pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfully! You can now chat with Dravr through this channel.\n\nType \"logout\" anytime to disconnect.";
+
+pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 20 minutes):\n\n{1}\n\nOnce reconnected, ask me again.";
 
 pub(crate) const EN_STATUS_HEADER: &str = "Your Dravr status:\n";
 pub(crate) const EN_STATUS_PROVIDERS_NONE: &str = "\nProviders: none connected";
@@ -952,6 +964,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "fr", FR_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "fr", FR_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "fr", FR_LINK_SUCCESS),
+    (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "fr", FR_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "fr", FR_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "fr", FR_STATUS_PROVIDERS_LABEL),
@@ -1042,6 +1055,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "en", EN_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "en", EN_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "en", EN_LINK_SUCCESS),
+    (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "en", EN_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "en", EN_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "en", EN_STATUS_PROVIDERS_LABEL),

@@ -180,4 +180,27 @@ pub enum ProtocolError {
     /// Operation was cancelled by user request
     #[error("Operation cancelled: {0}")]
     OperationCancelled(String),
+
+    /// A connected fitness provider needs to be (re)authenticated. Surfaced
+    /// from `AppError::ProviderAuthRequired` so the chat pipeline can detect
+    /// this across the protocol boundary and short-circuit the turn with a
+    /// minted hosted-login URL instead of letting the LLM rephrase the failure.
+    #[error("Provider {provider} requires authentication")]
+    ProviderAuthRequired {
+        /// Provider slug (e.g. `sciotte`, `sciotte_garmin`).
+        provider: String,
+    },
+}
+
+impl ProtocolError {
+    /// If this is a `ProviderAuthRequired`, returns the provider slug.
+    /// Used by the chat tool loop to short-circuit a turn and mint a
+    /// hosted-login URL.
+    #[must_use]
+    pub fn provider_auth_required_provider(&self) -> Option<&str> {
+        match self {
+            Self::ProviderAuthRequired { provider } => Some(provider.as_str()),
+            _ => None,
+        }
+    }
 }

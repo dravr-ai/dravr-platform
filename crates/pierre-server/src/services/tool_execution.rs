@@ -127,7 +127,18 @@ pub struct ToolLoopResult {
     /// Persisted alongside the LLM usage row so per-turn observability
     /// can answer "which tools ran for this turn".
     pub tools_called: Vec<String>,
+    /// Provider slug that triggered an `AppError::ProviderAuthRequired`
+    /// during a tool dispatch in this loop. The chat pipeline detects this
+    /// and short-circuits the turn with a deterministic re-auth reply
+    /// (containing a minted hosted-login URL) instead of letting the LLM
+    /// rephrase a generic refusal.
+    pub pending_provider_auth_required: Option<String>,
 }
+
+/// Metadata key set on a tool's `UniversalResponse` when the underlying
+/// `AppError` was `ProviderAuthRequired`. The tool loop scans this key to
+/// know it should exit early without continuing iteration.
+pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 
 // ============================================================================
 // API Tool Loop (Gemini/Groq native function calling)
@@ -232,7 +243,10 @@ pub async fn run_api_tool_loop(
                     function_calls.len()
                 );
 
-                let function_responses = execute_function_calls(
+                let ExecutedFunctionCalls {
+                    responses: function_responses,
+                    auth_required_provider,
+                } = execute_function_calls(
                     &params.executor,
                     function_calls,
                     params.user_id,
@@ -246,6 +260,24 @@ pub async fn run_api_tool_loop(
                 }
 
                 tools_called.extend(function_calls.iter().map(|c| c.name.clone()));
+
+                // Auth-required short-circuit: if any tool failed with
+                // `ProviderAuthRequired`, exit the loop immediately so the
+                // chat pipeline can mint a hosted-login URL and reply
+                // deterministically. Continuing iteration would have the LLM
+                // either rephrase a generic refusal or call the same broken
+                // tool again.
+                if let Some(provider) = auth_required_provider {
+                    return Ok(ToolLoopResult {
+                        content: String::new(),
+                        usage: Some(cumulative_usage),
+                        finish_reason: Some("provider_auth_required".to_owned()),
+                        activity_list: captured_activity_list,
+                        tool_calls_count,
+                        tools_called,
+                        pending_provider_auth_required: Some(provider),
+                    });
+                }
 
                 // Add assistant's text to messages if present (strip synthetic function syntax)
                 if let Some(ref text) = response.content {
@@ -277,6 +309,7 @@ pub async fn run_api_tool_loop(
             activity_list: captured_activity_list,
             tool_calls_count,
             tools_called,
+            pending_provider_auth_required: None,
         });
     }
 
@@ -293,6 +326,7 @@ pub async fn run_api_tool_loop(
         activity_list: captured_activity_list,
         tool_calls_count,
         tools_called,
+        pending_provider_auth_required: None,
     })
 }
 
@@ -396,6 +430,7 @@ pub async fn run_cli_tool_loop(
                 activity_list: captured_activity_list,
                 tool_calls_count,
                 tools_called,
+                pending_provider_auth_required: None,
             });
         }
 
@@ -409,7 +444,10 @@ pub async fn run_cli_tool_loop(
         );
 
         // Execute the parsed tool calls via MCP
-        let function_responses = execute_function_calls(
+        let ExecutedFunctionCalls {
+            responses: function_responses,
+            auth_required_provider,
+        } = execute_function_calls(
             &params.executor,
             &parsed_tool_calls,
             params.user_id,
@@ -423,6 +461,20 @@ pub async fn run_cli_tool_loop(
         }
 
         tools_called.extend(parsed_tool_calls.iter().map(|c| c.name.clone()));
+
+        // Auth-required short-circuit (mirror of the API loop): exit early so
+        // the chat pipeline can render the deterministic hosted-login reply.
+        if let Some(provider) = auth_required_provider {
+            return Ok(ToolLoopResult {
+                content: String::new(),
+                usage: response.usage,
+                finish_reason: Some("provider_auth_required".to_owned()),
+                activity_list: captured_activity_list,
+                tool_calls_count,
+                tools_called,
+                pending_provider_auth_required: Some(provider),
+            });
+        }
 
         // Add assistant message (with tool calls stripped via embacle)
         let assistant_text = tool_simulation::strip_tool_call_blocks(&response.content);
@@ -450,6 +502,7 @@ pub async fn run_cli_tool_loop(
         activity_list: captured_activity_list,
         tool_calls_count,
         tools_called,
+        pending_provider_auth_required: None,
     })
 }
 
@@ -681,10 +734,11 @@ pub async fn execute_function_calls(
     function_calls: &[FunctionCall],
     user_id: &str,
     tenant_id: TenantId,
-) -> Result<Vec<FunctionResponse>, AppError> {
+) -> Result<ExecutedFunctionCalls, AppError> {
     use crate::formatters::TokenEfficiencyMetrics;
 
     let mut responses = Vec::with_capacity(function_calls.len());
+    let mut auth_required_provider: Option<String> = None;
     for function_call in function_calls {
         info!(
             tool_name = %function_call.name,
@@ -694,6 +748,19 @@ pub async fn execute_function_calls(
         let tool_start = Instant::now();
         let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
         let tool_duration_ms = u64::try_from(tool_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+        // Capture the auth-required provider before building the
+        // `FunctionResponse`, which intentionally drops `metadata` (the LLM
+        // doesn't need it). First tool to trip wins so we don't lose it across
+        // a multi-tool batch.
+        if auth_required_provider.is_none() {
+            if let Some(meta) = tool_response.metadata.as_ref() {
+                if let Some(serde_json::Value::String(p)) = meta.get(META_AUTH_REQUIRED_PROVIDER) {
+                    auth_required_provider = Some(p.clone());
+                }
+            }
+        }
+
         let func_response = build_function_response(function_call, &tool_response);
 
         // Phase 4: PostHog visibility on every tool dispatch.
@@ -721,7 +788,26 @@ pub async fn execute_function_calls(
 
         responses.push(func_response);
     }
-    Ok(responses)
+    Ok(ExecutedFunctionCalls {
+        responses,
+        auth_required_provider,
+    })
+}
+
+/// Output of [`execute_function_calls`].
+///
+/// Carries the function responses for the LLM plus an out-of-band signal
+/// for the tool loop when one of the calls failed with
+/// `AppError::ProviderAuthRequired`. The signal travels separately
+/// because `FunctionResponse` drops the underlying
+/// `UniversalResponse::metadata` to keep the LLM-visible payload minimal.
+pub struct ExecutedFunctionCalls {
+    /// LLM-visible function responses, one per call in input order.
+    pub responses: Vec<FunctionResponse>,
+    /// Provider slug of the first tool that returned `ProviderAuthRequired`,
+    /// or `None` if every call landed cleanly. The tool loop short-circuits
+    /// on `Some(_)` and the chat pipeline mints a hosted-login URL.
+    pub auth_required_provider: Option<String>,
 }
 
 /// Execute a single MCP tool call and return the response.
@@ -753,12 +839,27 @@ async fn execute_mcp_tool(
 
     match executor.execute_tool(request).await {
         Ok(response) => response,
-        Err(e) => UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Tool execution failed: {e}")),
-            metadata: None,
-        },
+        Err(e) => {
+            // Preserve the `ProviderAuthRequired` signal across the
+            // `ProtocolError → UniversalResponse` boundary by stuffing the
+            // provider slug into `metadata` under `META_AUTH_REQUIRED_PROVIDER`.
+            // The tool loop scans for this key and exits early; the chat
+            // pipeline mints a hosted-login URL and surfaces it deterministically.
+            let metadata = e.provider_auth_required_provider().map(|provider| {
+                let mut m: HashMap<String, serde_json::Value> = HashMap::new();
+                m.insert(
+                    META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                    serde_json::Value::String(provider.to_owned()),
+                );
+                m
+            });
+            UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Tool execution failed: {e}")),
+                metadata,
+            }
+        }
     }
 }
 
@@ -1023,6 +1124,10 @@ async fn run_headless_tool_loop(
         activity_list: None,
         tool_calls_count,
         tools_called,
+        // Copilot Headless owns its own tool calls inside the ACP subprocess;
+        // platform-side ProviderAuthRequired handoff is not possible without
+        // visibility into the subprocess tool dispatches. Leave as None.
+        pending_provider_auth_required: None,
     })
 }
 

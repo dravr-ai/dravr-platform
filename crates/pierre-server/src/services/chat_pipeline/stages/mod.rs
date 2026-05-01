@@ -22,6 +22,8 @@
 //! Extracted in a later commit on this branch. Module structure lands
 //! first so callers can reference the target paths during migration.
 
+/// Re-auth recovery: short-circuit a turn with a hosted-login URL.
+pub mod auth_recovery;
 pub mod compaction;
 pub mod followups;
 pub mod guardrails;

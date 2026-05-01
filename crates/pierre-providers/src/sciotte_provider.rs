@@ -15,6 +15,7 @@
 use async_trait::async_trait;
 use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::{CacheConfig, ScraperConfig};
+use dravr_sciotte::error::ScraperError;
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityParams, AuthSession, Lap as SciotteLap,
     Split as SciotteSplit, SportType as SciotteSportType,
@@ -75,6 +76,24 @@ impl SciotteProvider {
             session: RwLock::new(None),
             provider_name,
         }
+    }
+
+    /// Translate a `dravr_sciotte::ScraperError` into an `AppError`. The
+    /// `SessionExpired` variant maps to `provider_auth_required` so the chat
+    /// pipeline can mint a hosted-login URL and short-circuit the LLM with an
+    /// actionable reply; everything else stays an internal error tagged with
+    /// the call-site context.
+    fn map_scraper_error(&self, err: &ScraperError, context: &str) -> AppError {
+        if matches!(err, ScraperError::SessionExpired { .. }) {
+            return AppError::provider_auth_required(self.provider_name);
+        }
+        AppError::internal(format!("{context}: {err}"))
+    }
+
+    /// Build the same `provider_auth_required` error the runtime emits when a
+    /// scrape lands on the SSO page, used for the "no session at all" branch.
+    fn auth_required_no_session(&self) -> AppError {
+        AppError::provider_auth_required(self.provider_name)
     }
 }
 
@@ -253,12 +272,13 @@ impl FitnessProvider for SciotteProvider {
         let session = self.session.read().await;
         let session = session
             .as_ref()
-            .ok_or_else(|| AppError::invalid_input("No sciotte session — please connect first"))?;
+            .ok_or_else(|| self.auth_required_no_session())?;
 
-        let profile =
-            self.scraper.get_athlete(session).await.map_err(|e| {
-                AppError::internal(format!("Failed to scrape athlete profile: {e}"))
-            })?;
+        let profile = self
+            .scraper
+            .get_athlete(session)
+            .await
+            .map_err(|e| self.map_scraper_error(&e, "Failed to scrape athlete profile"))?;
 
         let display_name = profile
             .display_name
@@ -282,7 +302,7 @@ impl FitnessProvider for SciotteProvider {
         let session = self.session.read().await;
         let session = session
             .as_ref()
-            .ok_or_else(|| AppError::invalid_input("No sciotte session — please connect first"))?;
+            .ok_or_else(|| self.auth_required_no_session())?;
 
         let limit = params.limit.unwrap_or(20);
         // Trait contract mirrors Strava/Fitbit: return list-page summary only.
@@ -302,7 +322,7 @@ impl FitnessProvider for SciotteProvider {
             .scraper
             .get_activities(session, &sciotte_params)
             .await
-            .map_err(|e| AppError::internal(format!("Sciotte scraping failed: {e}")))?;
+            .map_err(|e| self.map_scraper_error(&e, "Sciotte scraping failed"))?;
 
         let activities: Vec<Activity> = sciotte_activities.iter().map(convert_activity).collect();
 
@@ -331,13 +351,13 @@ impl FitnessProvider for SciotteProvider {
         let session = self.session.read().await;
         let session = session
             .as_ref()
-            .ok_or_else(|| AppError::invalid_input("No sciotte session — please connect first"))?;
+            .ok_or_else(|| self.auth_required_no_session())?;
 
         let sciotte_activity = self
             .scraper
             .get_activity(session, id)
             .await
-            .map_err(|e| AppError::internal(format!("Sciotte activity fetch failed: {e}")))?;
+            .map_err(|e| self.map_scraper_error(&e, "Sciotte activity fetch failed"))?;
 
         Ok(convert_activity(&sciotte_activity))
     }

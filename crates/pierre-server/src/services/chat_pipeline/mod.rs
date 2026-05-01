@@ -49,6 +49,8 @@ pub use turn::{
     CreateConversationResult, DispatchResult, TurnContext, TurnInput, UserMessageResult,
 };
 
+use std::mem;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -154,6 +156,54 @@ async fn dispatch_stage(
     .await;
     emit_step_finished(args.hooks, "dispatch").await;
     result
+}
+
+/// Wrap stages 14b–18: run the auth-recovery short-circuit, then either
+/// pass the result through post-processing (LLM-produced text) or build a
+/// minimal `PostProcessedReply` straight from the deterministic re-auth
+/// content (no guardrails / verification needed for canned replies).
+///
+/// Extracted out of [`run_turn`] to keep its cognitive complexity within
+/// the workspace lint budget. The shape is otherwise identical to the
+/// inline original.
+#[allow(clippy::too_many_arguments)]
+async fn run_recovery_and_post_process(
+    resources: &Arc<ServerResources>,
+    input: &TurnInput,
+    profile: &ChannelProfile,
+    conv: &ConversationRecord,
+    coach_ctx: Option<&CoachRuntimeContext>,
+    prompt_guard: &prompt_leak::PromptGuard,
+    result: &mut chat_tool_loop::ToolLoopResult,
+    hooks: &PipelineHooks<'_>,
+) -> stages::post_process::PostProcessedReply {
+    let recovery_dispatched = AtomicBool::new(false);
+    let recovery_active = stages::auth_recovery::apply_auth_recovery(
+        resources,
+        input,
+        profile,
+        result,
+        &recovery_dispatched,
+    );
+
+    if recovery_active {
+        return stages::post_process::PostProcessedReply {
+            content: mem::take(&mut result.content),
+            #[cfg(feature = "tools-verification")]
+            pending_verdicts: Vec::new(),
+        };
+    }
+
+    stages::post_process::post_process_assistant_reply(
+        resources,
+        input,
+        conv,
+        coach_ctx,
+        prompt_guard,
+        mem::take(&mut result.content),
+        hooks,
+    )
+    .await
 }
 
 use crate::config::LlmProviderType;
@@ -451,15 +501,17 @@ async fn run_turn(
     )
     .await?;
 
-    // Stages 15–18: scan for canary leaks, apply text guardrails, run claim
-    // verification, and run the channel-specific post-processor hook.
-    let post_processed = stages::post_process::post_process_assistant_reply(
+    // Stages 14b–18: provider re-auth recovery short-circuit, then either
+    // skip post-processing (recovery content is already canonical) or run
+    // the standard guardrails/verification/hook chain on LLM-produced text.
+    let post_processed = run_recovery_and_post_process(
         resources,
         &input,
+        profile,
         &conv,
         coach_ctx.as_ref(),
         &prompt_guard,
-        result.content,
+        &mut result,
         hooks,
     )
     .await;
