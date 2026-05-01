@@ -44,12 +44,16 @@ pub mod mobility;
 pub mod oauth_notifications;
 /// Password reset token management for admin-initiated password resets
 pub mod password_reset_tokens;
+/// Endurance `prescribed_workouts` audit-trail repository (`SQLite`)
+pub mod prescribed_workouts;
 /// Provider connections: unified connection tracking for all provider types
 pub mod provider_connections;
 /// Recipe storage and management for nutrition planning
 pub mod recipes;
 /// Repository trait definitions for focused database access
 pub mod repositories;
+/// Endurance cached GPX `route_summaries` repository (`SQLite`)
+pub mod route_summaries;
 /// Security repository: RSA keypairs, key rotation, audit events, system secrets
 pub mod security_repository;
 /// Seeder repository for seed-only database operations
@@ -72,16 +76,22 @@ pub mod tenants;
 pub mod tokens;
 /// Tool selection and per-tenant MCP tool configuration
 pub mod tool_selection;
+/// Endurance daily `training_history` rollup repository (`SQLite`)
+pub mod training_history;
 /// Usage counters for rate limiting and quota enforcement
 pub mod usage_counters;
 /// User MCP token management for AI client authentication
 pub mod user_mcp_tokens;
 /// User OAuth token storage and management
 pub mod user_oauth_tokens;
+/// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (`SQLite`)
+pub mod user_physiological_profiles;
 /// User account management and authentication
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
+/// Endurance user-authored `workout_templates` repository (`SQLite`)
+pub mod workout_templates;
 
 /// Test utilities for database operations
 pub mod test_utils;

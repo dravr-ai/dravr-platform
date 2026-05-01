@@ -1,0 +1,40 @@
+# ABOUTME: Endurance cornerstone workout — VO2max 5×3 min @ Z5 (Billat-style intervals)
+# ABOUTME: Top-end aerobic stimulus for 5k and middle-distance work
+
+id = "00000000-0000-0000-0000-000000000003"
+slug = "vo2_5x3"
+name = "VO2max — 5 × 3 min"
+sport = "run"
+duration_minutes = 60
+intensity_distribution = "vo2max"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.6, 0.7, 0.85, 0.95, 1.05]
+power_pct_of_ftp = [0.55, 0.75, 0.9, 1.05, 1.2]
+
+[[structure]]
+label = "Warm-up"
+duration_seconds = 900
+target_zone = "Z1"
+note = "Easy → moderate; 4 × 20 s strides at the end."
+
+[[structure]]
+label = "VO2max interval"
+duration_seconds = 180
+target_zone = "VO2max"
+repeat = 5
+note = "Hard, sustainable for 3 min. RPE 8-9."
+
+[[structure]]
+label = "Recovery jog"
+duration_seconds = 180
+target_zone = "Z1"
+repeat = 5
+note = "Active recovery; HR drifts down toward Z1-Z2 boundary."
+
+[[structure]]
+label = "Cool-down"
+duration_seconds = 600
+target_zone = "Z1"
+note = "Easy jog → walk; long enough for HR to settle."

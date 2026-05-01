@@ -119,6 +119,10 @@ fn test_vo2_max_requirement() {
         fitness_level: FitnessLevel::Intermediate,
         primary_sport: SportType::Run,
         training_experience_years: Some(5),
+        ftp_watts: None,
+        threshold_pace_sec_per_km: None,
+        hr_zones: None,
+        power_zones: None,
     };
 
     let result = validator.validate(&changes, Some(&profile));

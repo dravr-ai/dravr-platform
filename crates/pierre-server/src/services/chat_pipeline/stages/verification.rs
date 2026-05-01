@@ -29,6 +29,41 @@ use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::services::claim_verification::{resolve_corpus, verify_reply_with_config_and_corpus};
 
+/// Localizes the verification warn / block-fallback strings.
+///
+/// The Tier 5.5 banner is appended verbatim to the LLM's reply, so the
+/// banner's language must match the reply's language — otherwise an
+/// English session ends with a French postscript (or vice versa).
+///
+/// Resolution order (returns first match):
+/// 1. **Reply text via whatlang** — long replies (≥ a few sentences)
+///    detect reliably even for casual conversational tone, which is the
+///    case the per-turn locale heuristic in `messaging_ingress` misses
+///    (a 4-word user question can't be detected, but the 200-word reply
+///    can).
+/// 2. **Caller-supplied `locale`** — usually the per-turn locale that
+///    upstream code attempted to resolve from the user's input or
+///    `users.locale`. Honored verbatim when set.
+/// 3. **`DEFAULT_LOCALE`** — last resort.
+pub(crate) fn resolve_banner_locale(reply: &str, locale: Option<&str>) -> String {
+    if let Some(info) = whatlang::detect(reply) {
+        if info.is_reliable() {
+            let detected = match info.lang() {
+                whatlang::Lang::Fra => Some("fr"),
+                whatlang::Lang::Eng => Some("en"),
+                whatlang::Lang::Spa => Some("es"),
+                whatlang::Lang::Deu => Some("de"),
+                whatlang::Lang::Por => Some("pt"),
+                _ => None,
+            };
+            if let Some(code) = detected {
+                return code.to_owned();
+            }
+        }
+    }
+    locale.unwrap_or(DEFAULT_LOCALE).to_owned()
+}
+
 /// Inputs to [`apply_claim_verification`].
 ///
 /// Bundles the Tier 5.5 turn context so the function signature stays under
@@ -77,7 +112,8 @@ pub async fn apply_claim_verification(
         config,
         locale,
     } = params;
-    let locale = locale.unwrap_or(DEFAULT_LOCALE);
+    let locale = resolve_banner_locale(reply, locale);
+    let locale = locale.as_str();
 
     if !config.enabled {
         return ClaimVerificationOutcome {

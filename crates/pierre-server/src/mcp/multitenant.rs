@@ -57,6 +57,7 @@ use crate::middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "client-admin-api")]
 use crate::routes::admin::AdminApiContext;
 use crate::routes::billing;
+use crate::routes::endurance;
 #[cfg(feature = "oauth")]
 use crate::routes::oauth2::OAuth2Context;
 use axum::middleware;
@@ -1152,7 +1153,8 @@ impl MultiTenantMcpServer {
             .merge(ConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(HealthDataRoutes::routes(Arc::clone(resources)))
-            .merge(billing::billing_routes().with_state(Arc::clone(resources)));
+            .merge(billing::billing_routes().with_state(Arc::clone(resources)))
+            .merge(endurance::endurance_routes().with_state(Arc::clone(resources)));
 
         // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)
         #[cfg(feature = "health-sync")]

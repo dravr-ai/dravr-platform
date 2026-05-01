@@ -40,6 +40,9 @@ pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
+/// Intervals.icu pull-only provider (Endurance Phase 4)
+#[cfg(feature = "provider-intervals-icu")]
+pub mod intervals_icu_provider;
 /// FIFO queue + backpressure limiter gating concurrent Sciotte Chrome scrapes
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_limiter;

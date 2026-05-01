@@ -19,6 +19,7 @@ provider-whoop = []
 provider-coros = []
 provider-synthetic = []
 provider-sciotte = ["dep:dravr-sciotte"]
+provider-intervals-icu = []
 all-providers = [
     "provider-strava",
     "provider-garmin",
@@ -28,6 +29,7 @@ all-providers = [
     "provider-coros",
     "provider-synthetic",
     "provider-sciotte",
+    "provider-intervals-icu",
 ]
 
 [dependencies]
@@ -53,6 +55,9 @@ subtle = "2.6"
 hex = "0.4"
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.10", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]
 workspace = true

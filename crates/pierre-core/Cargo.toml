@@ -69,6 +69,7 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 base64 = "0.22"
 tracing = "0.1"
 bitflags = { version = "2.11", features = ["serde"] }
+toml = "0.8"
 
 # Optional: HTTP response support
 axum = { version = "0.8", optional = true, default-features = false, features = ["json"] }

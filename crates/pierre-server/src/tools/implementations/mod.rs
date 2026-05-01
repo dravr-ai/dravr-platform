@@ -91,3 +91,20 @@ pub mod sync;
 /// Route discovery tools: `discover_routes` (Overpass + OSM piste data)
 #[cfg(feature = "tools-analytics")]
 pub mod routes;
+
+/// Endurance Phase 1 export tools: `export_latest_snapshot`, `export_dossier`
+#[cfg(feature = "tools-data")]
+pub mod endurance_export;
+
+/// Endurance Phase 2 history tools: `compute_training_history`, `get_training_history`
+#[cfg(feature = "tools-data")]
+pub mod endurance_history;
+
+/// Endurance Phase 3 intervals/routes tools: `export_intervals`, `export_routes`,
+/// `extract_activity_streams`
+#[cfg(feature = "tools-data")]
+pub mod endurance_intervals;
+
+/// Endurance Phase 5 workout tools: `list_workout_templates`, `prescribe_workout`
+#[cfg(feature = "tools-data")]
+pub mod endurance_workouts;

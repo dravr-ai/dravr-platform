@@ -16,6 +16,36 @@ pub use pierre_core::constants;
 pub use pierre_core::errors;
 pub use pierre_core::models;
 
+/// Endurance Phase 1 latest-snapshot computation (`GET /api/v1/endurance/latest`).
+pub mod latest_snapshot;
+pub use latest_snapshot::{
+    build_latest_snapshot, ActivitySection11Metrics, LatestSnapshot, LatestSnapshotActivityRow,
+    DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
+};
+
+/// Endurance Phase 2 daily training-history compute (`GET /api/v1/endurance/history`).
+pub mod training_history_compute;
+pub use training_history_compute::{
+    compute_training_history, AthleteInputs, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS,
+    ATL_WINDOW_DAYS as TH_ATL_WINDOW_DAYS, CTL_WINDOW_DAYS as TH_CTL_WINDOW_DAYS,
+    FOSTER_WINDOW_DAYS, MAX_BACKFILL_DAYS as TH_MAX_BACKFILL_DAYS, RAMP_RATE_LOOKBACK_DAYS,
+};
+
+/// Endurance Phase 3 intervals.json builder (`GET /api/v1/endurance/intervals/{activity_id}`).
+pub mod intervals;
+pub use intervals::{build_intervals, IntervalRow, IntervalsExport};
+
+/// Endurance Phase 3 GPX terrain analysis (`GET /api/v1/endurance/routes/{activity_id}`).
+pub mod routes;
+pub use routes::{
+    build_route_summary, build_route_summary_from_streams, Climb, ClimbCategory, RouteSummary,
+    TerrainSummary,
+};
+
+/// Endurance Phase 3 LT1 / LT2 threshold estimators.
+pub mod threshold_estimation;
+pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};
+
 // Re-export all public submodules from dravr-cageux
 pub use dravr_cageux::activity_analyzer;
 pub use dravr_cageux::algorithms;

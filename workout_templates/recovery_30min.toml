@@ -1,0 +1,19 @@
+# ABOUTME: Endurance cornerstone workout — Recovery 30 min easy aerobic shake-out
+# ABOUTME: Used after hard sessions or races; HR strictly in Zone 1
+
+id = "00000000-0000-0000-0000-000000000004"
+slug = "recovery_30min"
+name = "Recovery — 30 min"
+sport = "run"
+duration_minutes = 30
+intensity_distribution = "recovery"
+is_compiled_in = true
+
+[target_zones]
+hr_pct_of_lt2 = [0.55, 0.65, 0.75, 0.85, 0.95]
+
+[[structure]]
+label = "Easy run"
+duration_seconds = 1800
+target_zone = "Z1"
+note = "Conversational; if HR creeps above Z1 cap, walk a minute."

@@ -75,12 +75,12 @@ fn persona_blocks_are_distinct() {
     }
 }
 
-/// The `PowerAthlete` persona must surface the Section 11 discipline anchors —
+/// The `PowerAthlete` persona must surface the Endurance discipline anchors —
 /// P0–P3 readiness ladder and the 10-point validation checklist — because
 /// those are what differentiate it from Enthusiast/Casual. If they vanish
 /// from `power_athlete.md`, the persona collapses to plain prose.
 #[test]
-fn power_athlete_carries_section_11_anchors() {
+fn power_athlete_carries_endurance_anchors() {
     let block = get_coaching_persona_prompt(CoachingPersona::PowerAthlete);
     assert!(
         block.contains("P0")
@@ -105,5 +105,26 @@ fn pierre_system_prompt_contains_persona_placeholder() {
         prompt.contains("{{COACHING_PERSONA_RULES}}"),
         "pierre_system.md is missing the {{{{COACHING_PERSONA_RULES}}}} placeholder \
          — persona substitution will silently no-op"
+    );
+}
+
+/// Casual must declare the 150-word ceiling as a hard cap covering denial
+/// and explainer cases. A live Chrome-DevTools sweep on 2026-05-01 caught
+/// the LLM running a Strava-reauth denial out to ~250 words because the
+/// previous wording ("under 150 words unless they ask for detail") read as
+/// guidance, not policy. Without this anchor in the block, the regression
+/// will silently return.
+#[test]
+fn casual_block_enforces_hard_word_cap_for_denials() {
+    let block = get_coaching_persona_prompt(CoachingPersona::Casual);
+    assert!(
+        block.contains("hard cap"),
+        "casual block must label the 150-word limit as a hard cap so denial \
+         and explainer cases respect the budget; first 400 chars: {first}",
+        first = &block[..block.len().min(400)],
+    );
+    assert!(
+        block.contains("denial") || block.contains("denials"),
+        "casual block must explicitly cover the denial case in the budget rule"
     );
 }

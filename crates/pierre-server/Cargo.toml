@@ -53,11 +53,12 @@ provider-terra = ["pierre-providers/provider-terra"]
 provider-fitbit = ["pierre-providers/provider-fitbit"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
+provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
 health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync"]
-all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-synthetic", "provider-sciotte"]
-production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-sciotte"]
+all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-synthetic", "provider-sciotte"]
+production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
 # Tool feature flags - enable/disable MCP tool categories
 # All tools (default)

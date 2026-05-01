@@ -99,7 +99,7 @@ pub const CASUAL_PERSONA_PROMPT: &str = include_str!("personas/casual.md");
 /// Enthusiast coaching persona block — prose with optional data citations.
 pub const ENTHUSIAST_PERSONA_PROMPT: &str = include_str!("personas/enthusiast.md");
 
-/// Power-athlete coaching persona block — Section 11 discipline, line-by-line
+/// Power-athlete coaching persona block — Endurance discipline, line-by-line
 /// per-activity reports, framework citations on every numeric claim, P0–P3 ladder.
 pub const POWER_ATHLETE_PERSONA_PROMPT: &str = include_str!("personas/power_athlete.md");
 

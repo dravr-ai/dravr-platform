@@ -148,6 +148,8 @@
 
 #![allow(dead_code)] // helpers exist for tests that will land in a follow-up commit
 
+use std::mem;
+
 use pierre_intelligence::training_load::{TrainingLoad, TrainingLoadCalculator};
 use pierre_mcp_server::models::Activity;
 
@@ -665,6 +667,388 @@ pub fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMism
             reply: n_reply,
             expected: n_expected,
         })
+    }
+}
+
+// ============================================================================
+// Persona-axis voice asserters (drives Casual vs PowerAthlete differentiation)
+// ============================================================================
+
+/// Names every framework anchor the `PowerAthlete` persona block
+/// authorizes for citation. Membership is the source of truth for
+/// [`assert_no_framework_citations`] and
+/// [`assert_has_framework_citation_per_numeric`]. Drift here will
+/// cascade — keep aligned with `prompts/personas/power_athlete.md`.
+pub const FRAMEWORK_ANCHORS: &[&str] = &[
+    "Banister", "Coggan", "Foster", "Gabbett", "Seiler", "Treff", "Mujika", "Issurin", "Racinais",
+];
+
+/// Catches a `Casual` reply that drifted into `PowerAthlete`-style citations.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FrameworkCitationFound {
+    /// Anchor name actually present in the reply.
+    pub anchor: String,
+    /// Reply window (40 chars on each side of the hit) for the failure message.
+    pub context: String,
+}
+
+/// Catches a `PowerAthlete` reply that emitted bare numbers without
+/// pairing them to a framework anchor. `numeric_count` is how many
+/// numeric claims the reply made; `cited_count` is how many of them
+/// landed within the same sentence as a framework anchor.
+#[derive(Debug, PartialEq)]
+pub struct UncitedNumerics {
+    /// Total numeric claims observed in the reply.
+    pub numeric_count: usize,
+    /// Numeric claims paired to a framework anchor in the same sentence.
+    pub cited_count: usize,
+    /// Minimum cited fraction the rule expects (caller-supplied).
+    pub min_ratio: f64,
+}
+
+/// Catches a `Casual` reply that emitted the dated-line activity report
+/// format reserved for `PowerAthlete`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LineByLineBlockFound {
+    /// First two block lines, for the failure message.
+    pub head: String,
+}
+
+/// Catches a `PowerAthlete` reply that skipped the dated-line activity
+/// report block — the format is the persona's defining anchor.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LineByLineBlockMissing;
+
+/// Catches a `Casual` reply that ran past the persona's word budget.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WordCountOver {
+    /// Configured ceiling.
+    pub max_words: usize,
+    /// Word count the reply actually produced.
+    pub actual_words: usize,
+}
+
+/// Asserts that no framework anchor name appears in the reply.
+///
+/// The Casual persona block forbids citation density — citations make
+/// the answer feel like math homework rather than a friend's text.
+/// This asserter is the runtime check that the Casual block is winning
+/// against the coach's domain prompt, which carries its own citation
+/// instinct.
+///
+/// # Errors
+///
+/// Returns [`FrameworkCitationFound`] naming the offending anchor and
+/// the surrounding context.
+pub fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitationFound> {
+    for anchor in FRAMEWORK_ANCHORS {
+        if let Some(idx) = reply.find(anchor) {
+            let lo = idx.saturating_sub(40);
+            let hi = (idx + anchor.len() + 40).min(reply.len());
+            let context = reply
+                .get(lo..hi)
+                .map_or_else(|| reply.to_owned(), str::to_owned);
+            return Err(FrameworkCitationFound {
+                anchor: (*anchor).to_owned(),
+                context,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Asserts that at least `min_ratio` of the reply's numeric claims
+/// land within the same sentence as a framework anchor.
+///
+/// The `PowerAthlete` block requires "framework citations on every
+/// numeric claim". Perfect 100% is brittle in practice (the LLM may
+/// summarize "10 runs" without a Banister tag, which is fine), so the
+/// caller chooses the floor. `0.7` is a reasonable default for
+/// `PowerAthlete`; `0.5` for `Coach` (slightly relaxed for roster framing).
+///
+/// A "numeric claim" is any standalone number — integer, decimal, or
+/// percentage. A "sentence" is a run of text terminated by `.`, `!`,
+/// `?`, or newline.
+///
+/// # Errors
+///
+/// Returns [`UncitedNumerics`] with the observed counts when the
+/// citation ratio falls below `min_ratio`.
+pub fn assert_has_framework_citation_per_numeric(
+    reply: &str,
+    min_ratio: f64,
+) -> Result<(), UncitedNumerics> {
+    let mut numeric_count = 0usize;
+    let mut cited_count = 0usize;
+    for sentence in split_sentences(reply) {
+        let nums = count_numerics_in_sentence(sentence.as_str());
+        if nums == 0 {
+            continue;
+        }
+        numeric_count += nums;
+        if FRAMEWORK_ANCHORS
+            .iter()
+            .any(|a| sentence.as_str().contains(a))
+        {
+            cited_count += nums;
+        }
+    }
+    if numeric_count == 0 {
+        return Ok(());
+    }
+    let observed = cited_count as f64 / numeric_count as f64;
+    if observed >= min_ratio {
+        Ok(())
+    } else {
+        Err(UncitedNumerics {
+            numeric_count,
+            cited_count,
+            min_ratio,
+        })
+    }
+}
+
+/// Splits a reply into sentences without breaking decimal numbers.
+///
+/// A period only ends a sentence when followed by whitespace, another
+/// punctuation mark, or end-of-string — `47.8` stays whole, `47.` at
+/// end-of-clause splits. Newline, `!`, `?` always end a sentence.
+fn split_sentences(reply: &str) -> Vec<String> {
+    let chars: Vec<char> = reply.chars().collect();
+    let mut sentences = Vec::new();
+    let mut buf = String::new();
+    for (i, ch) in chars.iter().enumerate() {
+        match ch {
+            '!' | '?' | '\n' => {
+                if !buf.trim().is_empty() {
+                    sentences.push(mem::take(&mut buf));
+                }
+            }
+            '.' => {
+                let next_is_terminator = chars
+                    .get(i + 1)
+                    .is_none_or(|c| c.is_whitespace() || matches!(c, '.' | '!' | '?'));
+                if next_is_terminator {
+                    if !buf.trim().is_empty() {
+                        sentences.push(mem::take(&mut buf));
+                    }
+                } else {
+                    buf.push(*ch);
+                }
+            }
+            _ => buf.push(*ch),
+        }
+    }
+    if !buf.trim().is_empty() {
+        sentences.push(buf);
+    }
+    sentences
+}
+
+/// Counts standalone numeric tokens in a sentence. A token is numeric
+/// if it parses as `f64` once leading/trailing punctuation is trimmed.
+/// Filters out single digits embedded in identifiers (e.g. `5K`,
+/// `Z2`) and four-digit years to keep the count meaningful for
+/// physiology numbers.
+fn count_numerics_in_sentence(sentence: &str) -> usize {
+    sentence
+        .split_whitespace()
+        .filter_map(|tok| {
+            let trimmed = tok.trim_matches(|c: char| {
+                !c.is_ascii_digit() && c != '.' && c != ',' && c != '-' && c != '+'
+            });
+            let normalized = trimmed.replace(',', ".");
+            normalized.parse::<f64>().ok().map(|n| (n, trimmed))
+        })
+        .filter(|(n, raw)| {
+            // Years (1900..=2100) and pure single-digit ordinals are noise.
+            !((1900.0..=2100.0).contains(n) && raw.chars().all(|c| c.is_ascii_digit()))
+        })
+        .count()
+}
+
+/// Asserts the reply does NOT contain a dated-line activity report.
+///
+/// Heuristic: two or more consecutive lines of the form
+/// `YYYY-MM-DD ... | ...` mark the `PowerAthlete` activity report
+/// format. `Casual` replies should describe activities in prose.
+///
+/// # Errors
+///
+/// Returns [`LineByLineBlockFound`] with the offending block's head.
+pub fn assert_no_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockFound> {
+    let lines: Vec<&str> = reply.lines().collect();
+    for window in lines.windows(2) {
+        if is_dated_pipe_line(window[0]) && is_dated_pipe_line(window[1]) {
+            let head = format!("{}\n{}", window[0].trim(), window[1].trim());
+            return Err(LineByLineBlockFound { head });
+        }
+    }
+    Ok(())
+}
+
+/// Asserts the reply DOES contain a dated-line activity report.
+///
+/// Mirror of [`assert_no_line_by_line_block`]. `PowerAthlete` must surface
+/// the report — losing it collapses the persona to plain prose.
+///
+/// # Errors
+///
+/// Returns [`LineByLineBlockMissing`] when no two consecutive dated
+/// pipe-delimited lines appear in the reply.
+pub fn assert_has_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockMissing> {
+    let lines: Vec<&str> = reply.lines().collect();
+    for window in lines.windows(2) {
+        if is_dated_pipe_line(window[0]) && is_dated_pipe_line(window[1]) {
+            return Ok(());
+        }
+    }
+    Err(LineByLineBlockMissing)
+}
+
+/// Returns `true` if the line begins with `YYYY-MM-DD` and contains a
+/// pipe separator further along — the canonical `PowerAthlete` report row.
+fn is_dated_pipe_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.len() < 11 {
+        return false;
+    }
+    let bytes = trimmed.as_bytes();
+    let date_shape = bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+    date_shape && trimmed[10..].contains('|')
+}
+
+/// Asserts the reply runs no longer than `max_words` whitespace-split
+/// tokens. The Casual block targets ≤ 150; Enthusiast can run higher.
+///
+/// # Errors
+///
+/// Returns [`WordCountOver`] with the configured ceiling and observed
+/// length when the reply is too long.
+pub fn assert_word_count_under(reply: &str, max_words: usize) -> Result<(), WordCountOver> {
+    let actual_words = reply.split_whitespace().count();
+    if actual_words <= max_words {
+        Ok(())
+    } else {
+        Err(WordCountOver {
+            max_words,
+            actual_words,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persona_voice_tests {
+    use super::{
+        assert_has_framework_citation_per_numeric, assert_has_line_by_line_block,
+        assert_no_framework_citations, assert_no_line_by_line_block, assert_word_count_under,
+        FrameworkCitationFound, LineByLineBlockMissing, UncitedNumerics, WordCountOver,
+    };
+
+    const CASUAL_REPLY: &str = "Solid work this week — five runs and a recovery spin. \
+        Tomorrow keep it easy: 45 minutes Z2, no pace target. Save the speed for Saturday.";
+
+    const POWER_REPLY: &str = "Last 7 sessions:\n\
+        2026-04-29 | Run | 12.4 km | 58 min | HR avg 152 (Banister Z2)\n\
+        2026-04-27 | Ride | 60 min | NP 218 W (Coggan IF 0.81)\n\
+        Readiness: TSB +4 (Banister), ACWR 1.08 (Gabbett green), monotony 1.3 (Foster).\n\
+        Cleared at P3. Tomorrow: tempo_progression at 75 min — three by 15 min Z3 (Seiler 80/20).";
+
+    #[test]
+    fn casual_reply_passes_no_citation_check() {
+        assert!(assert_no_framework_citations(CASUAL_REPLY).is_ok());
+    }
+
+    #[test]
+    fn casual_reply_with_banister_fails() {
+        let drift = "Solid base — CTL 47 (Banister) keeps building.";
+        let err = assert_no_framework_citations(drift).unwrap_err();
+        assert_eq!(err.anchor, "Banister");
+    }
+
+    #[test]
+    fn power_reply_meets_citation_floor() {
+        // Five numeric clauses; four cite a framework.
+        assert!(assert_has_framework_citation_per_numeric(POWER_REPLY, 0.7).is_ok());
+    }
+
+    #[test]
+    fn power_reply_bare_numbers_below_floor_fails() {
+        let bare = "CTL 47.8. TSB +4. ACWR 1.08. Monotony 1.3.";
+        let err = assert_has_framework_citation_per_numeric(bare, 0.7).unwrap_err();
+        assert!(err.cited_count == 0);
+        assert!(err.numeric_count >= 4);
+    }
+
+    #[test]
+    fn citation_check_skips_when_no_numerics() {
+        let prose = "Take it easy tomorrow and we'll dial up Saturday.";
+        assert!(assert_has_framework_citation_per_numeric(prose, 0.7).is_ok());
+    }
+
+    #[test]
+    fn power_reply_carries_dated_block() {
+        assert!(assert_has_line_by_line_block(POWER_REPLY).is_ok());
+    }
+
+    #[test]
+    fn casual_reply_has_no_dated_block() {
+        assert!(assert_no_line_by_line_block(CASUAL_REPLY).is_ok());
+    }
+
+    #[test]
+    fn isolated_dated_line_does_not_trigger_block() {
+        // One dated line is fine — the block requires two consecutive.
+        let single = "On 2026-04-29 | Run was your hardest. Recover tomorrow.";
+        assert!(assert_no_line_by_line_block(single).is_ok());
+        assert_eq!(
+            assert_has_line_by_line_block(single).unwrap_err(),
+            LineByLineBlockMissing
+        );
+    }
+
+    #[test]
+    fn casual_reply_under_word_budget() {
+        assert!(assert_word_count_under(CASUAL_REPLY, 150).is_ok());
+    }
+
+    #[test]
+    fn long_reply_exceeds_word_budget() {
+        let long = "word ".repeat(160);
+        let err = assert_word_count_under(long.as_str(), 150).unwrap_err();
+        assert_eq!(
+            err,
+            WordCountOver {
+                max_words: 150,
+                actual_words: 160,
+            }
+        );
+    }
+
+    #[test]
+    fn framework_citation_found_carries_context() {
+        let drift = "Looking strong — CTL 47 (Banister) keeps you ramped.";
+        let err = assert_no_framework_citations(drift).unwrap_err();
+        assert!(matches!(err, FrameworkCitationFound { ref anchor, .. } if anchor == "Banister"));
+        assert!(err.context.contains("Banister"));
+    }
+
+    #[test]
+    fn uncited_numerics_reports_min_ratio() {
+        let bare = "CTL 47.8. TSB +4.";
+        let err = assert_has_framework_citation_per_numeric(bare, 0.5).unwrap_err();
+        assert_eq!(
+            err,
+            UncitedNumerics {
+                numeric_count: 2,
+                cited_count: 0,
+                min_ratio: 0.5,
+            }
+        );
     }
 }
 

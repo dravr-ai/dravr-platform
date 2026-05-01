@@ -34,8 +34,12 @@ pub mod messaging;
 pub mod mobility;
 /// OAuth token and authorization repository implementations
 pub mod oauth;
+/// Endurance `prescribed_workouts` audit-trail repository (Postgres)
+pub mod prescribed_workouts;
 /// Recipe repository implementation (CRUD with nutrition caching)
 pub mod recipes;
+/// Endurance cached GPX `route_summaries` repository (Postgres)
+pub mod route_summaries;
 /// Security and notification repository implementations
 pub mod security;
 /// Seeder repository for seed-only database operations
@@ -48,12 +52,18 @@ pub mod store_listings;
 pub mod subscriptions;
 /// Tenant, tool selection, LLM credential, and fitness config repositories
 pub mod tenant;
+/// Endurance daily `training_history` rollup repository (Postgres)
+pub mod training_history;
 /// Usage tracking repository implementations
 pub mod usage;
 /// User and profile repository implementations
 pub mod user;
+/// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (Postgres)
+pub mod user_physiological_profiles;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
+/// Endurance user-authored `workout_templates` repository (Postgres)
+pub mod workout_templates;
 
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{

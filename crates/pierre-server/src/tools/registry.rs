@@ -414,6 +414,22 @@ impl ToolRegistry {
         #[cfg(feature = "tools-data")]
         self.register_data_tools();
 
+        // Endurance Phase 1 export tools
+        #[cfg(feature = "tools-data")]
+        self.register_endurance_export_tools();
+
+        // Endurance Phase 2 training-history tools
+        #[cfg(feature = "tools-data")]
+        self.register_endurance_history_tools();
+
+        // Endurance Phase 3 intervals/routes tools
+        #[cfg(feature = "tools-data")]
+        self.register_endurance_intervals_tools();
+
+        // Endurance Phase 5 workout tools
+        #[cfg(feature = "tools-data")]
+        self.register_endurance_workout_tools();
+
         // Analytics tools
         #[cfg(feature = "tools-analytics")]
         self.register_analytics_tools();
@@ -862,6 +878,101 @@ impl ToolRegistry {
 
         info!(
             "Registered route tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register Endurance export tools (`export_latest_snapshot`, `export_dossier`).
+    ///
+    /// Both are read-only data tools that surface the same payloads as the
+    /// `/api/v1/endurance/{latest,dossier}` HTTP endpoints, so coaches can
+    /// pull the structured Endurance contracts via MCP.
+    #[cfg(feature = "tools-data")]
+    fn register_endurance_export_tools(&mut self) {
+        use super::implementations::endurance_export::create_endurance_export_tools;
+
+        debug!(
+            "Registering Endurance export tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_endurance_export_tools() {
+            self.register_with_category(Arc::from(tool), "data");
+        }
+
+        info!(
+            "Registered Endurance export tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register Endurance workout tools (`list_workout_templates`,
+    /// `prescribe_workout`).
+    #[cfg(feature = "tools-data")]
+    fn register_endurance_workout_tools(&mut self) {
+        use super::implementations::endurance_workouts::create_endurance_workout_tools;
+
+        debug!(
+            "Registering Endurance workout tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_endurance_workout_tools() {
+            self.register_with_category(Arc::from(tool), "data");
+        }
+
+        info!(
+            "Registered Endurance workout tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register Endurance intervals/routes tools (`export_intervals`,
+    /// `export_routes`, `extract_activity_streams`).
+    ///
+    /// All three are read-only data tools that surface the per-activity
+    /// payloads coaches need for tempo/threshold analysis and terrain
+    /// classification.
+    #[cfg(feature = "tools-data")]
+    fn register_endurance_intervals_tools(&mut self) {
+        use super::implementations::endurance_intervals::create_endurance_intervals_tools;
+
+        debug!(
+            "Registering Endurance intervals tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_endurance_intervals_tools() {
+            self.register_with_category(Arc::from(tool), "data");
+        }
+
+        info!(
+            "Registered Endurance intervals tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register Endurance training-history tools (`compute_training_history`,
+    /// `get_training_history`).
+    ///
+    /// Read tool surfaces the persisted daily rollup; write tool triggers an
+    /// on-demand backfill / recompute. Both share the
+    /// `/api/v1/endurance/history` semantics.
+    #[cfg(feature = "tools-data")]
+    fn register_endurance_history_tools(&mut self) {
+        use super::implementations::endurance_history::create_endurance_history_tools;
+
+        debug!(
+            "Registering Endurance history tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_endurance_history_tools() {
+            self.register_with_category(Arc::from(tool), "data");
+        }
+
+        info!(
+            "Registered Endurance history tools (registry now has {} tools)",
             self.tools.len()
         );
     }

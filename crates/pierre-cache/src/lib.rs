@@ -37,7 +37,7 @@ pub mod redis_config;
 
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
-    TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_STATS_SECS,
+    TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_STATS_SECS, TTL_TRAINING_HISTORY_SECS,
 };
 use errors::AppResult;
 use models::TenantId;
@@ -221,6 +221,7 @@ impl CacheTtlConfig {
                 Duration::from_secs(self.activity_secs)
             }
             CacheResource::Stats { .. } => Duration::from_secs(self.stats_secs),
+            CacheResource::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             CacheResource::Custom(_) => Duration::ZERO,
         }
     }
@@ -393,6 +394,16 @@ pub enum CacheResource {
         /// Activity ID
         activity_id: u64,
     },
+    /// Endurance daily training-history rollup result (`GET /api/v1/endurance/history`).
+    /// Per-(tenant,user) and per-date-range; invalidated whenever the
+    /// underlying `training_history` rows are upserted by
+    /// `training_history_compute`.
+    TrainingHistory {
+        /// Inclusive ISO date (YYYY-MM-DD) of the start of the requested range.
+        from: String,
+        /// Inclusive ISO date (YYYY-MM-DD) of the end of the requested range.
+        to: String,
+    },
     /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
     /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
     Custom(String),
@@ -409,6 +420,7 @@ impl CacheResource {
                 Duration::from_secs(TTL_ACTIVITY_SECS)
             }
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
+            Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             Self::Custom(_) => Duration::ZERO,
         }
     }
@@ -439,6 +451,9 @@ impl fmt::Display for CacheResource {
             Self::Stats { athlete_id } => write!(f, "stats:{athlete_id}"),
             Self::DetailedActivity { activity_id } => {
                 write!(f, "detailed_activity:{activity_id}")
+            }
+            Self::TrainingHistory { from, to } => {
+                write!(f, "training_history:{from}:{to}")
             }
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }

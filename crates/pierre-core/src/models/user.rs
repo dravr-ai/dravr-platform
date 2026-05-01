@@ -17,6 +17,7 @@ use crate::errors::AppError;
 use crate::intelligence::algorithms::maxhr::MaxHrAlgorithm;
 use crate::permissions::UserRole;
 
+use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{EncryptedToken, SportType};
 
 /// User tier for rate limiting - same as `API` key tiers for consistency
@@ -141,7 +142,7 @@ impl Display for UserStatus {
 ///   only, P0-only unsolicited push.
 /// - [`Self::Enthusiast`] — mixed prose + selective data, framework citations
 ///   on disagreement or "why?", P0/P1 push.
-/// - [`Self::PowerAthlete`] — Section 11 discipline: line-by-line, framework
+/// - [`Self::PowerAthlete`] — Endurance discipline: line-by-line, framework
 ///   citations on every numeric claim, full P0/P1/P2 push ladder.
 /// - [`Self::Coach`] — Power-athlete voice + roster tools (paired with
 ///   [`User::manages_roster`] for permission gating).
@@ -153,7 +154,7 @@ pub enum CoachingPersona {
     Casual,
     /// Mixed prose + data, citations on request, P0/P1 push.
     Enthusiast,
-    /// Section 11 discipline — line-by-line, framework citations everywhere,
+    /// Endurance discipline — line-by-line, framework citations everywhere,
     /// full P0/P1/P2 push ladder.
     PowerAthlete,
     /// Power-athlete voice + roster management tools. Paired with
@@ -381,6 +382,34 @@ pub struct UserPhysiologicalProfile {
     pub primary_sport: SportType,
     /// Years of training experience
     pub training_experience_years: Option<u8>,
+    /// Functional Threshold Power in watts (cycling / running power).
+    ///
+    /// Drives Endurance power-zone derivation, intensity-factor
+    /// computation, and the polarized-distribution analytics in
+    /// `latest.json`. `None` until the athlete supplies it (manually or
+    /// via a 20-min FTP test).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ftp_watts: Option<u32>,
+    /// Threshold pace in seconds per kilometre.
+    ///
+    /// Used by the running-side equivalent of FTP to derive Endurance
+    /// pace zones and intensity factor for runs without a power meter.
+    /// `None` until the athlete supplies it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_pace_sec_per_km: Option<f64>,
+    /// Heart-rate zone boundaries.
+    ///
+    /// Per-user definition stored alongside the profile. Distinct from
+    /// the per-activity `HeartRateZone` (which carries time-in-zone for
+    /// a single activity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hr_zones: Option<HrZoneSet>,
+    /// Power zone boundaries (cycling / running power).
+    ///
+    /// Same shape as [`Self::hr_zones`] but for watts. `None` for
+    /// athletes without a power meter or saved FTP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_zones: Option<PowerZoneSet>,
 }
 
 impl UserPhysiologicalProfile {
@@ -398,6 +427,10 @@ impl UserPhysiologicalProfile {
             fitness_level: FitnessLevel::Recreational,
             primary_sport,
             training_experience_years: None,
+            ftp_watts: None,
+            threshold_pace_sec_per_km: None,
+            hr_zones: None,
+            power_zones: None,
         }
     }
 

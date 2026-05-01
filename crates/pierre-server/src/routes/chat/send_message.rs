@@ -20,6 +20,7 @@ use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::services::chat_pipeline::{self as pipeline};
 use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use crate::services::messaging_ingress::detect_turn_locale;
 #[cfg(feature = "client-notifications")]
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
@@ -197,6 +198,23 @@ pub async fn send_message(
         // check, but we stay defensive). Continue to the LLM path.
     }
 
+    // Resolve the per-turn locale: prefer the language the user just
+    // typed in (so the verification banner, scope refusals, and status
+    // placeholders match what the LLM will reply in) and fall back to
+    // the stored `users.locale` when whatlang's signal is unreliable
+    // (short messages, mixed input). Mirrors the messaging-ingress
+    // path's `detect_turn_locale` usage so web chat and Slack/Telegram
+    // resolve identically.
+    let stored_locale = resources
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|u| u.locale)
+        .unwrap_or_else(default_locale);
+    let turn_locale = detect_turn_locale(&request.content, &stored_locale);
     let turn_input = pipeline::TurnInput {
         conversation_id: conversation_id.clone(),
         user_id: user_id_str.clone(),
@@ -204,17 +222,7 @@ pub async fn send_message(
         tool_tenant_id: tenant_id,
         content: request.content.clone(),
         turn_id: ConversationTurnId::new(),
-        // Web chat resolves the locale from the authenticated user's
-        // profile; pipeline stages fall back to `DEFAULT_LOCALE` when
-        // lookup fails so an empty locale never becomes an empty string.
-        locale: resources
-            .repos
-            .users
-            .get_global(auth.user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|u| u.locale),
+        locale: Some(turn_locale),
     };
     let profile = pipeline::ChannelProfile::web_chat();
 
