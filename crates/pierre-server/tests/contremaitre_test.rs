@@ -22,6 +22,7 @@ use pierre_mcp_server::contremaitre::messaging_strings::{
     KEY_EMPTY_REPLY, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
+use pierre_mcp_server::contremaitre::sync::system_prompt_content_is_valid;
 use pierre_mcp_server::contremaitre::tool_descriptions::{
     parse_tool_yaml, ToolDescriptionOverlay, ToolDescriptionRegistry,
 };
@@ -896,4 +897,90 @@ fn test_warn_suffix_formats_with_count_fr_and_en() {
     let en_rendered = format_template(&reg.get(KEY_VERIFICATION_WARN_SUFFIX, "en"), &["3"]);
     assert!(en_rendered.contains("3 claim"));
     assert!(en_rendered.starts_with("⚠️"));
+}
+
+// ── system_prompt_content_is_valid (Layer 1: load-time placeholder gate) ───
+//
+// Reproduces the persona-MVP regression: contremaitre's `pierre_system.md`
+// fell behind platform between 2026-04-30 and 2026-05-01, dropping the
+// `{{COACHING_PERSONA_RULES}}` placeholder. With no validator the registry
+// silently accepted the stale content and the runtime substitution
+// downstream became a no-op. These tests pin the new contract: a system
+// prompt missing any required placeholder is REJECTED at load time.
+
+#[test]
+fn test_validator_accepts_pierre_system_with_all_placeholders() {
+    let content = "preamble {{SCOPE_REFUSAL}} body {{CAPABILITY_REFUSAL}} \
+                   carve {{COACH_SCOPE_CARVE_OUT}} persona {{COACHING_PERSONA_RULES}} end";
+    assert!(system_prompt_content_is_valid(
+        "pierre_system",
+        "prompts/system/pierre_system.md",
+        content
+    ));
+}
+
+#[test]
+fn test_validator_rejects_pierre_system_missing_persona_placeholder() {
+    // Exact reproduction of the 2026-04-30 contremaitre drift.
+    let content = "preamble {{SCOPE_REFUSAL}} body {{CAPABILITY_REFUSAL}} \
+                   carve {{COACH_SCOPE_CARVE_OUT}} no-persona-section end";
+    assert!(!system_prompt_content_is_valid(
+        "pierre_system",
+        "prompts/system/pierre_system.md",
+        content
+    ));
+}
+
+#[test]
+fn test_validator_rejects_pierre_system_missing_multiple_placeholders() {
+    let content = "only {{SCOPE_REFUSAL}} present, three others missing";
+    assert!(!system_prompt_content_is_valid(
+        "pierre_system",
+        "prompts/system/pierre_system.md",
+        content
+    ));
+}
+
+#[test]
+fn test_validator_accepts_unknown_keys_without_requirements() {
+    // Keys absent from the placeholder schema have no requirements —
+    // their content is acceptable as-is. coach_generation has no
+    // declared placeholders.
+    assert!(system_prompt_content_is_valid(
+        "coach_generation",
+        "prompts/system/coach_generation.md",
+        "any content at all, no placeholders required"
+    ));
+    assert!(system_prompt_content_is_valid(
+        "completely_unknown_key",
+        "whatever/path.md",
+        ""
+    ));
+}
+
+#[test]
+fn test_validator_rejects_pierre_system_when_content_is_empty() {
+    // Edge case: empty content trivially fails every required-placeholder check.
+    assert!(!system_prompt_content_is_valid(
+        "pierre_system",
+        "prompts/system/pierre_system.md",
+        ""
+    ));
+}
+
+#[test]
+fn test_compiled_in_pierre_system_passes_its_own_validator() {
+    // The compiled-in PIERRE_SYSTEM_PROMPT must always satisfy its declared
+    // placeholder schema — this guards against a developer dropping a
+    // placeholder from the source markdown without updating the schema.
+    let registry = PromptRegistry::new();
+    let content = registry.pierre_system_prompt();
+    assert!(
+        system_prompt_content_is_valid(
+            "pierre_system",
+            "prompts/system/pierre_system.md",
+            &content
+        ),
+        "compiled-in pierre_system.md drifted from the declared placeholder schema"
+    );
 }

@@ -7,7 +7,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use tracing::{debug, info, warn};
+use pierre_llm::prompts::{missing_placeholders, required_placeholders_for_system_prompt};
+use tracing::{debug, error, info, warn};
 
 use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
@@ -52,13 +53,50 @@ enum SyncOutcome {
     Failed,
 }
 
-/// Apply a downloaded system prompt file to the registry, logging hash mismatches.
+/// Validate that downloaded system-prompt content satisfies the
+/// placeholder requirements declared in
+/// [`pierre_llm::prompts::REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS`].
+///
+/// Returns `true` when the content is acceptable (or the key has no
+/// declared requirements). Returns `false` after emitting an `error!`
+/// event listing the missing placeholders — the caller MUST then leave
+/// the registry untouched, so the prior content (or compiled-in
+/// fallback) remains live until the drift is fixed upstream. The
+/// `error!` level matters: tronc forwards it to Slack/email so a silent
+/// regression like the persona-MVP / `pierre_system.md` case becomes
+/// loud immediately.
+///
+/// Public so integration tests can exercise both branches without
+/// constructing a full sync pipeline.
+pub fn system_prompt_content_is_valid(key: &str, entry_path: &str, content: &str) -> bool {
+    let Some(required) = required_placeholders_for_system_prompt(key) else {
+        return true;
+    };
+    let missing = missing_placeholders(content, required);
+    if missing.is_empty() {
+        return true;
+    }
+    error!(
+        key,
+        path = entry_path,
+        ?missing,
+        "rejected system prompt from contremaitre: missing required placeholders — keeping prior registry content"
+    );
+    false
+}
+
+/// Apply a downloaded system prompt file to the registry. Returns
+/// [`SyncOutcome::Failed`] without touching the registry if the content
+/// fails [`system_prompt_content_is_valid`].
 fn apply_system_prompt(
     registry: &PromptRegistry,
     key: &str,
     entry: &ManifestEntry,
     file: super::github::GitHubFile,
-) {
+) -> SyncOutcome {
+    if !system_prompt_content_is_valid(key, &entry.path, &file.content) {
+        return SyncOutcome::Failed;
+    }
     let actual_sha = compute_sha256(file.content.as_bytes());
     if actual_sha != entry.sha256 {
         warn!(
@@ -70,6 +108,7 @@ fn apply_system_prompt(
     }
     registry.update_system_prompt(key, file.content, actual_sha);
     info!(key, "synced system prompt from contremaitre");
+    SyncOutcome::Synced
 }
 
 /// Apply a downloaded coach prompt file to the registry, logging hash mismatches.
@@ -106,10 +145,7 @@ async fn sync_single_system_prompt(
         return SyncOutcome::Skipped;
     }
     match client.read_file(&entry.path).await {
-        Ok(file) => {
-            apply_system_prompt(registry, key, entry, file);
-            SyncOutcome::Synced
-        }
+        Ok(file) => apply_system_prompt(registry, key, entry, file),
         Err(e) => {
             warn!(key, error = %e, "failed to sync system prompt");
             SyncOutcome::Failed
@@ -260,7 +296,11 @@ pub async fn full_sync(
     Ok(result)
 }
 
-/// Hot-reload a single system prompt from a webhook event.
+/// Hot-reload a single system prompt from a webhook event. Validates
+/// declared placeholder requirements before touching the registry;
+/// rejected reloads keep the prior content live so a bad push to
+/// contremaitre cannot silently strip placeholder substitution from
+/// running prod.
 async fn hot_reload_system_prompt(
     registry: &PromptRegistry,
     client: &GitHubContentsClient,
@@ -269,6 +309,9 @@ async fn hot_reload_system_prompt(
 ) -> SyncOutcome {
     match client.read_file(&entry.path).await {
         Ok(file) => {
+            if !system_prompt_content_is_valid(key, &entry.path, &file.content) {
+                return SyncOutcome::Failed;
+            }
             let actual_sha = compute_sha256(file.content.as_bytes());
             registry.update_system_prompt(key, file.content, actual_sha);
             info!(key, "hot-reloaded system prompt");
