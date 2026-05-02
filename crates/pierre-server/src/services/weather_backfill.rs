@@ -108,6 +108,21 @@ pub async fn fill_activity_temperatures(
         "weather backfill: dispatching lookups"
     );
 
+    let filled = run_lookup_pump(provider, candidates, concurrency).await;
+
+    info!(filled = filled.len(), "weather backfill: completed lookups");
+
+    filled
+}
+
+/// Concurrency-capped fan-out over weather lookups; held in a helper so
+/// `fill_activity_temperatures` stays under the workspace cognitive
+/// complexity ceiling.
+async fn run_lookup_pump(
+    provider: Arc<dyn WeatherProvider>,
+    candidates: Vec<(&Activity, f64, f64)>,
+    concurrency: usize,
+) -> HashMap<String, f32> {
     let mut filled: HashMap<String, f32> = HashMap::with_capacity(candidates.len());
     let mut in_flight = FuturesUnordered::new();
     let mut iter = candidates.into_iter();
@@ -128,8 +143,6 @@ pub async fn fill_activity_temperatures(
             in_flight.push(lookup_one(provider.clone(), activity, lat, lng));
         }
     }
-
-    info!(filled = filled.len(), "weather backfill: completed lookups");
 
     filled
 }
