@@ -31,7 +31,7 @@ use std::sync::Arc;
 use dravr_meteo::{WeatherProvider, WeatherQuery};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use pierre_core::models::Activity;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 /// Default ceiling on concurrent weather lookups during a backfill pass.
 ///
@@ -75,6 +75,11 @@ pub async fn fill_activity_temperatures(
         .filter(|&n| n > 0)
         .unwrap_or(DEFAULT_BACKFILL_CONCURRENCY);
 
+    let total = activities.len();
+    let missing_temp = activities
+        .iter()
+        .filter(|a| a.temperature().is_none())
+        .count();
     let candidates: Vec<(&Activity, f64, f64)> = activities
         .iter()
         .filter(|a| a.temperature().is_none())
@@ -86,12 +91,21 @@ pub async fn fill_activity_temperatures(
         .collect();
 
     if candidates.is_empty() {
+        info!(
+            total,
+            missing_temp,
+            candidates = 0,
+            "weather backfill: no candidates (activities without temperature lacked GPS coordinates)"
+        );
         return HashMap::new();
     }
 
-    debug!(
-        count = candidates.len(),
-        concurrency, "weather backfill: dispatching lookups"
+    info!(
+        total,
+        missing_temp,
+        candidates = candidates.len(),
+        concurrency,
+        "weather backfill: dispatching lookups"
     );
 
     let mut filled: HashMap<String, f32> = HashMap::with_capacity(candidates.len());
@@ -115,7 +129,7 @@ pub async fn fill_activity_temperatures(
         }
     }
 
-    debug!(filled = filled.len(), "weather backfill: completed lookups");
+    info!(filled = filled.len(), "weather backfill: completed lookups");
 
     filled
 }
