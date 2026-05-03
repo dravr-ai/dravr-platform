@@ -141,7 +141,7 @@ jobs:
             "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
       - name: Scan server image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -235,7 +235,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       - name: Scan frontend image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
           format: 'sarif'
