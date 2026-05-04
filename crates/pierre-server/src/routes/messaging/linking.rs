@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use super::templates;
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
 
@@ -129,7 +129,7 @@ fn build_linking_url(
 /// Initiates channel linking by generating a verification code and returning
 /// a platform-specific linking URL. Requires JWT authentication.
 pub async fn init_channel_link(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -195,7 +195,7 @@ pub async fn init_channel_link(
 /// Handles OAuth callback or deep-link verification completion.
 /// Consumes the verification code and creates a permanent channel link.
 pub async fn link_callback(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     Query(query): Query<LinkCallbackQuery>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -279,7 +279,7 @@ pub async fn link_callback(
 ///
 /// Lists all linked channels for the authenticated user.
 pub async fn list_channel_links(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
@@ -315,7 +315,7 @@ pub async fn list_channel_links(
 ///
 /// Unlinks a channel for the authenticated user.
 pub async fn delete_channel_link(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -377,7 +377,7 @@ pub struct ChannelLinkAuthForm {
 /// Renders the login/register page for a webhook-initiated channel link.
 /// Public endpoint, no authentication required.
 pub async fn channel_link_page(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
@@ -400,7 +400,7 @@ pub async fn channel_link_page(
 /// On success, completes the link and renders the success page.
 /// On failure, re-renders the login page with an error message.
 pub async fn channel_link_auth(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Form(form): Form<ChannelLinkAuthForm>,
 ) -> impl IntoResponse {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
@@ -485,7 +485,7 @@ pub async fn channel_link_auth(
 
 /// Resolve user identity from form data (login or register)
 async fn resolve_user_from_form(
-    resources: &ServerResources,
+    resources: &ServerContext,
     form: &ChannelLinkAuthForm,
 ) -> Result<Uuid, String> {
     match form.action.as_str() {
@@ -548,7 +548,7 @@ async fn complete_link_and_respond(
 ///
 /// Returns the user ID on success, or an error message string on failure.
 async fn authenticate_user(
-    resources: &ServerResources,
+    resources: &ServerContext,
     email: &str,
     password: &str,
 ) -> Result<Uuid, String> {
@@ -583,7 +583,7 @@ async fn authenticate_user(
 ///
 /// Creates the user account. Returns a user-facing error on failure.
 async fn register_user(
-    resources: &ServerResources,
+    resources: &ServerContext,
     form: &ChannelLinkAuthForm,
 ) -> Result<Uuid, String> {
     let user_repo: &dyn UserRepository = resources.repos.users.as_ref();

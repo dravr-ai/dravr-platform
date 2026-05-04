@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::chat_pipeline;
 use crate::services::usage_counter::UsageCounterService;
 
@@ -132,7 +132,7 @@ pub struct UsageIncrementScope<'a> {
 /// logged but do not block the chat response to avoid degrading user
 /// experience.
 pub async fn increment_usage_counters(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: &str,
     user_id: &str,
     total_tokens: i64,
@@ -155,7 +155,7 @@ pub async fn increment_usage_counters(
 /// the pre-chat check reads (`conversation_messages:<conv>`,
 /// `daily_coach_messages:<coach>`) are written here.
 pub async fn increment_usage_counters_scoped(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: &str,
     user_id: &str,
     total_tokens: i64,

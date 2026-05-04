@@ -170,7 +170,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     routes::dashboard::service::DashboardRoutes,
 };
 use std::{sync::Arc, time::Instant};
@@ -190,7 +190,7 @@ impl DashboardTestSetup {
         let database = common::create_test_database().await?;
         let auth_manager = common::create_test_auth_manager();
 
-        // Create minimal config for ServerResources
+        // Create minimal config for ServerContext
         let temp_dir = tempfile::tempdir()?;
         let config = Arc::new(ServerConfig {
             http_port: 8081,
@@ -348,15 +348,15 @@ impl DashboardTestSetup {
         // Create test cache
         let cache = common::create_test_cache().await?;
 
-        // Create ServerResources using proper constructor
+        // Create ServerContext using proper constructor
         let server_resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,
@@ -619,7 +619,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
 
-    // Create ServerResources for dashboard routes
+    // Create ServerContext for dashboard routes
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
@@ -777,13 +777,13 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.as_ref().clone(),
             auth_manager.as_ref().clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

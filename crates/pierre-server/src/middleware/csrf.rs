@@ -10,7 +10,7 @@
 //! It extracts the token from the X-CSRF-Token header and validates it against the user's session.
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, Request};
@@ -129,7 +129,7 @@ const CSRF_EXEMPT_PATHS: &[&str] = &[
 /// Returns 401 if a cookie-authenticated state-changing request lacks a valid
 /// X-CSRF-Token header.
 pub async fn csrf_protection_layer(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, AppError> {

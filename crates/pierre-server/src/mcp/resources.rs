@@ -1,5 +1,5 @@
-// ABOUTME: Centralized resource container for dependency injection in MCP server
-// ABOUTME: Manages expensive shared resources like database, auth, and OAuth managers
+// ABOUTME: ServerContext — the canonical dependency-injection container for the server
+// ABOUTME: Holds every shared service (database, auth, providers, cache, …) plus narrow extractors
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -102,12 +102,12 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
 
-/// Optional initialization parameters for `ServerResources`
+/// Optional initialization parameters for `ServerContext`
 ///
 /// Used to pass optional configuration during server initialization without
 /// exceeding function argument limits. All fields have sensible defaults.
 #[derive(Default)]
-pub struct ServerResourcesOptions {
+pub struct ServerContextOptions {
     /// Size of RSA keys for JWT signing (2048 for tests, 4096 for production)
     pub rsa_key_size_bits: Option<usize>,
     /// Pre-existing JWKS manager (for test performance - reuses RSA keys)
@@ -124,7 +124,7 @@ pub struct ServerResourcesOptions {
     pub extra_tools: Vec<Arc<dyn McpTool>>,
 }
 
-impl ServerResourcesOptions {
+impl ServerContextOptions {
     /// Create options with production defaults (4096-bit RSA keys)
     #[must_use]
     pub fn production() -> Self {
@@ -174,7 +174,7 @@ impl ServerResourcesOptions {
 /// This struct holds all shared server resources to eliminate the anti-pattern
 /// of recreating expensive objects like `AuthManager` and excessive Arc cloning.
 #[derive(Clone)]
-pub struct ServerResources {
+pub struct ServerContext {
     /// Database connection pool for persistent storage operations.
     ///
     /// Retained for lifecycle (migrations, encryption key updates), system settings,
@@ -370,7 +370,7 @@ async fn init_contremaitre_registries(
     )
 }
 
-impl ServerResources {
+impl ServerContext {
     /// Create new server resources with proper Arc sharing
     ///
     /// # Parameters
@@ -384,7 +384,7 @@ impl ServerResources {
         admin_jwt_secret: &str,
         config: Arc<ServerConfig>,
         cache: Cache,
-        options: ServerResourcesOptions,
+        options: ServerContextOptions,
     ) -> Self {
         let rsa_key_size_bits = options.rsa_key_size_bits.unwrap_or(4096);
         let jwks_manager = options.jwks_manager;
@@ -555,7 +555,7 @@ impl ServerResources {
         };
 
         // Create and populate tool registry with all built-in tools. Any
-        // `extra_tools` supplied via `ServerResourcesOptions` (used by
+        // `extra_tools` supplied via `ServerContextOptions` (used by
         // messaging-eval integration tests that need a no-auth stub
         // tool) land in the same registry as the built-ins, so the
         // pipeline's tool dispatcher can route to them with zero
@@ -680,7 +680,7 @@ impl ServerResources {
             mint_rate_limiter,
             // Default to the in-tree DummyProvider so platform binaries
             // compile and run without a vendor crate. Production binaries
-            // override via ServerResourcesBuilder::with_billing_provider.
+            // override via ServerContextBuilder::with_billing_provider.
             billing_provider: Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>,
         }
     }
@@ -1001,10 +1001,10 @@ impl ServerResources {
         registry.remove(progress_token);
     }
 
-    /// Create a new builder for `ServerResources`
+    /// Create a new builder for `ServerContext`
     #[must_use]
-    pub const fn builder() -> ServerResourcesBuilder {
-        ServerResourcesBuilder::new()
+    pub const fn builder() -> ServerContextBuilder {
+        ServerContextBuilder::new()
     }
 
     /// Get the group coaching service
@@ -1228,8 +1228,8 @@ impl ServerResources {
     }
 }
 
-/// Builder pattern for `ServerResources` to avoid manual resource assembly anti-patterns
-pub struct ServerResourcesBuilder {
+/// Builder pattern for `ServerContext` to avoid manual resource assembly anti-patterns
+pub struct ServerContextBuilder {
     database: Option<Database>,
     auth_manager: Option<AuthManager>,
     admin_jwt_secret: Option<String>,
@@ -1240,7 +1240,7 @@ pub struct ServerResourcesBuilder {
     llm_provider: Option<Arc<dyn LlmProvider>>,
 }
 
-impl ServerResourcesBuilder {
+impl ServerContextBuilder {
     /// Create a new builder with production defaults (4096-bit RSA keys)
     #[must_use]
     pub const fn new() -> Self {
@@ -1312,12 +1312,12 @@ impl ServerResourcesBuilder {
         self
     }
 
-    /// Build the `ServerResources`
+    /// Build the `ServerContext`
     ///
     /// # Errors
     ///
     /// Returns an error if any required fields are missing
-    pub async fn build(self) -> Result<ServerResources, &'static str> {
+    pub async fn build(self) -> Result<ServerContext, &'static str> {
         let database = self.database.ok_or("Database is required")?;
         let auth_manager = self.auth_manager.ok_or("AuthManager is required")?;
         let admin_jwt_secret = self
@@ -1326,14 +1326,14 @@ impl ServerResourcesBuilder {
         let config = self.config.ok_or("Server config is required")?;
         let cache = self.cache.ok_or("Cache is required")?;
 
-        let options = ServerResourcesOptions {
+        let options = ServerContextOptions {
             rsa_key_size_bits: Some(self.rsa_key_size_bits),
             jwks_manager: self.jwks_manager,
             llm_provider: self.llm_provider,
             extra_tools: Vec::new(),
         };
 
-        let resources = ServerResources::new(
+        let resources = ServerContext::new(
             database,
             auth_manager,
             &admin_jwt_secret,
@@ -1345,17 +1345,17 @@ impl ServerResourcesBuilder {
         Ok(resources)
     }
 
-    /// Build the `ServerResources` wrapped in an `Arc`
+    /// Build the `ServerContext` wrapped in an `Arc`
     ///
     /// # Errors
     ///
     /// Returns an error if any required fields are missing
-    pub async fn build_arc(self) -> Result<Arc<ServerResources>, &'static str> {
+    pub async fn build_arc(self) -> Result<Arc<ServerContext>, &'static str> {
         Ok(Arc::new(self.build().await?))
     }
 }
 
-impl Default for ServerResourcesBuilder {
+impl Default for ServerContextBuilder {
     fn default() -> Self {
         Self::new()
     }

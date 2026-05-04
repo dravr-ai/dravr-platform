@@ -18,9 +18,8 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::mcp::resources::ServerResources,
-    pierre_notifications::triggers as notification_triggers, pierre_notifications::TenantId,
-    std::sync::Arc, uuid::Uuid,
+    crate::mcp::resources::ServerContext, pierre_notifications::triggers as notification_triggers,
+    pierre_notifications::TenantId, std::sync::Arc, uuid::Uuid,
 };
 
 /// Information about recovery adjustment applied to fitness score
@@ -581,7 +580,7 @@ pub fn handle_calculate_fitness_score(
 /// and the fitness score exceeds a meaningful threshold.
 #[cfg(feature = "client-notifications")]
 fn fire_fitness_improvement_notification(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id_str: Option<&str>,
     analysis: &serde_json::Value,

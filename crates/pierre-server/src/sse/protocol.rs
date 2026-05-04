@@ -8,7 +8,7 @@ use crate::{
     errors::AppError,
     mcp::{
         protocol::{McpRequest, McpResponse},
-        resources::ServerResources,
+        resources::ServerContext,
         tool_handlers::ToolHandlers,
     },
 };
@@ -24,7 +24,7 @@ use tracing::{debug, error, info};
 /// MCP protocol stream for a specific session
 pub struct McpProtocolStream {
     /// Server resources including database and configuration
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     /// Broadcast sender for streaming messages to clients
     sender: Arc<RwLock<Option<broadcast::Sender<String>>>>,
     /// Optional session identifier for this stream
@@ -36,7 +36,7 @@ pub struct McpProtocolStream {
 impl McpProtocolStream {
     /// Creates a new MCP protocol stream for SSE communication
     #[must_use]
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    pub fn new(resources: Arc<ServerContext>) -> Self {
         let buffer_size = resources.config.sse.max_buffer_size;
         Self {
             resources,

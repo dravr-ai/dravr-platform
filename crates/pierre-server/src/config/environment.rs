@@ -259,7 +259,7 @@ impl ServerConfig {
     pub fn init_all_configs(&self) -> AppResult<()> {
         // Validate the layered intelligence config (compiled-in defaults +
         // INTELLIGENCE_* env vars) parses and validates. The canonical live
-        // snapshot is owned by `ServerResources::cageux_config_registry`,
+        // snapshot is owned by `ServerContext::cageux_config_registry`,
         // which applies the same layered stack plus the contremaitre YAML
         // overlay on startup; this call exists purely so startup fails fast
         // if an operator has supplied a bad env override.

@@ -11,7 +11,7 @@
 
 use crate::{
     errors::{AppError, ErrorCode},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
     models::User,
     permissions::impersonation::ImpersonationSession,
@@ -91,7 +91,7 @@ pub struct ImpersonationRoutes;
 
 impl ImpersonationRoutes {
     /// Create all impersonation routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/impersonate",
@@ -115,7 +115,7 @@ impl ImpersonationRoutes {
     /// Authenticate user and require super admin role
     async fn authenticate_super_admin(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<(AuthResult, User), AppError> {
         let auth = extract_auth_from_headers(headers, resources).await?;
 
@@ -141,7 +141,7 @@ impl ImpersonationRoutes {
 
     /// Handle starting an impersonation session
     async fn handle_start_impersonation(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<StartImpersonationRequestBody>,
     ) -> Result<Response, AppError> {
@@ -252,7 +252,7 @@ impl ImpersonationRoutes {
 
     /// Handle ending an impersonation session
     async fn handle_end_impersonation(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate - can be either super admin or impersonated session
@@ -305,7 +305,7 @@ impl ImpersonationRoutes {
 
     /// Handle listing impersonation sessions
     async fn handle_list_sessions(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate and verify super admin status
@@ -372,7 +372,7 @@ impl ImpersonationRoutes {
 
     /// Handle getting a specific impersonation session
     async fn handle_get_session(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(session_id): Path<String>,
     ) -> Result<Response, AppError> {

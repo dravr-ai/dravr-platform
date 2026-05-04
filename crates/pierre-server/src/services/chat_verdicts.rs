@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use pierre_core::models::TenantId;
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 
 /// User-facing wire shape for a Tier 5.5 claim verdict.
@@ -82,7 +82,7 @@ pub struct ChatVerdictListResponse {
 /// - Repository errors propagated from the underlying chat or
 ///   claim verdict repositories.
 pub async fn list_for_conversation(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
@@ -131,7 +131,7 @@ pub async fn list_for_conversation(
 /// Mirrors the helper inside `routes::chat::ChatRoutes::get_tenant_id`
 /// without going through the route module so this handler can stay
 /// outside `routes/chat.rs` (which is at the route-thinness ceiling).
-async fn resolve_tenant_id(resources: &ServerResources, user_id: uuid::Uuid) -> TenantId {
+async fn resolve_tenant_id(resources: &ServerContext, user_id: uuid::Uuid) -> TenantId {
     resources
         .repos
         .tenants
@@ -153,7 +153,7 @@ async fn resolve_tenant_id(resources: &ServerResources, user_id: uuid::Uuid) -> 
 /// Returns the same errors as [`list_for_conversation`] plus
 /// authentication failures from the middleware extractor.
 pub async fn get_verdicts_handler(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {

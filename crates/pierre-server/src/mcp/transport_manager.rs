@@ -8,7 +8,7 @@
 // - Arc resource clones for parallel transport protocol handling
 // - Shared resource distribution across stdio, SSE, and HTTP transports
 
-use super::resources::ServerResources;
+use super::resources::ServerContext;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::schema::OAuthCompletedNotification;
 use std::sync::Arc;
@@ -41,14 +41,14 @@ fn log_transport_status(name: &str, enabled: bool, extra: Option<String>) {
 /// The transport manager coordinates stdio, HTTP, and SSE transports based on
 /// enabled feature flags. At least one transport must be enabled.
 pub struct TransportManager {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     notification_sender: broadcast::Sender<OAuthCompletedNotification>,
 }
 
 impl TransportManager {
     /// Create a new transport manager with shared resources
     #[must_use]
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    pub fn new(resources: Arc<ServerContext>) -> Self {
         let (notification_sender, _) = broadcast::channel(100);
         Self {
             resources,
@@ -108,7 +108,7 @@ impl TransportManager {
 
     /// Spawn progress notification handler
     #[cfg(feature = "transport-stdio")]
-    fn spawn_progress_handler(resources: &mut ServerResources) {
+    fn spawn_progress_handler(resources: &mut ServerContext) {
         let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
         resources.set_progress_notification_sender(progress_tx);
 
@@ -124,7 +124,7 @@ impl TransportManager {
     /// Spawn stdio transport task
     #[cfg(feature = "transport-stdio")]
     fn spawn_stdio_transport(
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
         notification_receiver: broadcast::Receiver<OAuthCompletedNotification>,
     ) {
         let stdio_handle = tokio::spawn(async move {
@@ -146,7 +146,7 @@ impl TransportManager {
     /// Spawn SSE notification forwarder task
     #[cfg(feature = "transport-sse")]
     fn spawn_sse_forwarder(
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
         notification_receiver: broadcast::Receiver<OAuthCompletedNotification>,
     ) {
         tokio::spawn(async move {
@@ -159,7 +159,7 @@ impl TransportManager {
 
     /// Run HTTP server with restart on failure
     #[cfg(feature = "transport-http")]
-    async fn run_http_server_loop(shared_resources: Arc<ServerResources>, port: u16) -> ! {
+    async fn run_http_server_loop(shared_resources: Arc<ServerContext>, port: u16) -> ! {
         loop {
             info!("Starting unified Axum HTTP server on port {}", port);
 
@@ -216,7 +216,7 @@ impl TransportManager {
     }
 
     /// Prepare resources for transport initialization
-    fn prepare_resources(&self) -> Arc<ServerResources> {
+    fn prepare_resources(&self) -> Arc<ServerContext> {
         let mut resources_clone = (*self.resources).clone();
         resources_clone.set_oauth_notification_sender(self.notification_sender.clone());
 
@@ -233,7 +233,7 @@ impl TransportManager {
     }
 
     /// Spawn background transports (stdio, SSE)
-    fn spawn_background_transports(&self, shared_resources: &Arc<ServerResources>) {
+    fn spawn_background_transports(&self, shared_resources: &Arc<ServerContext>) {
         #[cfg(feature = "transport-stdio")]
         {
             let notification_receiver = self.notification_sender.subscribe();
@@ -250,7 +250,7 @@ impl TransportManager {
     /// Run the primary transport (HTTP or wait for signal)
     #[cfg(feature = "transport-http")]
     async fn run_primary_transport(
-        shared_resources: Arc<ServerResources>,
+        shared_resources: Arc<ServerContext>,
         port: u16,
     ) -> AppResult<()> {
         Self::run_http_server_loop(shared_resources, port).await
@@ -258,7 +258,7 @@ impl TransportManager {
 
     #[cfg(not(feature = "transport-http"))]
     async fn run_primary_transport(
-        shared_resources: Arc<ServerResources>,
+        shared_resources: Arc<ServerContext>,
         port: u16,
     ) -> AppResult<()> {
         let _ = (shared_resources, port); // Suppress unused warnings
@@ -286,14 +286,14 @@ impl TransportManager {
 /// Handles stdio transport for MCP communication
 #[cfg(feature = "transport-stdio")]
 pub struct StdioTransport {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 #[cfg(feature = "transport-stdio")]
 impl StdioTransport {
     /// Creates a new stdio transport instance
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 
@@ -345,7 +345,7 @@ impl StdioTransport {
     }
 
     /// Process an MCP request and send the response
-    async fn process_mcp_request(message: serde_json::Value, resources: Arc<ServerResources>) {
+    async fn process_mcp_request(message: serde_json::Value, resources: Arc<ServerContext>) {
         match serde_json::from_value::<super::multitenant::McpRequest>(message) {
             Ok(request) => {
                 let processor = super::mcp_request_processor::McpRequestProcessor::new(resources);
@@ -365,7 +365,7 @@ impl StdioTransport {
     /// Process a single incoming message from stdio
     async fn process_stdio_message(
         message: serde_json::Value,
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
         sampling_peer: Option<&Arc<super::sampling_peer::SamplingPeer>>,
     ) {
         if Self::is_sampling_response(&message) {
@@ -425,7 +425,7 @@ impl StdioTransport {
 
     async fn handle_stdio_notifications(
         mut receiver: broadcast::Receiver<OAuthCompletedNotification>,
-        _resources: Arc<ServerResources>,
+        _resources: Arc<ServerContext>,
     ) -> AppResult<()> {
         info!("Stdio notification handler ready");
 
@@ -453,7 +453,7 @@ pub struct SseNotificationForwarder;
 impl SseNotificationForwarder {
     /// Creates a new SSE notification forwarder instance
     #[must_use]
-    pub fn new(_resources: Arc<ServerResources>) -> Self {
+    pub fn new(_resources: Arc<ServerContext>) -> Self {
         Self
     }
 

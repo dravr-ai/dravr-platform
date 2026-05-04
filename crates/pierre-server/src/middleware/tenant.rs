@@ -35,7 +35,7 @@
 //! ```
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::utils::uuid::parse_uuid;
 use axum::{
     extract::{Request, State},
@@ -105,18 +105,18 @@ impl ExtractedTenantContext {
 /// ```rust,no_run
 /// use axum::{Router, routing::get, middleware};
 /// use pierre_mcp_server::middleware::tenant::tenant_context_middleware;
-/// use pierre_mcp_server::mcp::resources::ServerResources;
+/// use pierre_mcp_server::mcp::resources::ServerContext;
 /// use std::sync::Arc;
 ///
 /// # async fn handler() -> &'static str { "" }
-/// # fn example(resources: Arc<ServerResources>) {
-/// let app: Router<Arc<ServerResources>> = Router::new()
+/// # fn example(resources: Arc<ServerContext>) {
+/// let app: Router<Arc<ServerContext>> = Router::new()
 ///     .route("/", get(handler))
 ///     .layer(middleware::from_fn_with_state(resources.clone(), tenant_context_middleware));
 /// # }
 /// ```
 pub async fn tenant_context_middleware(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     mut req: Request,
     next: Next,
 ) -> Response {
@@ -201,7 +201,7 @@ fn extract_tenant_id_from_header(headers: &http::HeaderMap) -> Option<TenantId> 
 /// 4. Fetches tenant details and user role from database
 async fn extract_tenant_from_token(
     token: &str,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     explicit_tenant_id: Option<TenantId>,
 ) -> Option<TenantContext> {
     // Validate token and extract claims

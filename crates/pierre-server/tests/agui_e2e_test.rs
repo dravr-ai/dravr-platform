@@ -14,7 +14,7 @@ use pierre_mcp_server::agui::emitter::AgUiSink;
 use pierre_mcp_server::agui::events::AgUiEventKind;
 use pierre_mcp_server::agui::registry::RunOwner;
 use pierre_mcp_server::agui::{AgUiEvent, AgUiEventFilter, AgUiRoutes, BroadcastSink};
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 use reqwest::{Client, StatusCode};
 use std::net::SocketAddr;
@@ -25,11 +25,11 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 
-/// Bootstraps a full-auth test fixture: real `ServerResources`, a
+/// Bootstraps a full-auth test fixture: real `ServerContext`, a
 /// test user, their JWT, and the AG-UI router mounted on an ephemeral
 /// port.
 struct Fixture {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     base_url: String,
     owner: RunOwner,
     token: String,

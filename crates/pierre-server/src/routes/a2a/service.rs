@@ -18,7 +18,7 @@ use crate::a2a::{
     A2AError,
 };
 use crate::constants::time::DAY_SECONDS;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::utils::auth::extract_bearer_token;
@@ -89,7 +89,7 @@ pub struct A2AClientRequest {
 
 /// A2A Routes handler
 pub struct A2ARoutes {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     client_manager: Arc<A2AClientManager>,
     authenticator: Arc<A2AAuthenticator>,
     tool_executor: UniversalToolExecutor,
@@ -172,7 +172,7 @@ impl A2ARoutes {
 
     /// Creates a new A2A routes instance
     #[must_use]
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    pub fn new(resources: Arc<ServerContext>) -> Self {
         let client_manager = resources.a2a_client_manager.clone(); // Safe: Arc clone for shared client manager
         let authenticator = Arc::new(A2AAuthenticator::new(resources.clone())); // Safe: Arc clone for authenticator creation
 
@@ -716,7 +716,7 @@ impl A2ARoutes {
 
 impl Clone for A2ARoutes {
     fn clone(&self) -> Self {
-        // Clone uses shared ServerResources - no expensive object recreation
+        // Clone uses shared ServerContext - no expensive object recreation
         let tool_executor = UniversalToolExecutor::new(self.resources.clone()); // Safe: Arc clone for tool executor creation
 
         Self {

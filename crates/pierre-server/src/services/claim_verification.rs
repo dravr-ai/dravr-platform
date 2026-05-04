@@ -19,7 +19,7 @@
 //! published propositions via webhook sync; this module falls back to the
 //! embedded files when the registry is empty.
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use pierre_evals::{
     check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
     extract_heuristic, VerdictOutcome, VerificationConfig,
@@ -239,7 +239,7 @@ pub fn corpus() -> &'static EvidenceCorpus {
 /// small records) and keeps the lock hold time minimal.
 #[must_use]
 #[cfg(feature = "contremaitre")]
-pub fn resolve_corpus(resources: &ServerResources) -> EvidenceCorpus {
+pub fn resolve_corpus(resources: &ServerContext) -> EvidenceCorpus {
     let runtime = resources.evidence_registry.full_corpus();
     if runtime.is_empty() {
         corpus().clone()
@@ -251,14 +251,14 @@ pub fn resolve_corpus(resources: &ServerResources) -> EvidenceCorpus {
 /// Non-contremaitre build fallback: always return the compiled-in corpus.
 #[must_use]
 #[cfg(not(feature = "contremaitre"))]
-pub fn resolve_corpus(_resources: &ServerResources) -> EvidenceCorpus {
+pub fn resolve_corpus(_resources: &ServerContext) -> EvidenceCorpus {
     corpus().clone()
 }
 
 /// Verify a coach reply against the compiled-in fallback corpus.
 ///
 /// Thin wrapper over [`verify_reply_heuristic_with`] for callers that
-/// don't have a [`ServerResources`] handy (tests, tool dispatch when the
+/// don't have a [`ServerContext`] handy (tests, tool dispatch when the
 /// registry is not yet initialized). Production dispatch should prefer
 /// [`verify_reply_heuristic_with`] with [`resolve_corpus`].
 #[must_use]

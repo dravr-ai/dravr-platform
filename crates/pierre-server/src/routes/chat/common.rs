@@ -11,7 +11,7 @@ use pierre_auth::auth::AuthResult;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 use crate::models::TenantId;
 
@@ -21,7 +21,7 @@ use crate::models::TenantId;
 /// calls the same helper.
 pub async fn authenticate(
     headers: &HeaderMap,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<AuthResult, AppError> {
     extract_auth_from_headers(headers, resources).await
 }
@@ -30,7 +30,7 @@ pub async fn authenticate(
 /// tenant row is attached to the account.
 pub async fn get_tenant_id(
     user_id: Uuid,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
     let tenants = resources.repos.tenants.list_for_user(user_id).await?;
     Ok(tenants

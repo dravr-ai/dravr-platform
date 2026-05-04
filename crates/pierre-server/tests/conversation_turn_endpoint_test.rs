@@ -21,7 +21,7 @@ use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_mcp_server::{
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     models::{Tenant, User, UserStatus},
     permissions::UserRole,
     routes::llm_consumption::LlmConsumptionRoutes,
@@ -31,12 +31,12 @@ use serial_test::serial;
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn build_router(resources: Arc<ServerResources>) -> axum::Router {
+fn build_router(resources: Arc<ServerContext>) -> axum::Router {
     LlmConsumptionRoutes::routes(resources)
 }
 
 async fn create_admin_user_and_token(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     email: &str,
 ) -> (Uuid, TenantId, String) {
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
@@ -79,7 +79,7 @@ async fn create_admin_user_and_token(
 }
 
 async fn create_regular_user_and_token(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     email: &str,
 ) -> (TenantId, String) {
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
@@ -153,7 +153,7 @@ async fn create_regular_user_and_token(
 /// A fourth row under a different turn id exists to prove query
 /// isolation. Returns the shared turn id so assertions can key off it.
 async fn seed_turn(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> ConversationTurnId {

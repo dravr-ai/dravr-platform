@@ -15,7 +15,7 @@ use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::Activity;
 use crate::protocols::universal::auth_service::AuthService;
 
@@ -34,7 +34,7 @@ const CURRENT_WEEK_DAYS: i64 = 7;
 /// and computes training load metrics (CTL, ATL, TSB). Members without a
 /// connected provider receive a default snapshot with zero metrics.
 pub async fn build_member_snapshots(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     members: &[GroupMember],
     tenant_id: &str,
 ) -> Vec<MemberFitnessSnapshot> {
@@ -62,7 +62,7 @@ pub async fn build_member_snapshots(
 /// Build a snapshot for a single member by querying their fitness provider.
 async fn build_single_snapshot(
     auth_service: &AuthService,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     display_name: &str,
     tenant_id: &str,
@@ -82,7 +82,7 @@ async fn build_single_snapshot(
 /// Returns `None` if the member has no connected provider or if fetching fails.
 async fn fetch_member_activities(
     auth_service: &AuthService,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: &str,
     now: chrono::DateTime<Utc>,

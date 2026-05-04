@@ -11,7 +11,7 @@
 //! `messaging_eval_tool_called_happy_path_test.rs`. That file seeds
 //! an `llm_usage` summary row directly because wiring a real tool-
 //! invocation scenario required a test-only hook on
-//! [`ServerResourcesOptions`] and an in-test [`StubTool`] that the
+//! [`ServerContextOptions`] and an in-test [`StubTool`] that the
 //! mock LLM could reference. Both of those now exist, so this test
 //! exercises the real path:
 //!
@@ -57,7 +57,7 @@ mod pipeline_tool_loop {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::schema::JsonSchema;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::permissions::UserRole;
@@ -222,7 +222,7 @@ mod pipeline_tool_loop {
     }
 
     async fn create_admin_user_in_tenant(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         email: &str,
     ) -> (Uuid, TenantId, String) {
         let password_hash =
@@ -273,7 +273,7 @@ mod pipeline_tool_loop {
     /// legacy zero-token `turn_summary` writer; the per-call row that
     /// dispatched a tool now carries `tools_called` directly.
     async fn wait_for_summary_row_turn_id(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<Uuid> {
         let pool = resources

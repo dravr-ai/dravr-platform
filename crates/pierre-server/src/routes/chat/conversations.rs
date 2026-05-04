@@ -14,7 +14,7 @@ use axum::{
 };
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::chat_orchestration;
 
 use super::common::{authenticate, get_tenant_id};
@@ -26,7 +26,7 @@ use super::dto::{
 
 /// Create a new conversation.
 pub async fn create_conversation(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<CreateConversationRequest>,
 ) -> Result<Response, AppError> {
@@ -88,7 +88,7 @@ pub async fn create_conversation(
 
 /// List the caller's conversations, paginated via query params.
 pub async fn list_conversations(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(query): Query<ListConversationsQuery>,
 ) -> Result<Response, AppError> {
@@ -128,7 +128,7 @@ pub async fn list_conversations(
 
 /// Fetch a single conversation by id (scoped to the caller's tenant).
 pub async fn get_conversation(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -157,7 +157,7 @@ pub async fn get_conversation(
 
 /// Rename a conversation, returning the updated record.
 pub async fn update_conversation(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
     Json(request): Json<UpdateConversationRequest>,
@@ -203,7 +203,7 @@ pub async fn update_conversation(
 
 /// Hard-delete a conversation the caller owns.
 pub async fn delete_conversation(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -225,7 +225,7 @@ pub async fn delete_conversation(
 
 /// List all messages in a conversation after verifying ownership.
 pub async fn get_messages(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {

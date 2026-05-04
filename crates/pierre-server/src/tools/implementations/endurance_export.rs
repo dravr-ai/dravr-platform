@@ -16,7 +16,7 @@ use pierre_intelligence::latest_snapshot::{
 use serde_json::Value;
 
 use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::routes::social::SocialRoutes;
 use crate::tools::context::ToolExecutionContext;
@@ -50,7 +50,7 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
 }
 
 async fn fetch_window_activities(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {

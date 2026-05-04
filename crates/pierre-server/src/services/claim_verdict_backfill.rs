@@ -191,7 +191,7 @@ pub async fn run_backfill(
 
     let rows = fetch_assistant_messages(database, params, cursor.as_deref(), limit).await?;
     // CLI callers skip `resolve_corpus` because they don't have a
-    // `ServerResources` handle and the compiled-in `corpus()` is the
+    // `ServerContext` handle and the compiled-in `corpus()` is the
     // same data the runtime registry falls back to when empty.
     let corpus = super::claim_verification::corpus();
 

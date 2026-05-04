@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use crate::llm::chat_provider_from_credentials;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::llm_manager::{
@@ -135,7 +135,7 @@ pub struct LlmSettingsRoutes;
 
 impl LlmSettingsRoutes {
     /// Create all LLM settings routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/user/llm-settings", get(Self::get_llm_settings))
             .route("/api/user/llm-settings", put(Self::save_llm_credentials))
@@ -153,7 +153,7 @@ impl LlmSettingsRoutes {
     /// Extract and authenticate user from authorization header or cookie
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -164,7 +164,7 @@ impl LlmSettingsRoutes {
     /// falling back to the user's first tenant, or `user_id` if no tenant exists.
     async fn get_tenant_id(
         auth: &AuthResult,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<TenantId, AppError> {
         // Prefer active_tenant_id from JWT claims (user's selected tenant)
         if let Some(tenant_id) = auth.active_tenant_id {
@@ -179,7 +179,7 @@ impl LlmSettingsRoutes {
 
     /// Get current LLM settings for the authenticated user
     async fn get_llm_settings(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Json<LlmSettingsResponse>, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -318,7 +318,7 @@ impl LlmSettingsRoutes {
 
     /// Save LLM credentials
     async fn save_llm_credentials(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<SaveLlmCredentialsRequest>,
     ) -> Result<Json<SaveCredentialsResponse>, AppError> {
@@ -407,7 +407,7 @@ impl LlmSettingsRoutes {
 
     /// Validate LLM credentials without saving
     async fn validate_llm_credentials(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<ValidateLlmCredentialsRequest>,
     ) -> Result<Json<ValidationResponse>, AppError> {
@@ -480,7 +480,7 @@ impl LlmSettingsRoutes {
 
     /// Delete LLM credentials
     async fn delete_llm_credentials(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(provider_name): Path<String>,
     ) -> Result<impl IntoResponse, AppError> {

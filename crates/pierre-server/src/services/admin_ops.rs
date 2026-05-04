@@ -7,7 +7,7 @@
 use crate::config::social::SocialInsightsConfig;
 use crate::errors::{AppError, ErrorCode};
 use crate::llm::pricing::calculate_cost;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::UserStatus;
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
@@ -136,7 +136,7 @@ pub(crate) struct AutoApprovalSettings {
 /// to their `active_tenant_id` from JWT claims (returns `Some(tenant_id)`).
 /// Returns an error if a non-super-admin has no active tenant in their session.
 pub(crate) async fn get_admin_tenant_scope(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
 ) -> Result<Option<TenantId>, AppError> {
@@ -165,7 +165,7 @@ pub(crate) async fn get_admin_tenant_scope(
 /// Super-admin users can access any tenant. Regular admins are restricted
 /// to tenants they belong to via the `tenant_users` junction table.
 pub(crate) async fn verify_admin_tenant_access(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     target_tenant_id: TenantId,
 ) -> Result<(), AppError> {
@@ -242,7 +242,7 @@ pub(crate) async fn create_default_mcp_token_for_user(
 /// Uses `active_tenant_id` from the admin's JWT claims to determine the target tenant.
 /// If the admin has no active tenant in their session, the assignment is skipped.
 pub(crate) async fn assign_user_to_admin_tenant(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
 ) -> Result<(), AppError> {
@@ -270,7 +270,7 @@ pub(crate) async fn assign_user_to_admin_tenant(
 /// Verify the authenticated user has super-admin privileges.
 pub(crate) async fn require_super_admin(
     user_id: Uuid,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<(), AppError> {
     // SECURITY: Global lookup — checking admin's own super-admin role
     let user = resources
@@ -304,7 +304,7 @@ pub(crate) async fn require_super_admin(
 /// Returns an error describing the failure if the user is already active or the
 /// database operation fails.
 pub(crate) async fn approve_user(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -364,7 +364,7 @@ pub(crate) async fn approve_user(
 ///
 /// Returns an error if the user is already suspended or the database operation fails.
 pub(crate) async fn suspend_user(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     target_user_id: Uuid,
     reason: Option<&str>,
@@ -451,7 +451,7 @@ pub(crate) struct AdminUserSummary {
 /// Returns an error if the caller is not super-admin, the target user is not found,
 /// or the target is already an admin.
 pub(crate) async fn promote_user_to_admin(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
@@ -498,7 +498,7 @@ pub(crate) async fn promote_user_to_admin(
 /// at the repository layer to prevent accidental privilege loss. Self-demotion is rejected
 /// to avoid locking the caller out of admin actions.
 pub(crate) async fn demote_user_from_admin(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
@@ -547,7 +547,7 @@ pub(crate) async fn demote_user_from_admin(
 /// Only super-admins can view the full admin roster. Returns admins (and super-admins)
 /// ordered by email ascending.
 pub(crate) async fn list_all_admins(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
 ) -> Result<Vec<AdminUserSummary>, AppError> {
     require_super_admin(admin_user_id, resources).await?;
@@ -581,7 +581,7 @@ pub(crate) async fn list_all_admins(
 /// The raw token is returned to be delivered to the user. Only the SHA-256 hash
 /// is stored in the database. The token expires after 1 hour.
 pub(crate) async fn generate_password_reset_token(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -640,7 +640,7 @@ pub(crate) async fn generate_password_reset_token(
 /// Calculates daily and monthly usage, limits, remaining quota, and reset times
 /// based on the user's tier.
 pub(crate) async fn compute_user_rate_limits(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -720,7 +720,7 @@ pub(crate) async fn compute_user_rate_limits(
 
 /// Aggregate tool usage activity for a specific user over a given time period.
 pub(crate) async fn compute_user_activity(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -791,7 +791,7 @@ pub(crate) async fn compute_user_activity(
 ///
 /// Precedence: env var (if set) > database > default.
 pub(crate) async fn get_auto_approval_settings(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<AutoApprovalSettings, AppError> {
     let enabled = if resources.config.app_behavior.auto_approve_users_from_env {
         resources.config.app_behavior.auto_approve_users
@@ -816,7 +816,7 @@ pub(crate) async fn get_auto_approval_settings(
 
 /// Persist a new auto-approval setting to the database.
 pub(crate) async fn set_auto_approval(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     enabled: bool,
 ) -> Result<(), AppError> {
     resources
@@ -835,7 +835,7 @@ pub(crate) async fn set_auto_approval(
 
 /// Retrieve the current social insights configuration.
 pub(crate) async fn get_social_insights_config(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<SocialInsightsConfig, AppError> {
     resources
         .database
@@ -850,7 +850,7 @@ pub(crate) async fn get_social_insights_config(
 
 /// Persist updated social insights configuration.
 pub(crate) async fn set_social_insights_config(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     config: &SocialInsightsConfig,
 ) -> Result<(), AppError> {
     resources
@@ -865,7 +865,7 @@ pub(crate) async fn set_social_insights_config(
 
 /// Reset social insights configuration to defaults.
 pub(crate) async fn reset_social_insights_config(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<SocialInsightsConfig, AppError> {
     resources
         .database
@@ -887,7 +887,7 @@ pub(crate) async fn reset_social_insights_config(
 ///
 /// Resolves user emails for conversations and estimates costs using the LLM pricing model.
 pub(crate) async fn fetch_recent_activity(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<RecentActivityResult, AppError> {
     // Limit for recent items
     let recent_limit: i64 = 20;

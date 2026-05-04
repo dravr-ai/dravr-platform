@@ -1,5 +1,5 @@
 // ABOUTME: Startup hook that loads admin_config_overrides cat_llm_pricing rows into the global PricingRegistry
-// ABOUTME: Runs once during ServerResources construction so per-call cost computation sees overrides immediately
+// ABOUTME: Runs once during ServerContext construction so per-call cost computation sees overrides immediately
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

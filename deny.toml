@@ -76,7 +76,14 @@ exceptions = []
 # Dependency Bans - Prevent Problematic Dependencies
 # ============================================================================
 [bans]
-# Warn on multiple versions of the same dependency (bloats binary)
+# Warn on multiple versions of the same dependency (bloats binary).
+#
+# Note: dravr-* duplicates are gated separately and HARD-FAILED by
+# .github/workflows/cargo-deny.yml (job: dravr-duplicate-check). The skips
+# below silence cargo-deny's global warning so legacy PRs aren't spammed,
+# but the dedicated workflow remains the source of truth for the dravr
+# ecosystem and will block any PR that introduces or preserves a dravr
+# version split.
 multiple-versions = "warn"
 # Deny wildcard dependencies (bad for reproducibility)
 wildcards = "deny"
@@ -93,12 +100,10 @@ allow-wildcard-paths = true
 allow = []
 # Deny specific crates (if needed)
 deny = []
-# Skip these dependencies from multiple-version checking
-# winnow: cron 0.15 uses winnow 0.6, dravr-sciotte's toml 0.8 uses winnow 0.7
+# Skip these dependencies from multiple-version checking.
+# winnow: cron 0.15 uses winnow 0.6, dravr-sciotte's toml 0.8 uses winnow 0.7.
 skip = [
     { crate = "winnow", reason = "transitive version split between cron and toml_edit" },
-    { crate = "dravr-equilibre", reason = "pierre-core uses git v0.1.0, dravr-enforme uses crates.io v0.2.0 — will converge" },
-    { crate = "dravr-riviere", reason = "pierre-core uses git v0.1.0, dravr-enforme uses crates.io v0.2.0 — will converge" },
 ]
 # Skip tree checking for these dependencies
 skip-tree = []

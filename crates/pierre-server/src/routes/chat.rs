@@ -31,7 +31,7 @@ use axum::Router;
 
 use crate::errors::AppError;
 use crate::llm::{ChatProvider, Tool};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::chat_verdicts;
 use crate::services::tool_execution::build_mcp_tools as services_build_mcp_tools;
 
@@ -66,7 +66,7 @@ pub struct ChatRoutes;
 
 impl ChatRoutes {
     /// Create all chat routes.
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Conversation management
             .route(

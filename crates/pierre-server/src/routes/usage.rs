@@ -22,7 +22,7 @@ use serde::Serialize;
 
 use crate::{
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
     models::TenantId,
     services::usage_counter::{LimitCheckResult, UsageCounterService},
@@ -80,7 +80,7 @@ pub struct UsageRoutes;
 
 impl UsageRoutes {
     /// Create usage status routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/usage/status", get(Self::get_status))
             .with_state(resources)
@@ -89,7 +89,7 @@ impl UsageRoutes {
     /// Extract and authenticate user from authorization header or cookie
     pub(crate) async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -97,7 +97,7 @@ impl UsageRoutes {
     /// Get user's `tenant_id` (defaults to `user_id` if no tenant)
     pub(crate) async fn get_tenant_id(
         user_id: uuid::Uuid,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<TenantId, AppError> {
         let tenants = resources.repos.tenants.list_for_user(user_id).await?;
         Ok(tenants
@@ -107,7 +107,7 @@ impl UsageRoutes {
 
     /// GET /api/usage/status - Get current usage quota status
     async fn get_status(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;

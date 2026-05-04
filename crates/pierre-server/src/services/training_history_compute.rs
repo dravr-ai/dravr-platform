@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 2 service — fetch activities + physiology, run intelligence compute, persist + invalidate cache
-// ABOUTME: Wraps pierre_intelligence::training_history_compute with the ServerResources / repos / cache plumbing
+// ABOUTME: Wraps pierre_intelligence::training_history_compute with the ServerContext / repos / cache plumbing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,7 +15,7 @@ use pierre_intelligence::training_history_compute::{
 use uuid::Uuid;
 
 use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::routes::social::SocialRoutes;
 
 /// Default backfill window when the caller does not specify one.
@@ -38,7 +38,7 @@ pub const MAX_ACTIVITIES_FOR_BACKFILL: usize = 500;
 /// Returns [`AppError`] when the provider fetch fails or the repository
 /// upsert fails. The compute step is infallible.
 pub async fn compute_and_persist_history(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -101,7 +101,7 @@ pub async fn compute_and_persist_history(
 ///
 /// Same conditions as [`compute_and_persist_history`].
 pub async fn compute_default_window(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AppResult<usize> {
@@ -116,7 +116,7 @@ pub async fn compute_default_window(
 ///
 /// Returns [`AppError`] from the repository when the read fails.
 pub async fn fetch_history_rows(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,

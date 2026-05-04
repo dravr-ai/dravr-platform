@@ -24,7 +24,7 @@ use crate::config::{
 };
 use crate::constants::physiology;
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::types::json_schemas;
 use pierre_auth::auth::AuthResult;
 // UserRepository methods dispatched through repos.users Arc<dyn Trait>
@@ -260,13 +260,13 @@ pub struct ResponseMetadata {
 /// Configuration management routes handler
 #[derive(Clone)]
 pub struct ConfigurationRoutes {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl ConfigurationRoutes {
     /// Create a new configuration routes handler
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

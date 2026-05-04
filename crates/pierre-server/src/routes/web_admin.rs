@@ -14,7 +14,7 @@ use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
     config::social::SocialInsightsConfig,
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::{extract_auth_from_headers, require_admin},
     services::admin_ops,
 };
@@ -277,7 +277,7 @@ pub struct WebAdminRoutes;
 
 impl WebAdminRoutes {
     /// Create all web admin routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/admin/pending-users", get(Self::handle_pending_users))
             .route("/api/admin/users", get(Self::handle_all_users))
@@ -392,7 +392,7 @@ impl WebAdminRoutes {
     /// Authenticate user from authorization header or cookie, requiring admin privileges
     async fn authenticate_admin(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         let auth = extract_auth_from_headers(headers, resources).await?;
 
@@ -404,7 +404,7 @@ impl WebAdminRoutes {
 
     /// Handle pending users listing for web admin users
     async fn handle_pending_users(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate and verify admin status
@@ -456,7 +456,7 @@ impl WebAdminRoutes {
 
     /// Handle listing all users for web admin users
     async fn handle_all_users(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate and verify admin status
@@ -517,7 +517,7 @@ impl WebAdminRoutes {
 
     /// Handle listing admin tokens for web admin users
     async fn handle_admin_tokens(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate and verify admin status
@@ -568,7 +568,7 @@ impl WebAdminRoutes {
 
     /// Handle approving a user via web admin (cookie auth)
     async fn handle_approve_user(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
         Json(request): Json<ApproveUserRequest>,
@@ -610,7 +610,7 @@ impl WebAdminRoutes {
 
     /// Handle suspending a user via web admin (cookie auth)
     async fn handle_suspend_user(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
         Json(request): Json<SuspendUserRequest>,
@@ -670,7 +670,7 @@ impl WebAdminRoutes {
 
     /// Handle creating an admin token via web admin (cookie auth)
     async fn handle_create_admin_token(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<CreateAdminTokenWebRequest>,
     ) -> Result<Response, AppError> {
@@ -723,7 +723,7 @@ impl WebAdminRoutes {
 
     /// Handle getting a specific admin token via web admin (cookie auth)
     async fn handle_get_admin_token(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -762,7 +762,7 @@ impl WebAdminRoutes {
 
     /// Handle revoking an admin token via web admin (cookie auth)
     async fn handle_revoke_admin_token(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -803,7 +803,7 @@ impl WebAdminRoutes {
     /// The admin delivers the token to the user, who calls `POST /api/auth/complete-reset`
     /// with the token and their chosen new password. Token expires after 1 hour.
     async fn handle_reset_user_password(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -844,7 +844,7 @@ impl WebAdminRoutes {
 
     /// Handle getting rate limit info for a user via web admin
     async fn handle_get_user_rate_limit(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -893,7 +893,7 @@ impl WebAdminRoutes {
 
     /// Handle getting user activity via web admin
     async fn handle_get_user_activity(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
         Query(params): Query<UserActivityQuery>,
@@ -931,7 +931,7 @@ impl WebAdminRoutes {
     /// Handle getting auto-approval setting
     async fn handle_get_auto_approval(
         headers: HeaderMap,
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
@@ -956,7 +956,7 @@ impl WebAdminRoutes {
     /// Handle setting auto-approval
     async fn handle_set_auto_approval(
         headers: HeaderMap,
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         Json(request): Json<serde_json::Value>,
     ) -> Result<impl IntoResponse, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -1001,7 +1001,7 @@ impl WebAdminRoutes {
     /// GET `/api/admin/settings/social-insights` - Get social insights configuration
     async fn handle_get_social_insights_config(
         headers: HeaderMap,
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
@@ -1021,7 +1021,7 @@ impl WebAdminRoutes {
     /// PUT `/api/admin/settings/social-insights` - Update social insights configuration
     async fn handle_set_social_insights_config(
         headers: HeaderMap,
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         Json(config): Json<SocialInsightsConfig>,
     ) -> Result<impl IntoResponse, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -1052,7 +1052,7 @@ impl WebAdminRoutes {
     /// DELETE `/api/admin/settings/social-insights` - Reset social insights to defaults
     async fn handle_reset_social_insights_config(
         headers: HeaderMap,
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
     ) -> Result<impl IntoResponse, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
@@ -1085,7 +1085,7 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tools/catalog` - List all tools in catalog
     async fn handle_get_tool_catalog(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
@@ -1105,7 +1105,7 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tools/catalog/{tool_name}` - Get single tool details
     async fn handle_get_tool_catalog_entry(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tool_name): Path<String>,
     ) -> Result<Response, AppError> {
@@ -1130,7 +1130,7 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tools/global-disabled` - List globally disabled tools
     async fn handle_get_global_disabled_tools(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
@@ -1158,7 +1158,7 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tools/tenant/{tenant_id}` - Get effective tools for tenant
     async fn handle_get_tenant_tools(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
@@ -1183,7 +1183,7 @@ impl WebAdminRoutes {
 
     /// POST `/api/admin/tools/tenant/{tenant_id}/override` - Set tool override
     async fn handle_set_tool_override(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tenant_id): Path<TenantId>,
         Json(request): Json<SetToolOverrideRequest>,
@@ -1226,7 +1226,7 @@ impl WebAdminRoutes {
 
     /// DELETE `/api/admin/tools/tenant/{tenant_id}/override/{tool_name}` - Remove override
     async fn handle_remove_tool_override(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path((tenant_id, tool_name)): Path<(TenantId, String)>,
     ) -> Result<Response, AppError> {
@@ -1261,7 +1261,7 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tools/tenant/{tenant_id}/summary` - Get availability summary
     async fn handle_get_tool_summary(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
@@ -1292,7 +1292,7 @@ impl WebAdminRoutes {
     /// Returns recent LLM calls, recent conversations, and summary stats for the
     /// activity tab polling endpoint.
     async fn handle_recent_activity(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
@@ -1317,7 +1317,7 @@ impl WebAdminRoutes {
 
     /// Promote a user to admin (super-admin only)
     async fn handle_promote_user(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -1352,7 +1352,7 @@ impl WebAdminRoutes {
 
     /// Demote an admin user back to a regular user (super-admin only)
     async fn handle_demote_user(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -1387,7 +1387,7 @@ impl WebAdminRoutes {
 
     /// List all admin users across all tenants (super-admin only)
     async fn handle_list_admins(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -1426,7 +1426,7 @@ impl WebAdminRoutes {
     /// `GET /api/admin/users/{user_id}/usage?from=<rfc3339>` — per-user
     /// aggregates + daily series. Powers the admin UI Usage tab.
     async fn handle_get_user_usage(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
@@ -1457,7 +1457,7 @@ impl WebAdminRoutes {
 
     /// `GET /api/admin/users/{user_id}/cost-timeseries?from=<rfc3339>`
     async fn handle_get_user_cost_timeseries(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
@@ -1482,7 +1482,7 @@ impl WebAdminRoutes {
 
     /// `GET /api/admin/tenants/{tenant_id}/usage?from=<rfc3339>`
     async fn handle_get_tenant_usage(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tenant_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
@@ -1513,7 +1513,7 @@ impl WebAdminRoutes {
 
     /// `GET /api/admin/tenants/{tenant_id}/invoice?period=YYYY-MM`
     async fn handle_get_tenant_invoice(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(tenant_id): Path<String>,
         Query(q): Query<InvoicePeriodQuery>,
@@ -1545,7 +1545,7 @@ impl WebAdminRoutes {
 
     /// `GET /api/admin/billing/export?period=YYYY-MM&format=csv|json&limit=N`
     async fn handle_export_billing(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(q): Query<BillingExportQuery>,
     ) -> Result<Response, AppError> {

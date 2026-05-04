@@ -17,9 +17,8 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::mcp::resources::ServerResources,
-    pierre_notifications::triggers as notification_triggers, pierre_notifications::TenantId,
-    std::sync::Arc, uuid::Uuid,
+    crate::mcp::resources::ServerContext, pierre_notifications::triggers as notification_triggers,
+    pierre_notifications::TenantId, std::sync::Arc, uuid::Uuid,
 };
 
 /// User physiological parameters for personalized TSS calculation
@@ -603,7 +602,7 @@ const OVERTRAINING_TSB_THRESHOLD: f64 = -30.0;
 /// All triggers are fire-and-forget — failures are logged but never block the caller.
 #[cfg(feature = "client-notifications")]
 fn fire_training_load_notifications(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id_str: Option<&str>,
     analysis: &serde_json::Value,

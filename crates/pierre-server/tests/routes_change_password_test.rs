@@ -19,7 +19,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     routes::auth::AuthRoutes,
 };
 use serde_json::json;
@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 /// Test setup helper for change password testing
 struct ChangePasswordTestSetup {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl ChangePasswordTestSetup {
@@ -63,13 +63,13 @@ impl ChangePasswordTestSetup {
         });
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,

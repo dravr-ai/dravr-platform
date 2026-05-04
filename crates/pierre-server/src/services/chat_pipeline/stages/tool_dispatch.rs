@@ -12,7 +12,7 @@ use tracing::{info, warn};
 
 use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::protocols::universal::UniversalExecutor;
 use crate::services::chat_provider_factory::create_chat_provider_from_resources;
 use crate::services::provider_error_filter::detect_leaked_provider_error;
@@ -48,7 +48,7 @@ use super::prefetch::inject_startup_context;
     )
 )]
 pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     profile: &ChannelProfile,
     active_model: &str,

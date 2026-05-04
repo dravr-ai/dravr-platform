@@ -10,7 +10,7 @@ use crate::{
     coaches::{parse_coach_content, to_markdown},
     errors::AppError,
     llm::{ChatMessage, ChatRequest},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     services::{coach_import, coaches as coaches_service, recipes as recipes_service},
 };
 use axum::{
@@ -36,7 +36,7 @@ use super::types::{
 
 /// Handle GET /api/coaches - List coaches for a user
 pub(super) async fn handle_list(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(query): Query<ListCoachesQuery>,
 ) -> Result<Response, AppError> {
@@ -127,7 +127,7 @@ fn check_prerequisites(
 
 /// Handle POST /api/coaches - Create a new coach
 pub(super) async fn handle_create(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(body): Json<CreateCoachBody>,
 ) -> Result<Response, AppError> {
@@ -169,7 +169,7 @@ pub(super) async fn handle_create(
 
 /// Handle GET /api/coaches/search - Search coaches
 pub(super) async fn handle_search(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(query): Query<SearchCoachesQuery>,
 ) -> Result<Response, AppError> {
@@ -192,7 +192,7 @@ pub(super) async fn handle_search(
 
 /// Handle GET /api/coaches/:id - Get a specific coach
 pub(super) async fn handle_get(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -219,7 +219,7 @@ pub(super) async fn handle_get(
 
 /// Handle GET /api/coaches/:id/export - Export coach as markdown
 pub(super) async fn handle_export(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -259,7 +259,7 @@ pub(super) async fn handle_export(
 /// creates a new coach. Returns 409 Conflict if a coach with the same
 /// content already exists for this user.
 pub(super) async fn handle_import(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, AppError> {
@@ -305,7 +305,7 @@ pub(super) async fn handle_import(
 /// Parses the markdown content and returns validation results, warnings,
 /// and duplicate detection information without creating a coach.
 pub(super) async fn handle_import_preview(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, AppError> {
@@ -373,7 +373,7 @@ pub(super) async fn handle_import_preview(
 /// then either saves as a new coach or returns a preview depending on the
 /// `save` parameter.
 pub(super) async fn handle_import_from_url(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(body): Json<ImportFromUrlBody>,
 ) -> Result<Response, AppError> {
@@ -454,7 +454,7 @@ pub(super) async fn handle_import_from_url(
 /// Uses the LLM to analyze the last N messages of a conversation and
 /// generate a coach profile with title, description, system prompt, and tags.
 pub(super) async fn handle_generate(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(body): Json<GenerateCoachRequest>,
 ) -> Result<Response, AppError> {
@@ -544,7 +544,7 @@ pub(super) async fn handle_generate(
 
 /// Handle PUT /api/coaches/:id - Update a coach
 pub(super) async fn handle_update(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdateCoachBody>,
@@ -565,7 +565,7 @@ pub(super) async fn handle_update(
 
 /// Handle DELETE /api/coaches/:id - Delete a coach
 pub(super) async fn handle_delete(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -584,7 +584,7 @@ pub(super) async fn handle_delete(
 
 /// Handle POST /api/coaches/:id/favorite - Toggle favorite status
 pub(super) async fn handle_toggle_favorite(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -603,7 +603,7 @@ pub(super) async fn handle_toggle_favorite(
 
 /// Handle POST /api/coaches/:id/usage - Record coach usage
 pub(super) async fn handle_record_usage(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -623,7 +623,7 @@ pub(super) async fn handle_record_usage(
 
 /// Handle POST /api/coaches/:id/hide - Hide a coach from user's view
 pub(super) async fn handle_hide_coach(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -641,7 +641,7 @@ pub(super) async fn handle_hide_coach(
 
 /// Handle DELETE /api/coaches/:id/hide - Show (unhide) a coach
 pub(super) async fn handle_show_coach(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -659,7 +659,7 @@ pub(super) async fn handle_show_coach(
 
 /// Handle POST /api/coaches/:id/fork - Fork a system coach to create a user copy
 pub(super) async fn handle_fork(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -678,7 +678,7 @@ pub(super) async fn handle_fork(
 
 /// Handle GET /api/coaches/hidden - List hidden coaches for user
 pub(super) async fn handle_list_hidden(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;

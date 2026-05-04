@@ -41,8 +41,9 @@ use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::CoachRuntimeContext;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    AdaptedInsight, FriendConnection, FriendStatus, InsightReaction, NotificationPreferences,
-    SharedInsight, TrainingPhase, UserSocialSettings,
+    AdaptedInsight, FeedItem, FriendConnection, FriendInfo, FriendStatus, InsightReaction,
+    InsightType, NotificationPreferences, ReactionSummary, ReactionType, SharedInsight,
+    TrainingPhase, UserSocialSettings,
 };
 use pierre_core::pagination::{Cursor, CursorPage, StoreCursor, StoreSortOrder};
 use pierre_core::tokens::estimate_prompt_tokens;
@@ -2476,25 +2477,46 @@ impl SocialRepository for Database {
     async fn get_user_shared_insights(
         &self,
         user_id: Uuid,
+        insight_type: Option<InsightType>,
         limit: u32,
         offset: u32,
     ) -> AppResult<Vec<SharedInsight>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, visibility, insight_type, sport_type, content, title,
-                   training_phase, reaction_count, adapt_count, created_at, updated_at, expires_at,
-                   source_activity_id, coach_generated
-            FROM shared_insights
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-            ",
-        )
-        .bind(user_id.to_string())
-        .bind(i64::from(limit))
-        .bind(i64::from(offset))
-        .fetch_all(self.pool())
-        .await
+        let rows = if let Some(itype) = insight_type {
+            sqlx::query(
+                r"
+                SELECT id, user_id, visibility, insight_type, sport_type, content, title,
+                       training_phase, reaction_count, adapt_count, created_at, updated_at, expires_at,
+                       source_activity_id, coach_generated
+                FROM shared_insights
+                WHERE user_id = $1 AND insight_type = $2
+                ORDER BY created_at DESC
+                LIMIT $3 OFFSET $4
+                ",
+            )
+            .bind(user_id.to_string())
+            .bind(itype.as_str())
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(self.pool())
+            .await
+        } else {
+            sqlx::query(
+                r"
+                SELECT id, user_id, visibility, insight_type, sport_type, content, title,
+                       training_phase, reaction_count, adapt_count, created_at, updated_at, expires_at,
+                       source_activity_id, coach_generated
+                FROM shared_insights
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
+                ",
+            )
+            .bind(user_id.to_string())
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(self.pool())
+            .await
+        }
         .map_err(|e| AppError::database(format!("Failed to get user insights: {e}")))?;
 
         rows.iter().map(row_to_shared_insight).collect()
@@ -2744,6 +2766,166 @@ impl SocialRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to count friends: {e}")))?;
 
         Ok(row.get("cnt"))
+    }
+
+    async fn get_friends_paginated(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<FriendConnection>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
+            FROM friend_connections
+            WHERE (initiator_id = $1 OR receiver_id = $1)
+              AND status = 'accepted'
+            ORDER BY accepted_at DESC
+            LIMIT $2 OFFSET $3
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get friends: {e}")))?;
+
+        rows.iter().map(row_to_friend_connection).collect()
+    }
+
+    async fn has_insight_for_activity(&self, user_id: Uuid, activity_id: &str) -> AppResult<bool> {
+        let row = sqlx::query(
+            r"
+            SELECT 1
+            FROM shared_insights
+            WHERE user_id = $1 AND source_activity_id = $2
+            LIMIT 1
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(activity_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to check for existing insight: {e}")))?;
+
+        Ok(row.is_some())
+    }
+
+    async fn get_friend_insights_feed_full(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<FeedItem>> {
+        let insights = self
+            .get_friends_feed(
+                user_id,
+                u32::try_from(limit).unwrap_or(0),
+                u32::try_from(offset).unwrap_or(0),
+            )
+            .await?;
+
+        let mut feed_items = Vec::with_capacity(insights.len());
+
+        for insight in insights {
+            // UFCS disambiguates against `Database::get_user_profile`, which
+            // returns `Option<serde_json::Value>` for the user_profiles JSON
+            // blob (see ProfileRepository), distinct from this trait method.
+            let author = SocialRepository::get_user_profile(self, insight.user_id).await?;
+            let reactions = self.get_insight_reactions(insight.id).await?;
+            // Reaction counts are small per-insight tallies; cast to i32 is bounded.
+            #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+            let reaction_summary = ReactionSummary {
+                like_count: reactions
+                    .iter()
+                    .filter(|r| r.reaction_type == ReactionType::Like)
+                    .count() as i32,
+                celebrate_count: reactions
+                    .iter()
+                    .filter(|r| r.reaction_type == ReactionType::Celebrate)
+                    .count() as i32,
+                inspire_count: reactions
+                    .iter()
+                    .filter(|r| r.reaction_type == ReactionType::Inspire)
+                    .count() as i32,
+                support_count: reactions
+                    .iter()
+                    .filter(|r| r.reaction_type == ReactionType::Support)
+                    .count() as i32,
+                total: reactions.len() as i32,
+            };
+
+            let user_reaction = self.get_insight_reaction(insight.id, user_id).await?;
+            let user_has_adapted = self
+                .get_user_adaptation(insight.id, user_id)
+                .await?
+                .is_some();
+
+            feed_items.push(FeedItem {
+                insight,
+                author,
+                reactions: reaction_summary,
+                user_reaction: user_reaction.map(|r| r.reaction_type),
+                user_has_adapted,
+            });
+        }
+
+        Ok(feed_items)
+    }
+
+    async fn get_user_adapted_insights_paginated(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<AdaptedInsight>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
+                   was_helpful, created_at
+            FROM adapted_insights
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
+
+        rows.iter().map(row_to_adapted_insight).collect()
+    }
+
+    async fn get_user_profile(&self, user_id: Uuid) -> AppResult<FriendInfo> {
+        let row: Option<SqliteRow> =
+            sqlx::query("SELECT id, display_name, email, created_at FROM users WHERE id = $1")
+                .bind(user_id.to_string())
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to get user profile: {e}")))?;
+
+        let row = row.ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+
+        let id_str: String = row.get("id");
+        let display_name: Option<String> = row.get("display_name");
+        let email: String = row.get("email");
+        let created_at_str: String = row.get("created_at");
+
+        let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+            .map_err(|e| AppError::database(format!("Invalid datetime: {e}")))?
+            .with_timezone(&Utc);
+
+        Ok(FriendInfo {
+            user_id: Uuid::parse_str(&id_str)
+                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
+            display_name,
+            email,
+            friends_since: created_at,
+        })
     }
 }
 

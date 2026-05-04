@@ -11,7 +11,7 @@
 //! All handlers require valid JWT authentication.
 
 use crate::{
-    errors::AppError, mcp::resources::ServerResources, middleware::extract_auth_from_headers,
+    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
     models::TenantId,
 };
 use axum::{
@@ -42,7 +42,7 @@ pub struct HealthDataRoutes;
 
 impl HealthDataRoutes {
     /// Create all health data routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/health-data/sleep", get(Self::handle_get_sleep))
             .route("/health-data/recovery", get(Self::handle_get_recovery))
@@ -57,7 +57,7 @@ impl HealthDataRoutes {
     /// Extract and authenticate user from authorization header
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -98,7 +98,7 @@ impl HealthDataRoutes {
 
     /// Handle GET /health-data/sleep - query stored sleep sessions
     async fn handle_get_sleep(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
@@ -117,7 +117,7 @@ impl HealthDataRoutes {
 
     /// Handle GET /health-data/recovery - query stored recovery metrics
     async fn handle_get_recovery(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
@@ -136,7 +136,7 @@ impl HealthDataRoutes {
 
     /// Handle GET /health-data/snapshots - query stored health snapshots
     async fn handle_get_health_snapshots(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
@@ -155,7 +155,7 @@ impl HealthDataRoutes {
 
     /// Handle GET /health-data/sources - list connected data sources
     async fn handle_list_data_sources(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;

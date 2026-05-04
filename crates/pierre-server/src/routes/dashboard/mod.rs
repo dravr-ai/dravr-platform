@@ -12,7 +12,7 @@
 /// Service layer for dashboard data and analytics operations
 pub mod service;
 
-use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -74,7 +74,7 @@ impl DashboardRoutes {
     /// - /api/dashboard/request-logs - Request logs with filtering
     /// - /api/dashboard/request-stats - Detailed request statistics
     /// - /api/dashboard/tool-usage - Tool usage breakdown
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Primary dashboard endpoints matching frontend API calls
             .route(
@@ -108,7 +108,7 @@ impl DashboardRoutes {
 
     /// Handle dashboard overview request
     async fn handle_dashboard_overview(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -121,7 +121,7 @@ impl DashboardRoutes {
 
     /// Handle detailed stats request
     async fn handle_detailed_stats(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -134,7 +134,7 @@ impl DashboardRoutes {
 
     /// Handle usage analytics request
     async fn handle_usage_analytics(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Query(params): Query<UsageAnalyticsQuery>,
     ) -> Result<Response, AppError> {
@@ -148,7 +148,7 @@ impl DashboardRoutes {
 
     /// Handle rate limits overview request
     async fn handle_rate_limits(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -161,7 +161,7 @@ impl DashboardRoutes {
 
     /// Handle request logs request
     async fn handle_request_logs(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Query(params): Query<RequestLogsQuery>,
     ) -> Result<Response, AppError> {
@@ -183,7 +183,7 @@ impl DashboardRoutes {
 
     /// Handle tool usage breakdown request
     async fn handle_tool_usage(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Query(params): Query<ToolUsageQuery>,
     ) -> Result<Response, AppError> {

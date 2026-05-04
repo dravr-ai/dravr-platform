@@ -19,7 +19,7 @@ use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
 };
 use pierre_database::database::{Coach, StoreListingsManager};
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::TenantId;
 use pierre_mcp_server::routes::store::{
     BrowseCoachesResponse, CategoriesResponse, InstallCoachResponse, InstallationsResponse,
@@ -50,7 +50,7 @@ async fn setup_test_environment() -> (axum::Router, String) {
 
 /// Create a published coach in the Store for testing
 async fn create_published_coach(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
     title: &str,

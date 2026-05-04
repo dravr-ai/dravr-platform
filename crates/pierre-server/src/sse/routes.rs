@@ -7,7 +7,7 @@
 use super::manager::SseManager;
 use crate::config::environment::SseBufferStrategy;
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::utils::auth::extract_bearer_token_owned as extract_token;
 use axum::{
     extract::{Path, State},
@@ -29,7 +29,7 @@ pub struct SseRoutes;
 
 impl SseRoutes {
     /// Create all SSE routes
-    pub fn routes(manager: Arc<SseManager>, resources: Arc<ServerResources>) -> Router {
+    pub fn routes(manager: Arc<SseManager>, resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/notifications/sse/{user_id}",
@@ -52,7 +52,7 @@ impl SseRoutes {
     async fn handle_notification_sse(
         Path(user_id): Path<String>,
         headers: HeaderMap,
-        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerResources>)>,
+        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerContext>)>,
     ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
         info!("New notification SSE connection for user: {}", user_id);
 
@@ -182,7 +182,7 @@ impl SseRoutes {
     async fn handle_protocol_sse(
         Path(session_id): Path<String>,
         headers: HeaderMap,
-        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerResources>)>,
+        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerContext>)>,
     ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
         info!(
             "New MCP protocol SSE connection for session: {}",
@@ -283,7 +283,7 @@ impl SseRoutes {
     async fn handle_a2a_task_sse(
         Path(task_id): Path<String>,
         headers: HeaderMap,
-        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerResources>)>,
+        State((manager, resources)): State<(Arc<SseManager>, Arc<ServerContext>)>,
     ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
         info!("New A2A task SSE connection for task: {}", task_id);
 

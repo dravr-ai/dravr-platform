@@ -28,7 +28,7 @@ use pierre_mcp_server::{
     constants::tools::PUBLIC_DISCOVERY_TOOLS,
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
     },
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -549,13 +549,13 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     .await?;
 
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             &stored_jwt_secret,
             create_test_config(server_port),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -733,13 +733,13 @@ async fn test_mcp_authentication_required() -> Result<()> {
     .await?;
 
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             &stored_jwt_secret,
             create_test_config(server_port),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -840,13 +840,13 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
     .await?;
 
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             &stored_jwt_secret,
             create_test_config(server_port),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -929,13 +929,13 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
     .await?;
 
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             &stored_jwt_secret,
             create_test_config(server_port),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1043,13 +1043,13 @@ async fn test_multitenant_server_config() -> Result<()> {
 
     // Test server creation
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             &stored_jwt_secret,
             config.clone(),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

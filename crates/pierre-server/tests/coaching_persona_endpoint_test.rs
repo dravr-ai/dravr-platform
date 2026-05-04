@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! End-to-end tests for the persona update endpoint. We stand up the full
-//! [`AuthRoutes`] router with shared `ServerResources`, generate a JWT,
+//! [`AuthRoutes`] router with shared `ServerContext`, generate a JWT,
 //! and exercise the route through `tower::ServiceExt::oneshot` so the
 //! middleware (auth extraction, JSON deserialisation, error envelope)
 //! runs exactly as in production.
@@ -22,13 +22,13 @@ use helpers::axum_test::AxumTestRequest;
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_core::models::CoachingPersona;
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::auth::AuthRoutes;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
-async fn setup() -> (Router, String, Uuid, Arc<ServerResources>) {
+async fn setup() -> (Router, String, Uuid, Arc<ServerContext>) {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
     let token = resources

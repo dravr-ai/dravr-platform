@@ -8,7 +8,7 @@ use crate::config::environment::get_oauth_config;
 #[cfg(feature = "provider-synthetic")]
 use crate::constants::oauth_providers;
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::{TenantId, UserOAuthToken};
 use crate::protocols::universal::UniversalResponse;
 use crate::providers::backend_resolver;
@@ -59,13 +59,13 @@ pub enum OAuthError {
 /// Service responsible for authentication and provider creation
 /// Centralizes OAuth token management and reduces duplication across handlers
 pub struct AuthService {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl AuthService {
     /// Create new authentication service
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 
@@ -658,7 +658,7 @@ impl AuthService {
 /// Called from the token refresh callback wired into providers.
 /// Errors are logged but not propagated — the in-memory token is still valid for the current request.
 async fn persist_refreshed_token(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: Uuid,
     tenant_id: Option<&str>,
     provider: &str,

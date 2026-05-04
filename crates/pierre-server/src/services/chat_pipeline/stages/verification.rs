@@ -25,7 +25,7 @@ use pierre_memory::claims::ClaimStatus;
 use crate::contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::claim_verification::{resolve_corpus, verify_reply_with_config_and_corpus};
 
@@ -71,7 +71,7 @@ pub(crate) fn resolve_banner_locale(reply: &str, locale: Option<&str>) -> String
 /// caller-owned state — no ownership transfer, no cloning.
 pub struct ClaimVerificationParams<'a> {
     /// Server resources providing the registry, corpus, and verdict repo.
-    pub resources: &'a Arc<ServerResources>,
+    pub resources: &'a Arc<ServerContext>,
     /// Assistant reply text to scan.
     pub reply: &'a str,
     /// Parsed verification config (from the coach's prompt frontmatter).
@@ -181,7 +181,7 @@ pub async fn apply_claim_verification(
 /// flagged message. Writes are best-effort: a single row failing is logged
 /// and does not affect the user-facing turn.
 pub async fn persist_pending_verdicts(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: &str,
     conversation_id: &str,

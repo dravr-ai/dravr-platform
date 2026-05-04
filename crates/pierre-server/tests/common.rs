@@ -40,7 +40,7 @@ use pierre_mcp_server::{
         environment::{RateLimitConfig, ServerConfig},
     },
     constants,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     middleware::McpAuthMiddleware,
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     routes::mcp::McpRoutes,
@@ -78,7 +78,7 @@ pub fn init_server_config() {
 
         // Point the messaging command loader at the repo-root `commands/`
         // directory so command handlers are populated in the test
-        // `ServerResources`. Without this, the loader resolves relative to
+        // `ServerContext`. Without this, the loader resolves relative to
         // the test process CWD (`crates/pierre-server/`) and finds nothing.
         let commands_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -304,7 +304,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
 /// Route handlers require `active_tenant_id` in the JWT claims to resolve the
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
-pub async fn generate_test_token(resources: &Arc<ServerResources>, user: &User) -> String {
+pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
     let repos = resources.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
@@ -393,21 +393,21 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
     Ok((database, user_id))
 }
 
-/// Create test `ServerResources` with all components properly initialized
+/// Create test `ServerContext` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
-pub async fn create_test_server_resources() -> Result<Arc<ServerResources>> {
+pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
     create_test_server_resources_inner(None, Vec::new()).await
 }
 
 /// Same as [`create_test_server_resources`] but injects a caller-supplied
-/// [`LlmProvider`] implementation into [`ServerResources::llm_provider`].
+/// [`LlmProvider`] implementation into [`ServerContext::llm_provider`].
 ///
 /// Tests that need the chat pipeline to actually run (for example the
 /// conversation-turn E2E) use this to wire a deterministic mock so the
 /// pipeline writes real `llm_usage` rows without touching the network.
 pub async fn create_test_server_resources_with_llm(
     provider: Arc<dyn LlmProvider + 'static>,
-) -> Result<Arc<ServerResources>> {
+) -> Result<Arc<ServerContext>> {
     create_test_server_resources_inner(Some(provider), Vec::new()).await
 }
 
@@ -423,14 +423,14 @@ pub async fn create_test_server_resources_with_llm(
 pub async fn create_test_server_resources_with_llm_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn McpTool>>,
-) -> Result<Arc<ServerResources>> {
+) -> Result<Arc<ServerContext>> {
     create_test_server_resources_inner(Some(provider), extra_tools).await
 }
 
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
     extra_tools: Vec<Arc<dyn McpTool>>,
-) -> Result<Arc<ServerResources>> {
+) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
     init_server_config();
@@ -466,13 +466,13 @@ async fn create_test_server_resources_inner(
     let jwks_manager = get_shared_test_jwks();
 
     Ok(Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             admin_jwt_secret,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(jwks_manager),
                 llm_provider,
@@ -483,10 +483,10 @@ async fn create_test_server_resources_inner(
     ))
 }
 
-/// Complete test environment setup using `ServerResources` pattern
+/// Complete test environment setup using `ServerContext` pattern
 /// Returns (`server_resources`, `user_id`, `api_key`)
-pub async fn setup_server_resources_test_environment(
-) -> Result<(Arc<ServerResources>, Uuid, String)> {
+pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerContext>, Uuid, String)>
+{
     let resources = create_test_server_resources().await?;
     let (user_id, _user) = create_test_user(&resources.database).await?;
     let api_key = create_test_api_key(&resources.database, user_id, "test-key")?;
@@ -918,10 +918,7 @@ pub async fn send_http_mcp_request(
 ///
 /// # Errors
 /// Returns error if user creation or token generation fails
-pub async fn create_test_tenant(
-    resources: &ServerResources,
-    email: &str,
-) -> Result<(User, String)> {
+pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Result<(User, String)> {
     // Create test user with specified email
     let (_user_id, user) = create_test_user_with_email(&resources.database, email).await?;
 
@@ -999,7 +996,7 @@ fn find_available_port() -> u16 {
 ///
 /// # Errors
 /// Returns error if server cannot be started
-pub async fn spawn_http_mcp_server(resources: &Arc<ServerResources>) -> Result<HttpServerHandle> {
+pub async fn spawn_http_mcp_server(resources: &Arc<ServerContext>) -> Result<HttpServerHandle> {
     let port = find_available_port();
 
     // Clone Arc for moving into spawned task (Arc enables sharing across tasks)

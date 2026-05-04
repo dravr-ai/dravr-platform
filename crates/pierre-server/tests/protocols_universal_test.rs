@@ -21,7 +21,7 @@ use pierre_mcp_server::{
         ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics,
         TimeOfDay, TrendDirection, TrendIndicators,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, User},
     protocols::universal::{UniversalRequest, UniversalToolExecutor},
 };
@@ -225,7 +225,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         resend_from_email: None,
     });
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
 
     // Create test cache with background cleanup disabled
@@ -241,13 +241,13 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         .expect("Failed to create test cache");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -651,7 +651,7 @@ async fn test_set_goal_tool() -> Result<()> {
         resend_from_email: None,
     });
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
 
     // Create test cache with background cleanup disabled
@@ -667,13 +667,13 @@ async fn test_set_goal_tool() -> Result<()> {
         .expect("Failed to create test cache");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1405,7 +1405,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         resend_from_email: None,
     });
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
 
     // Create test cache with background cleanup disabled
@@ -1421,13 +1421,13 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         .expect("Failed to create test cache");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

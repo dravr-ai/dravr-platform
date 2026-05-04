@@ -53,7 +53,7 @@ use axum::{
     Router,
 };
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Authentication routes implementation (Axum)
 ///
@@ -62,7 +62,7 @@ pub struct AuthRoutes;
 
 impl AuthRoutes {
     /// Create all authentication routes (Axum)
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         let router = Router::new()
             .route("/api/auth/register", post(login::handle_public_register))
             .route("/api/auth/admin/register", post(login::handle_register))

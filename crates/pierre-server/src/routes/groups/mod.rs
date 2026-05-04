@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::{AppError, ErrorCode},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
 };
 use pierre_auth::auth::AuthResult;
@@ -306,7 +306,7 @@ pub struct GroupRoutes;
 
 impl GroupRoutes {
     /// Create all group coaching routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Group CRUD
             .route("/api/groups", post(Self::handle_create_group))
@@ -372,7 +372,7 @@ impl GroupRoutes {
     /// Extract and authenticate user from authorization header or cookie
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -401,7 +401,7 @@ impl GroupRoutes {
     ///
     /// Returns `PermissionDenied` if the user lacks group creation permission.
     async fn check_create_group_permission(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> Result<(), AppError> {
@@ -452,7 +452,7 @@ impl GroupRoutes {
     ///
     /// Returns the caller's membership record on success.
     async fn require_admin(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         group_id: &str,
         user_id: Uuid,
     ) -> Result<GroupMember, AppError> {
@@ -475,7 +475,7 @@ impl GroupRoutes {
 
     /// Verify the caller is the owner of the given group.
     async fn require_owner(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         group_id: &str,
         user_id: Uuid,
     ) -> Result<GroupMember, AppError> {
@@ -498,7 +498,7 @@ impl GroupRoutes {
 
     /// Verify the caller is a member of the given group.
     async fn require_member(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         group_id: &str,
         user_id: Uuid,
     ) -> Result<GroupMember, AppError> {
@@ -516,7 +516,7 @@ impl GroupRoutes {
 
     /// POST /api/groups — Create a new coaching group
     async fn handle_create_group(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<CreateGroupRequest>,
     ) -> Result<Response, AppError> {
@@ -573,7 +573,7 @@ impl GroupRoutes {
 
     /// GET /api/groups/permissions — Check if the current user can create groups
     async fn handle_get_permissions(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -613,7 +613,7 @@ impl GroupRoutes {
 
     /// GET /api/groups — List groups the current user belongs to
     async fn handle_list_my_groups(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -635,7 +635,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id` — Get a single group by ID
     async fn handle_get_group(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -658,7 +658,7 @@ impl GroupRoutes {
 
     /// PUT `/api/groups/:group_id` — Update group settings (admin/owner only)
     async fn handle_update_group(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
         Json(body): Json<UpdateGroupRequest>,
@@ -682,7 +682,7 @@ impl GroupRoutes {
 
     /// DELETE `/api/groups/:group_id` — Soft-delete a group (owner only)
     async fn handle_delete_group(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -711,7 +711,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id/members` — List group members
     async fn handle_list_members(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -736,7 +736,7 @@ impl GroupRoutes {
 
     /// DELETE `/api/groups/:group_id/members/:user_id` — Remove a member (admin/owner only)
     async fn handle_remove_member(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path((group_id, target_user_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
@@ -778,7 +778,7 @@ impl GroupRoutes {
 
     /// PUT `/api/groups/:group_id/members/:user_id/role` — Update member role (admin/owner only)
     async fn handle_update_role(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path((group_id, target_user_id)): Path<(String, String)>,
         Json(body): Json<UpdateRoleBody>,
@@ -831,7 +831,7 @@ impl GroupRoutes {
 
     /// PUT `/api/groups/:group_id/members/me/consent` — Update own peer sharing consent
     async fn handle_update_peer_consent(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
         Json(body): Json<UpdatePeerConsentBody>,
@@ -869,7 +869,7 @@ impl GroupRoutes {
 
     /// POST `/api/groups/:group_id/invites` — Create an invite code (admin/owner only)
     async fn handle_create_invite(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
         Json(body): Json<CreateInviteBody>,
@@ -928,7 +928,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id/invites` — List invites for a group (admin/owner only)
     async fn handle_list_invites(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -953,7 +953,7 @@ impl GroupRoutes {
 
     /// DELETE `/api/groups/:group_id/invites/:invite_id` — Deactivate an invite (admin/owner only)
     async fn handle_deactivate_invite(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path((group_id, invite_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
@@ -977,7 +977,7 @@ impl GroupRoutes {
 
     /// POST /api/groups/join — Join a group using an invite code
     async fn handle_join_by_invite_code(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<JoinGroupRequest>,
     ) -> Result<Response, AppError> {
@@ -1078,7 +1078,7 @@ impl GroupRoutes {
 
     /// POST `/api/groups/:group_id/leave` — Leave a group
     async fn handle_leave_group(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -1113,7 +1113,7 @@ impl GroupRoutes {
 
     /// Fetch members and build fitness snapshots for the given group.
     async fn fetch_snapshots(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         group_id: &str,
         tenant_id: &str,
     ) -> Result<Vec<MemberFitnessSnapshot>, AppError> {
@@ -1123,7 +1123,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id/stats` — Get aggregate stats for a group
     async fn handle_get_stats(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
         Query(_period): Query<PeriodQuery>,
@@ -1150,7 +1150,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id/report` — Get weekly report for a group
     async fn handle_get_weekly_report(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
         Query(_period): Query<PeriodQuery>,
@@ -1184,7 +1184,7 @@ impl GroupRoutes {
 
     /// GET `/api/groups/:group_id/health` — Get health flags for group members
     async fn handle_get_health_flags(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {

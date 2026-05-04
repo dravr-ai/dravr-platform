@@ -11,7 +11,7 @@ use crate::intelligence::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
 use crate::intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 
@@ -110,7 +110,7 @@ async fn create_intelligence_response(
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
-    resources: &ServerResources,
+    resources: &ServerContext,
 ) -> UniversalResponse {
     // Try MCP sampling first if available (uses client's LLM)
     if let Some(peer) = sampling_peer {
@@ -212,7 +212,7 @@ async fn fetch_and_analyze_activity(
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
-    resources: &ServerResources,
+    resources: &ServerContext,
 ) -> UniversalResponse {
     match provider.get_activity(activity_id).await {
         Ok(activity) => {
@@ -316,7 +316,7 @@ async fn fetch_and_analyze_activity(
 /// Returns error if sampling request fails or response is invalid
 async fn generate_activity_intelligence_via_sampling(
     sampling_peer: &Arc<SamplingPeer>,
-    resources: &ServerResources,
+    resources: &ServerContext,
     activity: &Activity,
 ) -> AppResult<serde_json::Value> {
     use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};

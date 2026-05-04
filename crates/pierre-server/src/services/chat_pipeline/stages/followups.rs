@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use pierre_database::database::ConversationRecord;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 
 /// Ensure the conversation has a coach session attached.
@@ -35,7 +35,7 @@ use crate::models::TenantId;
 /// and in the database so the rest of the dispatch path can rely on
 /// `conv.session_id` being set.
 pub async fn ensure_coach_session_attached(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     mut conv: ConversationRecord,
     tenant_id: TenantId,
 ) -> ConversationRecord {
@@ -79,7 +79,7 @@ pub async fn ensure_coach_session_attached(
 /// any) plus the list of followup IDs that were surfaced this turn so the
 /// dispatcher can mark them delivered after the assistant reply lands.
 pub async fn inject_pending_followups(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: &str,
     coach_id: Option<&str>,
@@ -126,7 +126,7 @@ pub async fn inject_pending_followups(
 /// surfaces a fresh timestamp) and marks any followups we surfaced this
 /// turn as delivered. Errors are logged and swallowed.
 pub async fn finalize_session_state(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     session_id: Option<&str>,
     delivered_followup_ids: &[String],
     tenant_id: TenantId,

@@ -13,7 +13,7 @@ use pierre_mcp_server::constants::tools::{
     SUGGEST_STRETCHES_FOR_ACTIVITY, SUGGEST_YOGA_SEQUENCE,
 };
 use pierre_mcp_server::mcp::multitenant::McpRequest;
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ mod common;
 
 /// MCP handler for E2E mobility tool testing
 struct MobilityMcpHandler {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     test_jwt_token: String,
 }
 

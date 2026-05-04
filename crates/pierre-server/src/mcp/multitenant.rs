@@ -14,7 +14,7 @@
 
 use super::{
     mcp_request_processor::McpRequestProcessor,
-    resources::ServerResources,
+    resources::ServerContext,
     tool_handlers::{McpOAuthCredentials, ToolRoutingContext},
 };
 use crate::config::environment::ServerConfig;
@@ -89,19 +89,19 @@ struct OAuthProviderParams<'a> {
 /// MCP server supporting user authentication and isolated data access
 #[derive(Clone)]
 pub struct MultiTenantMcpServer {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl MultiTenantMcpServer {
     /// Create a new MCP server with pre-built resources (dependency injection)
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 
     /// Get shared reference to server resources
     #[must_use]
-    pub fn resources(&self) -> Arc<ServerResources> {
+    pub fn resources(&self) -> Arc<ServerContext> {
         self.resources.clone()
     }
 
@@ -129,7 +129,7 @@ impl MultiTenantMcpServer {
     )]
     pub async fn handle_request(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Option<McpResponse> {
         let processor = McpRequestProcessor::new(resources.clone());
         processor.handle_request(request).await
@@ -693,7 +693,7 @@ impl MultiTenantMcpServer {
         args: &Value,
         request_id: Value,
         tenant_context: &TenantContext,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         auth_result: &AuthResult,
     ) -> McpResponse {
         // Validate tool is known
@@ -754,7 +754,7 @@ impl MultiTenantMcpServer {
     /// enum to consult.
     fn validate_known_tool(
         tool_name: &str,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         request_id: Value,
     ) -> Option<McpResponse> {
         if resources.tool_registry.get(tool_name).is_some() {
@@ -779,7 +779,7 @@ impl MultiTenantMcpServer {
         args: &Value,
         auth_result: &AuthResult,
         tenant_context: &TenantContext,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         request_id: &Value,
     ) -> UniversalRequest {
         // Create progress reporter if notification sender is available
@@ -819,7 +819,7 @@ impl MultiTenantMcpServer {
     /// Execute Universal protocol tool and convert response to MCP format
     async fn execute_and_convert_tool(
         universal_request: UniversalRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tool_name: &str,
         provider_name: &str,
         request_id: Value,
@@ -907,7 +907,7 @@ impl MultiTenantMcpServer {
     pub async fn run_http_server_with_resources_axum(
         &self,
         port: u16,
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
     ) -> AppResult<()> {
         info!("HTTP server (Axum) starting on port {}", port);
 
@@ -964,7 +964,7 @@ impl MultiTenantMcpServer {
     /// logic and make the code harder to follow. Each section is clearly
     /// documented and the structure follows the feature flag hierarchy.
     #[allow(clippy::too_many_lines)]
-    fn setup_axum_router(resources: &Arc<ServerResources>) -> axum::Router {
+    fn setup_axum_router(resources: &Arc<ServerContext>) -> axum::Router {
         use axum::{middleware::from_fn_with_state, Router};
 
         use crate::middleware::csrf_protection_layer;

@@ -1,14 +1,17 @@
-// ABOUTME: Social features database operations for coach-mediated sharing
-// ABOUTME: Friend connections, shared insights, reactions, and adapted insights
+// ABOUTME: PostgreSQL implementation of the SocialRepository trait
+// ABOUTME: Friend connections, shared insights, reactions, and adapted insights for the PG backend
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::sqlite::SqliteRow;
-use sqlx::{Row, SqlitePool};
+use sqlx::postgres::PgRow;
+use sqlx::Row;
 use uuid::Uuid;
 
+use crate::backends::postgres::PostgresDatabase;
+use crate::repositories::SocialRepository;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::intelligence::InsightSharingPolicy;
 use pierre_core::models::{
@@ -17,22 +20,8 @@ use pierre_core::models::{
     TrainingPhase, UserSocialSettings,
 };
 
-/// Social features database operations manager
-///
-/// Wraps a `SqlitePool` to provide social feature database operations.
-/// Similar to `CoachesManager`, this struct can be used with `sqlite_pool()`
-/// from the `DatabaseProvider` trait.
-pub struct SocialManager {
-    pool: SqlitePool,
-}
-
-impl SocialManager {
-    /// Create a new social manager
-    #[must_use]
-    pub const fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
+#[async_trait]
+impl SocialRepository for PostgresDatabase {
     // ========================================================================
     // Friend Connections
     // ========================================================================
@@ -42,20 +31,20 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn create_friend_connection(&self, connection: &FriendConnection) -> AppResult<Uuid> {
+    async fn create_friend_connection(&self, connection: &FriendConnection) -> AppResult<Uuid> {
         sqlx::query(
             r"
             INSERT INTO friend_connections (id, initiator_id, receiver_id, status, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             ",
         )
-        .bind(connection.id.to_string())
-        .bind(connection.initiator_id.to_string())
-        .bind(connection.receiver_id.to_string())
+        .bind(connection.id)
+        .bind(connection.initiator_id)
+        .bind(connection.receiver_id)
         .bind(connection.status.as_str())
-        .bind(connection.created_at.to_rfc3339())
-        .bind(connection.updated_at.to_rfc3339())
-        .execute(&self.pool)
+        .bind(connection.created_at)
+        .bind(connection.updated_at)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to create friend connection: {e}")))?;
 
@@ -67,7 +56,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friend_connection(&self, id: Uuid) -> AppResult<Option<FriendConnection>> {
+    async fn get_friend_connection(&self, id: Uuid) -> AppResult<Option<FriendConnection>> {
         let row = sqlx::query(
             r"
             SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
@@ -75,8 +64,8 @@ impl SocialManager {
             WHERE id = $1
             ",
         )
-        .bind(id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get friend connection: {e}")))?;
 
@@ -88,7 +77,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friend_connection_between(
+    async fn get_friend_connection_between(
         &self,
         user_a: Uuid,
         user_b: Uuid,
@@ -101,9 +90,9 @@ impl SocialManager {
                OR (initiator_id = $2 AND receiver_id = $1)
             ",
         )
-        .bind(user_a.to_string())
-        .bind(user_b.to_string())
-        .fetch_optional(&self.pool)
+        .bind(user_a)
+        .bind(user_b)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get friend connection: {e}")))?;
 
@@ -115,7 +104,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn update_friend_connection_status(
+    async fn update_friend_connection_status(
         &self,
         id: Uuid,
         user_id: Uuid,
@@ -123,7 +112,7 @@ impl SocialManager {
     ) -> AppResult<()> {
         let now = Utc::now();
         let accepted_at = if status == FriendStatus::Accepted {
-            Some(now.to_rfc3339())
+            Some(now)
         } else {
             None
         };
@@ -137,11 +126,11 @@ impl SocialManager {
             ",
         )
         .bind(status.as_str())
-        .bind(now.to_rfc3339())
+        .bind(now)
         .bind(accepted_at)
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .execute(&self.pool)
+        .bind(id)
+        .bind(user_id)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to update friend connection: {e}")))?;
 
@@ -153,7 +142,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friends(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
+    async fn get_friends(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
         let rows = sqlx::query(
             r"
             SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
@@ -163,8 +152,8 @@ impl SocialManager {
             ORDER BY accepted_at DESC
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
+        .bind(user_id)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get friends: {e}")))?;
 
@@ -176,7 +165,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friends_paginated(
+    async fn get_friends_paginated(
         &self,
         user_id: Uuid,
         limit: i64,
@@ -192,10 +181,10 @@ impl SocialManager {
             LIMIT $2 OFFSET $3
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get friends: {e}")))?;
 
@@ -207,10 +196,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_pending_friend_requests(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<FriendConnection>> {
+    async fn get_pending_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
         let rows = sqlx::query(
             r"
             SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
@@ -219,8 +205,8 @@ impl SocialManager {
             ORDER BY created_at DESC
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
+        .bind(user_id)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get pending requests: {e}")))?;
 
@@ -232,53 +218,18 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn delete_friend_connection(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
+    async fn delete_friend_connection(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
         // Only the two parties involved (initiator or receiver) can delete the connection
         let result = sqlx::query(
             "DELETE FROM friend_connections WHERE id = $1 AND (initiator_id = $2 OR receiver_id = $2)",
         )
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .execute(&self.pool)
+        .bind(id)
+        .bind(user_id)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to delete friend connection: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    fn row_to_friend_connection(row: &SqliteRow) -> AppResult<FriendConnection> {
-        let id_str: String = row.get("id");
-        let initiator_id_str: String = row.get("initiator_id");
-        let receiver_id_str: String = row.get("receiver_id");
-        let status_str: String = row.get("status");
-        let created_at_str: String = row.get("created_at");
-        let updated_at_str: String = row.get("updated_at");
-        let accepted_at_str: Option<String> = row.get("accepted_at");
-
-        Ok(FriendConnection {
-            id: Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            initiator_id: Uuid::parse_str(&initiator_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            receiver_id: Uuid::parse_str(&receiver_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            status: status_str
-                .parse()
-                .map_err(|e: String| AppError::database(e))?,
-            created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-            updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-            accepted_at: accepted_at_str
-                .map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .map_err(|e| AppError::database(format!("Invalid date: {e}")))
-                })
-                .transpose()?,
-        })
     }
 
     // ========================================================================
@@ -290,10 +241,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_user_social_settings(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserSocialSettings>> {
+    async fn get_social_settings(&self, user_id: Uuid) -> AppResult<Option<UserSocialSettings>> {
         let row = sqlx::query(
             r"
             SELECT user_id, discoverable, default_visibility, share_activity_types,
@@ -303,8 +251,8 @@ impl SocialManager {
             WHERE user_id = $1
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(user_id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get social settings: {e}")))?;
 
@@ -316,10 +264,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn upsert_user_social_settings(
-        &self,
-        settings: &UserSocialSettings,
-    ) -> AppResult<()> {
+    async fn upsert_social_settings(&self, settings: &UserSocialSettings) -> AppResult<()> {
         let activity_types_json =
             serde_json::to_string(&settings.share_activity_types).unwrap_or_else(|_| "[]".into());
 
@@ -331,72 +276,31 @@ impl SocialManager {
                 insight_sharing_policy, created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT(user_id) DO UPDATE SET
-                discoverable = excluded.discoverable,
-                default_visibility = excluded.default_visibility,
-                share_activity_types = excluded.share_activity_types,
-                notify_friend_requests = excluded.notify_friend_requests,
-                notify_insight_reactions = excluded.notify_insight_reactions,
-                notify_adapted_insights = excluded.notify_adapted_insights,
-                insight_sharing_policy = excluded.insight_sharing_policy,
-                updated_at = excluded.updated_at
+                discoverable = EXCLUDED.discoverable,
+                default_visibility = EXCLUDED.default_visibility,
+                share_activity_types = EXCLUDED.share_activity_types,
+                notify_friend_requests = EXCLUDED.notify_friend_requests,
+                notify_insight_reactions = EXCLUDED.notify_insight_reactions,
+                notify_adapted_insights = EXCLUDED.notify_adapted_insights,
+                insight_sharing_policy = EXCLUDED.insight_sharing_policy,
+                updated_at = EXCLUDED.updated_at
             ",
         )
-        .bind(settings.user_id.to_string())
-        .bind(i32::from(settings.discoverable))
+        .bind(settings.user_id)
+        .bind(settings.discoverable)
         .bind(settings.default_visibility.as_str())
-        .bind(activity_types_json)
-        .bind(i32::from(settings.notifications.friend_requests))
-        .bind(i32::from(settings.notifications.insight_reactions))
-        .bind(i32::from(settings.notifications.adapted_insights))
+        .bind(&activity_types_json)
+        .bind(settings.notifications.friend_requests)
+        .bind(settings.notifications.insight_reactions)
+        .bind(settings.notifications.adapted_insights)
         .bind(settings.insight_sharing_policy.as_str())
-        .bind(settings.created_at.to_rfc3339())
-        .bind(settings.updated_at.to_rfc3339())
-        .execute(&self.pool)
+        .bind(settings.created_at)
+        .bind(settings.updated_at)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert social settings: {e}")))?;
 
         Ok(())
-    }
-
-    fn row_to_social_settings(row: &SqliteRow) -> AppResult<UserSocialSettings> {
-        let user_id_str: String = row.get("user_id");
-        let discoverable: i32 = row.get("discoverable");
-        let default_visibility_str: String = row.get("default_visibility");
-        let activity_types_json: String = row.get("share_activity_types");
-        let notify_friend_requests: i32 = row.get("notify_friend_requests");
-        let notify_insight_reactions: i32 = row.get("notify_insight_reactions");
-        let notify_adapted_insights: i32 = row.get("notify_adapted_insights");
-        let insight_sharing_policy_str: String = row.get("insight_sharing_policy");
-        let created_at_str: String = row.get("created_at");
-        let updated_at_str: String = row.get("updated_at");
-
-        let share_activity_types: Vec<String> =
-            serde_json::from_str(&activity_types_json).unwrap_or_default();
-
-        let insight_sharing_policy =
-            InsightSharingPolicy::parse(&insight_sharing_policy_str).unwrap_or_default();
-
-        Ok(UserSocialSettings {
-            user_id: Uuid::parse_str(&user_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            discoverable: discoverable != 0,
-            default_visibility: default_visibility_str
-                .parse()
-                .map_err(|e: String| AppError::database(e))?,
-            share_activity_types,
-            notifications: NotificationPreferences {
-                friend_requests: notify_friend_requests != 0,
-                insight_reactions: notify_insight_reactions != 0,
-                adapted_insights: notify_adapted_insights != 0,
-            },
-            insight_sharing_policy,
-            created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-            updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-        })
     }
 
     // ========================================================================
@@ -408,9 +312,8 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn create_shared_insight(&self, insight: &SharedInsight) -> AppResult<Uuid> {
+    async fn create_shared_insight(&self, insight: &SharedInsight) -> AppResult<Uuid> {
         let training_phase_str = insight.training_phase.as_ref().map(TrainingPhase::as_str);
-        let expires_at_str = insight.expires_at.map(|dt| dt.to_rfc3339());
 
         sqlx::query(
             r"
@@ -421,8 +324,8 @@ impl SocialManager {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ",
         )
-        .bind(insight.id.to_string())
-        .bind(insight.user_id.to_string())
+        .bind(insight.id)
+        .bind(insight.user_id)
         .bind(insight.visibility.as_str())
         .bind(insight.insight_type.as_str())
         .bind(&insight.sport_type)
@@ -431,12 +334,12 @@ impl SocialManager {
         .bind(training_phase_str)
         .bind(insight.reaction_count)
         .bind(insight.adapt_count)
-        .bind(insight.created_at.to_rfc3339())
-        .bind(insight.updated_at.to_rfc3339())
-        .bind(expires_at_str)
+        .bind(insight.created_at)
+        .bind(insight.updated_at)
+        .bind(insight.expires_at)
         .bind(&insight.source_activity_id)
-        .bind(i32::from(insight.coach_generated))
-        .execute(&self.pool)
+        .bind(insight.coach_generated)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to create shared insight: {e}")))?;
 
@@ -448,13 +351,12 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_shared_insight(
+    async fn get_shared_insight(
         &self,
         id: Uuid,
         user_id: Uuid,
     ) -> AppResult<Option<SharedInsight>> {
         // Scope visibility: the insight creator or friends who can see it via visibility rules
-        // For now, we check the creator OR friends (via friend_connections)
         let row = sqlx::query(
             r"
             SELECT si.id, si.user_id, si.visibility, si.insight_type, si.sport_type, si.content,
@@ -474,9 +376,9 @@ impl SocialManager {
               )
             ",
         )
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get shared insight: {e}")))?;
 
@@ -488,11 +390,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn has_insight_for_activity(
-        &self,
-        user_id: Uuid,
-        activity_id: &str,
-    ) -> AppResult<bool> {
+    async fn has_insight_for_activity(&self, user_id: Uuid, activity_id: &str) -> AppResult<bool> {
         let row = sqlx::query(
             r"
             SELECT 1
@@ -501,9 +399,9 @@ impl SocialManager {
             LIMIT 1
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(activity_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to check for existing insight: {e}")))?;
 
@@ -515,12 +413,12 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_user_shared_insights(
+    async fn get_user_shared_insights(
         &self,
         user_id: Uuid,
         insight_type: Option<InsightType>,
-        limit: i64,
-        offset: i64,
+        limit: u32,
+        offset: u32,
     ) -> AppResult<Vec<SharedInsight>> {
         let rows = if let Some(itype) = insight_type {
             sqlx::query(
@@ -534,11 +432,11 @@ impl SocialManager {
                 LIMIT $3 OFFSET $4
                 ",
             )
-            .bind(user_id.to_string())
+            .bind(user_id)
             .bind(itype.as_str())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query(
@@ -552,10 +450,10 @@ impl SocialManager {
                 LIMIT $2 OFFSET $3
                 ",
             )
-            .bind(user_id.to_string())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
+            .bind(user_id)
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(self.pool())
             .await
         }
         .map_err(|e| AppError::database(format!("Failed to get user insights: {e}")))?;
@@ -568,28 +466,23 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails or user not found
-    pub async fn get_user_profile(&self, user_id: Uuid) -> AppResult<FriendInfo> {
-        let row: Option<SqliteRow> =
+    async fn get_user_profile(&self, user_id: Uuid) -> AppResult<FriendInfo> {
+        let row: Option<PgRow> =
             sqlx::query("SELECT id, display_name, email, created_at FROM users WHERE id = $1")
-                .bind(user_id.to_string())
-                .fetch_optional(&self.pool)
+                .bind(user_id)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get user profile: {e}")))?;
 
         let row = row.ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
-        let id_str: String = row.get("id");
+        let id: Uuid = row.get("id");
         let display_name: Option<String> = row.get("display_name");
         let email: String = row.get("email");
-        let created_at_str: String = row.get("created_at");
-
-        let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-            .map_err(|e| AppError::database(format!("Invalid datetime: {e}")))?
-            .with_timezone(&Utc);
+        let created_at: DateTime<Utc> = row.get("created_at");
 
         Ok(FriendInfo {
-            user_id: Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
+            user_id: id,
             display_name,
             email,
             friends_since: created_at, // Use created_at as placeholder for author info
@@ -601,11 +494,11 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friend_insights_feed(
+    async fn get_friends_feed(
         &self,
         user_id: Uuid,
-        limit: i64,
-        offset: i64,
+        limit: u32,
+        offset: u32,
     ) -> AppResult<Vec<SharedInsight>> {
         let rows = sqlx::query(
             r"
@@ -625,15 +518,15 @@ impl SocialManager {
                       AND fc.status = 'accepted'
                 )
             )
-            AND (si.expires_at IS NULL OR si.expires_at > datetime('now'))
+            AND (si.expires_at IS NULL OR si.expires_at > NOW())
             ORDER BY si.created_at DESC
             LIMIT $2 OFFSET $3
             ",
         )
-        .bind(user_id.to_string())
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
+        .bind(user_id)
+        .bind(i64::from(limit))
+        .bind(i64::from(offset))
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get friends feed: {e}")))?;
 
@@ -647,15 +540,20 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friend_insights_feed_full(
+    async fn get_friend_insights_feed_full(
         &self,
         user_id: Uuid,
         limit: i64,
         offset: i64,
     ) -> AppResult<Vec<FeedItem>> {
-        // Get insights from friends
+        // Get insights from friends. The trait method is u32-typed; clamp the
+        // i64 values to u32 (callers already constrain limit to a small range).
         let insights = self
-            .get_friend_insights_feed(user_id, limit, offset)
+            .get_friends_feed(
+                user_id,
+                u32::try_from(limit).unwrap_or(u32::MAX),
+                u32::try_from(offset).unwrap_or(u32::MAX),
+            )
             .await?;
 
         let mut feed_items = Vec::with_capacity(insights.len());
@@ -689,11 +587,11 @@ impl SocialManager {
             };
 
             // Get current user's reaction
-            let user_reaction = self.get_user_reaction(insight.id, user_id).await?;
+            let user_reaction = self.get_insight_reaction(insight.id, user_id).await?;
 
             // Check if user has adapted this insight
             let user_has_adapted = self
-                .get_adapted_insight_by_source(insight.id, user_id)
+                .get_user_adaptation(insight.id, user_id)
                 .await?
                 .is_some();
 
@@ -714,71 +612,16 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn delete_shared_insight(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
+    async fn delete_shared_insight(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
         // Only the creator of the insight can delete it
         let result = sqlx::query("DELETE FROM shared_insights WHERE id = $1 AND user_id = $2")
-            .bind(id.to_string())
-            .bind(user_id.to_string())
-            .execute(&self.pool)
+            .bind(id)
+            .bind(user_id)
+            .execute(self.pool())
             .await
             .map_err(|e| AppError::database(format!("Failed to delete shared insight: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    fn row_to_shared_insight(row: &SqliteRow) -> AppResult<SharedInsight> {
-        let id_str: String = row.get("id");
-        let user_id_str: String = row.get("user_id");
-        let visibility_str: String = row.get("visibility");
-        let insight_type_str: String = row.get("insight_type");
-        let sport_type: Option<String> = row.get("sport_type");
-        let content: String = row.get("content");
-        let title: Option<String> = row.get("title");
-        let training_phase_str: Option<String> = row.get("training_phase");
-        let reaction_count: i32 = row.get("reaction_count");
-        let adapt_count: i32 = row.get("adapt_count");
-        let created_at_str: String = row.get("created_at");
-        let updated_at_str: String = row.get("updated_at");
-        let expires_at_str: Option<String> = row.get("expires_at");
-        let source_activity_id: Option<String> = row.get("source_activity_id");
-        let coach_generated: i32 = row.get("coach_generated");
-
-        Ok(SharedInsight {
-            id: Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            user_id: Uuid::parse_str(&user_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            visibility: visibility_str
-                .parse()
-                .map_err(|e: String| AppError::database(e))?,
-            insight_type: insight_type_str
-                .parse()
-                .map_err(|e: String| AppError::database(e))?,
-            sport_type,
-            content,
-            title,
-            training_phase: training_phase_str
-                .map(|s| s.parse())
-                .transpose()
-                .map_err(|e: String| AppError::database(e))?,
-            reaction_count,
-            adapt_count,
-            created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-            updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-            expires_at: expires_at_str
-                .map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .map_err(|e| AppError::database(format!("Invalid date: {e}")))
-                })
-                .transpose()?,
-            source_activity_id,
-            coach_generated: coach_generated != 0,
-        })
     }
 
     // ========================================================================
@@ -790,19 +633,19 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn create_insight_reaction(&self, reaction: &InsightReaction) -> AppResult<()> {
+    async fn upsert_insight_reaction(&self, reaction: &InsightReaction) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO insight_reactions (id, insight_id, user_id, reaction_type, created_at)
             VALUES ($1, $2, $3, $4, $5)
             ",
         )
-        .bind(reaction.id.to_string())
-        .bind(reaction.insight_id.to_string())
-        .bind(reaction.user_id.to_string())
+        .bind(reaction.id)
+        .bind(reaction.insight_id)
+        .bind(reaction.user_id)
         .bind(reaction.reaction_type.as_str())
-        .bind(reaction.created_at.to_rfc3339())
-        .execute(&self.pool)
+        .bind(reaction.created_at)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to create reaction: {e}")))?;
 
@@ -814,7 +657,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_user_reaction(
+    async fn get_insight_reaction(
         &self,
         insight_id: Uuid,
         user_id: Uuid,
@@ -826,9 +669,9 @@ impl SocialManager {
             WHERE insight_id = $1 AND user_id = $2
             ",
         )
-        .bind(insight_id.to_string())
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(insight_id)
+        .bind(user_id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get reaction: {e}")))?;
 
@@ -840,16 +683,12 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn delete_insight_reaction(
-        &self,
-        insight_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<bool> {
+    async fn delete_insight_reaction(&self, insight_id: Uuid, user_id: Uuid) -> AppResult<bool> {
         let result =
             sqlx::query("DELETE FROM insight_reactions WHERE insight_id = $1 AND user_id = $2")
-                .bind(insight_id.to_string())
-                .bind(user_id.to_string())
-                .execute(&self.pool)
+                .bind(insight_id)
+                .bind(user_id)
+                .execute(self.pool())
                 .await
                 .map_err(|e| AppError::database(format!("Failed to delete reaction: {e}")))?;
 
@@ -861,7 +700,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_insight_reactions(&self, insight_id: Uuid) -> AppResult<Vec<InsightReaction>> {
+    async fn get_insight_reactions(&self, insight_id: Uuid) -> AppResult<Vec<InsightReaction>> {
         let rows = sqlx::query(
             r"
             SELECT id, insight_id, user_id, reaction_type, created_at
@@ -870,35 +709,12 @@ impl SocialManager {
             ORDER BY created_at DESC
             ",
         )
-        .bind(insight_id.to_string())
-        .fetch_all(&self.pool)
+        .bind(insight_id)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get reactions: {e}")))?;
 
         rows.iter().map(Self::row_to_insight_reaction).collect()
-    }
-
-    fn row_to_insight_reaction(row: &SqliteRow) -> AppResult<InsightReaction> {
-        let id_str: String = row.get("id");
-        let insight_id_str: String = row.get("insight_id");
-        let user_id_str: String = row.get("user_id");
-        let reaction_type_str: String = row.get("reaction_type");
-        let created_at_str: String = row.get("created_at");
-
-        Ok(InsightReaction {
-            id: Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            insight_id: Uuid::parse_str(&insight_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            user_id: Uuid::parse_str(&user_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            reaction_type: reaction_type_str
-                .parse()
-                .map_err(|e: String| AppError::database(e))?,
-            created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-        })
     }
 
     // ========================================================================
@@ -910,7 +726,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn create_adapted_insight(&self, insight: &AdaptedInsight) -> AppResult<Uuid> {
+    async fn create_adapted_insight(&self, insight: &AdaptedInsight) -> AppResult<Uuid> {
         sqlx::query(
             r"
             INSERT INTO adapted_insights (
@@ -919,14 +735,14 @@ impl SocialManager {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ",
         )
-        .bind(insight.id.to_string())
-        .bind(insight.source_insight_id.to_string())
-        .bind(insight.user_id.to_string())
+        .bind(insight.id)
+        .bind(insight.source_insight_id)
+        .bind(insight.user_id)
         .bind(&insight.adapted_content)
         .bind(&insight.adaptation_context)
-        .bind(insight.was_helpful.map(i32::from))
-        .bind(insight.created_at.to_rfc3339())
-        .execute(&self.pool)
+        .bind(insight.was_helpful)
+        .bind(insight.created_at)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to create adapted insight: {e}")))?;
 
@@ -938,7 +754,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_adapted_insight_by_source(
+    async fn get_user_adaptation(
         &self,
         source_insight_id: Uuid,
         user_id: Uuid,
@@ -951,13 +767,13 @@ impl SocialManager {
             WHERE source_insight_id = $1 AND user_id = $2
             ",
         )
-        .bind(source_insight_id.to_string())
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(source_insight_id)
+        .bind(user_id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
 
-        row.as_ref().map(Self::row_to_adapted_insight).transpose()
+        Ok(row.as_ref().map(Self::row_to_adapted_insight))
     }
 
     /// Get user's adapted insights
@@ -965,7 +781,12 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_user_adapted_insights(&self, user_id: Uuid) -> AppResult<Vec<AdaptedInsight>> {
+    async fn get_user_adapted_insights(
+        &self,
+        user_id: Uuid,
+        limit: u32,
+        offset: u32,
+    ) -> AppResult<Vec<AdaptedInsight>> {
         let rows = sqlx::query(
             r"
             SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
@@ -973,14 +794,17 @@ impl SocialManager {
             FROM adapted_insights
             WHERE user_id = $1
             ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
+        .bind(user_id)
+        .bind(i64::from(limit))
+        .bind(i64::from(offset))
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
 
-        rows.iter().map(Self::row_to_adapted_insight).collect()
+        Ok(rows.iter().map(Self::row_to_adapted_insight).collect())
     }
 
     /// Get adapted insights for a user with pagination
@@ -988,7 +812,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_user_adapted_insights_paginated(
+    async fn get_user_adapted_insights_paginated(
         &self,
         user_id: Uuid,
         limit: i64,
@@ -1004,14 +828,14 @@ impl SocialManager {
             LIMIT $2 OFFSET $3
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
 
-        rows.iter().map(Self::row_to_adapted_insight).collect()
+        Ok(rows.iter().map(Self::row_to_adapted_insight).collect())
     }
 
     /// Update the `was_helpful` field for an adapted insight
@@ -1019,7 +843,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn update_adapted_insight_helpful(
+    async fn update_adapted_insight_helpful(
         &self,
         id: Uuid,
         user_id: Uuid,
@@ -1028,39 +852,14 @@ impl SocialManager {
         let result = sqlx::query(
             "UPDATE adapted_insights SET was_helpful = $1 WHERE id = $2 AND user_id = $3",
         )
-        .bind(i32::from(was_helpful))
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .execute(&self.pool)
+        .bind(was_helpful)
+        .bind(id)
+        .bind(user_id)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to update adapted insight: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    fn row_to_adapted_insight(row: &SqliteRow) -> AppResult<AdaptedInsight> {
-        let id_str: String = row.get("id");
-        let source_insight_id_str: String = row.get("source_insight_id");
-        let user_id_str: String = row.get("user_id");
-        let adapted_content: String = row.get("adapted_content");
-        let adaptation_context: Option<String> = row.get("adaptation_context");
-        let was_helpful: Option<i32> = row.get("was_helpful");
-        let created_at_str: String = row.get("created_at");
-
-        Ok(AdaptedInsight {
-            id: Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            source_insight_id: Uuid::parse_str(&source_insight_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            user_id: Uuid::parse_str(&user_id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
-            adapted_content,
-            adaptation_context,
-            was_helpful: was_helpful.map(|v| v != 0),
-            created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
-                .with_timezone(&Utc),
-        })
     }
 
     // ========================================================================
@@ -1072,11 +871,11 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn search_discoverable_users(
+    async fn search_discoverable_users(
         &self,
         query: &str,
         exclude_user_id: Uuid,
-        limit: i64,
+        limit: u32,
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>> {
         let search_pattern = format!("%{query}%");
 
@@ -1085,30 +884,26 @@ impl SocialManager {
             SELECT u.id, u.email, u.display_name
             FROM users u
             LEFT JOIN user_social_settings uss ON u.id = uss.user_id
-            WHERE (uss.discoverable = 1 OR uss.discoverable IS NULL)
+            WHERE (uss.discoverable = true OR uss.discoverable IS NULL)
               AND u.user_status = 'active'
               AND u.id != $1
-              AND (u.email LIKE $2 OR u.display_name LIKE $2)
+              AND (u.email ILIKE $2 OR u.display_name ILIKE $2)
             ORDER BY u.display_name, u.email
             LIMIT $3
             ",
         )
-        .bind(exclude_user_id.to_string())
+        .bind(exclude_user_id)
         .bind(&search_pattern)
-        .bind(limit)
-        .fetch_all(&self.pool)
+        .bind(i64::from(limit))
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to search users: {e}")))?;
 
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
-            let id_str: String = row.get("id");
+            let id: Uuid = row.get("id");
             let email: String = row.get("email");
             let display_name: Option<String> = row.get("display_name");
-
-            let id = Uuid::parse_str(&id_str)
-                .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?;
-
             results.push((id, email, display_name));
         }
 
@@ -1124,10 +919,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_sent_friend_requests(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<FriendConnection>> {
+    async fn get_sent_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
         let rows = sqlx::query(
             r"
             SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
@@ -1136,8 +928,8 @@ impl SocialManager {
             ORDER BY created_at DESC
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
+        .bind(user_id)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get sent friend requests: {e}")))?;
 
@@ -1149,7 +941,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn are_friends(&self, user_a: Uuid, user_b: Uuid) -> AppResult<bool> {
+    async fn are_friends(&self, user_a: Uuid, user_b: Uuid) -> AppResult<bool> {
         let row = sqlx::query(
             r"
             SELECT COUNT(*) as cnt FROM friend_connections
@@ -1158,9 +950,9 @@ impl SocialManager {
               AND status = 'accepted'
             ",
         )
-        .bind(user_a.to_string())
-        .bind(user_b.to_string())
-        .fetch_one(&self.pool)
+        .bind(user_a)
+        .bind(user_b)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to check friendship: {e}")))?;
 
@@ -1173,16 +965,13 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_or_create_social_settings(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<UserSocialSettings> {
-        if let Some(settings) = self.get_user_social_settings(user_id).await? {
+    async fn get_or_create_social_settings(&self, user_id: Uuid) -> AppResult<UserSocialSettings> {
+        if let Some(settings) = self.get_social_settings(user_id).await? {
             return Ok(settings);
         }
 
         let defaults = UserSocialSettings::default_for_user(user_id);
-        self.upsert_user_social_settings(&defaults).await?;
+        self.upsert_social_settings(&defaults).await?;
         Ok(defaults)
     }
 
@@ -1191,7 +980,7 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_adapted_insight(&self, id: Uuid) -> AppResult<Option<AdaptedInsight>> {
+    async fn get_adapted_insight(&self, id: Uuid) -> AppResult<Option<AdaptedInsight>> {
         let row = sqlx::query(
             r"
             SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
@@ -1200,12 +989,12 @@ impl SocialManager {
             WHERE id = $1
             ",
         )
-        .bind(id.to_string())
-        .fetch_optional(&self.pool)
+        .bind(id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
 
-        row.as_ref().map(Self::row_to_adapted_insight).transpose()
+        Ok(row.as_ref().map(Self::row_to_adapted_insight))
     }
 
     /// Get total friend count for a user (accepted connections only)
@@ -1213,18 +1002,155 @@ impl SocialManager {
     /// # Errors
     ///
     /// Returns an error if the database query fails
-    pub async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64> {
+    async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64> {
         let row = sqlx::query(
             r"
             SELECT COUNT(*) as cnt FROM friend_connections
             WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'accepted'
             ",
         )
-        .bind(user_id.to_string())
-        .fetch_one(&self.pool)
+        .bind(user_id)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to count friends: {e}")))?;
 
         Ok(row.get("cnt"))
+    }
+}
+
+/// `PostgreSQL` row-to-model helper functions for social features.
+///
+/// Kept on `PostgresDatabase` (rather than as free fns) so the trait impl
+/// can call them via `Self::row_to_X`, matching the `SQLite` impl pattern.
+impl PostgresDatabase {
+    fn row_to_friend_connection(row: &PgRow) -> AppResult<FriendConnection> {
+        let id: Uuid = row.get("id");
+        let initiator_id: Uuid = row.get("initiator_id");
+        let receiver_id: Uuid = row.get("receiver_id");
+        let status_str: String = row.get("status");
+        let created_at: DateTime<Utc> = row.get("created_at");
+        let updated_at: DateTime<Utc> = row.get("updated_at");
+        let accepted_at: Option<DateTime<Utc>> = row.get("accepted_at");
+
+        Ok(FriendConnection {
+            id,
+            initiator_id,
+            receiver_id,
+            status: status_str
+                .parse()
+                .map_err(|e: String| AppError::database(e))?,
+            created_at,
+            updated_at,
+            accepted_at,
+        })
+    }
+
+    fn row_to_social_settings(row: &PgRow) -> AppResult<UserSocialSettings> {
+        let user_id: Uuid = row.get("user_id");
+        let discoverable: bool = row.get("discoverable");
+        let default_visibility_str: String = row.get("default_visibility");
+        let activity_types_json: String = row.get("share_activity_types");
+        let notify_friend_requests: bool = row.get("notify_friend_requests");
+        let notify_insight_reactions: bool = row.get("notify_insight_reactions");
+        let notify_adapted_insights: bool = row.get("notify_adapted_insights");
+        let insight_sharing_policy_str: String = row.get("insight_sharing_policy");
+        let created_at: DateTime<Utc> = row.get("created_at");
+        let updated_at: DateTime<Utc> = row.get("updated_at");
+
+        let share_activity_types: Vec<String> =
+            serde_json::from_str(&activity_types_json).unwrap_or_default();
+
+        let insight_sharing_policy =
+            InsightSharingPolicy::parse(&insight_sharing_policy_str).unwrap_or_default();
+
+        Ok(UserSocialSettings {
+            user_id,
+            discoverable,
+            default_visibility: default_visibility_str
+                .parse()
+                .map_err(|e: String| AppError::database(e))?,
+            share_activity_types,
+            notifications: NotificationPreferences {
+                friend_requests: notify_friend_requests,
+                insight_reactions: notify_insight_reactions,
+                adapted_insights: notify_adapted_insights,
+            },
+            insight_sharing_policy,
+            created_at,
+            updated_at,
+        })
+    }
+
+    fn row_to_shared_insight(row: &PgRow) -> AppResult<SharedInsight> {
+        let id: Uuid = row.get("id");
+        let user_id: Uuid = row.get("user_id");
+        let visibility_str: String = row.get("visibility");
+        let insight_type_str: String = row.get("insight_type");
+        let sport_type: Option<String> = row.get("sport_type");
+        let content: String = row.get("content");
+        let title: Option<String> = row.get("title");
+        let training_phase_str: Option<String> = row.get("training_phase");
+        let reaction_count: i32 = row.get("reaction_count");
+        let adapt_count: i32 = row.get("adapt_count");
+        let created_at: DateTime<Utc> = row.get("created_at");
+        let updated_at: DateTime<Utc> = row.get("updated_at");
+        let expires_at: Option<DateTime<Utc>> = row.get("expires_at");
+        let source_activity_id: Option<String> = row.get("source_activity_id");
+        let coach_generated: bool = row.get("coach_generated");
+
+        Ok(SharedInsight {
+            id,
+            user_id,
+            visibility: visibility_str
+                .parse()
+                .map_err(|e: String| AppError::database(e))?,
+            insight_type: insight_type_str
+                .parse()
+                .map_err(|e: String| AppError::database(e))?,
+            sport_type,
+            content,
+            title,
+            training_phase: training_phase_str
+                .map(|s| s.parse())
+                .transpose()
+                .map_err(|e: String| AppError::database(e))?,
+            reaction_count,
+            adapt_count,
+            created_at,
+            updated_at,
+            expires_at,
+            source_activity_id,
+            coach_generated,
+        })
+    }
+
+    fn row_to_insight_reaction(row: &PgRow) -> AppResult<InsightReaction> {
+        let id: Uuid = row.get("id");
+        let insight_id: Uuid = row.get("insight_id");
+        let user_id: Uuid = row.get("user_id");
+        let reaction_type_str: String = row.get("reaction_type");
+        let created_at: DateTime<Utc> = row.get("created_at");
+
+        Ok(InsightReaction {
+            id,
+            insight_id,
+            user_id,
+            reaction_type: reaction_type_str
+                .parse()
+                .map_err(|e: String| AppError::database(e))?,
+            created_at,
+        })
+    }
+
+    fn row_to_adapted_insight(row: &PgRow) -> AdaptedInsight {
+        AdaptedInsight {
+            id: row.get("id"),
+            source_insight_id: row.get("source_insight_id"),
+            user_id: row.get("user_id"),
+            adapted_content: row.get("adapted_content"),
+            adaptation_context: row.get("adaptation_context"),
+            was_helpful: row.get("was_helpful"),
+            created_at: row.get("created_at"),
+        }
     }
 }

@@ -31,7 +31,7 @@ mod messaging_otp_linking_tests {
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::email::ResendEmailService;
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
@@ -66,7 +66,7 @@ mod messaging_otp_linking_tests {
 
     /// Create a test user with bcrypt-hashed password and `UserStatus::Active`
     async fn create_otp_test_user(
-        resources: &ServerResources,
+        resources: &ServerContext,
         email: &str,
         password: &str,
     ) -> (Uuid, TenantId) {
@@ -153,7 +153,7 @@ mod messaging_otp_linking_tests {
 
     /// Send a signed webhook and return the response body as JSON
     async fn send_whatsapp_webhook(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         secret: &str,
         payload: &serde_json::Value,
     ) -> (StatusCode, serde_json::Value) {
@@ -223,14 +223,14 @@ mod messaging_otp_linking_tests {
             .unwrap();
     }
 
-    /// Inject a dummy email service into `ServerResources` so the OTP flow
+    /// Inject a dummy email service into `ServerContext` so the OTP flow
     /// triggers (instead of falling back to link-URL).
     ///
     /// The email service uses a fake API key, so actual sends will fail.
     /// This is intentional: we set up OTP state directly in the DB for most tests.
-    fn inject_dummy_email_service(resources: &mut Arc<ServerResources>) {
+    fn inject_dummy_email_service(resources: &mut Arc<ServerContext>) {
         let inner = Arc::get_mut(resources).expect(
-            "Cannot get mutable reference to ServerResources — \
+            "Cannot get mutable reference to ServerContext — \
              ensure no clones exist before calling inject_dummy_email_service",
         );
         inner.email_service = Some(Arc::new(ResendEmailService::new(

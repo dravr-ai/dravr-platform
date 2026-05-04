@@ -1,15 +1,11 @@
-// ABOUTME: MCP tool-related constants and identifiers
-// ABOUTME: Organizes tool names by functional domains for better maintainability
+// ABOUTME: Tool identifier constants module — re-exports from pierre_core::constants::tools
+// ABOUTME: Single source of truth lives in pierre-core
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! MCP tools constants module
+//! Tool identifier constants — re-exported from pierre-core.
 
-/// MCP tool name identifiers
+pub use pierre_core::constants::tools::*;
+/// Tool identifier constants (re-exported from pierre-core).
 pub mod identifiers;
-
-// Re-export all tool identifiers
-
-/// Re-export all tool identifier constants
-pub use identifiers::*;

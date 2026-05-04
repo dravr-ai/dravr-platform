@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extractors::AuthenticatedUser;
 use crate::routes::social::SocialRoutes;
 use crate::services::training_history_compute::{
@@ -61,7 +61,7 @@ pub struct LatestQuery {
 /// - `GET /api/v1/endurance/history?from=&to=` — daily CTL/ATL/TSB/ACWR/
 ///   monotony/strain/`ramp_rate`/`daily_load` rollup over the requested
 ///   window. Auto-recomputes when persisted rows are stale or missing.
-pub fn endurance_routes() -> Router<Arc<ServerResources>> {
+pub fn endurance_routes() -> Router<Arc<ServerContext>> {
     Router::new()
         .route("/api/v1/endurance/latest", get(get_latest_snapshot))
         .route("/api/v1/endurance/dossier", get(get_dossier))
@@ -105,7 +105,7 @@ pub struct PrescribeResponse {
 }
 
 async fn get_workout_templates(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<Vec<WorkoutTemplate>>> {
     let user_id = auth.user_id;
@@ -123,7 +123,7 @@ async fn get_workout_templates(
 }
 
 async fn post_prescribe(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Json(body): Json<PrescribeRequest>,
 ) -> AppResult<Json<PrescribeResponse>> {
@@ -169,7 +169,7 @@ async fn post_prescribe(
 }
 
 async fn get_intervals(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(activity_id): Path<String>,
 ) -> AppResult<Json<IntervalsExport>> {
@@ -186,7 +186,7 @@ async fn get_intervals(
 }
 
 async fn get_routes(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(activity_id): Path<String>,
 ) -> AppResult<Json<RouteSummary>> {
@@ -237,7 +237,7 @@ async fn get_routes(
 }
 
 async fn fetch_activity_by_id(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
@@ -286,7 +286,7 @@ pub struct HistoryResponse {
 }
 
 async fn get_history(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Query(query): Query<HistoryQuery>,
 ) -> AppResult<Json<HistoryResponse>> {
@@ -322,7 +322,7 @@ async fn get_history(
 }
 
 async fn get_latest_snapshot(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Query(query): Query<LatestQuery>,
 ) -> AppResult<Json<LatestSnapshot>> {
@@ -346,7 +346,7 @@ async fn get_latest_snapshot(
 }
 
 async fn get_dossier(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<Dossier>> {
     let user_id = auth.user_id;
@@ -370,7 +370,7 @@ fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
 }
 
 async fn fetch_window_activities(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {

@@ -163,7 +163,7 @@ use pierre_mcp_server::{
     },
     cache::{factory::Cache, CacheConfig},
     config::environment::ServerConfig,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, TenantId, User},
     routes::a2a::service::{A2AClientRequest, A2ARoutes},
 };
@@ -177,7 +177,7 @@ use uuid::Uuid;
 /// Test setup helper that creates all necessary components for A2A testing
 struct A2ATestSetup {
     routes: A2ARoutes,
-    server_resources: Arc<ServerResources>,
+    server_resources: Arc<ServerContext>,
     database: Arc<Database>,
     #[allow(dead_code)]
     auth_manager: Arc<AuthManager>,
@@ -267,15 +267,15 @@ impl A2ATestSetup {
             .await
             .expect("Failed to create test cache");
 
-        // Create ServerResources for A2A routes
+        // Create ServerContext for A2A routes
         let server_resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,
@@ -311,7 +311,7 @@ impl A2ATestSetup {
             contact_email: "client@example.com".to_owned(),
         };
 
-        // Reuse the existing ServerResources to avoid creating new RSA keys
+        // Reuse the existing ServerContext to avoid creating new RSA keys
         let client_manager = &*self.server_resources.a2a_client_manager;
         // Use the existing test user ID to satisfy FK constraint on a2a_clients.user_id
         let credentials = client_manager

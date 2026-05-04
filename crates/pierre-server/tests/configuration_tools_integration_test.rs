@@ -18,7 +18,7 @@ use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     mcp::{
         multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},
-        resources::ServerResources,
+        resources::ServerContext,
     },
     models::{Tenant, TenantId, User},
 };
@@ -112,7 +112,7 @@ async fn make_tool_request(
     tool_name: &str,
     arguments: Value,
     token: &str,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<McpResponse> {
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),

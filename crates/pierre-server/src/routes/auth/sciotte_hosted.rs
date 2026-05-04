@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::admin_guard::require_admin;
 use crate::middleware::extract_auth_from_headers;
 use crate::middleware::provider_link_token::{
@@ -108,7 +108,7 @@ pub struct HostedSuccessQuery {
 /// a Sciotte login on behalf of a Pierre user. Returns the full hosted-login URL.
 /// Requires admin authentication (service-to-service).
 pub(super) async fn handle_mint_sciotte_link_token(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<MintLinkTokenRequest>,
 ) -> Result<Response, AppError> {
@@ -171,7 +171,7 @@ pub(super) async fn handle_mint_sciotte_link_token(
 
 /// Validate the link-token and burn its nonce, returning the verified claims.
 async fn validate_and_burn_link_token(
-    resources: &ServerResources,
+    resources: &ServerContext,
     token: &str,
 ) -> Result<ProviderLinkTokenClaims, Response> {
     let claims = verify_link_token(token, &resources.admin_jwt_secret, "sciotte").map_err(|e| {
@@ -204,7 +204,7 @@ async fn validate_and_burn_link_token(
 /// a user with an invalid/expired link sees the error page instead of a
 /// broken-looking form.
 pub(super) async fn handle_sciotte_hosted_login_page(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Query(query): Query<HostedLoginQuery>,
 ) -> Response {
     let Some(token) = query.token.as_deref() else {

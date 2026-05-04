@@ -23,7 +23,7 @@ use pierre_mcp_server::{
     },
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
     },
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
@@ -95,13 +95,13 @@ impl TestServer {
         .await?;
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*self.database).clone(),
                 (*self.auth_manager).clone(),
                 &self.jwt_secret,
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,

@@ -9,7 +9,7 @@
 //! This module handles MCP token creation, listing, and revocation
 //! for authenticated users. All handlers require valid JWT authentication.
 
-use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -80,7 +80,7 @@ pub struct CreateTokenRequest {
 
 impl UserMcpTokenRoutes {
     /// Create all user MCP token routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/user/mcp-tokens", post(Self::handle_create_token))
             .route("/api/user/mcp-tokens", get(Self::handle_list_tokens))
@@ -93,7 +93,7 @@ impl UserMcpTokenRoutes {
 
     /// Handle token creation
     async fn handle_create_token(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<CreateTokenRequest>,
     ) -> Result<Response, AppError> {
@@ -125,7 +125,7 @@ impl UserMcpTokenRoutes {
 
     /// Handle listing user's tokens
     async fn handle_list_tokens(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -158,7 +158,7 @@ impl UserMcpTokenRoutes {
 
     /// Handle token revocation
     async fn handle_revoke_token(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {

@@ -33,7 +33,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
 };
@@ -243,7 +243,7 @@ pub struct SciotteConnectRequest {
 /// coach can serve data immediately when the user starts chatting.
 #[cfg(feature = "provider-sciotte")]
 async fn store_sciotte_session(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: uuid::Uuid,
     tenant_id: uuid::Uuid,
     session: &AuthSession,
@@ -295,7 +295,7 @@ async fn store_sciotte_session(
 /// skipped entirely and the user's next interactive request will cold-fetch.
 #[cfg(feature = "provider-sciotte")]
 fn spawn_activity_prefetch(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: Uuid,
     tenant_id: Uuid,
     provider_name: &str,
@@ -422,7 +422,7 @@ struct LoginSessionContext<'a> {
 #[cfg(feature = "provider-sciotte")]
 async fn login_result_to_response(
     result: LoginResult,
-    resources: &ServerResources,
+    resources: &ServerContext,
     scraper: CachedScraper<ChromeScraper>,
     permit: ScrapePermit,
     ctx: LoginSessionContext<'_>,
@@ -549,7 +549,7 @@ pub(super) struct LinkContext {
 /// When the link-token path is taken, the returned `LinkContext` carries the
 /// channel metadata needed to emit a post-back webhook on success.
 async fn authenticate(
-    resources: &ServerResources,
+    resources: &ServerContext,
     headers: &HeaderMap,
 ) -> Result<(Uuid, Uuid, Option<LinkContext>), AppError> {
     if let Some(claims) = try_verify_link_token_from_headers(resources, headers) {
@@ -582,7 +582,7 @@ async fn authenticate(
 /// Returns None when the header is absent, not a Bearer token, or fails verification
 /// as a link-token (so the caller falls through to normal auth).
 fn try_verify_link_token_from_headers(
-    resources: &ServerResources,
+    resources: &ServerContext,
     headers: &HeaderMap,
 ) -> Option<ProviderLinkTokenClaims> {
     let header_value = headers.get("authorization").and_then(|h| h.to_str().ok());
@@ -631,7 +631,7 @@ fn login_already_in_progress_response(user_id: Uuid) -> Response {
 /// `Err(_)` only for hard DB / deserialisation failures.
 #[cfg(feature = "provider-sciotte")]
 async fn try_reuse_existing_session(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: Uuid,
     tenant_id: Uuid,
     target: &str,
@@ -688,7 +688,7 @@ async fn try_reuse_existing_session(
 /// Credential-based login via in-process dravr-sciotte
 #[cfg(feature = "provider-sciotte")]
 pub(super) async fn handle_sciotte_login(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
@@ -765,7 +765,7 @@ pub(super) async fn handle_sciotte_login(
 /// Select a 2FA method for a pending login
 #[cfg(feature = "provider-sciotte")]
 pub(super) async fn handle_sciotte_select_2fa(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
@@ -810,7 +810,7 @@ pub(super) async fn handle_sciotte_select_2fa(
 /// Submit OTP code for a pending login
 #[cfg(feature = "provider-sciotte")]
 pub(super) async fn handle_sciotte_submit_otp(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
@@ -859,7 +859,7 @@ pub(super) async fn handle_sciotte_submit_otp(
 
 /// Connect with a pre-existing serialized session (used by external sciotte CLI)
 pub(super) async fn handle_sciotte_connect(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<SciotteConnectRequest>,
 ) -> Result<Response, AppError> {
@@ -901,7 +901,7 @@ pub(super) async fn handle_sciotte_connect(
 
 /// Disconnect the sciotte session
 pub(super) async fn handle_sciotte_disconnect(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;

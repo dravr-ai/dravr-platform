@@ -26,7 +26,7 @@ use pierre_core::models::TenantId;
 use pierre_memory::FactKind;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 
 /// Default page size when the client omits `limit`. Bounded to 100 by
@@ -92,7 +92,7 @@ pub struct ListFactsQuery {
 /// Resolve the user's active tenant the same way `routes::chat` does,
 /// without depending on the chat module so this handler can live entirely
 /// inside the services layer.
-async fn resolve_tenant_id(resources: &ServerResources, user_id: uuid::Uuid) -> TenantId {
+async fn resolve_tenant_id(resources: &ServerContext, user_id: uuid::Uuid) -> TenantId {
     resources
         .repos
         .tenants
@@ -119,7 +119,7 @@ fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
 /// - Repository errors propagated from
 ///   [`pierre_database::repositories::HarnessMemoryRepository::list_user_facts`].
 pub async fn get_facts_handler(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(params): Query<ListFactsQuery>,
 ) -> Result<Response, AppError> {
@@ -178,7 +178,7 @@ pub async fn get_facts_handler(
 /// - Repository errors propagated from
 ///   [`pierre_database::repositories::HarnessMemoryRepository::delete_user_fact`].
 pub async fn forget_fact_handler(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(fact_id): Path<String>,
 ) -> Result<Response, AppError> {

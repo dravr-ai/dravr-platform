@@ -7,7 +7,7 @@
 use crate::database::Database;
 use crate::repositories::{
     ConnectedUserRow, DataSourceRepository, HealthSnapshotRepository, RecoveryRepository,
-    SleepRepository, SyncCursorRepository, SyncCursorRow,
+    SleepRepository, SyncCursorRepository, SyncCursorRow, TimeSeriesPointRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -299,6 +299,7 @@ impl SleepRepository for Database {
                    hrv_during_sleep, is_nap
             FROM sleep_sessions
             WHERE user_id = ? AND tenant_id = ? AND start_time >= ? AND start_time <= ?
+              AND deleted_at IS NULL
             ORDER BY start_time DESC
             ",
         )
@@ -328,7 +329,7 @@ impl SleepRepository for Database {
                    total_sleep_time, sleep_efficiency, sleep_score, stages_json,
                    hrv_during_sleep, is_nap
             FROM sleep_sessions
-            WHERE user_id = ? AND tenant_id = ?
+            WHERE user_id = ? AND tenant_id = ? AND deleted_at IS NULL
             ORDER BY start_time DESC
             LIMIT 1
             ",
@@ -361,6 +362,49 @@ impl SleepRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to delete sleep sessions: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn delete_sleep_session_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool> {
+        let result = if soft {
+            sqlx::query(
+                "UPDATE sleep_sessions SET deleted_at = ? \
+                 WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+            )
+            .bind(Utc::now().to_rfc3339())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(self.pool())
+            .await
+        } else {
+            sqlx::query("DELETE FROM sleep_sessions WHERE id = ? AND tenant_id = ?")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(self.pool())
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete sleep session by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_sleep_session_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM sleep_sessions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to find sleep session tenant: {e}")))?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
@@ -488,6 +532,7 @@ impl RecoveryRepository for Database {
                    resting_respiratory_rate, created_at
             FROM recovery_metrics
             WHERE user_id = ? AND tenant_id = ? AND date >= ? AND date <= ?
+              AND deleted_at IS NULL
             ORDER BY date DESC
             ",
         )
@@ -517,7 +562,7 @@ impl RecoveryRepository for Database {
                    hrv_status, stress_level, resting_heart_rate, body_temperature,
                    resting_respiratory_rate, created_at
             FROM recovery_metrics
-            WHERE user_id = ? AND tenant_id = ?
+            WHERE user_id = ? AND tenant_id = ? AND deleted_at IS NULL
             ORDER BY date DESC
             LIMIT 1
             ",
@@ -529,6 +574,51 @@ impl RecoveryRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to get latest recovery: {e}")))?;
 
         row.map(|r| row_to_stored_recovery(&r)).transpose()
+    }
+
+    async fn delete_recovery_metric_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool> {
+        let result = if soft {
+            sqlx::query(
+                "UPDATE recovery_metrics SET deleted_at = ? \
+                 WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+            )
+            .bind(Utc::now().to_rfc3339())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(self.pool())
+            .await
+        } else {
+            sqlx::query("DELETE FROM recovery_metrics WHERE id = ? AND tenant_id = ?")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(self.pool())
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete recovery metric by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_recovery_metric_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM recovery_metrics WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to find recovery metric tenant: {e}"))
+            })?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
@@ -647,6 +737,7 @@ impl HealthSnapshotRepository for Database {
                    blood_glucose, created_at
             FROM health_snapshots
             WHERE user_id = ? AND tenant_id = ? AND date >= ? AND date <= ?
+              AND deleted_at IS NULL
             ORDER BY date DESC
             ",
         )
@@ -676,7 +767,7 @@ impl HealthSnapshotRepository for Database {
                    muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic,
                    blood_glucose, created_at
             FROM health_snapshots
-            WHERE user_id = ? AND tenant_id = ?
+            WHERE user_id = ? AND tenant_id = ? AND deleted_at IS NULL
             ORDER BY date DESC
             LIMIT 1
             ",
@@ -688,6 +779,51 @@ impl HealthSnapshotRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to get latest health snapshot: {e}")))?;
 
         row.map(|r| row_to_stored_health_metrics(&r)).transpose()
+    }
+
+    async fn delete_health_snapshot_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool> {
+        let result = if soft {
+            sqlx::query(
+                "UPDATE health_snapshots SET deleted_at = ? \
+                 WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+            )
+            .bind(Utc::now().to_rfc3339())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(self.pool())
+            .await
+        } else {
+            sqlx::query("DELETE FROM health_snapshots WHERE id = ? AND tenant_id = ?")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(self.pool())
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete health snapshot by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM health_snapshots WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to find health snapshot tenant: {e}"))
+            })?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
@@ -834,5 +970,97 @@ impl SyncCursorRepository for Database {
                 tenant_id: r.get("tenant_id"),
             })
             .collect())
+    }
+}
+
+#[async_trait]
+impl TimeSeriesPointRepository for Database {
+    async fn insert_continuous_metrics_batch(
+        &self,
+        data_source_id: &str,
+        series_type_id: u32,
+        points: &[(DateTime<Utc>, f64)],
+    ) -> AppResult<u64> {
+        if points.is_empty() {
+            return Ok(0);
+        }
+
+        // ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE
+        // gives last-writer-wins for the unique key, which matches the
+        // dravr-riviere semantics of "second insert at the same timestamp
+        // replaces the first".
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("begin tx for time-series insert: {e}")))?;
+
+        let mut written: u64 = 0;
+        for (recorded_at, value) in points {
+            let id = Uuid::new_v4().to_string();
+            let res = sqlx::query(
+                r"
+                INSERT INTO data_point_series
+                    (id, data_source_id, series_type_id, recorded_at, zone_offset, value)
+                VALUES (?, ?, ?, ?, NULL, ?)
+                ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE SET
+                    value = excluded.value
+                ",
+            )
+            .bind(&id)
+            .bind(data_source_id)
+            .bind(i64::from(series_type_id))
+            .bind(recorded_at.to_rfc3339())
+            .bind(*value)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::database(format!("insert data_point_series row: {e}")))?;
+            written += res.rows_affected();
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("commit time-series insert: {e}")))?;
+
+        Ok(written)
+    }
+
+    async fn get_continuous_metrics(
+        &self,
+        data_source_id: &str,
+        series_type_id: u32,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<(DateTime<Utc>, f64)>> {
+        let rows = sqlx::query(
+            r"
+            SELECT recorded_at, value
+            FROM data_point_series
+            WHERE data_source_id = ?
+              AND series_type_id = ?
+              AND recorded_at >= ?
+              AND recorded_at <= ?
+              AND deleted_at IS NULL
+            ORDER BY recorded_at ASC
+            ",
+        )
+        .bind(data_source_id)
+        .bind(i64::from(series_type_id))
+        .bind(start.to_rfc3339())
+        .bind(end.to_rfc3339())
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("get_continuous_metrics: {e}")))?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let recorded_at_str: String = r.get("recorded_at");
+            let value: f64 = r.get("value");
+            let recorded_at = DateTime::parse_from_rfc3339(&recorded_at_str)
+                .map_err(|e| AppError::database(format!("invalid recorded_at: {e}")))?
+                .with_timezone(&Utc);
+            out.push((recorded_at, value));
+        }
+        Ok(out)
     }
 }

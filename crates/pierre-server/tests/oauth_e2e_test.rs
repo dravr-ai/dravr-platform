@@ -164,10 +164,9 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
     },
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -355,13 +354,13 @@ async fn test_oauth_flow_through_mcp() {
     // Create server instance
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -540,7 +539,7 @@ async fn test_oauth_callback_error_handling() {
         .await
         .unwrap();
 
-    // Create minimal config and ServerResources for OAuth routes
+    // Create minimal config and ServerContext for OAuth routes
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
@@ -697,13 +696,13 @@ async fn test_oauth_callback_error_handling() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -713,11 +712,10 @@ async fn test_oauth_callback_error_handling() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     // Test invalid state parameter (not stored server-side, so consumed state fails)
@@ -836,7 +834,7 @@ async fn test_oauth_state_csrf_protection() {
         .await
         .unwrap();
 
-    // Create ServerResources for OAuth routes
+    // Create ServerContext for OAuth routes
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
@@ -993,13 +991,13 @@ async fn test_oauth_state_csrf_protection() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1009,11 +1007,10 @@ async fn test_oauth_state_csrf_protection() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     let user_id = uuid::Uuid::new_v4();
@@ -1192,13 +1189,13 @@ async fn test_connection_status_tracking() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager,
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1208,11 +1205,10 @@ async fn test_connection_status_tracking() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
     let register_request = RegisterRequest {
         email: "status_test@example.com".to_owned(),
@@ -1225,9 +1221,9 @@ async fn test_connection_status_tracking() {
 
     // Check initial connection status
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
 

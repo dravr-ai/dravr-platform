@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_mcp_server::tools::implementations::connection::{
@@ -43,7 +43,7 @@ use uuid::Uuid;
 // ============================================================================
 
 async fn seed_token(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
@@ -67,7 +67,7 @@ async fn seed_token(
         .expect("upsert test token");
 }
 
-async fn user_primary_tenant(resources: &Arc<ServerResources>, user_id: Uuid) -> TenantId {
+async fn user_primary_tenant(resources: &Arc<ServerContext>, user_id: Uuid) -> TenantId {
     resources
         .repos
         .tenants
@@ -80,7 +80,7 @@ async fn user_primary_tenant(resources: &Arc<ServerResources>, user_id: Uuid) ->
 }
 
 fn tool_context(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> ToolExecutionContext {

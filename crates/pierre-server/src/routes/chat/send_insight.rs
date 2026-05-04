@@ -14,7 +14,7 @@ use pierre_core::models::{AddMessageParams, ConversationTurnId};
 
 use crate::errors::AppError;
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::protocols::universal::UniversalExecutor;
 use crate::services::chat_pipeline;
@@ -47,7 +47,7 @@ use super::{
     )
 )]
 pub async fn send_insight_message(
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     conversation_id: String,
     user_id_str: String,
     tenant_id: TenantId,

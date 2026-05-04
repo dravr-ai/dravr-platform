@@ -162,8 +162,7 @@ use pierre_mcp_server::{
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
     constants::oauth_providers,
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,
     routes::{auth::AuthService, LoginRequest, RegisterRequest},
@@ -194,7 +193,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
 
     let auth_manager = AuthManager::new(24);
 
-    // Create minimal config for ServerResources
+    // Create minimal config for ServerContext
     let config = Arc::new(ServerConfig {
         http_port: 8081,
         oauth_callback_port: 35535,
@@ -361,13 +360,13 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         .expect("Failed to create test cache");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -377,11 +376,10 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Test user registration
@@ -711,7 +709,7 @@ async fn test_input_validation() -> Result<()> {
 
     let auth_manager = AuthManager::new(24);
 
-    // Create minimal config for ServerResources
+    // Create minimal config for ServerContext
     let config = Arc::new(ServerConfig {
         http_port: 8081,
         oauth_callback_port: 35535,
@@ -878,13 +876,13 @@ async fn test_input_validation() -> Result<()> {
         .expect("Failed to create test cache");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -894,11 +892,10 @@ async fn test_input_validation() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Test invalid email formats

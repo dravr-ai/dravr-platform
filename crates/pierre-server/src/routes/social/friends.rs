@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::{AppError, ErrorCode},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     models::{FriendConnection, FriendStatus},
     services::social_insights,
 };
@@ -223,7 +223,7 @@ pub struct SearchUsersQuery {
 impl SocialRoutes {
     /// Handle GET /api/social/friends - List friends
     pub(crate) async fn handle_list_friends(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<ListFriendsQuery>,
     ) -> Result<Response, AppError> {
@@ -291,7 +291,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/friends - Send friend request
     pub(crate) async fn handle_send_request(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<SendFriendRequestBody>,
     ) -> Result<Response, AppError> {
@@ -302,7 +302,7 @@ impl SocialRoutes {
             .map_err(|_| AppError::invalid_input("Invalid receiver_id format"))?;
 
         let result =
-            social_insights::create_friend_request(&social, auth.user_id, receiver_id).await?;
+            social_insights::create_friend_request(&*social, auth.user_id, receiver_id).await?;
 
         // Fire-and-forget notification to the receiver
         #[cfg(feature = "client-notifications")]
@@ -328,7 +328,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/friends/pending - Get pending requests
     pub(crate) async fn handle_pending_requests(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -399,7 +399,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/friends/:id/accept - Accept friend request
     pub(crate) async fn handle_accept_request(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -462,7 +462,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/friends/:id/decline - Decline friend request
     pub(crate) async fn handle_decline_request(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -501,7 +501,7 @@ impl SocialRoutes {
 
     /// Handle DELETE /api/social/friends/:id - Remove friend
     pub(crate) async fn handle_unfriend(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -533,7 +533,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/users/search - Search for users
     pub(crate) async fn handle_search_users(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<SearchUsersQuery>,
     ) -> Result<Response, AppError> {
@@ -544,7 +544,7 @@ impl SocialRoutes {
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let limit = query.limit.unwrap_or(20).clamp(1, 50) as u32;
         let enriched =
-            social_insights::search_users_with_status(&social, auth.user_id, &query.q, limit)
+            social_insights::search_users_with_status(&*social, auth.user_id, &query.q, limit)
                 .await?;
 
         let results: Vec<UserProfileResponse> = enriched

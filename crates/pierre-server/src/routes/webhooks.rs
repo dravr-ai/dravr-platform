@@ -20,7 +20,7 @@ use tracing::{info, warn};
 
 use pierre_core::models::{OAuthNotification, TenantId};
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Webhook routes for health data provider push notifications.
 ///
@@ -31,7 +31,7 @@ pub struct WebhookRoutes;
 
 impl WebhookRoutes {
     /// Mount webhook routes for all supported providers.
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/webhooks/whoop",
@@ -57,7 +57,7 @@ impl WebhookRoutes {
     /// WHOOP webhook event handler (POST).
     /// Validates HMAC-SHA256 signature, then queues the event for async processing.
     async fn handle_whoop_event(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         body: Bytes,
     ) -> impl IntoResponse {
@@ -137,7 +137,7 @@ impl WebhookRoutes {
     ///
     /// The payload only contains IDs — a full activity fetch is still required.
     async fn handle_strava_event(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         body: Bytes,
     ) -> impl IntoResponse {
         let event: StravaWebhookEvent = match serde_json::from_slice(&body) {

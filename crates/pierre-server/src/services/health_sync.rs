@@ -23,14 +23,9 @@ use dravr_enforme::traits::recovery_store::RecoveryStore;
 use dravr_enforme::traits::sleep_store::SleepStore;
 use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_equilibre_sync::SyncStatus;
-use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
-};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::RepositoryRegistry;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use tracing::warn;
 use uuid::Uuid;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -38,9 +33,10 @@ use uuid::Uuid;
 /// Wraps `Arc<RepositoryRegistry>` and implements each of enforme's 8 granular
 /// store traits by delegating to the corresponding repository method.
 ///
-/// Performs JSON-based type conversion between dravr-equilibre versions:
-/// enforme uses equilibre v0.2 (crates.io) while pierre-database uses
-/// equilibre v0.1 (git). Both versions have identical struct layouts.
+/// `dravr-equilibre` resolves to a single workspace-wide version (the patch
+/// in the workspace `Cargo.toml` redirects the crates.io alias used by
+/// enforme to the same git tag pierre-core consumes), so the model types
+/// flow through this adapter without any cross-version translation.
 pub struct PierreSyncStorage {
     repos: Arc<RepositoryRegistry>,
 }
@@ -123,17 +119,6 @@ impl fmt::Debug for PierreSyncStorage {
     }
 }
 
-/// Convert between equilibre v0.2 (enforme) and v0.1 (pierre-core) types via JSON.
-///
-/// Both versions have identical struct layouts and serde implementations,
-/// so JSON round-tripping is a reliable conversion path.
-fn convert_type<S: Serialize, D: DeserializeOwned>(value: &S, context: &str) -> EnformeResult<D> {
-    let json = serde_json::to_value(value)
-        .map_err(|e| EnformeError::store(format!("Failed to serialize {context}: {e}")))?;
-    serde_json::from_value(json)
-        .map_err(|e| EnformeError::store(format!("Failed to deserialize {context}: {e}")))
-}
-
 // ============================================================================
 // SleepStore
 // ============================================================================
@@ -149,10 +134,9 @@ impl SleepStore for PierreSyncStorage {
             let tenant_id = self
                 .resolve_tenant_id(&session.user_id, &session.source_name)
                 .await?;
-            let converted: StoredSleepSession = convert_type(session, "sleep session")?;
             self.repos
                 .sleep
-                .upsert_sleep_session(&tenant_id, &converted)
+                .upsert_sleep_session(&tenant_id, session)
                 .await
                 .map_err(|e| EnformeError::store(format!("Failed to upsert sleep session: {e}")))?;
             count += 1;
@@ -161,14 +145,28 @@ impl SleepStore for PierreSyncStorage {
     }
 
     async fn delete_sleep_session(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        if policy.is_soft_delete() {
-            // Soft delete: set deleted_at timestamp (handled by direct SQL update)
-            warn!(
-                sleep_session_id = id,
-                "Soft delete for sleep sessions not yet wired to repo — skipping"
-            );
-        }
-        // Hard delete not implemented at the repository level for individual sessions by ID
+        // dravr-enforme's contract gives us the id only. Resolve the owning
+        // tenant first (discovery query selects only tenant_id), then delete
+        // through the tenant-scoped repository call so the data-access query
+        // honors multi-tenant isolation.
+        let tenant_id = self
+            .repos
+            .sleep
+            .find_sleep_session_tenant(id)
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to look up sleep session tenant: {e}"))
+            })?
+            .ok_or_else(|| {
+                EnformeError::store(format!("Sleep session {id} not found for delete"))
+            })?;
+
+        self.repos
+            .sleep
+            .delete_sleep_session_by_id(&tenant_id, id, policy.is_soft_delete())
+            .await
+            .map_err(|e| EnformeError::store(format!("Failed to delete sleep session: {e}")))?;
+
         Ok(())
     }
 }
@@ -188,10 +186,9 @@ impl RecoveryStore for PierreSyncStorage {
             let tenant_id = self
                 .resolve_tenant_id(&metric.user_id, &metric.source_name)
                 .await?;
-            let converted: StoredRecoveryMetrics = convert_type(metric, "recovery metrics")?;
             self.repos
                 .recovery
-                .upsert_recovery_metrics(&tenant_id, &converted)
+                .upsert_recovery_metrics(&tenant_id, metric)
                 .await
                 .map_err(|e| {
                     EnformeError::store(format!("Failed to upsert recovery metrics: {e}"))
@@ -202,12 +199,26 @@ impl RecoveryStore for PierreSyncStorage {
     }
 
     async fn delete_recovery_metric(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        if policy.is_soft_delete() {
-            warn!(
-                recovery_metric_id = id,
-                "Soft delete for recovery metrics not yet wired to repo — skipping"
-            );
-        }
+        // Resolve tenant first (discovery query) then delete through the
+        // tenant-scoped repository call.
+        let tenant_id = self
+            .repos
+            .recovery
+            .find_recovery_metric_tenant(id)
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to look up recovery metric tenant: {e}"))
+            })?
+            .ok_or_else(|| {
+                EnformeError::store(format!("Recovery metric {id} not found for delete"))
+            })?;
+
+        self.repos
+            .recovery
+            .delete_recovery_metric_by_id(&tenant_id, id, policy.is_soft_delete())
+            .await
+            .map_err(|e| EnformeError::store(format!("Failed to delete recovery metric: {e}")))?;
+
         Ok(())
     }
 }
@@ -227,10 +238,9 @@ impl HealthStore for PierreSyncStorage {
             let tenant_id = self
                 .resolve_tenant_id(&snapshot.user_id, &snapshot.source_name)
                 .await?;
-            let converted: StoredHealthMetrics = convert_type(snapshot, "health snapshot")?;
             self.repos
                 .health_snapshots
-                .upsert_health_snapshot(&tenant_id, &converted)
+                .upsert_health_snapshot(&tenant_id, snapshot)
                 .await
                 .map_err(|e| {
                     EnformeError::store(format!("Failed to upsert health snapshot: {e}"))
@@ -241,12 +251,26 @@ impl HealthStore for PierreSyncStorage {
     }
 
     async fn delete_health_snapshot(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        if policy.is_soft_delete() {
-            warn!(
-                health_snapshot_id = id,
-                "Soft delete for health snapshots not yet wired to repo — skipping"
-            );
-        }
+        // Resolve tenant first (discovery query) then delete through the
+        // tenant-scoped repository call.
+        let tenant_id = self
+            .repos
+            .health_snapshots
+            .find_health_snapshot_tenant(id)
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to look up health snapshot tenant: {e}"))
+            })?
+            .ok_or_else(|| {
+                EnformeError::store(format!("Health snapshot {id} not found for delete"))
+            })?;
+
+        self.repos
+            .health_snapshots
+            .delete_health_snapshot_by_id(&tenant_id, id, policy.is_soft_delete())
+            .await
+            .map_err(|e| EnformeError::store(format!("Failed to delete health snapshot: {e}")))?;
+
         Ok(())
     }
 }
@@ -264,10 +288,9 @@ impl DataSourceStore for PierreSyncStorage {
         let tenant_id = self
             .resolve_tenant_id(&source.user_id, &source.provider)
             .await?;
-        let converted: DataSource = convert_type(source, "data source")?;
         self.repos
             .data_sources
-            .upsert_data_source(&tenant_id, &converted)
+            .upsert_data_source(&tenant_id, source)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to upsert data source: {e}")))
     }
@@ -398,15 +421,22 @@ impl UserConnectionStore for PierreSyncStorage {
 impl TimeSeriesPointStore for PierreSyncStorage {
     async fn store_continuous_metrics(
         &self,
-        _source_id: &str,
-        _batches: &[dravr_equilibre_sync::ContinuousMetricBatch],
+        source_id: &str,
+        batches: &[dravr_equilibre_sync::ContinuousMetricBatch],
     ) -> EnformeResult<u64> {
-        // Time-series point storage is handled by dravr-riviere's write path.
-        // This adapter delegates to the data_point_series table which is populated
-        // directly by the provider sync pipeline. Returning 0 as a no-op until
-        // the riviere write integration is wired.
-        warn!("TimeSeriesPointStore::store_continuous_metrics called but riviere write path not yet wired");
-        Ok(0)
+        let mut total: u64 = 0;
+        for batch in batches {
+            let written = self
+                .repos
+                .time_series_points
+                .insert_continuous_metrics_batch(source_id, batch.series_type_id, &batch.points)
+                .await
+                .map_err(|e| {
+                    EnformeError::store(format!("Failed to insert continuous metrics: {e}"))
+                })?;
+            total += written;
+        }
+        Ok(total)
     }
 }
 

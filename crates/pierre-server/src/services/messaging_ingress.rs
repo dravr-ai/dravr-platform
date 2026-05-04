@@ -46,7 +46,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_THINKING_PLACEHOLDER,
 };
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::analytics::{analytics, hash_id};
 use crate::services::channel_error_reply::ChannelErrorReply;
@@ -119,7 +119,7 @@ fn build_messaging_profile(dispatch: &PendingDispatch) -> ChannelProfile {
 /// Data needed to dispatch a message through the LLM pipeline after HTTP 200
 pub(crate) struct PendingDispatch {
     /// Server resources for LLM access
-    pub(crate) resources: Arc<ServerResources>,
+    pub(crate) resources: Arc<ServerContext>,
     /// Channel adapter for outbound send
     pub(crate) adapter: Arc<dyn MessagingChannel>,
     /// Resolved session info
@@ -161,7 +161,7 @@ pub(crate) struct PendingDispatch {
 
 /// Parameters for the OTP code verification step of the channel linking flow
 struct OtpVerificationParams<'a> {
-    resources: &'a ServerResources,
+    resources: &'a ServerContext,
     tenant_id: TenantId,
     channel_type: ChannelType,
     channel: &'a str,
@@ -256,7 +256,7 @@ async fn execute_link_code(
 /// Returns a user-facing message describing the result, translated through
 /// the messaging-strings registry.
 async fn consume_and_link(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel: &str,
@@ -290,7 +290,7 @@ async fn consume_and_link(
 ///
 /// Returns an outgoing confirmation or error message to send back to the user.
 async fn handle_linking_command(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
     sender_id: &str,
@@ -319,7 +319,7 @@ async fn handle_linking_command(
 /// the database before their events will be captured. Once hydrated the entry
 /// persists for the life of the pod and `/privacy on|off` commands keep it
 /// current via `set_consent`.
-async fn hydrate_analytics_consent(resources: &ServerResources, user_id: &str) {
+async fn hydrate_analytics_consent(resources: &ServerContext, user_id: &str) {
     let hashed_user = hash_id(user_id);
     if analytics().has_consent_cached(&hashed_user) {
         return;
@@ -344,7 +344,7 @@ async fn hydrate_analytics_consent(resources: &ServerResources, user_id: &str) {
 /// is NULL (FK `ON DELETE SET NULL` fired after the referenced conversation was
 /// deleted). Returns the new conversation id.
 async fn forge_fresh_session_conversation(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     session_id: &str,
     user_id: &str,
@@ -377,7 +377,7 @@ async fn forge_fresh_session_conversation(
 /// Looks up the channel link to find the Pierre user, then looks up or creates
 /// a session. Returns `None` if the sender has no channel link (unlinked user).
 async fn resolve_linked_session(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
@@ -501,7 +501,7 @@ async fn resolve_linked_session(
 /// Generates a 32-character cryptographic code with a 10-minute TTL, stores it
 /// in the database, and constructs a message with a clickable URL for the user.
 async fn create_link_and_prompt(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -574,7 +574,7 @@ fn is_logout_command(content: &MessageContent) -> bool {
 
 /// Handle logout: delete channel link, sessions, and OTP states atomically
 async fn handle_logout(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: ChannelType,
     channel: &str,
@@ -675,7 +675,7 @@ fn apply_conversation_recipient(msg: &mut OutgoingMessage, conversation_id: Opti
 /// Returns `Some(OutgoingMessage)` if the OTP flow handled the message (reply to send),
 /// or `None` if no active OTP flow exists (proceed to normal routing).
 async fn handle_otp_flow(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: ChannelType,
     channel: &str,
@@ -755,7 +755,7 @@ async fn handle_otp_flow(
 ///
 /// Returns the user on success, or an error reply for the caller to return.
 async fn validate_email_user(
-    resources: &ServerResources,
+    resources: &ServerContext,
     channel_type: ChannelType,
     sender_id: &str,
     email: &str,
@@ -825,7 +825,7 @@ async fn validate_email_user(
 ///
 /// Returns the masked email on success, or an error reply for the caller to return.
 async fn generate_and_send_otp(
-    resources: &ServerResources,
+    resources: &ServerContext,
     channel_type: ChannelType,
     sender_id: &str,
     state_id: &str,
@@ -884,7 +884,7 @@ async fn generate_and_send_otp(
 ///
 /// Validates the email, looks up the Pierre user, generates and sends the OTP code.
 async fn handle_email_step(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: ChannelType,
     channel: &str,
@@ -937,7 +937,7 @@ async fn handle_email_step(
 /// Invalidates the linking session if max attempts are reached, otherwise
 /// returns the remaining attempt count.
 async fn handle_otp_mismatch(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -1119,7 +1119,7 @@ async fn handle_otp_verification_step(
 /// represent the "awaiting email" state, and `awaiting_otp` with a non-empty email for
 /// the "awaiting OTP code" state.
 async fn start_otp_flow(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -1186,7 +1186,7 @@ async fn start_otp_flow(
 /// Returns (`stored_count`, `pending_dispatches`) — the dispatches are processed
 /// asynchronously after the webhook returns HTTP 200.
 pub(crate) async fn persist_inbound(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     channel: &str,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -1253,7 +1253,7 @@ async fn send_channel_response(
 #[cfg(feature = "client-messaging")]
 #[allow(clippy::too_many_arguments)]
 async fn try_handle_slash_command(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     channel: &str,
     channel_type: ChannelType,
     session: &ResolvedSession,
@@ -1370,7 +1370,7 @@ async fn try_handle_slash_command(
 /// `Ok(HandledNotStored)` for linking commands or unlinked users,
 /// or `Err(())` if persistence failed.
 async fn persist_single_message(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     channel: &str,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -1574,7 +1574,7 @@ fn sanitize_for_dispatch(channel: &str, user_id: &str, text_content: String) -> 
 /// Chooses between in-chat OTP flow (when email service is available) and
 /// link-URL flow (fallback), then sends the response via the channel adapter.
 async fn send_unlinked_user_prompt(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel: &str,
@@ -1627,7 +1627,7 @@ async fn send_unlinked_user_prompt(
 /// Returns `Ok(Some(session))` for linked users, `Ok(None)` for unlinked users
 /// (after sending them a prompt), or `Err(())` on session resolution failure.
 async fn resolve_or_prompt(
-    resources: &ServerResources,
+    resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel: &str,
@@ -1732,7 +1732,7 @@ async fn store_inbound_message(
 /// a different tenant. This looks up the user's first tenant membership and uses
 /// that for tool execution (OAuth, activities), falling back to the webhook tenant.
 async fn resolve_user_tenant(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_id: &str,
     fallback_tenant_id: TenantId,
 ) -> TenantId {
@@ -1772,7 +1772,7 @@ async fn resolve_user_tenant(
 /// per command/dispatch so handlers and chat-pipeline stages work with a
 /// single resolved `String` instead of re-querying.
 pub async fn resolve_messaging_locale(
-    resources: &ServerResources,
+    resources: &ServerContext,
     tenant_id: TenantId,
     user_id: Uuid,
     channel_type: &str,

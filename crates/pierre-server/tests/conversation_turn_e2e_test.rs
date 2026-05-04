@@ -27,7 +27,7 @@ mod conversation_turn_e2e_tests {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::permissions::UserRole;
     use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
@@ -45,7 +45,7 @@ mod conversation_turn_e2e_tests {
 
     /// Deterministic provider that returns a canned response on every
     /// `complete()` call. Injected via
-    /// [`ServerResources::with_llm_provider`] so the messaging pipeline
+    /// [`ServerContext::with_llm_provider`] so the messaging pipeline
     /// runs end-to-end without reaching the network. Token counts are
     /// non-zero so `LlmCallRecorder` writes a real per-call row.
     struct MockLlmProvider {
@@ -134,7 +134,7 @@ mod conversation_turn_e2e_tests {
     /// Seed an admin user + tenant directly so the test can query the
     /// admin-only `/internal/conversation-turn` endpoint afterwards.
     async fn create_admin_user_in_tenant(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         email: &str,
     ) -> (Uuid, TenantId, String) {
         let password_hash =
@@ -188,7 +188,7 @@ mod conversation_turn_e2e_tests {
     /// above the mock provider's response time; failures here mean the
     /// pipeline never reached the LLM stage.
     async fn wait_for_llm_usage_row(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<Uuid> {
         let pool = resources

@@ -18,7 +18,7 @@ use pierre_mcp_server::{
     config::environment::ServerConfig,
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
         schema::get_tools,
     },
     models::User,
@@ -60,13 +60,13 @@ async fn test_mcp_initialize_request() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -97,13 +97,13 @@ async fn test_mcp_ping_request() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -131,13 +131,13 @@ async fn test_mcp_tools_list_request() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -169,13 +169,13 @@ async fn test_mcp_authenticate_request() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -216,13 +216,13 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -258,13 +258,13 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -306,13 +306,13 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -354,13 +354,13 @@ async fn test_mcp_unknown_method() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -388,13 +388,13 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -484,13 +484,13 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -555,13 +555,13 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -637,13 +637,13 @@ async fn test_mcp_unknown_tool() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -693,13 +693,13 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -749,13 +749,13 @@ async fn test_mcp_request_id_variations() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -792,13 +792,13 @@ async fn test_mcp_error_scenarios() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -846,13 +846,13 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

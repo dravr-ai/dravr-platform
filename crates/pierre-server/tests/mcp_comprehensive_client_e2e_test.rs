@@ -10,7 +10,7 @@
 use anyhow::Result;
 use pierre_mcp_server::constants::tools::*;
 use pierre_mcp_server::mcp::multitenant::McpRequest;
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
@@ -19,7 +19,7 @@ mod common;
 
 /// Mock MCP handler for in-process testing
 struct MockMcpHandler {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     test_jwt_token: String,
 }
 

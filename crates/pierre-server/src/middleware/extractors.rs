@@ -14,7 +14,7 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::security::cookies::get_cookie_value;
 
@@ -49,12 +49,12 @@ impl AuthenticatedUser {
     }
 }
 
-impl FromRequestParts<Arc<ServerResources>> for AuthenticatedUser {
+impl FromRequestParts<Arc<ServerContext>> for AuthenticatedUser {
     type Rejection = AppError;
 
     fn from_request_parts(
         parts: &mut Parts,
-        state: &Arc<ServerResources>,
+        state: &Arc<ServerContext>,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let headers = parts.headers.clone();
         let state = state.clone(); // Safe: Arc clone for async block
@@ -78,7 +78,7 @@ impl FromRequestParts<Arc<ServerResources>> for AuthenticatedUser {
 /// - The user lookup or rate limit check fails
 pub async fn extract_auth_from_headers(
     headers: &HeaderMap,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<AuthResult, AppError> {
     let auth_value =
         if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {

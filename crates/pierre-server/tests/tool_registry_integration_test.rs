@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for ToolRegistry execution paths and admin filtering.
-// ABOUTME: Tests real tool execution with ServerResources-backed ToolExecutionContext.
+// ABOUTME: Tests real tool execution with ServerContext-backed ToolExecutionContext.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::TenantId;
 use pierre_mcp_server::tools::{AuthMethod, ToolCapabilities, ToolExecutionContext, ToolRegistry};
 use serde_json::json;
@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 /// Create a `ToolExecutionContext` for testing with given user and admin status.
 fn create_test_context(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: Option<TenantId>,
     is_admin: bool,

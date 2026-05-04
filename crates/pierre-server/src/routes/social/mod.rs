@@ -26,10 +26,10 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 
 use crate::{
-    errors::AppError, mcp::resources::ServerResources, middleware::extract_auth_from_headers,
+    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::social_dispatch::SocialManagerBackend;
+use pierre_database::repositories::SocialRepository;
 
 // Re-export all public types for external consumers
 pub use feed::{
@@ -76,7 +76,7 @@ pub struct SocialRoutes;
 
 impl SocialRoutes {
     /// Create all social routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Friend connections
             .route("/api/social/friends", get(Self::handle_list_friends))
@@ -150,7 +150,7 @@ impl SocialRoutes {
     /// Extract and authenticate user from authorization header or cookie
     pub(crate) async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -163,34 +163,19 @@ impl SocialRoutes {
         }
     }
 
-    /// Get social manager for the active database backend
+    /// Get the social repository from the registry.
     ///
-    /// Returns a `SocialManagerBackend` that dispatches to either the `SQLite`
-    /// or `PostgreSQL` social manager depending on which backend is configured.
+    /// The trait is implemented for both `SQLite` (`Database`) and `PostgreSQL`
+    /// (`PostgresDatabase`); the registry holds whichever the active backend
+    /// produces. Returns the `Arc<dyn SocialRepository>` so handlers can call
+    /// trait methods directly.
     pub(crate) fn get_social_manager(
-        resources: &Arc<ServerResources>,
-    ) -> Result<SocialManagerBackend, AppError> {
-        #[cfg(feature = "postgresql")]
-        use pierre_database::backends::social_postgres::PostgresSocialManager;
-        use pierre_database::database::social::SocialManager;
-
-        // Try SQLite first (most common in development)
-        if let Some(pool) = resources.database.sqlite_pool() {
-            return Ok(SocialManagerBackend::SQLite(SocialManager::new(
-                pool.clone(),
-            )));
-        }
-
-        // Try PostgreSQL
-        #[cfg(feature = "postgresql")]
-        if let Some(pool) = resources.database.postgres_pool() {
-            return Ok(SocialManagerBackend::PostgreSQL(
-                PostgresSocialManager::new(pool.clone()),
-            ));
-        }
-
-        Err(AppError::internal(
-            "No database backend available for social features",
-        ))
+        resources: &Arc<ServerContext>,
+    ) -> Result<Arc<dyn SocialRepository>, AppError> {
+        resources
+            .repos
+            .social
+            .clone()
+            .ok_or_else(|| AppError::internal("Social repository not configured"))
     }
 }

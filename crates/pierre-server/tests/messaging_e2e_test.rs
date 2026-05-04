@@ -30,7 +30,7 @@ mod messaging_e2e_tests {
     use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
@@ -68,7 +68,7 @@ mod messaging_e2e_tests {
 
     /// Create a test user with bcrypt-hashed password and `UserStatus::Active`
     async fn create_e2e_user(
-        resources: &ServerResources,
+        resources: &ServerContext,
         email: &str,
         password: &str,
     ) -> (Uuid, TenantId) {

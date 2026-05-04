@@ -15,7 +15,7 @@ use pierre_intelligence::routes::build_route_summary_from_streams;
 use serde_json::{json, Value};
 
 use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::routes::social::SocialRoutes;
 use crate::tools::context::ToolExecutionContext;
@@ -51,7 +51,7 @@ fn activity_id_arg(args: &Value) -> AppResult<String> {
 }
 
 async fn fetch_activity(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: uuid::Uuid,
     activity_id: &str,

@@ -16,7 +16,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
     config::environment::*,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::User,
     protocols::universal::{UniversalRequest, UniversalToolExecutor},
 };
@@ -216,13 +216,13 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     let cache = Cache::new(cache_config).await?;
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

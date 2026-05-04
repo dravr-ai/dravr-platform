@@ -17,9 +17,8 @@ use tracing::{error, field::Empty, info, warn};
 use urlencoding::encode;
 
 use crate::{
-    context::ServerContext,
     errors::{AppError, ErrorCode},
-    mcp::{oauth_flow_manager::OAuthTemplateRenderer, resources::ServerResources},
+    mcp::{oauth_flow_manager::OAuthTemplateRenderer, resources::ServerContext},
     models::TenantId,
     providers::ProviderDescriptor,
     services::{
@@ -55,15 +54,14 @@ pub type OAuthRoutes = OAuthService;
     )
 )]
 pub(super) async fn handle_oauth_callback(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Response, AppError> {
-    let server_context = ServerContext::from(resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        resources.data(),
+        resources.config(),
+        resources.notification(),
     );
 
     let code = params
@@ -75,7 +73,7 @@ pub(super) async fn handle_oauth_callback(
         .ok_or_else(|| AppError::auth_invalid("Missing OAuth state parameter"))?;
 
     // Check if we should redirect to a separate frontend URL
-    let frontend_url = server_context.config().config().frontend_url.clone();
+    let frontend_url = &resources.config.frontend_url.clone();
 
     match oauth_routes.handle_callback(code, state, &provider).await {
         Ok(response) => {
@@ -122,7 +120,7 @@ pub(super) async fn handle_oauth_callback(
 
             // For errors, we need to parse the state to check for mobile redirect URL
             // since handle_callback failed and didn't return the parsed state
-            let config = server_context.config().config();
+            let config = &resources.config;
             let mobile_redirect_url = oauth_flow_service::extract_mobile_redirect_from_state(
                 state,
                 &config.base_url,
@@ -179,7 +177,7 @@ pub(super) async fn handle_oauth_callback(
     )
 )]
 pub(super) async fn handle_oauth_status(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     // Authenticate using middleware (supports both cookies and Authorization header)
@@ -249,7 +247,7 @@ pub(super) async fn handle_oauth_status(
 /// Returns all available providers from the registry with their connection status.
 /// Uses `provider_connections` table as the single source of truth for connectivity.
 pub(super) async fn handle_providers_status(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     use crate::providers::registry::global_registry;
@@ -363,7 +361,7 @@ pub(super) async fn handle_providers_status(
     )
 )]
 pub(super) async fn handle_oauth_auth_initiate(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path((provider, user_id_str)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
@@ -396,11 +394,10 @@ pub(super) async fn handle_oauth_auth_initiate(
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
 
-    let server_context = ServerContext::from(resources.as_ref());
     let oauth_service = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        resources.data(),
+        resources.config(),
+        resources.notification(),
     );
 
     let auth_response = oauth_service
@@ -439,7 +436,7 @@ pub(super) async fn handle_oauth_auth_initiate(
     )
 )]
 pub(super) async fn handle_mobile_oauth_init(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(provider): Path<String>,
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
@@ -609,7 +606,7 @@ pub(super) async fn handle_mobile_oauth_init(
 /// Disconnects a fitness provider (e.g., Strava, Fitbit) by deleting the stored OAuth tokens.
 /// Requires valid JWT authentication via cookie or Authorization header.
 pub(super) async fn handle_disconnect_provider_rest(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(provider): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
@@ -623,11 +620,10 @@ pub(super) async fn handle_disconnect_provider_rest(
     info!("Disconnecting provider {} for user {}", provider, user_id);
 
     // Create OAuthService instance and call existing disconnect logic
-    let server_context = ServerContext::from(resources.as_ref());
     let oauth_service = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        resources.data(),
+        resources.config(),
+        resources.notification(),
     );
     oauth_service
         .disconnect_provider(user_id, &provider, auth_result.active_tenant_id)
@@ -643,7 +639,7 @@ pub(super) async fn handle_disconnect_provider_rest(
 /// Starts a background sync and returns immediately with status.
 /// Optionally blocks if `?wait=true` query parameter is provided.
 pub(super) async fn handle_sync_provider(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
@@ -691,7 +687,7 @@ pub(super) async fn handle_sync_provider(
 /// Triggers a 30-day backfill via the sync orchestrator so the user gets
 /// historical data immediately after connecting a wearable provider.
 #[cfg(feature = "health-sync")]
-fn spawn_health_backfill(resources: &ServerResources, user_id: &str, provider: &str) {
+fn spawn_health_backfill(resources: &ServerContext, user_id: &str, provider: &str) {
     const BACKFILL_DAYS: u32 = 30;
 
     let Some(orchestrator) = resources.sync_orchestrator.clone() else {

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::multitenant::{McpError, McpRequest, McpResponse, MultiTenantMcpServer};
-use super::resources::ServerResources;
+use super::resources::ServerContext;
 use super::tenant_isolation::extract_tenant_context_internal;
 use crate::constants::{
     errors::{
@@ -60,7 +60,7 @@ pub struct McpOAuthCredentials<'a> {
 /// tenant isolation and tool enablement policy enforcement.
 pub struct ToolRoutingContext<'a> {
     /// Server resources for dependency injection
-    pub resources: &'a Arc<ServerResources>,
+    pub resources: &'a Arc<ServerContext>,
     /// Tenant context for multi-tenant isolation (required)
     pub tenant_context: &'a TenantContext,
     /// Authentication result with user and rate limit info
@@ -86,7 +86,7 @@ impl ToolHandlers {
     )]
     pub async fn handle_tools_call_with_resources(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         // Extract auth token from either HTTP Authorization header or MCP params
         let auth_token_string = request
@@ -202,7 +202,7 @@ impl ToolHandlers {
                     return quota_error;
                 }
 
-                // Use the provided ServerResources directly
+                // Use the provided ServerContext directly
                 Self::handle_tool_execution_direct(request, auth_result, tenant_context, resources)
                     .await
             }
@@ -217,7 +217,7 @@ impl ToolHandlers {
     ///
     /// Tenant context is now required - tool execution without tenant isolation is not allowed.
     async fn check_tool_enabled(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         tool_name: &str,
         request_id: Option<Value>,
@@ -263,7 +263,7 @@ impl ToolHandlers {
         }
     }
 
-    /// Handle tool execution directly using provided `ServerResources`
+    /// Handle tool execution directly using provided `ServerContext`
     ///
     /// Tenant context is now required for all tool executions to ensure proper
     /// tenant isolation and tool enablement policy enforcement.
@@ -281,7 +281,7 @@ impl ToolHandlers {
         request: McpRequest,
         auth_result: AuthResult,
         tenant_context: TenantContext,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         let Some(params) = request.params else {
             error!("Missing request parameters in tools/call");
@@ -353,7 +353,7 @@ impl ToolHandlers {
             auth_result.auth_method.display_name()
         );
 
-        // Use the provided ServerResources directly - no fake resource creation!
+        // Use the provided ServerContext directly - no fake resource creation!
         let routing_context = ToolRoutingContext {
             resources,
             tenant_context: &tenant_context,
@@ -455,7 +455,7 @@ impl ToolHandlers {
     /// for analytics. Errors are logged but never propagated to avoid failing the
     /// tool response.
     async fn record_mcp_tool_usage(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         user_id: Uuid,
         tool_name: &str,
@@ -477,7 +477,7 @@ impl ToolHandlers {
 
     /// Increment shared daily/weekly tool call counters (fire-and-forget)
     async fn increment_tool_counters(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: &str,
         user_id: &str,
         tool_name: &str,
@@ -508,7 +508,7 @@ impl ToolHandlers {
 
     /// Record MCP tool execution in `llm_usage` table for analytics (fire-and-forget)
     async fn insert_tool_llm_usage(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: &str,
         user_id: &str,
         tool_name: &str,
@@ -567,7 +567,7 @@ impl ToolHandlers {
     /// `weekly_tool_calls` counters as the chat route for shared budget enforcement.
     /// Admin and owner roles bypass quota enforcement entirely.
     async fn check_tool_quota(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         auth_result: &AuthResult,
         request_id: Option<Value>,
@@ -623,7 +623,7 @@ impl ToolHandlers {
     /// [`UserTier::Starter`] when the row cannot be loaded so the
     /// least-permissive defaults apply when the user has been deleted
     /// out from under an in-flight tool call.
-    async fn resolve_user_tier(resources: &Arc<ServerResources>, user_id: Uuid) -> UserTier {
+    async fn resolve_user_tier(resources: &Arc<ServerContext>, user_id: Uuid) -> UserTier {
         match resources.repos.users.get_global(user_id).await {
             Ok(Some(user)) => user.tier,
             _ => UserTier::Starter,
@@ -705,7 +705,7 @@ impl ToolHandlers {
     /// Detailed mode has lower limits because it consumes more tokens (~1350 vs ~135).
     /// Returns `Some(McpResponse)` if any activity quota is exceeded, `None` if allowed.
     async fn check_activity_quota(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         auth_result: &AuthResult,
         tool_name: &str,
@@ -757,7 +757,7 @@ impl ToolHandlers {
     /// Uses the mode parameter to determine which counters to increment
     /// (summary vs detailed). Fire-and-forget: errors are logged but not propagated.
     async fn increment_activity_counters(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         user_id: Uuid,
         args: &Value,

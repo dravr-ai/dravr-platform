@@ -22,13 +22,13 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     routes::a2a::A2ARoutes,
 };
 use std::sync::Arc;
 
 /// Create test resources for A2A route testing
-async fn create_a2a_test_resources() -> Arc<ServerResources> {
+async fn create_a2a_test_resources() -> Arc<ServerContext> {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
     let auth_manager = common::create_test_auth_manager();
@@ -60,13 +60,13 @@ async fn create_a2a_test_resources() -> Arc<ServerResources> {
     });
 
     Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

@@ -26,8 +26,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     routes::{
@@ -77,13 +76,13 @@ async fn create_test_auth_routes() -> Result<AuthService> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -93,11 +92,10 @@ async fn create_test_auth_routes() -> Result<AuthService> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     Ok(AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     ))
 }
 
@@ -335,13 +333,13 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -351,12 +349,11 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     Ok((
         OAuthService::new(
-            server_context.data().clone(),
-            server_context.config().clone(),
-            server_context.notification().clone(),
+            server_resources.data(),
+            server_resources.config(),
+            server_resources.notification(),
         ),
         tenant_id,
         database,
@@ -640,13 +637,13 @@ async fn test_user_login_success() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -656,11 +653,10 @@ async fn test_user_login_success() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // First register a user
@@ -940,13 +936,13 @@ async fn test_token_refresh_success() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -956,11 +952,10 @@ async fn test_token_refresh_success() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Register and login to get initial token
@@ -1188,13 +1183,13 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1204,11 +1199,10 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Register and login to get a valid token
@@ -1723,13 +1717,13 @@ async fn test_complete_auth_flow() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1739,16 +1733,15 @@ async fn test_complete_auth_flow() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     // 1. Register user
@@ -2057,13 +2050,13 @@ async fn test_concurrent_logins() -> Result<()> {
     let cache = common::create_test_cache().await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -2073,11 +2066,10 @@ async fn test_concurrent_logins() -> Result<()> {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // First register and approve users

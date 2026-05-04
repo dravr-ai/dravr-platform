@@ -39,7 +39,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::contremaitre::messaging_strings::{format_template, KEY_ERROR_GENERIC};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Extension trait for turning an [`AppError`] into a channel-safe reply.
 ///
@@ -55,7 +55,7 @@ pub trait ChannelErrorReply {
     /// cross-reference with upstream logs if needed.
     fn to_channel_reply(
         &self,
-        resources: &ServerResources,
+        resources: &ServerContext,
         locale: &str,
         scope: &'static str,
     ) -> (String, Uuid);
@@ -64,7 +64,7 @@ pub trait ChannelErrorReply {
 impl ChannelErrorReply for AppError {
     fn to_channel_reply(
         &self,
-        resources: &ServerResources,
+        resources: &ServerContext,
         locale: &str,
         scope: &'static str,
     ) -> (String, Uuid) {

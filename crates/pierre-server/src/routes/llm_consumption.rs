@@ -31,7 +31,7 @@ use pierre_core::models::usage::{
 use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 
 use crate::{
-    errors::AppError, llm::pricing::calculate_cost, mcp::resources::ServerResources,
+    errors::AppError, llm::pricing::calculate_cost, mcp::resources::ServerContext,
     models::TenantId, routes::usage::UsageRoutes,
 };
 use pierre_database::database::llm_usage::LlmUsageGroupBy;
@@ -111,7 +111,7 @@ pub struct LlmConsumptionRoutes;
 
 impl LlmConsumptionRoutes {
     /// Create LLM consumption routes (both user and admin variants)
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/api/usage/llm-consumption",
@@ -205,7 +205,7 @@ impl LlmConsumptionRoutes {
 
     /// GET /api/usage/llm-consumption — user-scoped consumption analytics
     async fn get_user_consumption(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
@@ -237,7 +237,7 @@ impl LlmConsumptionRoutes {
 
     /// GET /admin/usage/llm-consumption — admin-scoped consumption analytics
     async fn get_admin_consumption(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
@@ -311,7 +311,7 @@ impl LlmConsumptionRoutes {
     /// the messaging-eval test harness, on-call investigators, and
     /// future per-turn dashboards — never end users.
     async fn get_conversation_turn(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(turn_id): Path<String>,
     ) -> Result<Response, AppError> {

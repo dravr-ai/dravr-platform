@@ -60,7 +60,7 @@ const ENDURANCE_COACH_EN: &str = include_str!("fixtures/endurance-coach/en.md");
 /// Build the full system prompt the LLM would see for `persona` when
 /// the user's active coach is endurance-coach. Mirrors the production
 /// substitution in `chat_pipeline::stages::prompt_assembly::interpolate_prompt_placeholders`
-/// without depending on a live `ServerResources`.
+/// without depending on a live `ServerContext`.
 fn assemble_for_persona(persona: CoachingPersona) -> String {
     let persona_block = get_coaching_persona_prompt(persona);
     let assembled = PIERRE_SYSTEM_PROMPT.replace("{{COACHING_PERSONA_RULES}}", persona_block);
