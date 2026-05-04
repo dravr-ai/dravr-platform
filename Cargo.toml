@@ -141,12 +141,11 @@ disallowed_methods = "deny"
 #     `dravr-equilibre = "0.2"` and `dravr-riviere = "0.2"` from crates.io,
 #     where the published max is 0.2.1. Direct deps in pierre-core /
 #     pierre-providers pin git tag v0.2.3.
-#   - `dravr-enforme v0.1.7` pins `dravr-sciotte` git tag v0.5.10 transitively,
-#     while pierre-server pins v0.5.11 directly.
 #
-# These patches force every consumer onto the single newest tag, so
+# This patch forces every consumer onto the single newest tag, so
 # `cargo tree -d` reports no dravr-* duplicates and the
-# dravr-duplicate-check CI gate passes.
+# dravr-duplicate-check CI gate passes. (dravr-sciotte already converges
+# at v0.5.11 via dravr-enforme v0.1.8 + the direct pierre-server pin.)
 [patch.crates-io]
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }

@@ -78,12 +78,12 @@ exceptions = []
 [bans]
 # Warn on multiple versions of the same dependency (bloats binary).
 #
-# Note: dravr-* duplicates are gated separately and HARD-FAILED by
-# .github/workflows/cargo-deny.yml (job: dravr-duplicate-check). The skips
-# below silence cargo-deny's global warning so legacy PRs aren't spammed,
-# but the dedicated workflow remains the source of truth for the dravr
-# ecosystem and will block any PR that introduces or preserves a dravr
-# version split.
+# Note: dravr-* duplicates are gated separately and HARD-FAILED by the
+# `dravr-* duplicate check` step in .github/workflows/ci-backend.yml's
+# security-audit job (cargo tree -d filtered for dravr-*). The general
+# `multiple-versions = "warn"` setting here keeps non-dravr drift visible
+# without blocking on transitive splits we cannot fix; the dravr ecosystem
+# is held to a stricter standard via the dedicated CI step.
 multiple-versions = "warn"
 # Deny wildcard dependencies (bad for reproducibility)
 wildcards = "deny"

@@ -152,6 +152,23 @@ jobs:
       - name: Security Audit (via deny.toml)
         run: cargo deny check
 
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+
+      - name: dravr-* duplicate check (hard fail)
+        run: |
+          # Hard-fails if cargo tree -d reports any dravr-* crate at multiple
+          # versions. The workspace [patch.crates-io] block + per-dep tag pins
+          # (dravr-enforme, dravr-sciotte, dravr-equilibre, dravr-riviere,
+          # dravr-cageux, dravr-canot, dravr-tronc, dravr-embacle, dravr-meteo)
+          # MUST converge every consumer onto a single version per crate.
+          dups="$(cargo tree -d 2>&1 | grep -E '^dravr-' || true)"
+          if [ -n "$dups" ]; then
+            echo "::error::dravr-* duplicate(s) detected — every dravr crate must converge on one version:"
+            echo "$dups"
+            exit 1
+          fi
+
   doc-tests:
     name: Doc Tests
     runs-on: ubuntu-latest
