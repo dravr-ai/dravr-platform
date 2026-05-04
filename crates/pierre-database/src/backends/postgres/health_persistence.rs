@@ -361,42 +361,58 @@ impl SleepRepository for PostgresDatabase {
 
     async fn delete_sleep_session_by_id(
         &self,
-        _tenant_id: &TenantId,
-        _id: &str,
-        _soft: bool,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
     ) -> AppResult<bool> {
-        Err(AppError::database(
-            "delete_sleep_session_by_id: PostgreSQL backend not yet supported. \
-             migrations_pg/ has no CREATE TABLE for sleep_sessions; ship the \
-             schema + bind/read audit before enabling this path.",
-        ))
+        let result = if soft {
+            sqlx::query(
+                "UPDATE sleep_sessions SET deleted_at = $1 \
+                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL",
+            )
+            .bind(Utc::now())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(&self.pool)
+            .await
+        } else {
+            sqlx::query("DELETE FROM sleep_sessions WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete sleep session by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
-    async fn find_sleep_session_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
-        Err(AppError::database(
-            "find_sleep_session_tenant: PostgreSQL backend not yet supported. \
-             See delete_sleep_session_by_id note.",
-        ))
+    async fn find_sleep_session_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM sleep_sessions WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to find sleep session tenant: {e}")))?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
 /// Map a `PostgreSQL` row to a `StoredSleepSession`.
 fn pg_row_to_stored_sleep_session(row: &PgRow) -> AppResult<StoredSleepSession> {
-    let start_time_str: String = row.get("start_time");
-    let end_time_str: String = row.get("end_time");
+    let start_datetime: DateTime<Utc> = row.get("start_time");
+    let end_datetime: DateTime<Utc> = row.get("end_time");
     let stages_json_str: String = row.get("stages_json");
     let is_nap_int: i32 = row.get("is_nap");
     let total_sleep_time: Option<i64> = row.get("total_sleep_time");
     let sleep_efficiency: Option<f64> = row.get("sleep_efficiency");
     let sleep_score: Option<f64> = row.get("sleep_score");
     let hrv_during_sleep: Option<f64> = row.get("hrv_during_sleep");
-
-    let start_datetime = DateTime::parse_from_rfc3339(&start_time_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| AppError::database(format!("Invalid start_time: {e}")))?;
-    let end_datetime = DateTime::parse_from_rfc3339(&end_time_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| AppError::database(format!("Invalid end_time: {e}")))?;
 
     let stages = serde_json::from_str(&stages_json_str)
         .map_err(|e| AppError::database(format!("Invalid stages_json: {e}")))?;
@@ -442,7 +458,6 @@ impl RecoveryRepository for PostgresDatabase {
             metrics.id.clone()
         };
         let now = Utc::now();
-        let date_str = metrics.date.to_string();
         let recovery_score = metrics.recovery_score.map(f64::from);
         let readiness_score = metrics.readiness_score.map(f64::from);
         let stress_level = metrics.stress_score.map(f64::from);
@@ -470,7 +485,7 @@ impl RecoveryRepository for PostgresDatabase {
         .bind(&metrics.source_name)
         .bind(&metrics.data_source_id)
         .bind(now)
-        .bind(&date_str)
+        .bind(metrics.date)
         .bind(recovery_score)
         .bind(readiness_score)
         .bind(metrics.hrv_ms.map(|v| format!("{v:.1}ms")))
@@ -494,8 +509,6 @@ impl RecoveryRepository for PostgresDatabase {
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredRecoveryMetrics>> {
         let user_id_str = user_id.to_string();
-        let start_str = start.format("%Y-%m-%d").to_string();
-        let end_str = end.format("%Y-%m-%d").to_string();
 
         let rows = sqlx::query(
             r"
@@ -510,15 +523,16 @@ impl RecoveryRepository for PostgresDatabase {
         )
         .bind(&user_id_str)
         .bind(tenant_id.to_string())
-        .bind(&start_str)
-        .bind(&end_str)
+        .bind(start.date_naive())
+        .bind(end.date_naive())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get recovery metrics: {e}")))?;
 
-        rows.into_iter()
+        Ok(rows
+            .into_iter()
             .map(|r| pg_row_to_stored_recovery(&r))
-            .collect()
+            .collect())
     }
 
     async fn get_latest_recovery(
@@ -545,33 +559,59 @@ impl RecoveryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get latest recovery: {e}")))?;
 
-        row.map(|r| pg_row_to_stored_recovery(&r)).transpose()
+        Ok(row.map(|r| pg_row_to_stored_recovery(&r)))
     }
 
     async fn delete_recovery_metric_by_id(
         &self,
-        _tenant_id: &TenantId,
-        _id: &str,
-        _soft: bool,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
     ) -> AppResult<bool> {
-        Err(AppError::database(
-            "delete_recovery_metric_by_id: PostgreSQL backend not yet supported. \
-             migrations_pg/ has no CREATE TABLE for recovery_metrics.",
-        ))
+        let result = if soft {
+            sqlx::query(
+                "UPDATE recovery_metrics SET deleted_at = $1 \
+                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL",
+            )
+            .bind(Utc::now())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(&self.pool)
+            .await
+        } else {
+            sqlx::query("DELETE FROM recovery_metrics WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete recovery metric by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
-    async fn find_recovery_metric_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
-        Err(AppError::database(
-            "find_recovery_metric_tenant: PostgreSQL backend not yet supported. \
-             See delete_recovery_metric_by_id note.",
-        ))
+    async fn find_recovery_metric_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM recovery_metrics WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to find recovery metric tenant: {e}"))
+            })?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
 /// Map a `PostgreSQL` row to a `StoredRecoveryMetrics`.
-fn pg_row_to_stored_recovery(row: &PgRow) -> AppResult<StoredRecoveryMetrics> {
-    let date_str: String = row.get("date");
-    let created_at_str: String = row.get("created_at");
+fn pg_row_to_stored_recovery(row: &PgRow) -> StoredRecoveryMetrics {
+    let date: NaiveDate = row.get("date");
+    let recorded_at: DateTime<Utc> = row.get("created_at");
     let recovery_score: Option<f64> = row.get("recovery_score");
     let readiness_score: Option<f64> = row.get("readiness_score");
     let stress_level: Option<f64> = row.get("stress_level");
@@ -579,12 +619,7 @@ fn pg_row_to_stored_recovery(row: &PgRow) -> AppResult<StoredRecoveryMetrics> {
     let body_temperature: Option<f64> = row.get("body_temperature");
     let resting_respiratory_rate: Option<f64> = row.get("resting_respiratory_rate");
 
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-        .map_err(|e| AppError::database(format!("Invalid recovery date: {e}")))?;
-    let recorded_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-    Ok(StoredRecoveryMetrics {
+    StoredRecoveryMetrics {
         id: row.get("id"),
         user_id: row.get("user_id"),
         data_source_id: row
@@ -603,7 +638,7 @@ fn pg_row_to_stored_recovery(row: &PgRow) -> AppResult<StoredRecoveryMetrics> {
         skin_temp_deviation: body_temperature,
         source_name: row.get("provider"),
         recorded_at,
-    })
+    }
 }
 
 // ============================================================================
@@ -623,7 +658,6 @@ impl HealthSnapshotRepository for PostgresDatabase {
             snapshot.id.clone()
         };
         let now = Utc::now();
-        let date_str = snapshot.date.to_string();
         let bp_systolic = snapshot.systolic_bp.map(i64::from);
         let bp_diastolic = snapshot.diastolic_bp.map(i64::from);
 
@@ -648,7 +682,7 @@ impl HealthSnapshotRepository for PostgresDatabase {
         .bind(&snapshot.source_name)
         .bind(&snapshot.data_source_id)
         .bind(now)
-        .bind(&date_str)
+        .bind(snapshot.date)
         .bind(snapshot.weight_kg)
         .bind(snapshot.body_fat_pct)
         .bind(snapshot.muscle_mass_kg)
@@ -673,8 +707,6 @@ impl HealthSnapshotRepository for PostgresDatabase {
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredHealthMetrics>> {
         let user_id_str = user_id.to_string();
-        let start_str = start.format("%Y-%m-%d").to_string();
-        let end_str = end.format("%Y-%m-%d").to_string();
 
         let rows = sqlx::query(
             r"
@@ -689,15 +721,16 @@ impl HealthSnapshotRepository for PostgresDatabase {
         )
         .bind(&user_id_str)
         .bind(tenant_id.to_string())
-        .bind(&start_str)
-        .bind(&end_str)
+        .bind(start.date_naive())
+        .bind(end.date_naive())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get health snapshots: {e}")))?;
 
-        rows.into_iter()
+        Ok(rows
+            .into_iter()
             .map(|r| pg_row_to_stored_health_metrics(&r))
-            .collect()
+            .collect())
     }
 
     async fn get_latest_health_snapshot(
@@ -724,42 +757,63 @@ impl HealthSnapshotRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get latest health snapshot: {e}")))?;
 
-        row.map(|r| pg_row_to_stored_health_metrics(&r)).transpose()
+        Ok(row.map(|r| pg_row_to_stored_health_metrics(&r)))
     }
 
     async fn delete_health_snapshot_by_id(
         &self,
-        _tenant_id: &TenantId,
-        _id: &str,
-        _soft: bool,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
     ) -> AppResult<bool> {
-        Err(AppError::database(
-            "delete_health_snapshot_by_id: PostgreSQL backend not yet supported. \
-             migrations_pg/ has no CREATE TABLE for health_snapshots.",
-        ))
+        let result = if soft {
+            sqlx::query(
+                "UPDATE health_snapshots SET deleted_at = $1 \
+                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL",
+            )
+            .bind(Utc::now())
+            .bind(id)
+            .bind(tenant_id.to_string())
+            .execute(&self.pool)
+            .await
+        } else {
+            sqlx::query("DELETE FROM health_snapshots WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(tenant_id.to_string())
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete health snapshot by id: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
-    async fn find_health_snapshot_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
-        Err(AppError::database(
-            "find_health_snapshot_tenant: PostgreSQL backend not yet supported. \
-             See delete_health_snapshot_by_id note.",
-        ))
+    async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query("SELECT tenant_id FROM health_snapshots WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to find health snapshot tenant: {e}"))
+            })?;
+
+        row.map(|r| {
+            let s: String = r.get("tenant_id");
+            s.parse::<TenantId>()
+                .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
+        })
+        .transpose()
     }
 }
 
 /// Map a `PostgreSQL` row to a `StoredHealthMetrics`.
-fn pg_row_to_stored_health_metrics(row: &PgRow) -> AppResult<StoredHealthMetrics> {
-    let date_str: String = row.get("date");
-    let created_at_str: String = row.get("created_at");
+fn pg_row_to_stored_health_metrics(row: &PgRow) -> StoredHealthMetrics {
+    let date: NaiveDate = row.get("date");
+    let recorded_at: DateTime<Utc> = row.get("created_at");
     let bp_systolic: Option<i64> = row.get("bp_systolic");
     let bp_diastolic: Option<i64> = row.get("bp_diastolic");
 
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-        .map_err(|e| AppError::database(format!("Invalid health snapshot date: {e}")))?;
-    let recorded_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-    Ok(StoredHealthMetrics {
+    StoredHealthMetrics {
         id: row.get("id"),
         user_id: row.get("user_id"),
         data_source_id: row
@@ -777,7 +831,7 @@ fn pg_row_to_stored_health_metrics(row: &PgRow) -> AppResult<StoredHealthMetrics
         blood_glucose: row.get("blood_glucose"),
         source_name: row.get("provider"),
         recorded_at,
-    })
+    }
 }
 
 // ============================================================================
@@ -897,27 +951,86 @@ impl SyncCursorRepository for PostgresDatabase {
 impl TimeSeriesPointRepository for PostgresDatabase {
     async fn insert_continuous_metrics_batch(
         &self,
-        _data_source_id: &str,
-        _series_type_id: u32,
-        _points: &[(DateTime<Utc>, f64)],
+        data_source_id: &str,
+        series_type_id: u32,
+        points: &[(DateTime<Utc>, f64)],
     ) -> AppResult<u64> {
-        Err(AppError::database(
-            "insert_continuous_metrics_batch: PostgreSQL backend not yet supported. \
-             migrations_pg/ has no CREATE TABLE for data_point_series; ship the \
-             schema before enabling this path.",
-        ))
+        if points.is_empty() {
+            return Ok(0);
+        }
+
+        // ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE
+        // gives last-writer-wins for the unique key, matching dravr-riviere
+        // semantics ("second insert at the same timestamp replaces the first").
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("begin tx for time-series insert: {e}")))?;
+
+        let mut written: u64 = 0;
+        for (recorded_at, value) in points {
+            let id = Uuid::new_v4().to_string();
+            let res = sqlx::query(
+                r"
+                INSERT INTO data_point_series
+                    (id, data_source_id, series_type_id, recorded_at, zone_offset, value)
+                VALUES ($1, $2, $3, $4, NULL, $5)
+                ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE SET
+                    value = EXCLUDED.value
+                ",
+            )
+            .bind(&id)
+            .bind(data_source_id)
+            .bind(i64::from(series_type_id))
+            .bind(recorded_at)
+            .bind(*value)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::database(format!("insert data_point_series row: {e}")))?;
+            written += res.rows_affected();
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("commit time-series insert: {e}")))?;
+
+        Ok(written)
     }
 
     async fn get_continuous_metrics(
         &self,
-        _data_source_id: &str,
-        _series_type_id: u32,
-        _start: DateTime<Utc>,
-        _end: DateTime<Utc>,
+        data_source_id: &str,
+        series_type_id: u32,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
     ) -> AppResult<Vec<(DateTime<Utc>, f64)>> {
-        Err(AppError::database(
-            "get_continuous_metrics: PostgreSQL backend not yet supported. \
-             See insert_continuous_metrics_batch note.",
-        ))
+        let rows = sqlx::query(
+            r"
+            SELECT recorded_at, value
+            FROM data_point_series
+            WHERE data_source_id = $1
+              AND series_type_id = $2
+              AND recorded_at >= $3
+              AND recorded_at <= $4
+              AND deleted_at IS NULL
+            ORDER BY recorded_at ASC
+            ",
+        )
+        .bind(data_source_id)
+        .bind(i64::from(series_type_id))
+        .bind(start)
+        .bind(end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("get_continuous_metrics: {e}")))?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let recorded_at: DateTime<Utc> = r.get("recorded_at");
+            let value: f64 = r.get("value");
+            out.push((recorded_at, value));
+        }
+        Ok(out)
     }
 }

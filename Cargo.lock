@@ -1237,15 +1237,15 @@ dependencies = [
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.7"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.7#336e8e4f17c74e07b112dea669827ecdb1293623"
+version = "0.1.8"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.8#e9a3745bf9a0e93e72265b737d805b532a50db09"
 dependencies = [
  "async-trait",
  "axum",
  "chrono",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-sciotte 0.5.10",
+ "dravr-sciotte",
  "hex",
  "http",
  "reqwest 0.12.28",
@@ -1297,29 +1297,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "dravr-sciotte"
-version = "0.5.10"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.10#e5985d8fe1180480d5e8b88f6f56db9af2ba19a6"
-dependencies = [
- "async-trait",
- "base64",
- "chromiumoxide",
- "chrono",
- "dirs 6.0.0",
- "futures",
- "moka",
- "reqwest 0.12.28",
- "ring",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
- "urlencoding",
 ]
 
 [[package]]
@@ -2096,7 +2073,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3097,7 +3074,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "dravr-equilibre",
- "dravr-sciotte 0.5.11",
+ "dravr-sciotte",
  "futures-util",
  "hex",
  "num-traits",
@@ -3141,7 +3118,7 @@ dependencies = [
  "dravr-enforme",
  "dravr-equilibre",
  "dravr-meteo",
- "dravr-sciotte 0.5.11",
+ "dravr-sciotte",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",
@@ -3359,7 +3336,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3396,7 +3373,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -5514,7 +5491,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
