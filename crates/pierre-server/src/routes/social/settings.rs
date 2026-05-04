@@ -20,7 +20,7 @@ use utoipa::ToSchema;
 
 use crate::{
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     models::{ShareVisibility, UserSocialSettings},
 };
 
@@ -114,14 +114,14 @@ pub struct UpdateNotificationPreferencesBody {
 impl SocialRoutes {
     /// Handle GET /api/social/settings - Get social settings
     pub(crate) async fn handle_get_settings(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
         let social = Self::get_social_manager(&resources)?;
 
         let settings = social
-            .get_user_social_settings(auth.user_id)
+            .get_social_settings(auth.user_id)
             .await?
             .unwrap_or_else(|| UserSocialSettings::default_for_user(auth.user_id));
 
@@ -131,7 +131,7 @@ impl SocialRoutes {
 
     /// Handle PUT /api/social/settings - Update social settings
     pub(crate) async fn handle_update_settings(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<UpdateSocialSettingsBody>,
     ) -> Result<Response, AppError> {
@@ -140,7 +140,7 @@ impl SocialRoutes {
 
         // Get existing settings or create defaults
         let mut settings = social
-            .get_user_social_settings(auth.user_id)
+            .get_social_settings(auth.user_id)
             .await?
             .unwrap_or_else(|| UserSocialSettings::default_for_user(auth.user_id));
 
@@ -167,7 +167,7 @@ impl SocialRoutes {
         }
         settings.updated_at = Utc::now();
 
-        social.upsert_user_social_settings(&settings).await?;
+        social.upsert_social_settings(&settings).await?;
 
         let response: SocialSettingsResponse = settings.into();
         Ok((StatusCode::OK, Json(response)).into_response())

@@ -20,7 +20,7 @@ use crate::constants::{
     },
     protocol::{server_name_multitenant, SERVER_VERSION},
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::schema::{
     get_tools, CompleteRequest, CompleteResult, Completion, InitializeRequest, InitializeResponse,
     OAuthAppCredentials, Root,
@@ -50,7 +50,7 @@ fn default_request_id() -> Value {
 /// Extract and validate user ID from auth token
 fn extract_user_id_from_token(
     auth_token: Option<&String>,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     request_id: &Value,
 ) -> Result<Uuid, Box<McpResponse>> {
     let Some(token) = auth_token else {
@@ -119,13 +119,13 @@ impl ProtocolHandler {
     #[must_use]
     pub fn handle_initialize_with_resources(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         Self::handle_initialize_internal(request, Some(resources))
     }
 
     /// Try to store OAuth credentials from an initialize request
-    async fn try_store_oauth_credentials(request: &McpRequest, resources: &Arc<ServerResources>) {
+    async fn try_store_oauth_credentials(request: &McpRequest, resources: &Arc<ServerContext>) {
         // Extract params
         let Some(params) = &request.params else {
             return;
@@ -157,10 +157,10 @@ impl ProtocolHandler {
         }
     }
 
-    /// Handle initialize request with `ServerResources` for OAuth credential storage
+    /// Handle initialize request with `ServerContext` for OAuth credential storage
     pub async fn handle_initialize_with_oauth(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         // Handle basic initialization first (doesn't require authentication)
         let response = Self::handle_initialize_internal(request.clone(), Some(resources));
@@ -176,7 +176,7 @@ impl ProtocolHandler {
     /// Internal initialize handler
     fn handle_initialize_internal(
         request: McpRequest,
-        resources: Option<&Arc<ServerResources>>,
+        resources: Option<&Arc<ServerContext>>,
     ) -> McpResponse {
         let request_id = request.id.unwrap_or_else(default_request_id);
 
@@ -269,7 +269,7 @@ impl ProtocolHandler {
     /// Handle resources list request
     pub fn handle_resources_list(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         let request_id = request.id.unwrap_or_else(default_request_id);
 
@@ -312,7 +312,7 @@ impl ProtocolHandler {
     /// Handle resources read request
     pub async fn handle_resources_read(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> McpResponse {
         let request_id = request.id.unwrap_or_else(default_request_id);
 
@@ -417,7 +417,7 @@ impl ProtocolHandler {
     /// Authenticate the MCP request and extract user information
     fn authenticate_request(
         request: &McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<Uuid, Box<McpResponse>> {
         let request_id = request.id.clone().unwrap_or_else(default_request_id);
 
@@ -457,7 +457,7 @@ impl ProtocolHandler {
     async fn store_oauth_credentials(
         oauth_creds: HashMap<String, OAuthAppCredentials>,
         user_id: &Uuid,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<(), String> {
         for (provider, creds) in oauth_creds {
             info!("Storing OAuth credentials for provider {provider} for user {user_id}");

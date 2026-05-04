@@ -1,22 +1,20 @@
-// ABOUTME: Focused dependency injection contexts replacing the ServerResources service locator
-// ABOUTME: Provides type-safe dependency injection with minimal coupling between components
+// ABOUTME: Focused dependency-injection contexts extracted from the canonical ServerContext
+// ABOUTME: Lets narrow services depend only on the slice they need
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Focused dependency injection contexts
+//! Focused dependency-injection contexts.
 //!
-//! This module replaces the `ServerResources` service locator anti-pattern with
-//! focused contexts that provide only the dependencies needed for specific operations.
+//! `ServerContext` (in `crate::mcp::resources`) is the single canonical
+//! container that lives in the server's `State` and is passed to every
+//! handler. The contexts in this module are *narrow extracts* materialized
+//! on demand by `ServerContext::auth()`, `ServerContext::data()`, etc.
 //!
-//! # Architecture
-//!
-//! - `AuthContext`: Authentication and authorization dependencies
-//! - `DataContext`: Database, cache, and data provider dependencies
-//! - `ConfigContext`: Configuration and OAuth management dependencies
-//! - `NotificationContext`: WebSocket and SSE notification dependencies
-//! - `SecurityContext`: CSRF protection, PII redaction, and rate limiting
-//! - `ExtensionContext`: Plugin execution and MCP protocol extensions
+//! Wide handlers take `Arc<ServerContext>` and call methods on it.
+//! Narrow services (e.g. `AuthService`, `OAuthFlowService`) take only the
+//! subset of contexts they touch, so their signatures express real
+//! coupling rather than borrowing from the whole container.
 
 /// Authentication context with auth manager, middleware, and Firebase auth
 pub mod auth;
@@ -30,9 +28,11 @@ pub mod extension;
 pub mod notification;
 /// Security context for CSRF, redaction, and rate limiting
 pub mod security;
-/// Server context combining all focused contexts
-pub mod server;
+/// Focused-context extractors layered on `ServerContext` (the canonical container)
+mod server;
 
+/// Re-export the canonical `ServerContext` so consumers can `use crate::context::ServerContext`.
+pub use crate::mcp::resources::ServerContext;
 /// Authentication context
 pub use auth::AuthContext;
 /// Configuration context
@@ -45,5 +45,3 @@ pub use extension::ExtensionContext;
 pub use notification::NotificationContext;
 /// Security context
 pub use security::SecurityContext;
-/// Combined server context
-pub use server::ServerContext;

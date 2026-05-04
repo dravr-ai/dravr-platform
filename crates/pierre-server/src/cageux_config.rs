@@ -7,7 +7,7 @@
 //! # Cageux Config Registry
 //!
 //! Holds the canonical [`pierre_intelligence::IntelligenceConfig`] snapshot
-//! that the rest of the server reads through `ServerResources`. Lives
+//! that the rest of the server reads through `ServerContext`. Lives
 //! outside `contremaitre/` so it is always compiled — `server-mcp-stdio`
 //! and `server-mcp-bridge` feature sets disable the contremaitre hot-reload
 //! module but still need the cageux config snapshot for every analyzer,

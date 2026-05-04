@@ -30,14 +30,14 @@ use std::sync::Arc;
 use std::env;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Messaging gateway routes handler
 pub struct MessagingRoutes;
 
 impl MessagingRoutes {
     /// Create all messaging routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Webhook ingress (per-channel signature verification)
             .route(
@@ -87,7 +87,7 @@ impl MessagingRoutes {
 /// delegating to the action handler. Returns 200 immediately on auth failure
 /// to avoid Slack retries.
 async fn handle_slack_ops_action(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, AppError> {

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::{
-    errors::AppError, mcp::resources::ServerResources, middleware::require_admin,
+    errors::AppError, mcp::resources::ServerContext, middleware::require_admin,
     services::coaches as coaches_service,
 };
 use axum::{
@@ -32,7 +32,7 @@ use super::types::{
 
 /// Handle GET /admin/coaches - List all system coaches in tenant
 pub(super) async fn handle_admin_list(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
@@ -53,7 +53,7 @@ pub(super) async fn handle_admin_list(
 
 /// Handle POST /admin/coaches - Create a system coach
 pub(super) async fn handle_admin_create(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(body): Json<AdminCreateCoachBody>,
 ) -> Result<Response, AppError> {
@@ -72,7 +72,7 @@ pub(super) async fn handle_admin_create(
 
 /// Handle GET /admin/coaches/:id - Get a system coach
 pub(super) async fn handle_admin_get(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -92,7 +92,7 @@ pub(super) async fn handle_admin_get(
 
 /// Handle PUT /admin/coaches/:id - Update a system coach
 pub(super) async fn handle_admin_update(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdateCoachBody>,
@@ -132,7 +132,7 @@ pub(super) async fn handle_admin_update(
 
 /// Handle DELETE /admin/coaches/:id - Delete a system coach
 pub(super) async fn handle_admin_delete(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -155,7 +155,7 @@ pub(super) async fn handle_admin_delete(
 /// Delegates tenant membership verification and bulk operations to
 /// `services::coaches::bulk_assign_coach`.
 pub(super) async fn handle_admin_assign(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<AssignCoachBody>,
@@ -211,7 +211,7 @@ pub(super) async fn handle_admin_assign(
 /// Delegates tenant membership verification and bulk operations to
 /// `services::coaches::bulk_unassign_coach`.
 pub(super) async fn handle_admin_unassign(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<AssignCoachBody>,
@@ -247,7 +247,7 @@ pub(super) async fn handle_admin_unassign(
 
 /// Handle GET /admin/coaches/:id/assignments - List users assigned to a coach
 pub(super) async fn handle_admin_list_assignments(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -279,7 +279,7 @@ pub(super) async fn handle_admin_list_assignments(
 
 /// Handle GET /admin/store/stats - Get store statistics
 pub(super) async fn handle_admin_store_stats(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
@@ -302,7 +302,7 @@ pub(super) async fn handle_admin_store_stats(
 
 /// Handle GET /admin/store/review-queue - Get pending review coaches
 pub(super) async fn handle_admin_review_queue(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
@@ -331,7 +331,7 @@ pub(super) async fn handle_admin_review_queue(
 
 /// Handle GET /admin/store/published - Get published coaches
 pub(super) async fn handle_admin_published(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
@@ -360,7 +360,7 @@ pub(super) async fn handle_admin_published(
 
 /// Handle GET /admin/store/rejected - Get rejected coaches
 pub(super) async fn handle_admin_rejected(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
@@ -389,7 +389,7 @@ pub(super) async fn handle_admin_rejected(
 
 /// Handle POST /admin/store/coaches/:id/approve - Approve a coach
 pub(super) async fn handle_admin_approve(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
@@ -413,7 +413,7 @@ pub(super) async fn handle_admin_approve(
 
 /// Handle POST /admin/store/coaches/:id/reject - Reject a coach
 pub(super) async fn handle_admin_reject(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<RejectCoachBody>,
@@ -441,7 +441,7 @@ pub(super) async fn handle_admin_reject(
 
 /// Handle POST /admin/store/coaches/:id/unpublish - Unpublish a coach
 pub(super) async fn handle_admin_unpublish(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {

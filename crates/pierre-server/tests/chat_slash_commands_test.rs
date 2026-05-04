@@ -15,7 +15,7 @@ use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
 use pierre_core::models::TenantId;
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::{Tenant, User, UserStatus};
 use pierre_mcp_server::routes::chat::{ChatCompletionResponse, ChatRoutes, ConversationResponse};
 use serde_json::json;
@@ -23,10 +23,7 @@ use std::sync::Arc;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
-async fn seed_user_tenant(
-    resources: &Arc<ServerResources>,
-    email: &str,
-) -> (Uuid, TenantId, String) {
+async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid, TenantId, String) {
     let password_hash = spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
         .await
         .unwrap();
@@ -74,7 +71,7 @@ async fn seed_user_tenant(
 }
 
 async fn seed_coach(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     title: &str,

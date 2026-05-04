@@ -20,7 +20,7 @@ use std::sync::Arc;
 use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::provider_refresh::RefreshService;
 
@@ -34,7 +34,7 @@ use crate::services::provider_refresh::RefreshService;
 /// and returns `base_prompt` unchanged. When the coach hint is disabled
 /// the refresh still fires but nothing is appended to the prompt.
 pub async fn inject_refresh_context(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: &str,
     tenant_id: TenantId,
     base_prompt: String,

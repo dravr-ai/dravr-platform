@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     routes::user_mcp_tokens::UserMcpTokenRoutes,
 };
 use serde_json::json;
@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 /// Test setup helper for user MCP token route testing
 struct UserMcpTokenTestSetup {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     user_jwt: String,
 }
 
@@ -42,7 +42,7 @@ impl UserMcpTokenTestSetup {
         let auth_manager = common::create_test_auth_manager();
         let cache = common::create_test_cache().await?;
 
-        // Create ServerResources
+        // Create ServerContext
         let temp_dir = tempfile::tempdir()?;
         let config = Arc::new(ServerConfig {
             http_port: 8081,
@@ -69,13 +69,13 @@ impl UserMcpTokenTestSetup {
         });
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,

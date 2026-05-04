@@ -19,8 +19,8 @@ use crate::repositories::{
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
     SleepRepository, SocialRepository, StoreListingsRepository, SubscriptionsRepository,
-    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    SyncCursorRepository, TenantRepository, TimeSeriesPointRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
     UserPhysiologicalProfileRepository, UserRepository, WeatherCacheRepository,
     WorkoutTemplateRepository,
 };
@@ -75,7 +75,7 @@ pub struct RepositoryRegistry {
     pub security: Arc<dyn SecurityRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
-    /// Social features — `None` on `PostgreSQL` (SQLite-only)
+    /// Social features (friend connections, shared insights, reactions)
     pub social: Option<Arc<dyn SocialRepository>>,
     /// Store listings for coach marketplace
     pub store_listings: Arc<dyn StoreListingsRepository>,
@@ -125,6 +125,9 @@ pub struct RepositoryRegistry {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout-template overrides (cornerstones live in TOML)
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
+    /// Continuous time-series points (`data_point_series` table) backing the
+    /// dravr-enforme `TimeSeriesPointStore` adapter.
+    pub time_series_points: Arc<dyn TimeSeriesPointRepository>,
 }
 
 impl RepositoryRegistry {
@@ -180,7 +183,8 @@ impl RepositoryRegistry {
             training_history: db.clone(),
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
-            workout_templates: db,
+            workout_templates: db.clone(),
+            time_series_points: db,
         }
     }
 
@@ -211,7 +215,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             seeder: db.clone(),
-            social: None,
+            social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),
             tool_selection: db.clone(),
@@ -234,7 +238,8 @@ impl RepositoryRegistry {
             training_history: db.clone(),
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
-            workout_templates: db,
+            workout_templates: db.clone(),
+            time_series_points: db,
         }
     }
 }

@@ -12,7 +12,7 @@ use pierre_messaging::commands::{CommandMatcher, CommandResponse};
 use uuid::Uuid;
 
 use crate::contremaitre::messaging_strings::KEY_UNKNOWN_COMMAND;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::analytics::{analytics, hash_id};
 
 use super::PlatformCommandContext;
@@ -27,7 +27,7 @@ use super::PlatformCommandContext;
 /// execution, and analytics uniformly.
 pub struct DispatchRequest<'a> {
     /// Shared server resources (registries, repos, messaging strings).
-    pub resources: &'a Arc<ServerResources>,
+    pub resources: &'a Arc<ServerContext>,
     /// Authenticated user.
     pub user_id: Uuid,
     /// Active tenant for this turn.
@@ -93,12 +93,12 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
 
     let Some(cmd_registry) = req.resources.command_registry.as_ref() else {
         return Err(AppError::internal(
-            "Command registry not configured on ServerResources",
+            "Command registry not configured on ServerContext",
         ));
     };
     let Some(handler_registry) = req.resources.command_handler_registry.as_ref() else {
         return Err(AppError::internal(
-            "Command handler registry not configured on ServerResources",
+            "Command handler registry not configured on ServerContext",
         ));
     };
 

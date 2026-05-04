@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::chat_pipeline::{self as pipeline};
 use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
@@ -73,7 +73,7 @@ impl AgUiWiring {
 /// brute-force surface even with the per-run owner check, so we
 /// require a UUID.
 fn setup_agui(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     requested_run_id: Option<&str>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -125,7 +125,7 @@ fn setup_agui(
     )
 )]
 pub async fn send_message(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
     Json(request): Json<SendMessageRequest>,
@@ -369,7 +369,7 @@ pub async fn send_message(
 /// body without buttons, and the user can always re-invoke the command.
 #[allow(clippy::too_many_arguments)]
 async fn try_handle_chat_command(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     headers: &HeaderMap,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -523,7 +523,7 @@ async fn try_handle_chat_command(
 /// (indicates coach persona).
 #[cfg(feature = "client-notifications")]
 fn notify_coach_response(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     conv: &ConversationRecord,
     user_id: Uuid,
     tenant_id: TenantId,

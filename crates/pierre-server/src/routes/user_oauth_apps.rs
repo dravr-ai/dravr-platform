@@ -18,7 +18,7 @@
 //! - `GET /api/users/oauth-apps/:provider` - Get specific OAuth app
 //! - `DELETE /api/users/oauth-apps/:provider` - Remove OAuth app
 
-use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -79,7 +79,7 @@ pub struct ListUserOAuthAppsResponse {
 
 impl UserOAuthAppRoutes {
     /// Create all user OAuth app routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/users/oauth-apps", post(Self::handle_register_app))
             .route("/api/users/oauth-apps", get(Self::handle_list_apps))
@@ -111,7 +111,7 @@ impl UserOAuthAppRoutes {
 
     /// Handle registering a new OAuth app
     async fn handle_register_app(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<RegisterUserOAuthAppRequest>,
     ) -> Result<Response, AppError> {
@@ -162,7 +162,7 @@ impl UserOAuthAppRoutes {
 
     /// Handle listing user's OAuth apps
     async fn handle_list_apps(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let user_id = auth.user_id;
@@ -190,7 +190,7 @@ impl UserOAuthAppRoutes {
 
     /// Handle getting a specific OAuth app
     async fn handle_get_app(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(provider): Path<String>,
     ) -> Result<Response, AppError> {
@@ -220,7 +220,7 @@ impl UserOAuthAppRoutes {
 
     /// Handle deleting an OAuth app
     async fn handle_delete_app(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(provider): Path<String>,
     ) -> Result<Response, AppError> {

@@ -48,7 +48,7 @@ use tracing::info;
 use crate::{
     admin::{auth::AdminAuthService, middleware::admin_auth_middleware, JwksManager},
     email::ResendEmailService,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     mcp::ToolSelectionService,
     middleware::cookie_admin_middleware,
     routes::tool_selection::{ToolSelectionContext, ToolSelectionRoutes},
@@ -192,10 +192,7 @@ impl AdminRoutes {
     /// Followups, Coach Notes Audit, Eval Harness, Harness Config). Single
     /// mount, single auth: there is no parallel `/admin/...` mount with
     /// admin-token auth for these routes.
-    pub fn cookie_admin_routes(
-        context: AdminApiContext,
-        resources: &Arc<ServerResources>,
-    ) -> Router {
+    pub fn cookie_admin_routes(context: AdminApiContext, resources: &Arc<ServerContext>) -> Router {
         let context = Arc::new(context);
         let cookie_layer =
             middleware::from_fn_with_state(Arc::clone(resources), cookie_admin_middleware);

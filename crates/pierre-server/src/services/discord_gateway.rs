@@ -18,7 +18,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 
 /// Start the Discord Gateway background service
@@ -26,7 +26,7 @@ use crate::services::messaging_ingress;
 /// Reads `DISCORD_BOT_TOKEN` from environment. If present, spawns the Gateway
 /// WebSocket client and a message processor that feeds incoming messages through
 /// the same pipeline as webhook-delivered messages (persist → LLM dispatch → reply).
-pub fn start_discord_gateway(resources: &Arc<ServerResources>) {
+pub fn start_discord_gateway(resources: &Arc<ServerContext>) {
     let bot_token = match env::var("DISCORD_BOT_TOKEN") {
         Ok(t) if !t.is_empty() => t,
         _ => {
@@ -53,7 +53,7 @@ pub fn start_discord_gateway(resources: &Arc<ServerResources>) {
 
 /// Process incoming messages from the Gateway mpsc channel
 async fn process_gateway_messages(
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     mut rx: mpsc::Receiver<IncomingMessage>,
 ) {
     while let Some(message) = rx.recv().await {
@@ -72,7 +72,7 @@ async fn process_gateway_messages(
 
 /// Load the Discord channel config from DB and construct an adapter
 async fn resolve_channel_config(
-    resources: &ServerResources,
+    resources: &ServerContext,
 ) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type("discord").await.ok()?;
@@ -90,7 +90,7 @@ fn parse_tenant_id(config: &Value) -> Option<TenantId> {
 
 /// Persist the message and spawn LLM dispatch tasks
 async fn dispatch_message(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     adapter: Arc<dyn MessagingChannel>,
     message: IncomingMessage,

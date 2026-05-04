@@ -10,7 +10,7 @@
 // - HashMap key ownership for statistics aggregation (tool_name.clone())
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
 use pierre_auth::api_keys::ApiKeyTier;
 use pierre_auth::auth::AuthResult;
@@ -137,13 +137,13 @@ pub struct RequestStats {
 /// Route handlers for the admin dashboard and metrics
 #[derive(Clone)]
 pub struct DashboardRoutes {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl DashboardRoutes {
     /// Creates a new dashboard routes instance with the given server resources
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

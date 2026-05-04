@@ -30,7 +30,7 @@ mod command_tests {
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
@@ -46,7 +46,7 @@ mod command_tests {
     const BOT_TOKEN: &str = "12345:CMD_TEST_BOT";
     const SENDER_ID: &str = "99";
 
-    async fn create_test_user(resources: &ServerResources, email: &str) -> (Uuid, TenantId) {
+    async fn create_test_user(resources: &ServerContext, email: &str) -> (Uuid, TenantId) {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
                 .await
@@ -80,7 +80,7 @@ mod command_tests {
         (user_id, tenant_id)
     }
 
-    async fn setup_linked_user(resources: &ServerResources) -> (axum::Router, Uuid, TenantId) {
+    async fn setup_linked_user(resources: &ServerContext) -> (axum::Router, Uuid, TenantId) {
         let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (user_id, tenant_id) = create_test_user(resources, "cmduser@test.com").await;
 
@@ -474,7 +474,7 @@ mod command_tests {
     // ════════════════════════════════════════════════════════════════
 
     async fn seed_coach(
-        resources: &ServerResources,
+        resources: &ServerContext,
         user_id: Uuid,
         tenant_id: TenantId,
         title: &str,

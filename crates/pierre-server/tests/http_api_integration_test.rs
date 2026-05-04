@@ -32,8 +32,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     routes::{
@@ -304,13 +303,13 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
     let cache = Cache::new(cache_config).await.unwrap();
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -320,16 +319,15 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     Ok((database, auth_routes, oauth_routes, tenant_id))

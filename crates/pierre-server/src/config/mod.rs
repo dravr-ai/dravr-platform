@@ -182,7 +182,7 @@ pub use social::{
 pub fn init_configs() -> AppResult<()> {
     // Validate the layered intelligence config fails fast for bad env
     // overrides. The canonical live snapshot is owned by
-    // `ServerResources::cageux_config_registry`; this call is a
+    // `ServerContext::cageux_config_registry`; this call is a
     // start-of-process sanity check, not a storage seed.
     let intelligence_config = IntelligenceConfig::load()
         .map_err(|e| AppError::internal(format!("Intelligence config load failed: {e}")))?;

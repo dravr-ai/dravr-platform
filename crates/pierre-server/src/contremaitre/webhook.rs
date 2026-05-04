@@ -19,12 +19,12 @@ use serde::Deserialize;
 use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 use super::errors::ContremaitreError;
 
 /// Mount the contremaitre webhook route.
-pub fn routes(resources: Arc<ServerResources>) -> Router {
+pub fn routes(resources: Arc<ServerContext>) -> Router {
     Router::new()
         .route("/webhooks/contremaitre", post(handle_contremaitre_webhook))
         .with_state(resources)
@@ -125,7 +125,7 @@ fn check_branch_match(event: &PushEvent, expected_branch: &str) -> Result<(), St
 
 /// Spawn a background selective sync for the changed prompt/tool/evidence/config files.
 fn spawn_selective_sync(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     config: &super::config::ContremaitreConfig,
     filtered_paths: Vec<String>,
 ) {
@@ -179,7 +179,7 @@ fn prepare_sync_paths(
 /// Process the webhook after configuration has been verified.
 /// Returns the status code to send back to GitHub.
 fn process_webhook(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     config: &super::config::ContremaitreConfig,
     headers: &HeaderMap,
     body: &Bytes,
@@ -204,7 +204,7 @@ fn process_webhook(
 }
 
 async fn handle_contremaitre_webhook(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {

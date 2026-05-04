@@ -25,7 +25,7 @@ use pierre_mcp_server::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
 };
-use pierre_mcp_server::mcp::resources::{ServerResources, ServerResourcesOptions};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_mcp_server::models::User;
 use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -93,7 +93,7 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
     // Create minimal config for testing
     let config = Arc::new(ServerConfig::from_env().unwrap_or_else(|_| create_test_config()));
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
 
     // Create test cache with background cleanup disabled
@@ -122,13 +122,13 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
         .expect("Failed to create test user");
 
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

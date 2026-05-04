@@ -24,8 +24,7 @@ use pierre_mcp_server::{
         SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
         StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
     routes::{auth::AuthService, LoginRequest, RegisterRequest},
@@ -182,13 +181,13 @@ async fn test_email_validation() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -198,11 +197,10 @@ async fn test_email_validation() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Valid emails
@@ -408,13 +406,13 @@ async fn test_password_validation() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -424,11 +422,10 @@ async fn test_password_validation() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Test short password
@@ -606,13 +603,13 @@ async fn test_duplicate_user_registration() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -622,11 +619,10 @@ async fn test_duplicate_user_registration() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     let request = RegisterRequest {
@@ -795,13 +791,13 @@ async fn test_login_with_correct_credentials() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -811,11 +807,10 @@ async fn test_login_with_correct_credentials() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Register user
@@ -1034,13 +1029,13 @@ async fn test_login_with_wrong_password() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1050,11 +1045,10 @@ async fn test_login_with_wrong_password() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     // Register user
@@ -1230,13 +1224,13 @@ async fn test_login_with_non_existent_user() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1246,11 +1240,10 @@ async fn test_login_with_non_existent_user() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     let login_request = LoginRequest {

@@ -12,7 +12,7 @@
 use super::{
     multitenant::{McpError, McpRequest, McpResponse},
     protocol::ProtocolHandler,
-    resources::ServerResources,
+    resources::ServerContext,
     schema::{CreateMessageRequest, ToolSchema},
     tenant_isolation::extract_tenant_context_internal,
     tool_handlers::ToolHandlers,
@@ -31,13 +31,13 @@ use tracing::{debug, error, info, warn};
 
 /// Processes MCP protocol requests with validation, routing, and execution
 pub struct McpRequestProcessor {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl McpRequestProcessor {
     /// Create a new MCP request processor
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
 
-use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 use pierre_notifications::constants as notif_constants;
 use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
@@ -90,7 +90,7 @@ impl NotificationRoutes {
     /// - `POST /api/notifications/scheduled` - Create scheduled notification
     /// - `PUT /api/notifications/scheduled/{id}` - Update scheduled notification
     /// - `DELETE /api/notifications/scheduled/{id}` - Delete scheduled notification
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Device token management
             .route(
@@ -159,7 +159,7 @@ impl NotificationRoutes {
     }
 
     /// Get the notification service from resources, returning an error if not initialized
-    fn get_service(resources: &ServerResources) -> Result<&NotificationService, AppError> {
+    fn get_service(resources: &ServerContext) -> Result<&NotificationService, AppError> {
         resources
             .notification_service
             .as_deref()
@@ -168,7 +168,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/device - Register a device token
     async fn handle_register_device(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<RegisterDeviceTokenRequest>,
     ) -> Result<Response, AppError> {
@@ -220,7 +220,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications/device - List active device tokens
     async fn handle_list_devices(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -248,7 +248,7 @@ impl NotificationRoutes {
 
     /// Handle DELETE /api/notifications/device/:id - Deactivate device token
     async fn handle_deactivate_device(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -271,7 +271,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications/preferences - Get all preferences
     async fn handle_get_preferences(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -300,7 +300,7 @@ impl NotificationRoutes {
 
     /// Handle PUT /api/notifications/preferences - Update a preference
     async fn handle_update_preferences(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<UpdateNotificationPreferenceRequest>,
     ) -> Result<Response, AppError> {
@@ -346,7 +346,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications - List notifications (feed)
     async fn handle_list_notifications(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Query(query): Query<ListNotificationsQuery>,
     ) -> Result<Response, AppError> {
@@ -399,7 +399,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications/unread-count - Get unread count
     async fn handle_unread_count(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -417,7 +417,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/:id/read - Mark as read
     async fn handle_mark_read(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -440,7 +440,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/read-all - Mark all as read
     async fn handle_mark_all_read(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -468,7 +468,7 @@ impl NotificationRoutes {
 
     /// Handle DELETE /api/notifications/:id - Delete notification
     async fn handle_delete_notification(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -491,7 +491,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/:id/opened - Mark notification as opened
     async fn handle_mark_opened(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -514,7 +514,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/:id/dismissed - Mark notification as dismissed
     async fn handle_mark_dismissed(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -537,7 +537,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications/analytics - Get notification analytics
     async fn handle_get_analytics(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Query(query): Query<NotificationAnalyticsQuery>,
     ) -> Result<Response, AppError> {
@@ -578,7 +578,7 @@ impl NotificationRoutes {
 
     /// Handle GET /api/notifications/scheduled - List user's scheduled notifications
     async fn handle_list_scheduled(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -601,7 +601,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/scheduled - Create a scheduled notification
     async fn handle_create_scheduled(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<CreateScheduledNotificationRequest>,
     ) -> Result<Response, AppError> {
@@ -665,7 +665,7 @@ impl NotificationRoutes {
 
     /// Handle PUT /api/notifications/scheduled/:id - Update a scheduled notification
     async fn handle_update_scheduled(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
         Json(request): Json<UpdateScheduledNotificationRequest>,
@@ -728,7 +728,7 @@ impl NotificationRoutes {
 
     /// Handle DELETE /api/notifications/scheduled/:id - Delete a scheduled notification
     async fn handle_delete_scheduled(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
@@ -751,7 +751,7 @@ impl NotificationRoutes {
 
     /// Handle POST /api/notifications/badge-sync - Get unread count for badge display
     async fn handle_badge_sync(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();

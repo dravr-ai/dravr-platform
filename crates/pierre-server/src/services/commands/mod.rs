@@ -28,7 +28,7 @@ use pierre_core::models::TenantId;
 use pierre_messaging::commands::CommandResponse;
 use uuid::Uuid;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Platform-specific command execution context
 pub struct PlatformCommandContext {
@@ -43,7 +43,7 @@ pub struct PlatformCommandContext {
     /// Full raw message text
     pub raw_text: String,
     /// Server resources for accessing repos, services, etc.
-    pub resources: Arc<ServerResources>,
+    pub resources: Arc<ServerContext>,
     /// Resolved BCP-47 locale for this command turn.
     ///
     /// Populated once in the messaging ingress before dispatch by walking

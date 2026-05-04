@@ -18,7 +18,7 @@ use crate::intelligence::physiological_constants::business_thresholds::{
 use crate::intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::Activity;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
@@ -34,7 +34,7 @@ pub struct IntelligenceService;
 impl IntelligenceService {
     /// Creates a new intelligence service instance
     #[must_use]
-    pub fn new(_resources: Arc<ServerResources>) -> Self {
+    pub fn new(_resources: Arc<ServerContext>) -> Self {
         Self
     }
 
@@ -135,13 +135,13 @@ pub struct UniversalExecutor {
     /// Intelligence service for activity analysis and insights
     pub intelligence_service: IntelligenceService,
     /// Shared server resources (database, weather service, etc.)
-    pub resources: Arc<ServerResources>,
+    pub resources: Arc<ServerContext>,
 }
 
 impl UniversalExecutor {
     /// Create new executor with all services
     #[must_use]
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    pub fn new(resources: Arc<ServerContext>) -> Self {
         let auth_service = AuthService::new(resources.clone());
         let intelligence_service = IntelligenceService::new(resources.clone());
 
@@ -250,7 +250,7 @@ fn app_error_to_protocol_error(tool_name: &str, e: &AppError) -> ProtocolError {
 /// `tenant_id` — tools rely on tenant isolation, so a silent fallback would
 /// be a multi-tenancy bug.
 fn build_tool_execution_context(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     request: &UniversalRequest,
 ) -> Result<ToolExecutionContext, ProtocolError> {
     let user_uuid = parse_user_id_for_protocol(&request.user_id)?;

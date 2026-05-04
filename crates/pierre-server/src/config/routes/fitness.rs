@@ -6,7 +6,7 @@
 
 use crate::config::fitness::FitnessConfig;
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::require_admin;
 use crate::models::TenantId;
 use pierre_auth::auth::AuthResult;
@@ -97,13 +97,13 @@ pub struct ResponseMetadata {
 /// Fitness configuration routes handler
 #[derive(Clone)]
 pub struct FitnessConfigurationRoutes {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl FitnessConfigurationRoutes {
     /// Create a new fitness configuration routes handler
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

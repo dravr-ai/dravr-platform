@@ -13,7 +13,7 @@ use crate::intelligence::training_load::TrainingLoad;
 use crate::intelligence::{
     PatternDetector, PerformancePredictor, RiskLevel, TrainingLoadCalculator, TrainingStatus,
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 
@@ -49,7 +49,7 @@ use tracing::warn;
 /// Returns error if sampling request fails or response is invalid
 async fn generate_recommendations_via_sampling(
     sampling_peer: &Arc<SamplingPeer>,
-    resources: &ServerResources,
+    resources: &ServerContext,
     activities: &[Activity],
     recommendation_type: &str,
 ) -> AppResult<serde_json::Value> {

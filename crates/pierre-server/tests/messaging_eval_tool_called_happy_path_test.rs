@@ -41,7 +41,7 @@ mod tool_called_happy_path {
     use chrono::Utc;
     use pierre_core::models::usage::{InsertLlmUsage, TURN_SUMMARY_CALL_TYPE};
     use pierre_core::models::ConversationTurnId;
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::permissions::UserRole;
     use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
@@ -52,7 +52,7 @@ mod tool_called_happy_path {
     use uuid::Uuid;
 
     async fn create_admin_user_in_tenant(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         email: &str,
     ) -> (Uuid, TenantId, String) {
         let password_hash =
@@ -102,7 +102,7 @@ mod tool_called_happy_path {
     /// `/internal/conversation-turn/{turn_id}` endpoint has something
     /// to return, bypassing the pipeline.
     async fn seed_turn_summary_with_tools(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: TenantId,
         user_id: Uuid,
         turn: ConversationTurnId,
@@ -139,7 +139,7 @@ mod tool_called_happy_path {
     /// Query the admin-only conversation-turn endpoint and return the
     /// parsed body, asserting a 200 response.
     async fn fetch_turn_json(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         admin_auth: &str,
         turn: ConversationTurnId,
     ) -> Value {

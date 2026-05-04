@@ -34,7 +34,7 @@ use pierre_mcp_server::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{OAuthApp, Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     protocols::universal::{UniversalRequest, UniversalToolExecutor},
@@ -270,17 +270,17 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
 
     let config = Arc::new(create_test_server_config());
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

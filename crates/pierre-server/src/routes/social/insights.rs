@@ -37,7 +37,7 @@ use crate::{
         },
     },
     llm::{ChatMessage, ChatRequest, LlmProvider},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     models::{
         Activity, AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility,
         SharedInsight, TenantId, TrainingPhase,
@@ -46,7 +46,7 @@ use crate::{
     services::social_insights,
 };
 
-use pierre_database::database::social_dispatch::SocialManagerBackend;
+use pierre_database::repositories::SocialRepository;
 
 use super::{SocialMetadata, SocialRoutes};
 
@@ -427,8 +427,8 @@ impl SocialRoutes {
     ///
     /// Returns the validated (and potentially improved/redacted) content, or an error if rejected.
     pub(crate) async fn validate_content_for_sharing(
-        resources: &Arc<ServerResources>,
-        social: &SocialManagerBackend,
+        resources: &Arc<ServerContext>,
+        social: &dyn SocialRepository,
         user_id: Uuid,
         content: &str,
         insight_type: InsightType,
@@ -443,7 +443,7 @@ impl SocialRoutes {
 
         // Get user's sharing policy from social settings
         let policy = social
-            .get_user_social_settings(user_id)
+            .get_social_settings(user_id)
             .await?
             .map(|s| s.insight_sharing_policy)
             .unwrap_or_default();
@@ -482,7 +482,7 @@ impl SocialRoutes {
     /// Uses injected provider if available (for testing), otherwise falls back to
     /// `create_chat_provider()` which reads API keys from environment variables.
     pub(crate) async fn get_llm_provider(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<Arc<dyn LlmProvider>, AppError> {
         match &resources.llm_provider {
             Some(provider) => Ok(provider.clone()),
@@ -492,7 +492,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/insights - List user's shared insights
     pub(crate) async fn handle_list_insights(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<ListInsightsQuery>,
     ) -> Result<Response, AppError> {
@@ -506,9 +506,12 @@ impl SocialRoutes {
 
         let limit = query.limit.unwrap_or(50).clamp(1, 100);
         let offset = query.offset.unwrap_or(0).max(0);
+        // Safe cast: limit clamped to [1, 100], offset to [0, _], both fit in u32.
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let (limit_u32, offset_u32) = (limit as u32, offset as u32);
 
         let insights = social
-            .get_user_shared_insights(auth.user_id, insight_type, limit, offset)
+            .get_user_shared_insights(auth.user_id, insight_type, limit_u32, offset_u32)
             .await?;
 
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -534,7 +537,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/insights - Share a new insight
     pub(crate) async fn handle_share_insight(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<ShareInsightBody>,
     ) -> Result<Response, AppError> {
@@ -555,7 +558,7 @@ impl SocialRoutes {
         // Validate content before sharing
         let validated_content = Self::validate_content_for_sharing(
             &resources,
-            &social,
+            &*social,
             auth.user_id,
             &body.content,
             insight_type,
@@ -626,7 +629,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/insights/:id - Get a specific insight
     pub(crate) async fn handle_get_insight(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -661,7 +664,7 @@ impl SocialRoutes {
 
     /// Handle DELETE /api/social/insights/:id - Delete an insight
     pub(crate) async fn handle_delete_insight(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -700,7 +703,7 @@ impl SocialRoutes {
     /// Returns suggestions based on user's recent activities. If no activities
     /// can be fetched (e.g., no OAuth token connected), returns an empty list.
     pub(crate) async fn handle_get_suggestions(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<SuggestionsQuery>,
     ) -> Result<Response, AppError> {
@@ -756,7 +759,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/insights/from-activity - Share coach-mediated insight
     pub(crate) async fn handle_share_from_activity(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<ShareFromActivityBody>,
     ) -> Result<Response, AppError> {
@@ -859,7 +862,7 @@ impl SocialRoutes {
     /// using the insight generation prompt. Returns only the shareable content
     /// without any preamble or explanatory text.
     pub(crate) async fn handle_generate_insight(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(body): Json<GenerateInsightBody>,
     ) -> Result<Response, AppError> {
@@ -905,7 +908,7 @@ impl SocialRoutes {
     /// Uses the insight validation prompt to check content quality and improve if needed.
     /// Returns the validated (possibly improved) content.
     pub(crate) async fn validate_insight_content(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         content: &str,
     ) -> Result<String, AppError> {
         let llm_provider = Self::get_llm_provider(resources).await?;
@@ -1024,7 +1027,7 @@ impl SocialRoutes {
     /// Uses `AuthService` to get a valid OAuth token and creates a configured provider
     /// with tenant-scoped credential resolution to fetch recent activities.
     pub(crate) async fn fetch_activities_from_provider(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         user_id: Uuid,
         provider_name: &str,
         tenant_id: Option<&str>,
@@ -1080,7 +1083,7 @@ impl SocialRoutes {
     /// # Arguments
     /// * `activity_limit` - Optional client-requested limit (capped by server config)
     pub(crate) async fn build_insight_context(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         user_id: Uuid,
         provider_name: &str,
         tenant_id: Option<&str>,
@@ -1113,7 +1116,7 @@ impl SocialRoutes {
 
     /// Build user training context for insight adaptation
     pub(crate) async fn build_user_training_context(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         user_id: Uuid,
         provider_name: &str,
         tenant_id: Option<&str>,
@@ -1170,7 +1173,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/insights/:id/reactions - List reactions
     pub(crate) async fn handle_list_reactions(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -1211,7 +1214,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/insights/:id/reactions - Add reaction
     pub(crate) async fn handle_add_reaction(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
         Json(body): Json<ReactToInsightBody>,
@@ -1231,7 +1234,9 @@ impl SocialRoutes {
             .ok_or_else(|| AppError::not_found(format!("Insight {id}")))?;
 
         // Check if user already has a reaction
-        let existing = social.get_user_reaction(insight_id, auth.user_id).await?;
+        let existing = social
+            .get_insight_reaction(insight_id, auth.user_id)
+            .await?;
         if let Some(existing_reaction) = existing {
             if existing_reaction.reaction_type == reaction_type {
                 // Same reaction type - should use remove endpoint to toggle
@@ -1246,7 +1251,7 @@ impl SocialRoutes {
         }
 
         let reaction = InsightReaction::new(insight_id, auth.user_id, reaction_type);
-        social.create_insight_reaction(&reaction).await?;
+        social.upsert_insight_reaction(&reaction).await?;
 
         // Fire-and-forget notification to the insight owner (skip self-reactions)
         #[cfg(feature = "client-notifications")]
@@ -1276,7 +1281,7 @@ impl SocialRoutes {
 
     /// Handle DELETE /api/social/insights/:id/reactions/:type - Remove reaction
     pub(crate) async fn handle_remove_reaction(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path((id, reaction_type_str)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
@@ -1302,7 +1307,7 @@ impl SocialRoutes {
 
     /// Handle POST /api/social/insights/:id/adapt - Adapt an insight
     pub(crate) async fn handle_adapt_insight(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
         Json(body): Json<AdaptInsightBody>,
@@ -1328,7 +1333,7 @@ impl SocialRoutes {
         .unwrap_or_else(|_| UserTrainingContext::default());
 
         let result = social_insights::adapt_insight_for_user(
-            &social,
+            &*social,
             auth.user_id,
             insight_id,
             &user_context,
@@ -1352,7 +1357,7 @@ impl SocialRoutes {
 
     /// Handle GET /api/social/adapted - List user's adapted insights
     pub(crate) async fn handle_list_adapted(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<ListAdaptedQuery>,
     ) -> Result<Response, AppError> {
@@ -1389,7 +1394,7 @@ impl SocialRoutes {
 
     /// Handle PUT /api/social/adapted/:id/helpful - Update helpful status
     pub(crate) async fn handle_update_helpful(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(id): Path<String>,
         Json(body): Json<UpdateHelpfulBody>,

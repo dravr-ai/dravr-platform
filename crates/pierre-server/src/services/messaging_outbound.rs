@@ -20,7 +20,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::analytics::{analytics, hash_id};
 
 /// Polling interval for the outbound retry worker
@@ -34,7 +34,7 @@ const BATCH_SIZE: i64 = 20;
 /// Spawns a tokio task that polls the outbound queue every `POLL_INTERVAL` seconds.
 /// For each pending entry, loads the channel config, constructs an adapter, and
 /// attempts delivery. On failure, applies exponential backoff via `compute_retry_update`.
-pub fn start_outbound_worker(resources: Arc<ServerResources>) {
+pub fn start_outbound_worker(resources: Arc<ServerContext>) {
     tokio::spawn(async move {
         info!("Messaging outbound retry worker started");
         loop {
@@ -47,7 +47,7 @@ pub fn start_outbound_worker(resources: Arc<ServerResources>) {
 }
 
 /// Process one batch of pending outbound entries
-async fn process_pending_batch(resources: &Arc<ServerResources>) -> Result<(), AppError> {
+async fn process_pending_batch(resources: &Arc<ServerContext>) -> Result<(), AppError> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let entries = db.get_all_pending_outbound(BATCH_SIZE).await?;
 

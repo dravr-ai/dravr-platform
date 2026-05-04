@@ -24,7 +24,7 @@ use pierre_mcp_server::contremaitre::messaging_strings::{
     KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER,
     KEY_STATUS_PROVIDERS_NONE,
 };
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::services::commands::status::StatusHandler;
 use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
@@ -169,7 +169,7 @@ fn registry_falls_back_to_default_locale_on_unknown() {
 
 /// Create a minimal active user + tenant pair with both rows linked via the
 /// `tenants.owner_user_id` column. Returns `(user_id, tenant_id)`.
-async fn seed_user_and_tenant(resources: &ServerResources) -> (Uuid, TenantId) {
+async fn seed_user_and_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
     let password_hash = spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
         .await
         .unwrap();

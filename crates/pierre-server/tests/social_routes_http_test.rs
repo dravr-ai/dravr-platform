@@ -17,14 +17,13 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::database::social::SocialManager;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
     llm::LlmProvider,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{InsightType, ShareVisibility, SharedInsight},
     routes::social::SocialRoutes,
 };
@@ -34,7 +33,7 @@ use uuid::Uuid;
 
 /// Test setup helper for social route testing
 struct SocialRoutesTestSetup {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     user_id: Uuid,
     jwt_token: String,
 }
@@ -49,7 +48,7 @@ impl SocialRoutesTestSetup {
         // Create test user
         let (user_id, user) = common::create_test_user(&database).await?;
 
-        // Create ServerResources
+        // Create ServerContext
         let temp_dir = tempfile::tempdir()?;
         let config = Arc::new(ServerConfig {
             http_port: 8081,
@@ -79,13 +78,13 @@ impl SocialRoutesTestSetup {
         let llm_provider: Arc<dyn LlmProvider> = Arc::new(common::TestLlmProvider::valid());
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: Some(llm_provider), // Inject mock LLM provider for tests
@@ -1621,13 +1620,13 @@ async fn test_all_social_endpoints_require_auth() {
 async fn test_has_insight_for_activity_detects_duplicate() {
     let setup = SocialRoutesTestSetup::new().await.expect("Setup failed");
 
-    // Create SocialManager directly from database pool
-    let pool = setup
+    // Use the registry's SocialRepository (SQLite-backed in tests).
+    let social = setup
         .resources
-        .database
-        .sqlite_pool()
-        .expect("SQLite pool required for social tests");
-    let social = SocialManager::new(pool.clone());
+        .repos
+        .social
+        .clone()
+        .expect("Social repository required for social tests");
 
     // Create an insight linked to an activity
     let activity_id = "strava_activity_123456";
@@ -1681,12 +1680,12 @@ async fn test_has_insight_for_activity_detects_duplicate() {
 async fn test_duplicate_activity_insight_prevention() {
     let setup = SocialRoutesTestSetup::new().await.expect("Setup failed");
 
-    let pool = setup
+    let social = setup
         .resources
-        .database
-        .sqlite_pool()
-        .expect("SQLite pool required for social tests");
-    let social = SocialManager::new(pool.clone());
+        .repos
+        .social
+        .clone()
+        .expect("Social repository required for social tests");
 
     let activity_id = "strava_activity_duplicate_test";
 

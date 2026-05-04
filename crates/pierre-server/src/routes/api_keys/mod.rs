@@ -12,7 +12,7 @@
 /// Service layer for API key management operations
 pub mod service;
 
-use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -40,7 +40,7 @@ pub struct ApiKeyRoutes;
 
 impl ApiKeyRoutes {
     /// Create all API key management routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/keys", post(Self::handle_create_api_key))
             .route("/api/keys", get(Self::handle_list_api_keys))
@@ -54,7 +54,7 @@ impl ApiKeyRoutes {
 
     /// Handle API key creation
     async fn handle_create_api_key(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Json(request): Json<CreateApiKeyRequestSimple>,
     ) -> Result<Response, AppError> {
@@ -72,7 +72,7 @@ impl ApiKeyRoutes {
 
     /// Handle listing user's API keys
     async fn handle_list_api_keys(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
@@ -89,7 +89,7 @@ impl ApiKeyRoutes {
 
     /// Handle API key deactivation
     async fn handle_deactivate_api_key(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
         Path(key_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -107,7 +107,7 @@ impl ApiKeyRoutes {
 
     /// Handle getting API key usage statistics
     async fn handle_get_usage(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         Path(key_id): Path<String>,
         Query(query): Query<UsageQuery>,
         auth: AuthenticatedUser,

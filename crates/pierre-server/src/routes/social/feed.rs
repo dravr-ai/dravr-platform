@@ -15,7 +15,7 @@ use std::sync::Arc;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::{errors::AppError, mcp::resources::ServerResources};
+use crate::{errors::AppError, mcp::resources::ServerContext};
 
 use super::{insights::SharedInsightResponse, SocialMetadata, SocialRoutes};
 
@@ -102,7 +102,7 @@ pub struct FeedQuery {
 impl SocialRoutes {
     /// Handle GET /api/social/feed - Get social feed
     pub(crate) async fn handle_get_feed(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<FeedQuery>,
     ) -> Result<Response, AppError> {

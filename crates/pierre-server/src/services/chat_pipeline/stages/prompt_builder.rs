@@ -22,7 +22,7 @@ use pierre_database::database::MessageRecord;
 use uuid::Uuid;
 
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::ConnectionType;
 
 #[cfg(feature = "tools-groups")]
@@ -54,7 +54,7 @@ use crate::services::group_fitness::{fetch_member_snapshots, MemberSnapshot};
 /// the rest of the pipeline stages — no variants are produced today.
 #[cfg(feature = "tools-groups")]
 pub async fn resolve_group_context(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     conversation_group_id: Option<&str>,
     tool_tenant_id: TenantId,
 ) -> AppResult<(Option<String>, Vec<MemberSnapshot>)> {
@@ -119,7 +119,7 @@ pub fn build_llm_messages(
 /// runtime (e.g. synthetic providers excluded from production builds).
 /// Returns an empty string when the user has no registered connections —
 /// callers append this unconditionally.
-pub async fn build_provider_context(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
+pub async fn build_provider_context(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
     // Get all provider connections (cross-tenant view, single source of truth)
     let Ok(connections) = resources
         .repos
@@ -168,7 +168,7 @@ pub async fn build_provider_context(resources: &Arc<ServerResources>, user_id: U
 /// stopped reflecting reality. Each user-visible tool gets one line:
 /// `` - `name`: description ``. Admin-only tools are excluded.
 #[must_use]
-pub fn build_tools_section(resources: &Arc<ServerResources>) -> String {
+pub fn build_tools_section(resources: &Arc<ServerContext>) -> String {
     let schemas = resources.tool_registry.user_visible_schemas();
 
     let mut out = String::with_capacity(2_048);

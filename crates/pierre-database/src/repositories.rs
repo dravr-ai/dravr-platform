@@ -36,11 +36,12 @@ use pierre_core::models::DataSource;
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, CoachRuntimeContext,
     CoachingPersona, ConnectionType, ConversationRecord, ConversationSummary,
-    CreateUserMcpTokenRequest, FriendConnection, FriendStatus, InsightReaction, OAuth2AuthCode,
-    OAuth2Client, OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
-    PrescribedWorkout, ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride,
-    ToolCatalogEntry, ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
-    UserOAuthApp, UserOAuthToken, UserSocialSettings, UserStatus, UserTier,
+    CreateUserMcpTokenRequest, FeedItem, FriendConnection, FriendInfo, FriendStatus,
+    InsightReaction, InsightType, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
+    OAuthApp, OAuthClientState, OAuthNotification, PrescribedWorkout, ProviderConnection,
+    SharedInsight, Tenant, TenantPlan, TenantToolOverride, ToolCatalogEntry, ToolCategory, User,
+    UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp, UserOAuthToken,
+    UserSocialSettings, UserStatus, UserTier,
 };
 use pierre_core::models::{
     AddMessageParams, ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
@@ -1996,10 +1997,11 @@ pub trait SocialRepository: Send + Sync {
         limit: u32,
         offset: u32,
     ) -> AppResult<Vec<SharedInsight>>;
-    /// Get insights shared by a specific user
+    /// Get insights shared by a specific user, optionally filtered by type.
     async fn get_user_shared_insights(
         &self,
         user_id: Uuid,
+        insight_type: Option<InsightType>,
         limit: u32,
         offset: u32,
     ) -> AppResult<Vec<SharedInsight>>;
@@ -2050,6 +2052,52 @@ pub trait SocialRepository: Send + Sync {
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>>;
     /// Get total friend count for a user
     async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64>;
+
+    /// Paginated friends list (i64 limit/offset for direct sqlx binding).
+    ///
+    /// Distinct from `get_friends` (which returns the entire accepted set)
+    /// and from `get_friends_feed` (which returns shared insights). This
+    /// returns `FriendConnection` rows for callers that need the connection
+    /// metadata, paginated.
+    async fn get_friends_paginated(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<FriendConnection>>;
+
+    /// Whether the user has already shared an insight for this activity.
+    ///
+    /// Used to gate the "share from activity" UX so a user doesn't accidentally
+    /// re-share the same activity.
+    async fn has_insight_for_activity(&self, user_id: Uuid, activity_id: &str) -> AppResult<bool>;
+
+    /// Friends feed enriched with author info, reaction summary, and the
+    /// caller's own reaction/adaptation state.
+    ///
+    /// Distinct from `get_friends_feed` (which returns raw `SharedInsight`
+    /// rows). The "_full" variant performs N+1 lookups per insight to
+    /// assemble the rich `FeedItem` shape consumed by the social feed UI.
+    async fn get_friend_insights_feed_full(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<FeedItem>>;
+
+    /// Paginated list of insights the user has adapted.
+    async fn get_user_adapted_insights_paginated(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<AdaptedInsight>>;
+
+    /// Lookup a user's profile (display name, email, account creation time).
+    ///
+    /// Used by the social feed to render author info next to each insight.
+    /// Returns `NotFound` if the user does not exist.
+    async fn get_user_profile(&self, user_id: Uuid) -> AppResult<FriendInfo>;
 }
 
 /// Parameters for upserting a messaging channel configuration
@@ -2933,6 +2981,28 @@ pub trait SleepRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
     ) -> AppResult<u64>;
+    /// Delete a single sleep session by id with the requested deletion mode.
+    ///
+    /// `soft = true` sets `deleted_at = now()` and the row stays for the
+    /// tombstone window so subsequent syncs can detect tombstones; reads
+    /// already filter out soft-deleted rows.
+    /// `soft = false` issues a hard `DELETE` and removes the row.
+    /// Returns `Ok(false)` if no matching row exists for the tenant.
+    async fn delete_sleep_session_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool>;
+
+    /// Look up the owning tenant for a sleep session id.
+    ///
+    /// Discovery query used by adapters that receive an external id with
+    /// no tenant context (notably the dravr-enforme sync pipeline). The
+    /// caller then calls [`Self::delete_sleep_session_by_id`] with the
+    /// resolved tenant so the data-access query stays tenant-scoped.
+    /// Returns `Ok(None)` if no row exists for the id.
+    async fn find_sleep_session_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
 }
 
 /// Recovery metrics persistence repository
@@ -2958,6 +3028,22 @@ pub trait RecoveryRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
     ) -> AppResult<Option<StoredRecoveryMetrics>>;
+    /// Delete a single recovery metric by id with the requested deletion mode.
+    ///
+    /// `soft = true` sets `deleted_at = now()` and reads filter the row out;
+    /// `soft = false` issues a hard `DELETE`.
+    /// Returns `Ok(false)` if no matching row exists for the tenant.
+    async fn delete_recovery_metric_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool>;
+
+    /// Look up the owning tenant for a recovery metric id.
+    ///
+    /// See [`SleepRepository::find_sleep_session_tenant`] for the rationale.
+    async fn find_recovery_metric_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
 }
 
 /// Health snapshot persistence repository
@@ -2983,6 +3069,62 @@ pub trait HealthSnapshotRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
     ) -> AppResult<Option<StoredHealthMetrics>>;
+    /// Delete a single health snapshot by id with the requested deletion mode.
+    ///
+    /// `soft = true` sets `deleted_at = now()` and reads filter the row out;
+    /// `soft = false` issues a hard `DELETE`.
+    /// Returns `Ok(false)` if no matching row exists for the tenant.
+    async fn delete_health_snapshot_by_id(
+        &self,
+        tenant_id: &TenantId,
+        id: &str,
+        soft: bool,
+    ) -> AppResult<bool>;
+
+    /// Look up the owning tenant for a health snapshot id.
+    ///
+    /// See [`SleepRepository::find_sleep_session_tenant`] for the rationale.
+    async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
+}
+
+// ================================
+// Time Series Point Repository
+// ================================
+
+/// Continuous time-series points keyed by `(data_source_id, series_type_id, recorded_at)`.
+///
+/// Implements the write path that backs dravr-enforme's
+/// `TimeSeriesPointStore::store_continuous_metrics` and dravr-riviere's
+/// `TimeSeriesStore` API. Storage is the `data_point_series` table.
+#[async_trait]
+pub trait TimeSeriesPointRepository: Send + Sync {
+    /// Persist a single continuous metric batch for a given source.
+    ///
+    /// `series_type_id` is the integer identifier from the dravr-riviere
+    /// catalog (e.g. `SeriesType::HeartRate`). `points` are
+    /// `(timestamp, value)` pairs. Conflicts on
+    /// `(data_source_id, series_type_id, recorded_at)` are resolved by
+    /// keeping the latest value (last-writer-wins).
+    ///
+    /// Returns the number of points written (after de-duplication).
+    async fn insert_continuous_metrics_batch(
+        &self,
+        data_source_id: &str,
+        series_type_id: u32,
+        points: &[(DateTime<Utc>, f64)],
+    ) -> AppResult<u64>;
+
+    /// Range query for continuous metric points.
+    ///
+    /// Returns points in ascending `recorded_at` order, excluding any
+    /// soft-deleted rows.
+    async fn get_continuous_metrics(
+        &self,
+        data_source_id: &str,
+        series_type_id: u32,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<(DateTime<Utc>, f64)>>;
 }
 
 // ================================

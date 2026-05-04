@@ -20,7 +20,7 @@ use pierre_mcp_server::{
     },
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
     },
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -42,7 +42,7 @@ pub const DEFAULT_TEST_SEED: u64 = 12345;
 /// Integration test server that manages the full HTTP server lifecycle
 pub struct IntegrationTestServer {
     port: u16,
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     server_handle: Option<JoinHandle<()>>,
 }
 
@@ -77,13 +77,13 @@ impl IntegrationTestServer {
         .await?;
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "integration_test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(jwks_manager),
                     llm_provider: None,
@@ -159,7 +159,7 @@ impl IntegrationTestServer {
     }
 
     /// Get shared server resources
-    pub const fn resources(&self) -> &Arc<ServerResources> {
+    pub const fn resources(&self) -> &Arc<ServerContext> {
         &self.resources
     }
 

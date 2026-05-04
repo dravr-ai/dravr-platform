@@ -17,7 +17,7 @@ use crate::a2a::{
     A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2ARequest, A2AResponse,
     A2A_VERSION,
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::tools::context::{AuthMethod, ToolExecutionContext};
 use crate::types::json_schemas;
@@ -38,7 +38,7 @@ pub struct A2AServer {
     /// A2A protocol version
     pub version: String,
     /// Optional server resources for MCP integration
-    pub resources: Option<Arc<ServerResources>>,
+    pub resources: Option<Arc<ServerContext>>,
 }
 
 impl A2AServer {
@@ -53,7 +53,7 @@ impl A2AServer {
 
     /// Create a new A2A server with server resources
     #[must_use]
-    pub fn new_with_resources(resources: Arc<ServerResources>) -> Self {
+    pub fn new_with_resources(resources: Arc<ServerContext>) -> Self {
         Self {
             version: A2A_VERSION.to_owned(),
             resources: Some(resources),
@@ -156,7 +156,7 @@ impl A2AServer {
         }
     }
 
-    /// Handle A2A initialize request with `ServerResources` for OAuth credential storage
+    /// Handle A2A initialize request with `ServerContext` for OAuth credential storage
     async fn handle_initialize_with_oauth(&self, request: A2ARequest) -> A2AResponse {
         // Extract resources with defensive error handling
         let Some(resources) = self.resources.as_ref() else {
@@ -244,7 +244,7 @@ impl A2AServer {
     /// Authenticate the A2A request and extract user information
     fn authenticate_request(
         request: &A2ARequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<Uuid, Box<A2AResponse>> {
         let request_id = request
             .id
@@ -286,7 +286,7 @@ impl A2AServer {
     /// Get client IDs owned by a user
     async fn get_owned_client_ids(
         user_id: &Uuid,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<Vec<String>, String> {
         resources
             .repos
@@ -301,7 +301,7 @@ impl A2AServer {
     async fn verify_client_ownership(
         client_id: &str,
         user_id: &Uuid,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         request_id: Option<&Value>,
     ) -> Result<(), A2AResponse> {
         let owned_ids = Self::get_owned_client_ids(user_id, resources)
@@ -353,7 +353,7 @@ impl A2AServer {
     async fn store_oauth_credentials(
         oauth_creds: HashMap<String, OAuthAppCredentials>,
         user_id: &Uuid,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<(), String> {
         for (provider, creds) in oauth_creds {
             info!("Storing OAuth credentials for provider {provider} for A2A user {user_id}");
@@ -469,7 +469,7 @@ impl A2AServer {
     /// Persist a new task to the database and return the A2A response.
     async fn persist_and_respond_task(
         &self,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         client_id: &str,
         task_type: &str,
         params_value: &Value,

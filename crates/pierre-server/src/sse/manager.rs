@@ -10,7 +10,7 @@ use super::{
 use crate::constants::network_config::SSE_BROADCAST_CHANNEL_SIZE;
 use crate::errors::AppError;
 use crate::mcp::protocol::McpRequest;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::tenant_isolation::validate_jwt_token_for_mcp;
 use crate::models::OAuthNotification;
 use chrono::{Duration, Utc};
@@ -119,7 +119,7 @@ impl SseManager {
         &self,
         session_id: String,
         authorization: Option<String>,
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
     ) -> broadcast::Receiver<String> {
         let stream = McpProtocolStream::new(resources.clone());
         let receiver = stream.subscribe().await;

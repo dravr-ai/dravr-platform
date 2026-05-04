@@ -166,7 +166,7 @@ use pierre_mcp_server::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,
     protocols::universal::{UniversalRequest, UniversalToolExecutor},
@@ -461,17 +461,17 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
         },
     ));
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             create_test_server_config(),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -530,17 +530,17 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
         },
     ));
 
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             create_test_server_config_without_oauth(),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

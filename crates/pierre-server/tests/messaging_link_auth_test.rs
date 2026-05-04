@@ -23,7 +23,7 @@ mod helpers;
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_database::backends::{CreateLinkStateParams, MessagingRepository};
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::{Tenant, TenantId, User};
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use tokio::task::spawn_blocking;
@@ -32,7 +32,7 @@ use uuid::Uuid;
 /// Seed a tenant by creating an owner user and the tenant record. Returns the
 /// `(owner_user_id, tenant_id)`. The tenant must exist before any `messaging_*`
 /// row referencing its id is inserted (FK constraint).
-async fn seed_tenant_with_owner(resources: &ServerResources) -> (Uuid, TenantId) {
+async fn seed_tenant_with_owner(resources: &ServerContext) -> (Uuid, TenantId) {
     let email = format!("owner-{}@test.local", Uuid::new_v4());
     let user = User::new(email, "hash".to_owned(), Some("Tenant Owner".to_owned()));
     let user_id = user.id;
@@ -87,7 +87,7 @@ async fn create_channel_initiated_link_state(
 /// Assign an already-created user to an existing tenant by updating the
 /// user's `tenant_id` column. The tenant must already exist (see
 /// `seed_tenant_with_owner`).
-async fn add_user_to_tenant(resources: &ServerResources, user_id: Uuid, tenant_id: TenantId) {
+async fn add_user_to_tenant(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
     resources
         .repos
         .users
@@ -98,7 +98,7 @@ async fn add_user_to_tenant(resources: &ServerResources, user_id: Uuid, tenant_i
 
 /// Create a test user with bcrypt-hashed password and return the `user_id`
 async fn create_test_user_with_password(
-    resources: &ServerResources,
+    resources: &ServerContext,
     email: &str,
     password: &str,
 ) -> Uuid {

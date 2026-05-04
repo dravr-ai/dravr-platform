@@ -31,7 +31,7 @@ use pierre_mcp_server::{
     logging,
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
         transport_manager::TransportManager,
     },
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
@@ -534,13 +534,13 @@ async fn create_server(
         messaging_seed::seed_from_env(&repos).await;
     }
 
-    let resources_instance = ServerResources::new(
+    let resources_instance = ServerContext::new(
         database,
         auth_manager,
         jwt_secret,
         Arc::new(config.clone()),
         cache,
-        ServerResourcesOptions {
+        ServerContextOptions {
             rsa_key_size_bits: Some(rsa_key_size),
             jwks_manager: None, // Generate new JWKS manager for production
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
@@ -569,7 +569,7 @@ async fn create_server(
 }
 
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
-fn spawn_background_workers(resources_instance: ServerResources) -> Arc<ServerResources> {
+fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)

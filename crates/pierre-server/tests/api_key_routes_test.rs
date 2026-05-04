@@ -28,7 +28,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::User,
     routes::api_keys::service::ApiKeyRoutes,
 };
@@ -89,9 +89,9 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
     // Create cache for API key routes
     let cache = common::create_test_cache().await.unwrap();
 
-    // Create ServerResources for API key routes
+    // Create ServerContext for API key routes
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
@@ -255,7 +255,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 }
             }),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

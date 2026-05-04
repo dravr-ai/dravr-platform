@@ -58,10 +58,6 @@ pub mod route_summaries;
 pub mod security_repository;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
-/// Social features (friend connections, shared insights)
-pub mod social;
-/// Backend-agnostic social manager dispatch enum
-pub mod social_dispatch;
 /// Store listings for coach publishing workflow
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)

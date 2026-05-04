@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::cache::factory::Cache;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::intelligence::ActivityIntelligence;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::mcp::tool_selection::ToolSelectionService;
 use crate::models::User;
 use crate::providers::ProviderRegistry;
@@ -69,9 +69,9 @@ impl AuthMethod {
 ///
 /// # Arc Cloning Note
 ///
-/// The `resources` field is `Arc<ServerResources>` which is cloned when
+/// The `resources` field is `Arc<ServerContext>` which is cloned when
 /// creating new contexts. This is necessary because:
-/// - `ServerResources` contains expensive resources (DB pools, managers)
+/// - `ServerContext` contains expensive resources (DB pools, managers)
 /// - Multiple tools may execute concurrently
 /// - Arc cloning is cheap (atomic increment)
 ///
@@ -85,7 +85,7 @@ pub struct ToolExecutionContext {
     /// Request ID for tracing/logging
     pub request_id: Option<Value>,
     /// Access to all server resources (database, providers, etc.)
-    pub resources: Arc<ServerResources>,
+    pub resources: Arc<ServerContext>,
     /// Authentication method used (for audit logging)
     pub auth_method: AuthMethod,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
@@ -105,7 +105,7 @@ impl ToolExecutionContext {
     pub fn new(
         user_id: Uuid,
         tenant_id: Option<TenantId>,
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
         auth_method: AuthMethod,
     ) -> Self {
         Self {
@@ -287,7 +287,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("request_id", &self.request_id)
             .field("auth_method", &self.auth_method)
             .field("is_admin", &self.is_admin)
-            .field("resources", &"<ServerResources>")
+            .field("resources", &"<ServerContext>")
             .finish()
     }
 }

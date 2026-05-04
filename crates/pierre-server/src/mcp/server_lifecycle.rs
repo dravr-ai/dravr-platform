@@ -8,7 +8,7 @@ use super::multitenant::{McpRequest, McpResponse};
 use super::sampling_peer::SamplingPeer;
 use super::schema::OAuthCompletedNotification;
 use super::{
-    mcp_request_processor::McpRequestProcessor, resources::ServerResources,
+    mcp_request_processor::McpRequestProcessor, resources::ServerContext,
     transport_manager::TransportManager,
 };
 use crate::errors::{AppError, AppResult};
@@ -24,13 +24,13 @@ use tracing::{debug, error, info, warn};
 
 /// Manages server lifecycle, startup, and transport coordination
 pub struct ServerLifecycle {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl ServerLifecycle {
     /// Create a new server lifecycle manager
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 
@@ -61,7 +61,7 @@ impl ServerLifecycle {
     async fn run_http_server_with_resources(
         self,
         port: u16,
-        resources: Arc<ServerResources>,
+        resources: Arc<ServerContext>,
     ) -> AppResult<()> {
         // Delegate to the existing comprehensive HTTP server implementation
         // This ensures we don't lose any existing functionality
@@ -98,7 +98,7 @@ impl ServerLifecycle {
     /// Route an MCP request for processing
     async fn route_mcp_request(
         message: Value,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         stdout: &Arc<Mutex<Stdout>>,
         sampling_peer: &Arc<SamplingPeer>,
     ) {
@@ -119,7 +119,7 @@ impl ServerLifecycle {
     /// Process a single incoming message from stdio
     async fn process_stdio_message(
         message: Value,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         stdout: &Arc<Mutex<Stdout>>,
         sampling_peer: &Arc<SamplingPeer>,
     ) {
@@ -278,7 +278,7 @@ impl ServerLifecycle {
     /// Process MCP request and send response
     async fn process_mcp_request(
         request: McpRequest,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         stdout: &Arc<Mutex<Stdout>>,
         _sampling_peer: &Arc<SamplingPeer>,
     ) -> AppResult<()> {

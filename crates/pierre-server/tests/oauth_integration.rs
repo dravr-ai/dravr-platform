@@ -27,8 +27,7 @@ use pierre_mcp_server::{
         SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
         StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     routes::{
@@ -214,13 +213,13 @@ async fn test_oauth_authorization_url_generation() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -230,16 +229,15 @@ async fn test_oauth_authorization_url_generation() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let auth_routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     // Create admin user first
@@ -539,13 +537,13 @@ async fn test_oauth_state_validation() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -555,11 +553,10 @@ async fn test_oauth_state_validation() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let _oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     // Test valid state format
@@ -777,13 +774,13 @@ async fn test_connection_status_no_providers() {
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -793,11 +790,10 @@ async fn test_connection_status_no_providers() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
@@ -992,13 +988,13 @@ async fn test_invalid_provider_error() {
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1007,11 +1003,10 @@ async fn test_invalid_provider_error() {
         )
         .await,
     );
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1196,13 +1191,13 @@ async fn test_disconnect_provider() {
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1211,11 +1206,10 @@ async fn test_disconnect_provider() {
         )
         .await,
     );
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1246,14 +1240,7 @@ async fn test_disconnect_provider() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
     };
-    server_context
-        .data()
-        .database()
-        .repositories()
-        .users
-        .create(&user)
-        .await
-        .unwrap();
+    server_resources.repos.users.create(&user).await.unwrap();
 
     // Create tenant so disconnect_provider can resolve user's tenant
     let tenant = Tenant {
@@ -1266,10 +1253,8 @@ async fn test_disconnect_provider() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    server_context
-        .data()
-        .database()
-        .repositories()
+    server_resources
+        .repos
         .tenants
         .create(&tenant)
         .await
@@ -1548,13 +1533,13 @@ async fn test_oauth_urls_contain_required_parameters() {
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database,
             auth_manager,
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -1563,11 +1548,10 @@ async fn test_oauth_urls_contain_required_parameters() {
         )
         .await,
     );
-    let server_context = ServerContext::from(server_resources.as_ref());
     let oauth_routes = OAuthService::new(
-        server_context.data().clone(),
-        server_context.config().clone(),
-        server_context.notification().clone(),
+        server_resources.data(),
+        server_resources.config(),
+        server_resources.notification(),
     );
 
     let user_id = Uuid::new_v4();

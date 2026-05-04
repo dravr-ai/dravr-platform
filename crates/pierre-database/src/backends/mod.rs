@@ -11,10 +11,6 @@ pub mod factory;
 #[cfg(feature = "postgresql")]
 pub mod postgres;
 
-/// `PostgreSQL` social features database operations
-#[cfg(feature = "postgresql")]
-pub mod social_postgres;
-
 /// Shared database logic (enum conversions, validation, mappers, encryption, etc.)
 pub mod shared;
 

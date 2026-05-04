@@ -14,7 +14,7 @@ use crate::contremaitre::messaging_strings::{
 };
 use crate::errors::AppResult;
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::prompt_leak;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
@@ -33,7 +33,7 @@ use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{build_llm_messages, build_provider_context, build_tools_section};
 use super::refresh::inject_refresh_context;
 
-/// Return the [`messaging_strings_registry`](ServerResources::messaging_strings_registry)
+/// Return the [`messaging_strings_registry`](ServerContext::messaging_strings_registry)
 /// key that holds the scope carve-out for a given coach category, or
 /// `None` when the category does not collide with the generic scope list
 /// in `pierre_system.md`.
@@ -74,7 +74,7 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
 fn interpolate_prompt_placeholders(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     coach_ctx: Option<&CoachRuntimeContext>,
     persona: CoachingPersona,
@@ -119,7 +119,7 @@ fn interpolate_prompt_placeholders(
 /// a malformed `user_id`, or a transient repository error all collapse to
 /// the default persona so chat continues to flow. Persona is a UX
 /// preference, not a security boundary.
-async fn resolve_user_persona(resources: &Arc<ServerResources>, user_id: &str) -> CoachingPersona {
+async fn resolve_user_persona(resources: &Arc<ServerContext>, user_id: &str) -> CoachingPersona {
     let Some(user_uuid) = parse_uuid(user_id).ok() else {
         return CoachingPersona::default();
     };
@@ -158,7 +158,7 @@ async fn resolve_user_persona(resources: &Arc<ServerResources>, user_id: &str) -
     )
 )]
 pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     profile: &ChannelProfile,
     conv: &ConversationRecord,

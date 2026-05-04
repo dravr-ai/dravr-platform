@@ -24,7 +24,7 @@ use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserTier};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extractors::AuthenticatedUser;
 
 /// `GET /api/billing/subscription` view returned to the frontend.
@@ -70,7 +70,7 @@ pub struct InvoicesResponse {
 /// request body — the auth check happens in surrounding pipeline
 /// middleware; this router is registered only after the auth layer
 /// has been applied to the parent router.
-pub fn billing_routes() -> Router<Arc<ServerResources>> {
+pub fn billing_routes() -> Router<Arc<ServerContext>> {
     Router::new()
         .route("/api/billing/checkout", post(checkout))
         .route("/api/billing/portal", post(portal))
@@ -82,7 +82,7 @@ pub fn billing_routes() -> Router<Arc<ServerResources>> {
 
 /// `POST /api/billing/checkout` — create a hosted-checkout session.
 async fn checkout(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     AxumJson(req): AxumJson<CheckoutRequest>,
 ) -> AppResult<Json<CheckoutResponse>> {
     let resp = resources.billing_provider.start_checkout(&req).await?;
@@ -91,7 +91,7 @@ async fn checkout(
 
 /// `POST /api/billing/portal` — create a hosted-portal session.
 async fn portal(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     AxumJson(req): AxumJson<PortalRequest>,
 ) -> AppResult<Json<PortalResponse>> {
     let resp = resources.billing_provider.open_portal(&req).await?;
@@ -103,7 +103,7 @@ async fn portal(
 /// fabricating a free-tier shell, so the frontend can drive the upgrade
 /// flow off a clean signal.
 async fn get_subscription(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<SubscriptionView>> {
     let row = resources
@@ -134,7 +134,7 @@ async fn get_subscription(
 /// `GET /api/billing/invoices` — proxy through to the provider's invoice
 /// listing for the customer attached to the user's subscription row.
 async fn list_invoices(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<InvoicesResponse>> {
     let row = resources
@@ -161,7 +161,7 @@ async fn list_invoices(
 /// [`BillingEvent`] to the repositories. Idempotency is enforced via
 /// the `billing_events` table keyed on `(provider, event_id)`.
 async fn webhook(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(provider_slug): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -417,7 +417,7 @@ pub struct MyQuotaResponse {
 /// current quota usage and limits across the tier-keyed counters
 /// the chat write path enforces.
 async fn get_my_quota(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<MyQuotaResponse>> {
     let admin_config = resources.admin_config.as_ref().ok_or_else(|| {

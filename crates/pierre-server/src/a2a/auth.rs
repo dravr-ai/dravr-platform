@@ -11,7 +11,7 @@
 
 use crate::a2a::{client::ClientRegistrationRequest, A2AError};
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::providers::errors::ProviderError;
 pub use pierre_a2a::client_types::A2AToken;
 use pierre_auth::auth::{AuthMethod, AuthResult};
@@ -23,13 +23,13 @@ use tracing::debug;
 
 /// A2A Authenticator
 pub struct A2AAuthenticator {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl A2AAuthenticator {
     /// Creates a new A2A authenticator instance
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

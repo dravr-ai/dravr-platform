@@ -21,7 +21,7 @@ use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{AddMessageParams, ConversationTurnId, InsertLlmUsage, TenantId};
 use pierre_mcp_server::{
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     models::{Tenant, User, UserStatus},
     permissions::UserRole,
     routes::WebAdminRoutes,
@@ -32,13 +32,13 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 /// Build a `WebAdminRoutes` router backed by the given server resources
-fn build_admin_analytics_router(resources: Arc<ServerResources>) -> axum::Router {
+fn build_admin_analytics_router(resources: Arc<ServerContext>) -> axum::Router {
     WebAdminRoutes::routes(resources)
 }
 
 /// Create an admin user from scratch with `is_admin` set before insertion
 async fn create_admin_user_and_token(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     email: &str,
 ) -> (Uuid, String) {
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
@@ -82,7 +82,7 @@ async fn create_admin_user_and_token(
 }
 
 /// Create a regular (non-admin) user from scratch, returning the Bearer token
-async fn create_regular_user_and_token(resources: &Arc<ServerResources>, email: &str) -> String {
+async fn create_regular_user_and_token(resources: &Arc<ServerContext>, email: &str) -> String {
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
 
     let mut user = User::new(
@@ -123,7 +123,7 @@ async fn create_regular_user_and_token(resources: &Arc<ServerResources>, email: 
 
 /// Seed LLM usage records into the database and return the count inserted
 async fn seed_llm_usage(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: &str,
     user_id: &str,
     count: usize,
@@ -165,7 +165,7 @@ async fn seed_llm_usage(
 
 /// Seed chat conversations and messages, returning counts of each
 async fn seed_conversations_and_messages(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: &str,
     tenant_id: TenantId,
     conversation_count: usize,

@@ -14,7 +14,7 @@ use crate::{
         ConfigurationRoutes as ConfigService, UpdateConfigurationRequest,
     },
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
 };
 use axum::{
     extract::State,
@@ -31,7 +31,7 @@ pub struct ConfigurationRoutes;
 
 impl ConfigurationRoutes {
     /// Create all configuration management routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/config", get(Self::handle_get_config))
             .route("/config", put(Self::handle_update_config))
@@ -43,7 +43,7 @@ impl ConfigurationRoutes {
     /// Extract and authenticate user from authorization header
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         let auth_header = headers
             .get("authorization")
@@ -59,7 +59,7 @@ impl ConfigurationRoutes {
 
     /// Handle get configuration
     async fn handle_get_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -75,7 +75,7 @@ impl ConfigurationRoutes {
 
     /// Handle update configuration
     async fn handle_update_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<UpdateConfigurationRequest>,
     ) -> Result<Response, AppError> {
@@ -92,7 +92,7 @@ impl ConfigurationRoutes {
 
     /// Handle get user-specific configuration
     async fn handle_get_user_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -108,7 +108,7 @@ impl ConfigurationRoutes {
 
     /// Handle update user-specific configuration
     async fn handle_update_user_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<UpdateConfigurationRequest>,
     ) -> Result<Response, AppError> {

@@ -19,9 +19,8 @@ use tracing::{error, field::Empty, info, warn, Span};
 use crate::{
     admin::AdminAuthService,
     constants::error_messages,
-    context::ServerContext,
     errors::{AppError, ErrorCode},
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
     models::{CoachingPersona, UserStatus},
     utils::auth::extract_bearer_token_owned,
@@ -55,7 +54,7 @@ pub use crate::services::auth::AuthService;
     fields(route = "admin_register", user_id = Empty, success = Empty)
 )]
 pub(super) async fn handle_register(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<RegisterRequest>,
 ) -> Result<Response, AppError> {
@@ -90,12 +89,7 @@ pub(super) async fn handle_register(
 
     info!("Admin-authenticated user registration attempt");
 
-    let server_context = ServerContext::from(resources.as_ref());
-    let auth_service = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
-    );
+    let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
@@ -116,7 +110,7 @@ pub(super) async fn handle_register(
 /// registration time. Never fails the parent request — missing Resend config
 /// or transient delivery errors are logged as warnings only.
 async fn send_post_registration_email(
-    resources: &ServerResources,
+    resources: &ServerContext,
     email: &str,
     response: &super::types::RegisterResponse,
 ) {
@@ -159,17 +153,12 @@ async fn send_post_registration_email(
     fields(route = "public_register", user_id = Empty, success = Empty)
 )]
 pub(super) async fn handle_public_register(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Json(request): Json<RegisterRequest>,
 ) -> Result<Response, AppError> {
     info!("Public self-registration attempt");
 
-    let server_context = ServerContext::from(resources.as_ref());
-    let auth_service = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
-    );
+    let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
@@ -191,7 +180,7 @@ pub(super) async fn handle_public_register(
     fields(route = "firebase_login", user_id = Empty, auth_provider = Empty, success = Empty)
 )]
 pub(super) async fn handle_firebase_login(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Json(request): Json<FirebaseLoginRequest>,
 ) -> Result<Response, AppError> {
     // Check if Firebase is configured
@@ -199,12 +188,7 @@ pub(super) async fn handle_firebase_login(
         AppError::invalid_input("Firebase authentication is not configured on this server")
     })?;
 
-    let server_context = ServerContext::from(resources.as_ref());
-    let auth_service = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
-    );
+    let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());
 
     match auth_service
         .login_with_firebase(request, firebase_auth)
@@ -254,15 +238,10 @@ pub(super) async fn handle_firebase_login(
     fields(route = "token_refresh", user_id = %request.user_id, success = Empty)
 )]
 pub(super) async fn handle_refresh(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Json(request): Json<RefreshTokenRequest>,
 ) -> Result<Response, AppError> {
-    let server_context = ServerContext::from(resources.as_ref());
-    let auth_service = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
-    );
+    let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());
 
     match auth_service.refresh_token(request).await {
         Ok(mut response) => {
@@ -330,7 +309,7 @@ pub(super) async fn handle_logout() -> Result<Response, AppError> {
     fields(route = "session", user_id = Empty, success = Empty)
 )]
 pub(super) async fn handle_session(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     // Authenticate using cookie or Authorization header
@@ -384,15 +363,9 @@ pub(super) async fn handle_session(
     analytics().identify(&hashed_user_id, identify_props);
 
     // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
-    let server_context = ServerContext::from(resources.as_ref());
-    let jwt_token = server_context
-        .auth()
-        .auth_manager()
-        .generate_token_with_tenant(
-            &user,
-            server_context.auth().jwks_manager(),
-            active_tenant_id,
-        )
+    let jwt_token = resources
+        .auth_manager
+        .generate_token_with_tenant(&user, &resources.jwks_manager, active_tenant_id)
         .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
 
     // Generate fresh CSRF token (stateless HMAC — no server storage)
@@ -440,7 +413,7 @@ pub(super) async fn handle_session(
     fields(route = "update_profile", success = Empty)
 )]
 pub(super) async fn handle_update_profile(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<UpdateProfileRequest>,
 ) -> Result<Response, AppError> {
@@ -499,7 +472,7 @@ pub(super) async fn handle_update_profile(
     fields(route = "change_password", success = Empty)
 )]
 pub(super) async fn handle_change_password(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<Response, AppError> {
@@ -562,7 +535,7 @@ pub(super) async fn handle_change_password(
 /// chosen new password. The token is consumed atomically to prevent replay.
 #[tracing::instrument(skip(resources, request), fields(route = "complete_reset"))]
 pub(super) async fn handle_complete_reset(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Json(request): Json<CompleteResetRequest>,
 ) -> Result<Response, AppError> {
     use sha2::{Digest, Sha256};
@@ -625,7 +598,7 @@ pub(super) async fn handle_complete_reset(
 /// the email exists, to prevent account enumeration attacks.
 #[tracing::instrument(skip(resources, request), fields(route = "forgot_password"))]
 pub(super) async fn handle_forgot_password(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Json(request): Json<super::types::ForgotPasswordRequest>,
 ) -> Result<Response, AppError> {
     use crate::constants::password_reset;
@@ -728,7 +701,7 @@ pub(super) async fn handle_forgot_password(
     fields(route = "user_stats", user_id = Empty)
 )]
 pub(super) async fn handle_user_stats(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     // Authenticate and get user ID
@@ -785,7 +758,7 @@ pub(super) async fn handle_user_stats(
     )
 )]
 pub(super) async fn handle_oauth2_token(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Form(request): Form<OAuth2TokenRequest>,
 ) -> Result<Response, AppError> {
     // Validate grant_type
@@ -806,12 +779,7 @@ pub(super) async fn handle_oauth2_token(
         password: request.password,
     };
 
-    let server_context = ServerContext::from(resources.as_ref());
-    let auth_service = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
-    );
+    let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());
 
     match auth_service.login(login_request).await {
         Ok(response) => {
@@ -890,7 +858,7 @@ pub(super) async fn handle_oauth2_token(
 /// Updates the user's analytics consent preference and records the timestamp.
 /// Also updates the in-memory consent cache used by the analytics tracker.
 pub(super) async fn handle_analytics_consent(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<AnalyticsConsentRequest>,
 ) -> Result<Response, AppError> {
@@ -935,7 +903,7 @@ const SUPPORTED_LOCALES: &[&str] = &["fr", "en", "es", "de", "pt"];
 /// the value against the compiled-in set so downstream registry lookups
 /// always match an actual translation.
 pub(super) async fn handle_update_locale(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<UpdateLocaleRequest>,
 ) -> Result<Response, AppError> {
@@ -974,7 +942,7 @@ pub(super) async fn handle_update_locale(
 /// the canonical error rather than silently writing a value that won't
 /// resolve to a persona block at chat time.
 pub(super) async fn handle_update_coaching_persona(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Json(request): Json<UpdateCoachingPersonaRequest>,
 ) -> Result<Response, AppError> {

@@ -23,7 +23,7 @@ use axum::{
     Router,
 };
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::memory_facts::{forget_fact_handler, get_facts_handler};
 
 /// User-facing harness memory routes.
@@ -31,7 +31,7 @@ pub struct MemoryRoutes;
 
 impl MemoryRoutes {
     /// Mount the `/api/memory/facts` endpoints onto a fresh router.
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/memory/facts", get(get_facts_handler))
             .route("/api/memory/facts/{fact_id}", delete(forget_fact_handler))

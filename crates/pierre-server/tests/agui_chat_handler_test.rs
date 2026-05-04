@@ -12,7 +12,7 @@ mod common;
 use futures_util::StreamExt;
 use pierre_mcp_server::agui::events::AgUiEventKind;
 use pierre_mcp_server::agui::{AgUiEvent, AgUiRoutes, RunOwner};
-use pierre_mcp_server::mcp::resources::ServerResources;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, StatusCode};
@@ -87,7 +87,7 @@ fn force_dispatch_failure_via_env() -> EnvGuard {
     ])
 }
 
-async fn spawn_server() -> (Arc<ServerResources>, String) {
+async fn spawn_server() -> (Arc<ServerContext>, String) {
     let resources = common::create_test_server_resources()
         .await
         .expect("server resources");

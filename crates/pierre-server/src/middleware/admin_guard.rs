@@ -29,7 +29,7 @@
 
 use crate::admin::models::{AdminPermissions, ValidatedAdminToken};
 use crate::errors::{AppError, ErrorCode};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extractors::extract_auth_from_headers;
 use axum::body::Body;
 use axum::extract::State;
@@ -106,7 +106,7 @@ pub async fn require_admin(
 /// - The looked-up user is not present
 /// - The user's role is not `admin` or `super_admin`
 pub async fn cookie_admin_middleware(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     mut request: Request<Body>,
     next: Next,

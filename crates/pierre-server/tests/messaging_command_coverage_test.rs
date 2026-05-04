@@ -30,7 +30,7 @@ mod coverage {
         UpsertChannelConfigParams,
     };
     use pierre_mcp_server::commands::load_command_definitions;
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use std::path::PathBuf;
@@ -74,7 +74,7 @@ mod coverage {
     }
 
     async fn create_test_user_with_tenant(
-        resources: &ServerResources,
+        resources: &ServerContext,
         email: &str,
     ) -> (Uuid, TenantId) {
         let password_hash =
@@ -187,7 +187,7 @@ mod coverage {
     }
 
     async fn create_link_and_session(
-        resources: &ServerResources,
+        resources: &ServerContext,
         tenant_id: TenantId,
         user_id: Uuid,
         channel: TestChannel,

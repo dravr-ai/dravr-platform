@@ -20,7 +20,7 @@ use pierre_mcp_server::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{Tenant, User, UserOAuthToken},
     protocols::universal::{UniversalRequest, UniversalToolExecutor},
 };
@@ -178,17 +178,17 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     ));
 
     let config = create_test_config();
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -232,17 +232,17 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
 
     // Create config without OAuth credentials
     let config = create_test_config_no_oauth();
-    // Create ServerResources for the test
+    // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             (*database).clone(),
             auth_manager,
             "test_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

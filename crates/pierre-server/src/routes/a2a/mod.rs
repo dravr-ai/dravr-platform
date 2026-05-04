@@ -15,7 +15,7 @@ pub mod service;
 use crate::{
     a2a::{agent_card::AgentCard, client::ClientRegistrationRequest},
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
 };
 use axum::{
@@ -105,7 +105,7 @@ impl A2ARoutes {
     /// - /a2a/dashboard/overview - Dashboard overview for A2A clients
     /// - /a2a/dashboard/analytics - Usage analytics for A2A clients
     /// - /.well-known/agent-card.json - Agent card discovery
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             // Public routes (no auth required)
             .route("/a2a/status", get(Self::handle_status))
@@ -146,7 +146,7 @@ impl A2ARoutes {
     /// Extract and authenticate user from authorization header or cookie
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -162,7 +162,7 @@ impl A2ARoutes {
 
     /// Handle agent card discovery endpoint (public endpoint)
     async fn handle_agent_card_discovery(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
     ) -> Json<AgentCard> {
         // Yield to scheduler for cooperative multitasking
         task::yield_now().await;
@@ -171,7 +171,7 @@ impl A2ARoutes {
 
     /// List all A2A clients for authenticated user
     async fn handle_list_clients(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -201,7 +201,7 @@ impl A2ARoutes {
 
     /// Create a new A2A client
     async fn handle_create_client(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<CreateA2AClientRequest>,
     ) -> Result<Response, AppError> {
@@ -251,7 +251,7 @@ impl A2ARoutes {
 
     /// Get a specific A2A client
     async fn handle_get_client(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -289,7 +289,7 @@ impl A2ARoutes {
 
     /// Delete (deactivate) an A2A client
     async fn handle_delete_client(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -323,7 +323,7 @@ impl A2ARoutes {
 
     /// Get A2A client usage statistics
     async fn handle_client_usage(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -364,7 +364,7 @@ impl A2ARoutes {
 
     /// Get A2A client rate limit status
     async fn handle_client_rate_limit(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -409,7 +409,7 @@ impl A2ARoutes {
 
     /// Handle A2A dashboard overview
     async fn handle_dashboard_overview(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -433,7 +433,7 @@ impl A2ARoutes {
 
     /// Handle A2A dashboard analytics
     async fn handle_dashboard_analytics(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         Self::authenticate(&headers, &resources).await?;

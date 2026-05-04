@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::UserStatus;
 use crate::services::messaging_ingress::resolve_messaging_locale;
 use crate::services::tenant_admin as tenant_admin_service;
@@ -40,7 +40,7 @@ const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
 /// 3. Slack user -> Pierre user mapping
 pub async fn handle_slack_action(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     body: &Bytes,
 ) -> AppResult<(StatusCode, Json<Value>)> {
     // Parse the Slack interactive payload (form-encoded with `payload` key)
@@ -174,7 +174,7 @@ pub fn verify_slack_signature(
 /// Resolves the Slack user to a Pierre user, executes the command, and
 /// sends the response back to the Slack channel via the Bot Token.
 async fn handle_command_postback(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     action: &SlackAction,
     command_text: &str,
 ) -> AppResult<(StatusCode, Json<Value>)> {
@@ -425,7 +425,7 @@ async fn resolve_slack_user_email(bot_token: &str, slack_user_id: &str) -> AppRe
 
 /// Approve a user: set status to Active and create tenant if needed
 async fn approve_user(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_uuid: Uuid,
     approved_by: &str,
 ) -> AppResult<String> {
@@ -483,7 +483,7 @@ async fn approve_user(
 
 /// Reject (suspend) a user
 async fn reject_user(
-    resources: &ServerResources,
+    resources: &ServerContext,
     user_uuid: Uuid,
     rejected_by: &str,
 ) -> AppResult<String> {

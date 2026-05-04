@@ -42,7 +42,7 @@ pub type HandlerFn = for<'a> fn(
 /// `UniversalExecutor` handler.
 ///
 /// Builds a [`UniversalRequest`] from the tool-execution context, spins up a
-/// lightweight `UniversalExecutor` from the shared [`ServerResources`],
+/// lightweight `UniversalExecutor` from the shared [`ServerContext`],
 /// invokes the handler, and converts the [`UniversalResponse`] back into a
 /// [`ToolResult`]. The tool name is threaded through solely for logging and
 /// error-message attribution.

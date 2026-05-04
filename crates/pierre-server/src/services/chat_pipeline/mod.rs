@@ -93,7 +93,7 @@ async fn emit_step_finished(hooks: &PipelineHooks<'_>, step: &str) {
 /// inflating the cognitive complexity of [`run_turn`].
 async fn assemble_prompt_stage(
     hooks: &PipelineHooks<'_>,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     profile: &ChannelProfile,
     conv: &ConversationRecord,
@@ -117,7 +117,7 @@ struct DispatchStageArgs<'a> {
     /// Pipeline hooks, including the optional AG-UI sink.
     hooks: &'a PipelineHooks<'a>,
     /// Shared server resources.
-    resources: &'a Arc<ServerResources>,
+    resources: &'a Arc<ServerContext>,
     /// Turn input (user message + identifiers).
     input: &'a TurnInput,
     /// Per-channel profile.
@@ -168,7 +168,7 @@ async fn dispatch_stage(
 /// inline original.
 #[allow(clippy::too_many_arguments)]
 async fn run_recovery_and_post_process(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     profile: &ChannelProfile,
     conv: &ConversationRecord,
@@ -209,7 +209,7 @@ async fn run_recovery_and_post_process(
 use crate::config::LlmProviderType;
 use crate::errors::AppResult;
 use crate::llm::ChatMessage;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use crate::services::prompt_leak;
 use crate::services::tool_execution::{self as chat_tool_loop};
@@ -370,7 +370,7 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
     )
 )]
 pub async fn run(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: TurnInput,
     profile: &ChannelProfile,
     hooks: &PipelineHooks<'_>,
@@ -416,7 +416,7 @@ pub async fn run(
 /// `RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR` around the full turn
 /// without branching inside the linear stage sequence.
 async fn run_turn(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: TurnInput,
     profile: &ChannelProfile,
     hooks: &PipelineHooks<'_>,
@@ -635,7 +635,7 @@ fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model
 /// (clamped to [`MAX_ADMIN_CONFIG_TOOL_ITERATIONS`]) → compiled-in default.
 async fn resolve_max_iterations(
     policy: MaxIterations,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     coach_ctx: Option<&CoachRuntimeContext>,
 ) -> usize {
     if let MaxIterations::Fixed(n) = policy {

@@ -27,7 +27,7 @@ use tracing::{debug, info, warn};
 
 type SlackWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 
 /// Start the Slack Socket Mode background service.
@@ -41,7 +41,7 @@ use crate::services::messaging_ingress;
 /// `routes::messaging::webhooks::enrich_slack_bot_allow_list` for the
 /// parallel webhook-side knob. When the token is absent, this function is a
 /// no-op, and the webhook path keeps working unchanged.
-pub fn start_slack_socket_mode(resources: &Arc<ServerResources>) {
+pub fn start_slack_socket_mode(resources: &Arc<ServerContext>) {
     let app_token = match env::var("SLACK_APP_TOKEN") {
         Ok(t) if !t.is_empty() => t,
         _ => {
@@ -318,7 +318,7 @@ pub async fn parse_socket_payload(
 /// Consumer task: drains the mpsc and routes each message through the same
 /// persist + dispatch path the webhook handler uses.
 async fn process_socket_messages(
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     mut rx: mpsc::Receiver<IncomingMessage>,
 ) {
     while let Some(message) = rx.recv().await {
@@ -342,7 +342,7 @@ async fn process_socket_messages(
 /// We still pull the `tenant_id` from the row so the ingress layer can scope
 /// tenant-owned conversation state.
 async fn resolve_slack_config(
-    resources: &ServerResources,
+    resources: &ServerContext,
 ) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type("slack").await.ok()?;
@@ -362,7 +362,7 @@ async fn resolve_slack_config(
 /// the webhook handler so socket-mode and webhook ingress produce identical
 /// downstream behaviour.
 async fn dispatch_message(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     adapter: Arc<dyn MessagingChannel>,
     message: IncomingMessage,

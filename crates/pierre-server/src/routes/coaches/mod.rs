@@ -16,7 +16,7 @@ mod user;
 mod versions;
 
 use crate::{
-    errors::AppError, mcp::resources::ServerResources, middleware::extract_auth_from_headers,
+    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
     models::TenantId,
 };
 use axum::{
@@ -41,7 +41,7 @@ pub struct CoachesRoutes;
 
 impl CoachesRoutes {
     /// Create all coaches routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/coaches", get(user::handle_list))
             .route("/api/coaches", post(user::handle_create))
@@ -90,7 +90,7 @@ impl CoachesRoutes {
     }
 
     /// Create admin routes for system coaches management
-    pub fn admin_routes(resources: Arc<ServerResources>) -> Router {
+    pub fn admin_routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/coaches", get(admin::handle_admin_list))
             .route("/coaches", post(admin::handle_admin_create))
@@ -131,7 +131,7 @@ impl CoachesRoutes {
 /// Extract and authenticate user from authorization header or cookie
 pub(super) async fn authenticate(
     headers: &HeaderMap,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<AuthResult, AppError> {
     extract_auth_from_headers(headers, resources).await
 }
@@ -147,12 +147,12 @@ pub(super) fn get_user_tenant(auth: &AuthResult) -> Result<TenantId, AppError> {
 }
 
 /// Get coaches repository from server resources
-pub(super) fn get_coaches_manager(resources: &Arc<ServerResources>) -> &dyn CoachesRepository {
+pub(super) fn get_coaches_manager(resources: &Arc<ServerContext>) -> &dyn CoachesRepository {
     resources.coaches_manager()
 }
 
 /// Get store listings repository from server resources
-pub(super) fn get_store_manager(resources: &Arc<ServerResources>) -> &dyn StoreListingsRepository {
+pub(super) fn get_store_manager(resources: &Arc<ServerContext>) -> &dyn StoreListingsRepository {
     resources.store_listings_repository()
 }
 

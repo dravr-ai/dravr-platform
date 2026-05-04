@@ -24,7 +24,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::intelligence::TrainingLoadCalculator;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::protocols::universal::AuthService;
 
 /// Number of days of activity history to fetch for training load calculation.
@@ -306,7 +306,7 @@ impl ActivityMergeStrategy for AllProvidersMerge {
 /// Errors are handled per-user: a failed provider connection or activity fetch
 /// does not prevent other members' snapshots from being returned.
 pub async fn fetch_member_snapshots(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_ids: &[Uuid],
     tenant_id: TenantId,
 ) -> Vec<MemberFitnessSnapshot> {
@@ -330,7 +330,7 @@ pub async fn fetch_member_snapshots(
 ///
 /// Returns the user's display name if set, email prefix if not, or "Unknown"
 /// if the user cannot be fetched.
-async fn fetch_user_display_name(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
+async fn fetch_user_display_name(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
     match resources.repos.users.get_global(user_id).await {
         Ok(Some(user)) => user
             .display_name
@@ -399,7 +399,7 @@ fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, 
 ///
 /// Returns provider names in connection order, or empty vec if none connected.
 async fn get_connected_providers(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<String> {
@@ -456,7 +456,7 @@ async fn try_fetch_from_provider(
 /// which removes the order-dependent ambiguity that previously caused
 /// cross-tenant reads for members belonging to multiple tenants.
 async fn resolve_member_tenant(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     fallback: TenantId,
 ) -> TenantId {
@@ -512,7 +512,7 @@ fn log_member_tenant_resolution(user_id: Uuid, resolved: TenantId, fallback: Ten
 /// their recent activities. Returns a snapshot with `None` metrics
 /// if no provider is connected or if the fetch fails.
 async fn fetch_single_member_snapshot(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     fallback_tenant_id: TenantId,
 ) -> MemberFitnessSnapshot {
@@ -534,7 +534,7 @@ async fn fetch_single_member_snapshot(
 /// Fetches from ALL providers, merges, and deduplicates to produce a complete
 /// activity list for training load computation.
 async fn fetch_member_activities(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<Activity> {

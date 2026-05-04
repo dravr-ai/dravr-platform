@@ -18,7 +18,7 @@ use std::sync::Arc;
 use pierre_database::database::MessageRecord;
 
 use crate::llm::{ChatMessage, ChatProvider};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::conversation_compaction::{
     CompactionConfig, CompactionContext, CompactionOutcome, ConversationCompactor,
@@ -27,7 +27,7 @@ use crate::services::conversation_compaction::{
 /// Run conversation compaction in place. Failures log and continue — a
 /// failed compaction never blocks a turn.
 pub async fn apply_tier1_compaction(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     provider: &ChatProvider,
     tenant_id: TenantId,
     conversation_id: &str,

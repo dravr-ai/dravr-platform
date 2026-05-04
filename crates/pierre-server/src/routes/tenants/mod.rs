@@ -16,7 +16,7 @@
 /// Service layer for multi-tenant management operations
 pub mod service;
 
-use crate::{errors::AppError, mcp::resources::ServerResources, models::TenantId};
+use crate::{errors::AppError, mcp::resources::ServerContext, models::TenantId};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -80,7 +80,7 @@ pub struct TenantRoutes;
 
 impl TenantRoutes {
     /// Create all tenant management routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/tenants", post(Self::handle_create_tenant))
             .route("/tenants", get(Self::handle_list_tenants))
@@ -92,7 +92,7 @@ impl TenantRoutes {
     /// Extract and authenticate user from authorization header
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         let auth_header = headers
             .get("authorization")
@@ -108,7 +108,7 @@ impl TenantRoutes {
 
     /// Handle tenant creation
     async fn handle_create_tenant(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<service::CreateTenantRequest>,
     ) -> Result<Response, AppError> {
@@ -121,7 +121,7 @@ impl TenantRoutes {
 
     /// Handle listing tenants
     async fn handle_list_tenants(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -136,7 +136,7 @@ impl TenantRoutes {
     /// Validates that the user belongs to the target tenant, then returns a new JWT
     /// with the `active_tenant_id` claim set to the specified tenant.
     async fn handle_switch_tenant(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<SwitchTenantRequest>,
     ) -> Result<Response, AppError> {
@@ -218,7 +218,7 @@ impl TenantRoutes {
     /// Returns a list of all tenants the user is a member of, along with their role
     /// in each tenant and which one is currently active.
     async fn handle_list_my_tenants(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -272,7 +272,7 @@ impl TenantRoutes {
     /// Extract active tenant ID from Authorization header JWT claims
     fn extract_active_tenant_from_header(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Option<TenantId> {
         let auth_header = headers.get("authorization")?.to_str().ok()?;
         let token = auth_header.strip_prefix("Bearer ")?;

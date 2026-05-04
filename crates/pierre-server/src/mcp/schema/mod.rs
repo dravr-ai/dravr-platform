@@ -778,7 +778,7 @@ pub struct Root {
 ///
 /// Creates a fresh `ToolRegistry` with all built-in tools and returns their schemas.
 /// This is used by tests and standalone endpoints. Production code should use the
-/// shared `ToolRegistry` from `ServerResources` instead.
+/// shared `ToolRegistry` from `ServerContext` instead.
 #[must_use]
 pub fn get_tools() -> Vec<ToolSchema> {
     use crate::tools::registry::ToolRegistry;

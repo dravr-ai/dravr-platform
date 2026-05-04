@@ -46,6 +46,8 @@ pub mod security;
 pub mod seeder;
 /// Social insight repository implementation
 pub mod social;
+/// Social features repository (friend connections, shared insights, reactions)
+pub mod social_features;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)

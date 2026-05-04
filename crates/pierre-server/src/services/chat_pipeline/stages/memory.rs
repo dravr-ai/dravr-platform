@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::memory_recall::{build_user_memory_context, RecallRequest};
 
@@ -28,7 +28,7 @@ use crate::services::memory_recall::{build_user_memory_context, RecallRequest};
 /// memories both pass through silently — recall is a best-effort
 /// enhancement, not a hard dependency of the dispatch path.
 pub async fn inject_memory_recall(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     user_id: &str,
     coach_id: Option<&str>,

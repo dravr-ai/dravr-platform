@@ -14,7 +14,7 @@ use crate::{
         FitnessConfigurationRoutes as FitnessService, SaveFitnessConfigRequest,
     },
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
 };
 use axum::{
     extract::{Query, State},
@@ -45,7 +45,7 @@ pub struct FitnessConfigurationRoutes;
 
 impl FitnessConfigurationRoutes {
     /// Create all fitness configuration routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/fitness/config", get(Self::handle_get_config))
             .route("/fitness/config", put(Self::handle_save_config))
@@ -56,7 +56,7 @@ impl FitnessConfigurationRoutes {
     /// Extract and authenticate user from authorization header
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         let auth_header = headers
             .get("authorization")
@@ -72,7 +72,7 @@ impl FitnessConfigurationRoutes {
 
     /// Handle get fitness configuration
     async fn handle_get_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<ConfigurationQuery>,
     ) -> Result<Response, AppError> {
@@ -88,7 +88,7 @@ impl FitnessConfigurationRoutes {
 
     /// Handle save fitness configuration
     async fn handle_save_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Json(request): Json<SaveFitnessConfigRequest>,
     ) -> Result<Response, AppError> {
@@ -102,7 +102,7 @@ impl FitnessConfigurationRoutes {
 
     /// Handle delete fitness configuration
     async fn handle_delete_config(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(params): Query<ConfigurationQuery>,
     ) -> Result<Response, AppError> {

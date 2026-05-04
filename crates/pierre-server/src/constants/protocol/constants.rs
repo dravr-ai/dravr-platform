@@ -1,10 +1,14 @@
-// ABOUTME: MCP protocol constants including version, JSON-RPC, and server identification
-// ABOUTME: Provides environment-configurable protocol values with sensible defaults
+// ABOUTME: Server-side runtime-configurable MCP protocol values (server name, MCP version)
+// ABOUTME: Pure compile-time protocol constants live in pierre_core::constants::protocol
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Protocol constants for MCP and JSON-RPC
+//! Runtime-configurable protocol values for MCP.
+//!
+//! Pure compile-time constants (`JSONRPC_VERSION`, etc.) live in
+//! `pierre_core::constants::protocol::constants` and are re-exported
+//! via the parent module's `pub use pierre_core::constants::protocol::*`.
 
 use crate::constants::get_server_config;
 
@@ -16,9 +20,6 @@ pub fn mcp_protocol_version() -> String {
         |c| c.mcp.protocol_version.clone(),
     )
 }
-
-/// JSON-RPC version (standard, not configurable)
-pub const JSONRPC_VERSION: &str = "2.0";
 
 /// Get server name from environment or default
 #[must_use]
@@ -37,6 +38,3 @@ pub fn server_name_multitenant() -> String {
         |c| c.mcp.server_name.clone(),
     )
 }
-
-/// Server version from Cargo.toml
-pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");

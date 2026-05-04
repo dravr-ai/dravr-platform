@@ -25,8 +25,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    context::ServerContext,
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     routes::{auth::AuthService, RegisterRequest},
 };
 use std::{ptr, sync::Arc};
@@ -98,7 +97,7 @@ async fn test_register_user() {
         .unwrap();
     let auth_manager = AuthManager::new(24);
 
-    // Create ServerResources for auth routes
+    // Create ServerContext for auth routes
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
@@ -227,13 +226,13 @@ async fn test_register_user() {
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -243,11 +242,10 @@ async fn test_register_user() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     let request = RegisterRequest {
@@ -287,7 +285,7 @@ async fn test_register_duplicate_user() {
         .unwrap();
     let auth_manager = AuthManager::new(24);
 
-    // Create ServerResources for auth routes
+    // Create ServerContext for auth routes
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
@@ -416,13 +414,13 @@ async fn test_register_duplicate_user() {
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
             config,
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
@@ -432,11 +430,10 @@ async fn test_register_duplicate_user() {
         .await,
     );
 
-    let server_context = ServerContext::from(server_resources.as_ref());
     let routes = AuthService::new(
-        server_context.auth().clone(),
-        server_context.config().clone(),
-        server_context.data().clone(),
+        server_resources.auth(),
+        server_resources.config(),
+        server_resources.data(),
     );
 
     let request = RegisterRequest {

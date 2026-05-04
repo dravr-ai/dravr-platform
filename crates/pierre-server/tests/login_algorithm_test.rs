@@ -27,7 +27,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     models::{User, UserStatus},
     routes::auth::AuthRoutes,
 };
@@ -37,7 +37,7 @@ use tokio::time::sleep;
 
 /// Test setup helper for login algorithm testing
 struct LoginAlgorithmTestSetup {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     database: Arc<Database>,
 }
 
@@ -74,13 +74,13 @@ impl LoginAlgorithmTestSetup {
         });
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,

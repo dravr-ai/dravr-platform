@@ -23,7 +23,7 @@ use crate::config::text_guardrails::{GuardrailOutcome, GuardrailRejection, TextG
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
 };
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 
 /// Apply the safe-default text guardrails to an assistant reply.
 ///
@@ -32,7 +32,7 @@ use crate::mcp::resources::ServerResources;
 /// reject the response. `locale` is the BCP-47 short code resolved upstream;
 /// `None` triggers the registry's `DEFAULT_LOCALE` fallback.
 pub fn apply_text_guardrails(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     reply: &str,
     locale: Option<&str>,
 ) -> String {

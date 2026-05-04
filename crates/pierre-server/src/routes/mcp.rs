@@ -23,7 +23,7 @@ use crate::{
     constants::mcp_transport::MAX_REQUEST_BODY_BYTES,
     mcp::{
         multitenant::{McpRequest, MultiTenantMcpServer},
-        resources::ServerResources,
+        resources::ServerContext,
         tenant_isolation::validate_jwt_token_for_mcp,
     },
     middleware::redact_session_id,
@@ -48,7 +48,7 @@ struct McpRequestHeaders {
 /// MCP routes state
 #[derive(Clone)]
 pub struct McpRoutesState {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     sessions: Arc<Mutex<LruCache<String, SessionData>>>,
 }
 
@@ -57,7 +57,7 @@ pub struct McpRoutes;
 
 impl McpRoutes {
     /// Create all MCP routes with server resources
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
+    pub fn routes(resources: Arc<ServerContext>) -> Router {
         use axum::routing::{get, post};
 
         // Create session cache with capacity for 1000 sessions

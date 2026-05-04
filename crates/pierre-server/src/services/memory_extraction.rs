@@ -28,7 +28,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::llm::ChatProvider;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::chat_provider_factory::create_chat_provider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -281,7 +281,7 @@ pub struct SpawnedExtractionRequest {
 /// — extraction is best-effort and never blocks a turn. This is the
 /// canonical entry point used by the messaging dispatch path after a turn
 /// has been persisted.
-pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtractionRequest) {
+pub fn spawn_extract_for_turn(resources: Arc<ServerContext>, req: SpawnedExtractionRequest) {
     let permits = Arc::clone(&EXTRACTION_PERMITS);
     tokio::spawn(async move {
         // Bounded concurrency: drop the task silently if the semaphore has been

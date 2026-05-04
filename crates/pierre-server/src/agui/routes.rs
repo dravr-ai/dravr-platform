@@ -52,7 +52,7 @@
 
 use super::registry::{AuthorizedSubscribe, RunOwner, RunRegistry, RunSubscription};
 use crate::errors::{AppError, ErrorCode};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::utils::auth::extract_bearer_token_owned as extract_token;
 use axum::{
@@ -74,11 +74,11 @@ impl AgUiRoutes {
     /// Build the AG-UI router.
     ///
     /// The returned router expects the [`RunRegistry`] plus
-    /// [`ServerResources`] in its state so the chat pipeline and the
+    /// [`ServerContext`] in its state so the chat pipeline and the
     /// SSE subscribers share the same broadcast channels, and the
     /// handler can authenticate Bearer tokens via
     /// `resources.auth_middleware`.
-    pub fn routes(registry: RunRegistry, resources: Arc<ServerResources>) -> Router {
+    pub fn routes(registry: RunRegistry, resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/api/agui/runs/{run_id}/stream",
@@ -104,7 +104,7 @@ impl AgUiRoutes {
     async fn handle_run_stream(
         Path(run_id): Path<String>,
         headers: HeaderMap,
-        State((registry, resources)): State<(RunRegistry, Arc<ServerResources>)>,
+        State((registry, resources)): State<(RunRegistry, Arc<ServerContext>)>,
     ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
         let caller = authenticate_caller(&headers, &resources).await?;
         let subscription = match registry.authorize_and_subscribe(&run_id, caller) {
@@ -225,7 +225,7 @@ fn build_event_stream(
 /// validation by `auth_middleware`.
 async fn authenticate_caller(
     headers: &HeaderMap,
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
 ) -> Result<RunOwner, AppError> {
     let auth_header = headers
         .get("authorization")

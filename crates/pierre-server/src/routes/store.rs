@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    mcp::resources::ServerResources,
+    mcp::resources::ServerContext,
     middleware::extract_auth_from_headers,
     models::TenantId,
     pagination::StoreSortOrder,
@@ -198,7 +198,7 @@ impl StoreRoutes {
     /// - `POST /api/store/coaches/{id}/install` - Install a coach (ASY-163)
     /// - `DELETE /api/store/coaches/{id}/install` - Uninstall a coach (ASY-163)
     /// - `GET /api/store/installations` - List user's installed coaches (ASY-163)
-    pub fn router(resources: &ServerResources) -> Router {
+    pub fn router(resources: &ServerContext) -> Router {
         Router::new()
             .route("/api/store/health", get(store_health))
             .route("/api/store/coaches", get(Self::handle_browse))
@@ -219,7 +219,7 @@ impl StoreRoutes {
     /// Extract and authenticate user from authorization header or cookie
     async fn authenticate(
         headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
     ) -> Result<AuthResult, AppError> {
         extract_auth_from_headers(headers, resources).await
     }
@@ -235,7 +235,7 @@ impl StoreRoutes {
     }
 
     /// Get store listings repository from server resources
-    fn get_store_manager(resources: &Arc<ServerResources>) -> &dyn StoreListingsRepository {
+    fn get_store_manager(resources: &Arc<ServerContext>) -> &dyn StoreListingsRepository {
         resources.store_listings_repository()
     }
 
@@ -249,7 +249,7 @@ impl StoreRoutes {
 
     /// Handle GET /api/store/coaches - Browse published coaches with cursor pagination
     async fn handle_browse(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<BrowseCoachesQuery>,
     ) -> Result<Response, AppError> {
@@ -311,7 +311,7 @@ impl StoreRoutes {
 
     /// Handle GET /api/store/coaches/{id} - Get coach details
     async fn handle_get_coach(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -340,7 +340,7 @@ impl StoreRoutes {
 
     /// Handle GET /api/store/categories - List categories with counts
     async fn handle_categories(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
@@ -397,7 +397,7 @@ impl StoreRoutes {
 
     /// Handle GET /api/store/search - Search published coaches
     async fn handle_search(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Query(query): Query<SearchCoachesQuery>,
     ) -> Result<Response, AppError> {
@@ -434,7 +434,7 @@ impl StoreRoutes {
 
     /// Handle POST /api/store/coaches/{id}/install - Install a coach from the Store
     async fn handle_install(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -483,7 +483,7 @@ impl StoreRoutes {
 
     /// Handle DELETE /api/store/coaches/{id}/install - Uninstall a coach
     async fn handle_uninstall(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
@@ -517,7 +517,7 @@ impl StoreRoutes {
 
     /// Handle GET /api/store/installations - List user's installed coaches
     async fn handle_list_installations(
-        State(resources): State<Arc<ServerResources>>,
+        State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;

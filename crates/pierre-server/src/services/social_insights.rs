@@ -7,7 +7,7 @@
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::insight_adapter::{InsightAdapter, UserTrainingContext};
 use crate::models::{AdaptedInsight, FriendConnection, FriendStatus, SharedInsight};
-use pierre_database::database::social_dispatch::SocialManagerBackend;
+use pierre_database::repositories::SocialRepository;
 use uuid::Uuid;
 
 /// Result of sending a friend request, including validation
@@ -53,7 +53,7 @@ pub struct AdaptInsightResult {
 /// or if a connection already exists between the two users.
 /// Returns database errors on connection creation failure.
 pub async fn create_friend_request(
-    social: &SocialManagerBackend,
+    social: &dyn SocialRepository,
     sender_id: Uuid,
     receiver_id: Uuid,
 ) -> AppResult<FriendRequestResult> {
@@ -92,13 +92,13 @@ pub async fn create_friend_request(
 ///
 /// Returns database errors on search or connection lookup failure.
 pub async fn search_users_with_status(
-    social: &SocialManagerBackend,
+    social: &dyn SocialRepository,
     searcher_id: Uuid,
     query: &str,
     limit: u32,
 ) -> AppResult<Vec<EnrichedUserResult>> {
     let users = social
-        .search_discoverable_users(query, searcher_id, i64::from(limit))
+        .search_discoverable_users(query, searcher_id, limit)
         .await?;
 
     let mut results = Vec::with_capacity(users.len());
@@ -145,7 +145,7 @@ pub async fn search_users_with_status(
 /// Returns `AppError::NotFound` if the source insight does not exist.
 /// Returns database errors on adaptation lookup or creation failure.
 pub async fn adapt_insight_for_user(
-    social: &SocialManagerBackend,
+    social: &dyn SocialRepository,
     user_id: Uuid,
     insight_id: Uuid,
     user_context: &UserTrainingContext,
@@ -158,10 +158,7 @@ pub async fn adapt_insight_for_user(
         .ok_or_else(|| AppError::not_found(format!("Insight {insight_id}")))?;
 
     // Check for existing adaptation (idempotent)
-    if let Some(existing) = social
-        .get_adapted_insight_by_source(insight_id, user_id)
-        .await?
-    {
+    if let Some(existing) = social.get_user_adaptation(insight_id, user_id).await? {
         return Ok(AdaptInsightResult {
             adapted: existing,
             source_insight,

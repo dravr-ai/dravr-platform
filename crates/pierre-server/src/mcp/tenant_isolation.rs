@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::resources::ServerResources;
+use super::resources::ServerContext;
 use crate::errors::{AppError, AppResult};
 use crate::models::{User, UserOAuthToken};
 use crate::utils::uuid::parse_uuid;
@@ -21,13 +21,13 @@ use uuid::Uuid;
 
 /// Manages tenant isolation and multi-tenancy for the MCP server
 pub struct TenantIsolation {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
 }
 
 impl TenantIsolation {
     /// Create a new tenant isolation manager
     #[must_use]
-    pub const fn new(resources: Arc<ServerResources>) -> Self {
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
         Self { resources }
     }
 

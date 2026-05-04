@@ -18,7 +18,7 @@ use pierre_mcp_server::intelligence::insight_validation::{
 };
 use pierre_mcp_server::models::{InsightType, UserTier};
 
-// Compiled-in validation prompt for tests (no ServerResources needed)
+// Compiled-in validation prompt for tests (no ServerContext needed)
 const TEST_VALIDATION_PROMPT: &str = INSIGHT_VALIDATION_PROMPT;
 
 // ============================================================================

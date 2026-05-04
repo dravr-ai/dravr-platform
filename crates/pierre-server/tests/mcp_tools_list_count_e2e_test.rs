@@ -24,7 +24,7 @@ mod common;
 use anyhow::Result;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
-    constants::tools::PUBLIC_DISCOVERY_TOOLS, mcp::resources::ServerResources,
+    constants::tools::PUBLIC_DISCOVERY_TOOLS, mcp::resources::ServerContext,
     tools::registry::ToolRegistry,
 };
 use reqwest::Client;
@@ -54,7 +54,7 @@ const MIN_MEMBER_TOOLS: usize = 40;
 /// invisible. Instead we add a second user with role='member' to an existing
 /// owner-backed tenant, so both the owner and member rows coexist.
 async fn add_user_to_tenant_as_member(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: &str,
     user_id: Uuid,
 ) -> Result<()> {

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tracing::{debug, field, info, warn, Instrument, Span};
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 
 /// Result of tenant-aware webhook verification
@@ -63,7 +63,7 @@ pub struct MetaVerifyQuery {
 ///
 /// Supports both Messenger and `WhatsApp` channels.
 pub async fn verify_webhook(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     Query(query): Query<MetaVerifyQuery>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -133,7 +133,7 @@ pub async fn verify_webhook(
     )
 )]
 pub async fn handle_webhook(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -259,7 +259,7 @@ fn detect_handshake_response(channel: &str, body: &Bytes) -> Option<Value> {
 /// for each, and tries signature verification. The first config whose signature
 /// passes identifies the tenant.
 async fn parse_and_verify(
-    resources: &ServerResources,
+    resources: &ServerContext,
     channel: &str,
     headers: &HeaderMap,
     body: &Bytes,

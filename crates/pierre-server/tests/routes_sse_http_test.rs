@@ -25,7 +25,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    mcp::resources::{ServerResources, ServerResourcesOptions},
+    mcp::resources::{ServerContext, ServerContextOptions},
     sse::{manager::SseManager, routes::SseRoutes},
 };
 use std::sync::Arc;
@@ -33,7 +33,7 @@ use std::sync::Arc;
 /// Test setup helper for SSE route testing
 #[allow(dead_code)]
 struct SseTestSetup {
-    resources: Arc<ServerResources>,
+    resources: Arc<ServerContext>,
     manager: Arc<SseManager>,
     user_id: uuid::Uuid,
     jwt_token: String,
@@ -49,7 +49,7 @@ impl SseTestSetup {
         // Create test user
         let (user_id, user) = common::create_test_user(&database).await?;
 
-        // Create ServerResources
+        // Create ServerContext
         let temp_dir = tempfile::tempdir()?;
         let config = Arc::new(ServerConfig {
             http_port: 8081,
@@ -76,13 +76,13 @@ impl SseTestSetup {
         });
 
         let resources = Arc::new(
-            ServerResources::new(
+            ServerContext::new(
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
                 config,
                 cache,
-                ServerResourcesOptions {
+                ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,

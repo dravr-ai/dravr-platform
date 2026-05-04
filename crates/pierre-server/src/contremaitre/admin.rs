@@ -15,14 +15,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::errors::{AppError, ErrorCode};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::{extract_auth_from_headers, require_admin};
 use pierre_core::models::coaches::Coach;
 
 use super::registry::PromptSource;
 
 /// Mount contremaitre admin routes under /api/admin/contremaitre.
-pub fn admin_routes(resources: Arc<ServerResources>) -> Router {
+pub fn admin_routes(resources: Arc<ServerContext>) -> Router {
     Router::new()
         .route(
             "/admin/contremaitre/prompts",
@@ -134,7 +134,7 @@ struct SyncResponse {
 
 /// GET /api/admin/contremaitre/prompts — list all system prompts with metadata.
 async fn handle_list_system_prompts(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
@@ -165,7 +165,7 @@ async fn handle_list_system_prompts(
 ///
 /// Returns an error if the user is not an admin or the prompt key is not found.
 async fn handle_get_system_prompt(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(key): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -200,7 +200,7 @@ async fn handle_get_system_prompt(
 ///
 /// Returns an error if the user is not an admin.
 async fn handle_update_system_prompt(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(key): Path<String>,
     Json(body): Json<UpdateSystemPromptRequest>,
@@ -270,7 +270,7 @@ async fn commit_updated_prompt(
 
 /// Helper function to commit an updated prompt to GitHub.
 async fn commit_to_github(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     key: &str,
     body: &UpdateSystemPromptRequest,
 ) -> Option<String> {
@@ -290,7 +290,7 @@ async fn commit_to_github(
 ///
 /// Returns an error if the user is not an admin.
 async fn handle_status(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
@@ -322,7 +322,7 @@ async fn handle_status(
 /// Returns an error if the user is not an admin, contremaitre is not configured,
 /// or the sync operation fails.
 async fn handle_manual_sync(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
@@ -378,7 +378,7 @@ struct PromoteCoachResponse {
 /// Returns an error if the coach is not found, the user is not an admin,
 /// or the GitHub commit fails.
 async fn handle_promote_coach(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(coach_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {

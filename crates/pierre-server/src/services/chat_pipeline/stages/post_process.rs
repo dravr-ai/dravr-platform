@@ -9,7 +9,7 @@ use std::sync::Arc;
 use pierre_core::models::CoachRuntimeContext;
 use pierre_database::database::ConversationRecord;
 
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::prompt_leak;
 
 use super::super::hooks::PipelineHooks;
@@ -47,7 +47,7 @@ pub(in crate::services::chat_pipeline) struct PostProcessedReply {
 /// exists would leave orphan rows if the message write failed.
 pub(in crate::services::chat_pipeline) async fn post_process_assistant_reply(
     #[cfg_attr(not(feature = "tools-verification"), allow(unused_variables))] resources: &Arc<
-        ServerResources,
+        ServerContext,
     >,
     input: &TurnInput,
     conv: &ConversationRecord,

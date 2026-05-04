@@ -7,7 +7,7 @@
 use super::PostgresDatabase;
 use crate::repositories::{
     ConnectedUserRow, DataSourceRepository, HealthSnapshotRepository, RecoveryRepository,
-    SleepRepository, SyncCursorRepository, SyncCursorRow,
+    SleepRepository, SyncCursorRepository, SyncCursorRow, TimeSeriesPointRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -294,6 +294,7 @@ impl SleepRepository for PostgresDatabase {
                    hrv_during_sleep, is_nap
             FROM sleep_sessions
             WHERE user_id = $1 AND tenant_id = $2 AND start_time >= $3 AND start_time <= $4
+              AND deleted_at IS NULL
             ORDER BY start_time DESC
             ",
         )
@@ -323,7 +324,7 @@ impl SleepRepository for PostgresDatabase {
                    total_sleep_time, sleep_efficiency, sleep_score, stages_json,
                    hrv_during_sleep, is_nap
             FROM sleep_sessions
-            WHERE user_id = $1 AND tenant_id = $2
+            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
             ORDER BY start_time DESC
             LIMIT 1
             ",
@@ -356,6 +357,26 @@ impl SleepRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to delete sleep sessions: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn delete_sleep_session_by_id(
+        &self,
+        _tenant_id: &TenantId,
+        _id: &str,
+        _soft: bool,
+    ) -> AppResult<bool> {
+        Err(AppError::database(
+            "delete_sleep_session_by_id: PostgreSQL backend not yet supported. \
+             migrations_pg/ has no CREATE TABLE for sleep_sessions; ship the \
+             schema + bind/read audit before enabling this path.",
+        ))
+    }
+
+    async fn find_sleep_session_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
+        Err(AppError::database(
+            "find_sleep_session_tenant: PostgreSQL backend not yet supported. \
+             See delete_sleep_session_by_id note.",
+        ))
     }
 }
 
@@ -483,6 +504,7 @@ impl RecoveryRepository for PostgresDatabase {
                    resting_respiratory_rate, created_at
             FROM recovery_metrics
             WHERE user_id = $1 AND tenant_id = $2 AND date >= $3 AND date <= $4
+              AND deleted_at IS NULL
             ORDER BY date DESC
             ",
         )
@@ -512,7 +534,7 @@ impl RecoveryRepository for PostgresDatabase {
                    hrv_status, stress_level, resting_heart_rate, body_temperature,
                    resting_respiratory_rate, created_at
             FROM recovery_metrics
-            WHERE user_id = $1 AND tenant_id = $2
+            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
             ORDER BY date DESC
             LIMIT 1
             ",
@@ -524,6 +546,25 @@ impl RecoveryRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to get latest recovery: {e}")))?;
 
         row.map(|r| pg_row_to_stored_recovery(&r)).transpose()
+    }
+
+    async fn delete_recovery_metric_by_id(
+        &self,
+        _tenant_id: &TenantId,
+        _id: &str,
+        _soft: bool,
+    ) -> AppResult<bool> {
+        Err(AppError::database(
+            "delete_recovery_metric_by_id: PostgreSQL backend not yet supported. \
+             migrations_pg/ has no CREATE TABLE for recovery_metrics.",
+        ))
+    }
+
+    async fn find_recovery_metric_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
+        Err(AppError::database(
+            "find_recovery_metric_tenant: PostgreSQL backend not yet supported. \
+             See delete_recovery_metric_by_id note.",
+        ))
     }
 }
 
@@ -642,6 +683,7 @@ impl HealthSnapshotRepository for PostgresDatabase {
                    blood_glucose, created_at
             FROM health_snapshots
             WHERE user_id = $1 AND tenant_id = $2 AND date >= $3 AND date <= $4
+              AND deleted_at IS NULL
             ORDER BY date DESC
             ",
         )
@@ -671,7 +713,7 @@ impl HealthSnapshotRepository for PostgresDatabase {
                    muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic,
                    blood_glucose, created_at
             FROM health_snapshots
-            WHERE user_id = $1 AND tenant_id = $2
+            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
             ORDER BY date DESC
             LIMIT 1
             ",
@@ -683,6 +725,25 @@ impl HealthSnapshotRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to get latest health snapshot: {e}")))?;
 
         row.map(|r| pg_row_to_stored_health_metrics(&r)).transpose()
+    }
+
+    async fn delete_health_snapshot_by_id(
+        &self,
+        _tenant_id: &TenantId,
+        _id: &str,
+        _soft: bool,
+    ) -> AppResult<bool> {
+        Err(AppError::database(
+            "delete_health_snapshot_by_id: PostgreSQL backend not yet supported. \
+             migrations_pg/ has no CREATE TABLE for health_snapshots.",
+        ))
+    }
+
+    async fn find_health_snapshot_tenant(&self, _id: &str) -> AppResult<Option<TenantId>> {
+        Err(AppError::database(
+            "find_health_snapshot_tenant: PostgreSQL backend not yet supported. \
+             See delete_health_snapshot_by_id note.",
+        ))
     }
 }
 
@@ -829,5 +890,34 @@ impl SyncCursorRepository for PostgresDatabase {
                 tenant_id: r.get("tenant_id"),
             })
             .collect())
+    }
+}
+
+#[async_trait]
+impl TimeSeriesPointRepository for PostgresDatabase {
+    async fn insert_continuous_metrics_batch(
+        &self,
+        _data_source_id: &str,
+        _series_type_id: u32,
+        _points: &[(DateTime<Utc>, f64)],
+    ) -> AppResult<u64> {
+        Err(AppError::database(
+            "insert_continuous_metrics_batch: PostgreSQL backend not yet supported. \
+             migrations_pg/ has no CREATE TABLE for data_point_series; ship the \
+             schema before enabling this path.",
+        ))
+    }
+
+    async fn get_continuous_metrics(
+        &self,
+        _data_source_id: &str,
+        _series_type_id: u32,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> AppResult<Vec<(DateTime<Utc>, f64)>> {
+        Err(AppError::database(
+            "get_continuous_metrics: PostgreSQL backend not yet supported. \
+             See insert_continuous_metrics_batch note.",
+        ))
     }
 }

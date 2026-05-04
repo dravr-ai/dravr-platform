@@ -18,7 +18,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
 
@@ -54,7 +54,7 @@ fn resolve_tenant_id(auth: &AuthResult) -> TenantId {
 
 /// List all channel configurations for the authenticated tenant
 pub async fn list_channel_configs(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
@@ -74,7 +74,7 @@ pub async fn list_channel_configs(
 
 /// Get a specific channel configuration
 pub async fn get_channel_config(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -99,7 +99,7 @@ pub async fn get_channel_config(
 
 /// Create or update a channel configuration
 pub async fn upsert_channel_config(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
     Json(body): Json<UpsertChannelConfigBody>,
@@ -162,7 +162,7 @@ pub async fn upsert_channel_config(
 
 /// Delete a channel configuration
 pub async fn delete_channel_config(
-    State(resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {

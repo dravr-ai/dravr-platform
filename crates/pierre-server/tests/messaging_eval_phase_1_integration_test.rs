@@ -58,7 +58,7 @@ mod phase_1_integration {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::mcp::resources::ServerResources;
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::permissions::UserRole;
     use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
@@ -156,7 +156,7 @@ mod phase_1_integration {
     }
 
     async fn create_admin_user_in_tenant(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         email: &str,
     ) -> (Uuid, TenantId, String) {
         let password_hash =
@@ -203,7 +203,7 @@ mod phase_1_integration {
     }
 
     async fn wait_for_llm_usage_row(
-        resources: &Arc<ServerResources>,
+        resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<Uuid> {
         let pool = resources

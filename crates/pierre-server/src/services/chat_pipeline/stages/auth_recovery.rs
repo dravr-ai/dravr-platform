@@ -33,7 +33,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED};
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use crate::services::chat_pipeline::channel_profile::ChannelProfile;
 use crate::services::chat_pipeline::turn::TurnInput;
@@ -53,7 +53,7 @@ use crate::services::tool_execution::ToolLoopResult;
 /// `recovery_dispatched` is updated atomically so observability hooks can
 /// surface the short-circuit alongside the assistant message.
 pub fn apply_auth_recovery(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     profile: &ChannelProfile,
     result: &mut ToolLoopResult,

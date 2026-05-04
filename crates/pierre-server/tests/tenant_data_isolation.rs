@@ -30,7 +30,7 @@ use pierre_mcp_server::{
     },
     mcp::{
         multitenant::MultiTenantMcpServer,
-        resources::{ServerResources, ServerResourcesOptions},
+        resources::{ServerContext, ServerContextOptions},
     },
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
@@ -508,13 +508,13 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
     // Create test server
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
-        ServerResources::new(
+        ServerContext::new(
             database.clone(),
             auth_manager.clone(),
             TEST_JWT_SECRET,
             create_test_server_config(),
             cache,
-            ServerResourcesOptions {
+            ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,

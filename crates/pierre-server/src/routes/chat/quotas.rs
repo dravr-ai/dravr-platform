@@ -14,7 +14,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
+use crate::mcp::resources::ServerContext;
 use crate::services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Outcome of the pre-chat quota check that the response-building code
@@ -33,7 +33,7 @@ const QUOTA_BYPASS_USER_IDS_ENV: &str = "QUOTA_BYPASS_USER_IDS";
 /// `Starter` when the row cannot be loaded (multi-tenant `get_global`
 /// here because quotas key on the user, not on a single tenant
 /// membership).
-async fn resolve_user_tier(resources: &Arc<ServerResources>, user_id: Uuid) -> UserTier {
+async fn resolve_user_tier(resources: &Arc<ServerContext>, user_id: Uuid) -> UserTier {
     match resources.repos.users.get_global(user_id).await {
         Ok(Some(user)) => user.tier,
         _ => UserTier::Starter,
@@ -82,7 +82,7 @@ pub struct PreChatScope<'a> {
 /// listed in `QUOTA_BYPASS_USER_IDS`; admin role no longer bypasses
 /// quotas — promote the user to `Enterprise` tier instead.
 pub async fn check_pre_chat_quotas_scoped(
-    resources: &Arc<ServerResources>,
+    resources: &Arc<ServerContext>,
     tenant_id: &str,
     user_id: &str,
     user_uuid: Uuid,
