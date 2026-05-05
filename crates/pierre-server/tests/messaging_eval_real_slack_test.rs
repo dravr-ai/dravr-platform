@@ -100,7 +100,7 @@ impl SlackCreds {
 /// Classify a coach-authored message as transient (safe to skip while
 /// polling) vs the final pipeline output.
 ///
-/// Two kinds of transient replies land in the channel before the real
+/// Three kinds of transient replies land in the channel before the real
 /// LLM reply on the same turn:
 ///
 /// 1. **Pre-auth link prompt** — a stray Slack system event (e.g. a
@@ -112,8 +112,20 @@ impl SlackCreds {
 ///    pipeline progresses. `conversations.history` returns whatever
 ///    text the message currently holds, so a fast poll can grab the
 ///    placeholder before the final edit.
+/// 3. **Smoke-probe echo** — `real_slack_post_and_read_smoke` posts a
+///    "messaging-eval smoke probe — ignore — nonce=…" line authored by
+///    the QA driver. When the smoke and scope tests share a CI run the
+///    coach bot occasionally echoes the probe text back (Pierre routes
+///    every channel message into the pipeline; "ignore" instructions
+///    in the body are LLM-honored only intermittently). The echo lands
+///    in `conversations.history` as a coach-authored message and would
+///    otherwise satisfy `wait_for_coach_reply`'s author filter for the
+///    next probe in the suite.
 fn is_transient_coach_reply(text: &str) -> bool {
     if text.contains("/messaging/link/") {
+        return true;
+    }
+    if text.contains("messaging-eval smoke probe") {
         return true;
     }
     // AG-UI placeholders are short status phrases (< 80 chars) that end
