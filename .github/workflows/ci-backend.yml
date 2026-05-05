@@ -157,14 +157,18 @@ jobs:
 
       - name: dravr-* duplicate check (hard fail)
         run: |
-          # Hard-fails if cargo tree -d reports any dravr-* crate at multiple
-          # versions. The workspace [patch.crates-io] block + per-dep tag pins
-          # (dravr-enforme, dravr-sciotte, dravr-equilibre, dravr-riviere,
-          # dravr-cageux, dravr-canot, dravr-tronc, dravr-embacle, dravr-meteo)
-          # MUST converge every consumer onto a single version per crate.
-          dups="$(cargo tree -d 2>&1 | grep -E '^dravr-' || true)"
+          # Hard-fails if cargo tree -d reports any dravr-ecosystem crate at
+          # multiple versions. The workspace [patch.crates-io] block + per-dep
+          # tag pins MUST converge every consumer onto a single version per
+          # crate.
+          #
+          # Most crates are named `dravr-<x>` (cageux/canot/commere/enforme/
+          # equilibre/meteo/riviere/sciotte/tronc), but `embacle` is loaded from
+          # the dravr-ai/dravr-embacle repo under its bare crate name — match
+          # that explicitly so the gate can't be silently bypassed by renames.
+          dups="$(cargo tree -d 2>&1 | grep -E '^(dravr-|embacle )' || true)"
           if [ -n "$dups" ]; then
-            echo "::error::dravr-* duplicate(s) detected — every dravr crate must converge on one version:"
+            echo "::error::dravr-ecosystem duplicate(s) detected — every dravr crate must converge on one version:"
             echo "$dups"
             exit 1
           fi
