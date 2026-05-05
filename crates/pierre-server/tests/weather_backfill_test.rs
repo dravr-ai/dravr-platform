@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -92,6 +93,20 @@ fn build_activity_no_gps(id: &str) -> Activity {
     .build()
 }
 
+fn build_activity_city_only(id: &str, city: &str, region: &str) -> Activity {
+    ActivityBuilder::new(
+        id.to_owned(),
+        "City-only Activity".to_owned(),
+        SportType::Run,
+        Utc.with_ymd_and_hms(2026, 4, 30, 8, 0, 0).unwrap(),
+        3600,
+        "test",
+    )
+    .city(city.to_owned())
+    .region(region.to_owned())
+    .build()
+}
+
 #[tokio::test]
 async fn fills_temperature_for_activities_missing_temp_with_gps() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -153,6 +168,42 @@ async fn skips_activities_without_gps() {
 
     assert!(result.is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+/// Live geocoding integration test against Open-Meteo's free public API.
+/// Gated behind `RUN_NETWORK_TESTS=1` so CI's offline matrix doesn't
+/// flake when the geocoding endpoint is rate-limited or unreachable.
+/// Asserts that an activity carrying only `city` + `region` (the shape
+/// produced by sciotte's dashboard-feed enrichment) does end up in the
+/// backfill output once Open-Meteo resolves the coords.
+#[tokio::test]
+async fn fills_temperature_via_city_geocoding_when_gps_absent() {
+    if env::var("RUN_NETWORK_TESTS").is_err() {
+        eprintln!("skipping: set RUN_NETWORK_TESTS=1 to enable Open-Meteo geocoding test");
+        return;
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider: Arc<dyn WeatherProvider> = Arc::new(ConstantProvider {
+        temp: -8.0,
+        calls: calls.clone(),
+    });
+
+    let activities = vec![
+        build_activity_city_only("a1", "Prévost", "Quebec"),
+        build_activity_city_only("a2", "Montreal", "Quebec"),
+    ];
+
+    let result = fill_activity_temperatures(&activities, provider).await;
+
+    assert_eq!(
+        result.len(),
+        2,
+        "both city-only activities should geocode and resolve"
+    );
+    assert!((result["a1"] - -8.0).abs() < f32::EPSILON);
+    assert!((result["a2"] - -8.0).abs() < f32::EPSILON);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
