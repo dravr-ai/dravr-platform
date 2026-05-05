@@ -416,6 +416,39 @@ Everything else, including all read-only operations and analysis tools, can be r
 ### Write Permissions
 - Writing markdown files is limited to the `claude_docs/` folder under the repo
 
+## Documentation Targets
+
+Structured documents (ADR, runbook, plan, design analysis, audit, session artifact,
+API reference) MUST land in the dravr-vault via the `obsidian-writer` skill, NOT in
+GitHub gists.
+
+Decision rule:
+- ADR / decision               → dravr-vault `Architecture/ADRs/`
+- Plan / phased build          → dravr-vault `Claude Plans/`
+- Runbook / oncall procedure   → dravr-vault `Development/Runbooks/`
+- Audit / design analysis      → dravr-vault `Claude Outputs/`
+- Session handoff / report     → dravr-vault `Claude Outputs/`
+- Reference docs that ship     → repo `book/src/` (mdBook)
+- Directory-scoped specs       → repo `<dir>/README.md`
+
+**Local Claude Code (this CLI on a developer machine):** prefer the vault. Use
+`obsidian-writer`; if `obsidian-cli` is unwired, write to `claude_docs/` (symlinked
+into the vault, `obsidian-git` auto-pushes within 10 min). Avoid `gh gist create`
+for the doc types above — gists aren't searchable from the vault, can't be
+wikilinked, and require gh-cli auth to read.
+
+**Claude Code for Web (CCFW, containerized):** the container has no Obsidian app,
+no `obsidian-cli`, and no vault checkout — `gh gist create` is the only durable
+output for structured docs in that environment, so gists are acceptable there as a
+fallback. Later, a local session backfills the gist into the vault (see the gist
+backlog triage workflow). CCFW prompts that produce ADRs/plans/audits should still
+explicitly drop a gist link in chat so the local follow-up can find it.
+
+Gists are also fine for: pasteable code snippets, cross-project material that
+doesn't belong in any single repo's vault, ephemeral share-with-stranger artifacts.
+
+NEVER write structured docs only to chat — chat history is not durable.
+
 ## Validation: One Script, One Command
 
 **CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY validation command you need.**
