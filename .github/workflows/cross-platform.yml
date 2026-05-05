@@ -105,7 +105,18 @@ jobs:
 
       - name: Clippy check (with cognitive complexity)
         shell: bash
-        run: cargo clippy --all-targets --quiet -- -D warnings
+        # On Windows, restrict to --lib --bins --examples. The full --all-targets
+        # build pulls in 234 integration test crates from crates/pierre-server/tests/;
+        # each links a separate ~100MB MSVC-debug .exe and the runner's C:/D: drive
+        # runs out of space (LNK1180). The integration-test linting is gated by
+        # ci-backend.yml's clippy job on Linux — Windows only needs to confirm the
+        # platform-conditional source paths still lint cleanly.
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cargo clippy --lib --bins --examples --quiet -- -D warnings
+          else
+            cargo clippy --all-targets --quiet -- -D warnings
+          fi
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -116,7 +127,17 @@ jobs:
         # Note: Using --lib --bins --tests instead of --all-targets to exclude benches
         # Criterion benchmarks don't accept --test-threads and will fail
         # Debug builds used on all platforms - release builds on Windows/MSVC take 2+ hours
-        run: cargo test --lib --bins --tests --quiet -- --test-threads=4
+        #
+        # On Windows, drop --tests for the same disk-space reason as clippy above:
+        # 234 integration .exe files exhaust the runner. Lib + bin tests are
+        # sufficient for the platform-compat smoke; integration coverage runs
+        # on the Linux backend-tests job.
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cargo test --lib --bins --quiet -- --test-threads=4
+          else
+            cargo test --lib --bins --tests --quiet -- --test-threads=4
+          fi
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -128,7 +149,14 @@ jobs:
 
       - name: Test health monitoring functions
         shell: bash
-        run: cargo test health --quiet
+        # On Windows, scope to --lib --bins for the same disk-space reason
+        # as the steps above (234 integration .exe files exhaust the runner).
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cargo test --lib --bins health --quiet
+          else
+            cargo test health --quiet
+          fi
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
