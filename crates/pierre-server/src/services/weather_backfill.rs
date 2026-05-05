@@ -30,8 +30,10 @@ use std::sync::Arc;
 
 use dravr_meteo::{WeatherProvider, WeatherQuery};
 use futures_util::stream::{FuturesUnordered, StreamExt};
+use pierre_core::http_client::api_client;
 use pierre_core::models::Activity;
-use tracing::{info, warn};
+use serde::Deserialize;
+use tracing::{debug, info, warn};
 
 /// Default ceiling on concurrent weather lookups during a backfill pass.
 ///
@@ -59,12 +61,21 @@ pub fn is_enabled() -> bool {
         .unwrap_or(true)
 }
 
-/// Compute backfilled temperatures for activities missing ambient temp
-/// but carrying GPS coordinates.
+/// Compute backfilled temperatures for activities missing ambient temp.
+///
+/// Two paths populate the candidate list:
+/// 1. Activities with explicit `start_latitude` / `start_longitude` are
+///    used as-is.
+/// 2. Activities lacking GPS but carrying a `city` (e.g., Strava-Mirror
+///    sciotte rows enriched from the dashboard feed) are geocoded via
+///    Open-Meteo's free geocoding API. Each unique city resolves once
+///    per backfill pass — typical users repeat 5-10 places across
+///    hundreds of activities.
 ///
 /// Returns a map of `activity_id -> temperature_celsius`. Activities
-/// that already carry a temperature, lack coordinates, or whose lookup
-/// fails are silently omitted — partial fill is the design intent.
+/// that already carry a temperature, lack any location signal, or whose
+/// geocoding/weather lookup fails are silently omitted — partial fill
+/// is the design intent.
 pub async fn fill_activity_temperatures(
     activities: &[Activity],
     provider: Arc<dyn WeatherProvider>,
@@ -80,22 +91,15 @@ pub async fn fill_activity_temperatures(
         .iter()
         .filter(|a| a.temperature().is_none())
         .count();
-    let candidates: Vec<(&Activity, f64, f64)> = activities
-        .iter()
-        .filter(|a| a.temperature().is_none())
-        .filter_map(|a| {
-            let lat = a.start_latitude()?;
-            let lng = a.start_longitude()?;
-            Some((a, lat, lng))
-        })
-        .collect();
+
+    let (candidates, from_gps, from_city) = collect_candidates(activities).await;
 
     if candidates.is_empty() {
         info!(
             total,
             missing_temp,
             candidates = 0,
-            "weather backfill: no candidates (activities without temperature lacked GPS coordinates)"
+            "weather backfill: no candidates (no GPS, no resolvable city)"
         );
         return HashMap::new();
     }
@@ -104,6 +108,8 @@ pub async fn fill_activity_temperatures(
         total,
         missing_temp,
         candidates = candidates.len(),
+        from_gps,
+        from_city,
         concurrency,
         "weather backfill: dispatching lookups"
     );
@@ -170,4 +176,168 @@ async fn lookup_one(
             None
         }
     }
+}
+
+/// Walk the activity list once, splitting into GPS-ready candidates and
+/// city-only candidates. Geocode any city-only group via Open-Meteo,
+/// then merge back into the candidate list. Returns
+/// `(candidates, from_gps_count, from_city_count)` for telemetry.
+async fn collect_candidates(activities: &[Activity]) -> (Vec<(&Activity, f64, f64)>, usize, usize) {
+    let mut candidates: Vec<(&Activity, f64, f64)> = Vec::new();
+    let mut needs_geocode: Vec<&Activity> = Vec::new();
+    let mut from_gps = 0usize;
+
+    for a in activities.iter().filter(|a| a.temperature().is_none()) {
+        if let (Some(lat), Some(lng)) = (a.start_latitude(), a.start_longitude()) {
+            candidates.push((a, lat, lng));
+            from_gps += 1;
+        } else if a.city().is_some() {
+            needs_geocode.push(a);
+        }
+    }
+
+    let mut from_city = 0usize;
+    if !needs_geocode.is_empty() {
+        let geocoded = geocode_unique_cities(&needs_geocode).await;
+        for a in needs_geocode {
+            let key = location_cache_key(a);
+            if let Some(&(lat, lng)) = geocoded.get(&key) {
+                candidates.push((a, lat, lng));
+                from_city += 1;
+            }
+        }
+    }
+
+    (candidates, from_gps, from_city)
+}
+
+/// Stable cache key for an activity's location signal — collapses
+/// city/region/country into a single normalized string so two activities
+/// at the same place share a single geocode lookup.
+fn location_cache_key(a: &Activity) -> String {
+    let mut key = a.city().unwrap_or_default().trim().to_owned();
+    if let Some(region) = a.region().map(str::trim).filter(|s| !s.is_empty()) {
+        key.push_str(", ");
+        key.push_str(region);
+    }
+    if let Some(country) = a.country().map(str::trim).filter(|s| !s.is_empty()) {
+        key.push_str(", ");
+        key.push_str(country);
+    }
+    key
+}
+
+/// Resolve every unique location-signal referenced by `activities` to a
+/// `(lat, lng)` pair via Open-Meteo's free geocoding API. We query the
+/// city name alone (the API rejects "City, Region" as a single query)
+/// and use the activity's `region` to disambiguate when multiple
+/// continents share a city name. Best-effort: locations that fail to
+/// resolve simply don't appear in the returned map.
+async fn geocode_unique_cities(activities: &[&Activity]) -> HashMap<String, (f64, f64)> {
+    let mut unique: Vec<(String, Option<String>, Option<String>)> = activities
+        .iter()
+        .map(|a| {
+            (
+                location_cache_key(a),
+                a.region()
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty()),
+                a.country()
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty()),
+            )
+        })
+        .collect();
+    unique.sort_by(|a, b| a.0.cmp(&b.0));
+    unique.dedup_by(|a, b| a.0 == b.0);
+
+    let mut resolved = HashMap::with_capacity(unique.len());
+    for (key, region, country) in unique {
+        if key.is_empty() {
+            continue;
+        }
+        let city = key.split(',').next().unwrap_or(&key).trim();
+        match geocode_via_open_meteo(city, region.as_deref(), country.as_deref()).await {
+            Some(coords) => {
+                debug!(query = %key, city, lat = coords.0, lng = coords.1, "geocode: hit");
+                resolved.insert(key, coords);
+            }
+            None => {
+                debug!(query = %key, city, "geocode: no result");
+            }
+        }
+    }
+    resolved
+}
+
+/// Geocoding response shape from
+/// `https://geocoding-api.open-meteo.com/v1/search`. Open-Meteo returns
+/// results sorted by population + query relevance, plus `admin1` (state
+/// or province) and `country` so we can disambiguate same-named cities.
+#[derive(Debug, Deserialize)]
+struct GeocodeResponse {
+    #[serde(default)]
+    results: Vec<GeocodeHit>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeocodeHit {
+    latitude: f64,
+    longitude: f64,
+    #[serde(default)]
+    admin1: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
+}
+
+/// Hit Open-Meteo's geocoding API with just the city name; if the
+/// caller supplied a region or country, prefer the hit whose `admin1` /
+/// `country` matches. Free, no API key required, ~10K requests/day per
+/// IP — well above any single user's activity volume.
+async fn geocode_via_open_meteo(
+    city: &str,
+    expected_region: Option<&str>,
+    expected_country: Option<&str>,
+) -> Option<(f64, f64)> {
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=10&language=en&format=json",
+        urlencoding::encode(city)
+    );
+    let response = api_client().get(&url).send().await.ok()?;
+    if !response.status().is_success() {
+        warn!(city, status = %response.status(), "geocode: non-2xx");
+        return None;
+    }
+    let body: GeocodeResponse = response.json().await.ok()?;
+    if body.results.is_empty() {
+        return None;
+    }
+    let matches_expected = |hit: &GeocodeHit| -> bool {
+        if let Some(region) = expected_region {
+            if hit
+                .admin1
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case(region))
+            {
+                return true;
+            }
+        }
+        if let Some(country) = expected_country {
+            if hit
+                .country
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case(country))
+            {
+                return true;
+            }
+        }
+        false
+    };
+
+    let best = body
+        .results
+        .iter()
+        .find(|h| matches_expected(h))
+        .or_else(|| body.results.first())?;
+    Some((best.latitude, best.longitude))
 }
