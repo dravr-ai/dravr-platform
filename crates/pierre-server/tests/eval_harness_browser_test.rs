@@ -77,13 +77,19 @@ fn browse_fixtures_returns_empty_response_for_empty_dir() {
 }
 
 #[test]
-fn browse_fixtures_errors_on_missing_dir() {
+fn browse_fixtures_returns_empty_on_missing_dir() {
+    // Missing-dir must NOT page Slack via tronc's error-level forwarding —
+    // production builds may ship without the workspace fixtures tree.
+    // Verify the function returns an empty response instead of erroring.
     let mut dir = temp_dir();
     dir.push("pierre-eval-harness-does-not-exist-xyzzy");
     let _ = fs::remove_dir_all(&dir);
 
-    let err = browse_fixtures_from(&dir).unwrap_err();
-    assert!(err.to_string().contains("not found"));
+    let response = browse_fixtures_from(&dir).expect("missing dir should yield empty response");
+    assert_eq!(response.fixture_count, 0);
+    assert_eq!(response.case_total, 0);
+    assert!(response.fixtures.is_empty());
+    assert_eq!(response.scanned_dir, dir.display().to_string());
 }
 
 #[test]

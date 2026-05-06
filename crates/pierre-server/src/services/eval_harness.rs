@@ -22,7 +22,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, warn};
 
 use pierre_evals::{GoldenCase, GoldenFixture};
 
@@ -104,11 +104,24 @@ pub fn browse_fixtures() -> AppResult<FixtureBrowserResponse> {
 ///
 /// Same as [`browse_fixtures`].
 pub fn browse_fixtures_from(dir: &Path) -> AppResult<FixtureBrowserResponse> {
+    // Missing-dir is not an operational error: production builds may
+    // ship without the workspace fixtures tree, and dev binaries run
+    // with whatever cwd the operator started them from. Returning an
+    // empty response (with a single warn-level log per invocation)
+    // keeps the admin UI usable and avoids paging on what is really
+    // "no fixtures available here."
     if !dir.exists() {
-        return Err(AppError::not_found(format!(
-            "Fixtures directory not found: {}",
-            dir.display()
-        )));
+        warn!(
+            dir = %dir.display(),
+            "Eval fixtures directory not found; returning empty response. \
+             Set PIERRE_EVALS_FIXTURES_DIR to override or ship fixtures into the image."
+        );
+        return Ok(FixtureBrowserResponse {
+            scanned_dir: dir.display().to_string(),
+            fixture_count: 0,
+            case_total: 0,
+            fixtures: Vec::new(),
+        });
     }
 
     let mut fixtures: Vec<FixtureSummary> = Vec::new();
