@@ -96,6 +96,17 @@ pub fn init_server_config() {
         env::set_var("PIERRE_FITBIT_CLIENT_ID", "test_fitbit_client_id");
         env::set_var("PIERRE_FITBIT_CLIENT_SECRET", "test_fitbit_client_secret");
 
+        // The messaging session resolver reads PIERRE_LLM_MODEL when
+        // creating chat_conversations rows. Local dev sources this from
+        // .envrc; CI workflows set it per-job; the Code Coverage workflow
+        // does neither, so without this default the resolver fails hard
+        // and tests like messaging_commands_test::test_non_command_passes_through
+        // panic. A mock string is fine — no actual LLM is called from
+        // these tests, the value just needs to be non-empty.
+        if env::var("PIERRE_LLM_MODEL").is_err() {
+            env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        }
+
         let _ = constants::init_server_config();
     });
 }
