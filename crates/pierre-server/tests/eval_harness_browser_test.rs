@@ -11,14 +11,26 @@
 use std::env::temp_dir;
 use std::fs;
 use std::path::PathBuf;
+use std::process;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use pierre_mcp_server::services::eval_harness::{
     browse_fixtures_from, delete_fixture_from, read_fixture_text_from, write_fixture_to,
 };
 
+/// Per-test unique counter so two parallel invocations of this test
+/// binary (e.g. cargo test running from two shards) don't collide on
+/// the same `/tmp/pierre-eval-harness-<suffix>` path. Combining
+/// `process::id()` with the counter guarantees uniqueness across both
+/// in-process parallelism (cargo runs tests concurrently by default)
+/// and external parallelism (multiple `cargo test` invocations).
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn tmp_dir(suffix: &str) -> PathBuf {
+    let pid = process::id();
+    let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut dir = temp_dir();
-    dir.push(format!("pierre-eval-harness-{suffix}"));
+    dir.push(format!("pierre-eval-harness-{suffix}-{pid}-{n}"));
     // Recreate to ensure a clean slate across runs.
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
