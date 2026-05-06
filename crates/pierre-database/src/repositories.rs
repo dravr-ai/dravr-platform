@@ -786,6 +786,7 @@ pub trait ChatRepository: Send + Sync {
         title: &str,
         model: &str,
         coach_id: Option<&str>,
+        group_id: Option<&str>,
     ) -> AppResult<ConversationRecord>;
     /// Get a conversation by ID with user/tenant isolation
     async fn get_conversation(
@@ -862,6 +863,20 @@ pub trait ChatRepository: Send + Sync {
         &self,
         conversation_id: &str,
         session_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Attach a coaching group id to an existing conversation row.
+    ///
+    /// Used by the messaging-ingress auto-bind path to retrofit
+    /// `chat_conversations.group_id` onto a conversation that pre-dates
+    /// the channel/group binding (legacy sessions, or a freshly forged
+    /// self-heal conversation). Tenant-scoped; returns `false` if the
+    /// conversation does not exist.
+    async fn set_conversation_group_id(
+        &self,
+        conversation_id: &str,
+        group_id: Option<&str>,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 }
@@ -2248,12 +2263,19 @@ pub trait MessagingRepository: Send + Sync {
     /// Create a messaging session linking a channel user to a Pierre conversation
     async fn create_session(&self, params: &CreateSessionParams<'_>) -> AppResult<()>;
 
-    /// Look up a session by channel identity (tenant + channel type + channel user ID)
+    /// Look up a session by channel identity, scoped to a single chat.
+    ///
+    /// `channel_conversation_id` distinguishes a user's DMs from each group
+    /// chat they participate in: the same channel user may have a DM session
+    /// AND one session per group on the same platform. NULL is treated as the
+    /// empty sentinel (matches the unique-index expression in migration
+    /// `20260505000001_messaging_sessions_per_chat`).
     async fn get_session_by_channel_identity(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<Value>>;
 
     /// Update the last message timestamp on a session
@@ -2825,6 +2847,19 @@ pub trait CoachingGroupRepository: Send + Sync {
         &self,
         group_id: &str,
         tenant_id: TenantId,
+    ) -> AppResult<Option<CoachingGroup>>;
+
+    /// Look up the active group bound to a specific messaging chat.
+    ///
+    /// Returns `Some(group)` if a `coaching_groups` row was created from
+    /// this chat (Telegram group, Slack channel, Discord channel) and is
+    /// still active. Returns `None` for unknown chats or REST-created
+    /// (web/mobile) groups that have no channel binding.
+    async fn get_group_by_channel(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_chat_id: &str,
     ) -> AppResult<Option<CoachingGroup>>;
 
     /// List groups the user belongs to (as member, admin, or owner).

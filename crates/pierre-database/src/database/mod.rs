@@ -2373,10 +2373,11 @@ impl Database {
         title: &str,
         model: &str,
         coach_id: Option<&str>,
+        group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
-            .create_conversation(user_id, tenant_id, title, model, coach_id)
+            .create_conversation(user_id, tenant_id, title, model, coach_id, group_id)
             .await
     }
 

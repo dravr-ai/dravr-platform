@@ -13,10 +13,11 @@ use crate::contremaitre::messaging_strings::KEY_GROUP_INVITE_BODY;
 #[cfg(not(feature = "tools-groups"))]
 use crate::contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
 use crate::contremaitre::messaging_strings::{
-    KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
-    KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM,
-    KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
-    KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE, KEY_GROUP_INVITE_FORBIDDEN,
+    KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY, KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM,
+    KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM, KEY_GROUP_MEMBERS_UNKNOWN,
+    KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
+    KEY_GROUP_STATUS_SUMMARY,
 };
 
 use super::{CommandHandler, PlatformCommandContext};
@@ -240,5 +241,63 @@ impl CommandHandler for GroupLeaveHandler {
         let text = reg.render(KEY_GROUP_LEAVE_PROMPT, locale, &[&group.name]);
 
         Ok(CommandResponse::with_confirmation(text))
+    }
+}
+
+/// Handler for `/group consent yes|no` — toggle peer-sharing consent.
+///
+/// Updates `coaching_group_members.peer_sharing_consent` for the requester
+/// in their first listed group. The privacy gate in
+/// `pierre_groups::GroupService::inject_group_context` honors this flag:
+/// even when the group has `peer_data_sharing = true`, only members who
+/// have set their consent to `true` will have their training summaries
+/// rendered to peers.
+pub struct GroupConsentHandler;
+
+#[async_trait]
+impl CommandHandler for GroupConsentHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
+        let arg = ctx.args.first().map_or("", String::as_str).trim();
+        let consent_choice = match arg.to_lowercase().as_str() {
+            "yes" | "on" | "true" | "1" => true,
+            "no" | "off" | "false" | "0" => false,
+            _ => {
+                return Ok(CommandResponse::text(reg.render(
+                    KEY_GROUP_CONSENT_USAGE,
+                    locale,
+                    &[],
+                )));
+            }
+        };
+
+        let groups = ctx
+            .resources
+            .repos
+            .groups
+            .list_groups_for_user(ctx.user_id)
+            .await?;
+
+        let group = groups
+            .first()
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+        ctx.resources
+            .repos
+            .groups
+            .update_peer_sharing_consent(&group.id.to_string(), ctx.user_id, consent_choice)
+            .await?;
+
+        let state_key = if consent_choice {
+            KEY_GROUP_PEER_SHARING_ON
+        } else {
+            KEY_GROUP_PEER_SHARING_OFF
+        };
+        let state = reg.render(state_key, locale, &[]);
+        let body = reg.render(KEY_GROUP_CONSENT_UPDATED, locale, &[&state, &group.name]);
+
+        Ok(CommandResponse::text(body))
     }
 }

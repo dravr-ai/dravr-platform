@@ -142,7 +142,7 @@ async fn test_pg_session_create_then_lookup_by_channel_identity() {
     let fetched = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_id, "whatsapp", "+15551234567")
+        .get_session_by_channel_identity(tenant_id, "whatsapp", "+15551234567", None)
         .await
         .expect("get_session_by_channel_identity should succeed on PG")
         .expect("session should be found");
@@ -185,7 +185,7 @@ async fn test_pg_session_tenant_isolation() {
     let cross = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_b, "telegram", "tg-iso-42")
+        .get_session_by_channel_identity(tenant_b, "telegram", "tg-iso-42", None)
         .await
         .unwrap();
     assert!(cross.is_none(), "cross-tenant lookup must return None");
@@ -562,6 +562,7 @@ async fn test_pg_set_session_conversation_repoints_session() {
             "Messaging: telegram",
             "gemini-2.0-flash-exp",
             None,
+            None,
         )
         .await
         .expect("create_conversation should succeed on PG");
@@ -576,7 +577,7 @@ async fn test_pg_set_session_conversation_repoints_session() {
     let refreshed = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_id, "telegram", "tg-heal")
+        .get_session_by_channel_identity(tenant_id, "telegram", "tg-heal", None)
         .await
         .unwrap()
         .expect("session should still exist");
@@ -647,7 +648,7 @@ async fn test_pg_delete_user_cascades_to_messaging_rows() {
     let session_gone = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_id, "telegram", "tg-cascade")
+        .get_session_by_channel_identity(tenant_id, "telegram", "tg-cascade", None)
         .await
         .unwrap();
     assert!(

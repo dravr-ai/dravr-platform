@@ -401,7 +401,7 @@ async fn test_create_and_lookup_session() {
     let session = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_id, "telegram", "tg_user_100")
+        .get_session_by_channel_identity(tenant_id, "telegram", "tg_user_100", Some("tg_chat_200"))
         .await
         .unwrap();
     assert!(session.is_some());
@@ -466,7 +466,7 @@ async fn test_session_tenant_isolation() {
     let session = db
         .repositories()
         .messaging
-        .get_session_by_channel_identity(tenant_b, "whatsapp", "wa_user_42")
+        .get_session_by_channel_identity(tenant_b, "whatsapp", "wa_user_42", None)
         .await
         .unwrap();
     assert!(session.is_none());

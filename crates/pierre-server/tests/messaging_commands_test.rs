@@ -127,6 +127,7 @@ mod command_tests {
                 "Cmd Test Conversation",
                 "test-model",
                 None,
+                None,
             )
             .await
             .unwrap();

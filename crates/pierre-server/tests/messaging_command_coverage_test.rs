@@ -217,6 +217,7 @@ mod coverage {
                 "Coverage Test Conversation",
                 "test-model",
                 None,
+                None,
             )
             .await
             .unwrap();

@@ -53,8 +53,8 @@ use crate::services::commands::{
     account::LogoutHandler,
     coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
     group::{
-        GroupInviteHandler, GroupLeaveHandler, GroupListHandler, GroupMembersHandler,
-        GroupStatusHandler,
+        GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler, GroupListHandler,
+        GroupMembersHandler, GroupStatusHandler,
     },
     help::HelpHandler,
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
@@ -545,6 +545,7 @@ impl ServerContext {
             handler_reg.register("group-members", Arc::new(GroupMembersHandler));
             handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
             handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
+            handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
             handler_reg.register("coach", Arc::new(CoachListHandler));
             handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
             handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));

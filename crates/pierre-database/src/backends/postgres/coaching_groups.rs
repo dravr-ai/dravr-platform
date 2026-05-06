@@ -42,6 +42,14 @@ fn row_to_group(r: &PgRow) -> CoachingGroup {
         peer_data_sharing,
         max_members: r.get("max_members"),
         is_active,
+        channel_type: r
+            .try_get::<Option<String>, _>("channel_type")
+            .ok()
+            .flatten(),
+        channel_chat_id: r
+            .try_get::<Option<String>, _>("channel_chat_id")
+            .ok()
+            .flatten(),
         created_at,
         updated_at,
     }
@@ -108,8 +116,9 @@ impl CoachingGroupRepository for PostgresDatabase {
 
         sqlx::query(
             r"INSERT INTO coaching_groups (id, tenant_id, name, description, coach_id, owner_id,
-              peer_data_sharing, max_members, is_active, created_at, updated_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $9)",
+              peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
+              created_at, updated_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $11)",
         )
         .bind(group.id)
         .bind(tenant_id.to_string())
@@ -119,6 +128,8 @@ impl CoachingGroupRepository for PostgresDatabase {
         .bind(group.owner_id)
         .bind(group.peer_data_sharing)
         .bind(group.max_members)
+        .bind(&group.channel_type)
+        .bind(&group.channel_chat_id)
         .bind(now)
         .execute(&self.pool)
         .await
@@ -140,13 +151,38 @@ impl CoachingGroupRepository for PostgresDatabase {
         // cross-tenant group access (members join from different tenants)
         let row = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id,
-              peer_data_sharing, max_members, is_active, created_at, updated_at
+              peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
+              created_at, updated_at
               FROM coaching_groups WHERE id = $1",
         )
         .bind(group_uuid)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get group: {e}")))?;
+
+        Ok(row.as_ref().map(row_to_group))
+    }
+
+    async fn get_group_by_channel(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_chat_id: &str,
+    ) -> AppResult<Option<CoachingGroup>> {
+        let row = sqlx::query(
+            r"SELECT id, tenant_id, name, description, coach_id, owner_id,
+              peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
+              created_at, updated_at
+              FROM coaching_groups
+              WHERE tenant_id = $1 AND channel_type = $2 AND channel_chat_id = $3
+                AND is_active = true",
+        )
+        .bind(tenant_id.to_string())
+        .bind(channel_type)
+        .bind(channel_chat_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get group by channel: {e}")))?;
 
         Ok(row.as_ref().map(row_to_group))
     }
@@ -198,7 +234,8 @@ impl CoachingGroupRepository for PostgresDatabase {
     ) -> AppResult<Vec<CoachingGroup>> {
         let rows = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id,
-              peer_data_sharing, max_members, is_active, created_at, updated_at
+              peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
+              created_at, updated_at
               FROM coaching_groups
               WHERE coach_id = $1 AND tenant_id = $2 AND is_active = true
               ORDER BY created_at DESC",
@@ -524,7 +561,8 @@ impl CoachingGroupRepository for PostgresDatabase {
         // No tenant filter — groups span tenants via cross-tenant membership
         let rows = sqlx::query(
             r"SELECT g.id, g.tenant_id, g.name, g.description, g.coach_id, g.owner_id,
-              g.peer_data_sharing, g.max_members, g.is_active, g.created_at, g.updated_at
+              g.peer_data_sharing, g.max_members, g.is_active, g.channel_type, g.channel_chat_id,
+              g.created_at, g.updated_at
               FROM coaching_groups g
               JOIN coaching_group_members m ON m.group_id = g.id
               WHERE m.user_id = $1 AND g.coach_id = $2

@@ -306,7 +306,7 @@ async fn test_pg_chat_create_conversation() {
 
     let conv = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "Test Chat", "gpt-4", None)
+        .create_conversation(&user_id_str, tenant_id, "Test Chat", "gpt-4", None, None)
         .await
         .expect("Failed to create conversation");
 
@@ -342,7 +342,14 @@ async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
 
     let conv = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "Test with Prompt", "gpt-4", None)
+        .create_conversation(
+            &user_id_str,
+            tenant_id,
+            "Test with Prompt",
+            "gpt-4",
+            None,
+            None,
+        )
         .await
         .expect("Failed to create conversation");
 
@@ -373,7 +380,14 @@ async fn test_pg_chat_get_conversation() {
     // Create a conversation first
     let created = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "Retrieve Test", "gpt-4", None)
+        .create_conversation(
+            &user_id_str,
+            tenant_id,
+            "Retrieve Test",
+            "gpt-4",
+            None,
+            None,
+        )
         .await
         .expect("Failed to create conversation");
 
@@ -425,7 +439,14 @@ async fn test_pg_chat_list_conversations() {
     for i in 1..=5 {
         repos
             .chat
-            .create_conversation(&user_id_str, tenant_id, &format!("Chat {i}"), "gpt-4", None)
+            .create_conversation(
+                &user_id_str,
+                tenant_id,
+                &format!("Chat {i}"),
+                "gpt-4",
+                None,
+                None,
+            )
             .await
             .expect("Failed to create conversation");
     }
@@ -471,7 +492,14 @@ async fn test_pg_chat_update_conversation_title() {
 
     let conv = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "Original Title", "gpt-4", None)
+        .create_conversation(
+            &user_id_str,
+            tenant_id,
+            "Original Title",
+            "gpt-4",
+            None,
+            None,
+        )
         .await
         .expect("Failed to create conversation");
 
@@ -515,7 +543,7 @@ async fn test_pg_chat_delete_conversation() {
 
     let conv = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "To Delete", "gpt-4", None)
+        .create_conversation(&user_id_str, tenant_id, "To Delete", "gpt-4", None, None)
         .await
         .expect("Failed to create conversation");
 
@@ -558,7 +586,7 @@ async fn test_pg_chat_messages() {
 
     let conv = repos
         .chat
-        .create_conversation(&user_id_str, tenant_id, "Message Test", "gpt-4", None)
+        .create_conversation(&user_id_str, tenant_id, "Message Test", "gpt-4", None, None)
         .await
         .expect("Failed to create conversation");
 
@@ -654,7 +682,14 @@ async fn test_pg_chat_delete_all_user_conversations() {
     for i in 1..=3 {
         repos
             .chat
-            .create_conversation(&user_id_str, tenant_id, &format!("Conv {i}"), "gpt-4", None)
+            .create_conversation(
+                &user_id_str,
+                tenant_id,
+                &format!("Conv {i}"),
+                "gpt-4",
+                None,
+                None,
+            )
             .await
             .expect("Failed to create conversation");
     }

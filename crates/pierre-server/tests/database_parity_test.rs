@@ -312,6 +312,7 @@ async fn test_parity_chat_create_conversation() {
             "Test Chat",
             "gpt-4",
             None,
+            None,
         )
         .await
         .expect("SQLite: Failed to create conversation");
@@ -323,6 +324,7 @@ async fn test_parity_chat_create_conversation() {
             pg_tenant_id,
             "Test Chat",
             "gpt-4",
+            None,
             None,
         )
         .await
@@ -363,6 +365,7 @@ async fn test_parity_chat_messages() {
             "Message Test",
             "gpt-4",
             None,
+            None,
         )
         .await
         .expect("SQLite: Failed to create conversation");
@@ -374,6 +377,7 @@ async fn test_parity_chat_messages() {
             pg_tenant_id,
             "Message Test",
             "gpt-4",
+            None,
             None,
         )
         .await
@@ -495,6 +499,7 @@ async fn test_parity_chat_list_conversations() {
                 &format!("Chat {i}"),
                 "gpt-4",
                 None,
+                None,
             )
             .await
             .expect("SQLite: Failed to create conversation");
@@ -506,6 +511,7 @@ async fn test_parity_chat_list_conversations() {
                 pg_tenant_id,
                 &format!("Chat {i}"),
                 "gpt-4",
+                None,
                 None,
             )
             .await

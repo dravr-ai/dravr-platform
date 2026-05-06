@@ -251,6 +251,11 @@ pub const KEY_GROUP_INVITE_BODY: &str = "commands.group.invite_body";
 pub const KEY_GROUP_INVITE_UNAVAILABLE: &str = "commands.group.invite_unavailable";
 /// Key: `/group leave` confirmation prompt. `{0}` = group name.
 pub const KEY_GROUP_LEAVE_PROMPT: &str = "commands.group.leave_prompt";
+/// Key: `/group consent` usage hint when the argument is missing or invalid.
+pub const KEY_GROUP_CONSENT_USAGE: &str = "commands.group.consent_usage";
+/// Key: `/group consent` confirmation. `{0}` = on/off (peer-sharing localized),
+/// `{1}` = group name.
+pub const KEY_GROUP_CONSENT_UPDATED: &str = "commands.group.consent_updated";
 
 // ── /coach command keys ───────────────────────────────────────────────────
 
@@ -400,6 +405,9 @@ pub(crate) const FR_GROUP_INVITE_UNAVAILABLE: &str =
     "Les invitations de groupe ne sont pas disponibles.";
 pub(crate) const FR_GROUP_LEAVE_PROMPT: &str =
     "Veux-tu vraiment quitter {0} ?\nTape « YES » pour confirmer.";
+pub(crate) const FR_GROUP_CONSENT_USAGE: &str = "Usage : /group consent yes  ou  /group consent no";
+pub(crate) const FR_GROUP_CONSENT_UPDATED: &str =
+    "Le partage de tes données avec les autres membres de {1} est maintenant {0}.";
 
 pub(crate) const FR_COACH_LIST_EMPTY: &str =
     "Aucun coach disponible. Demande à ton admin d'ajouter des coachs à ton espace.";
@@ -531,6 +539,9 @@ pub(crate) const EN_GROUP_INVITE_BODY: &str =
 pub(crate) const EN_GROUP_INVITE_UNAVAILABLE: &str = "Group invites are not available.";
 pub(crate) const EN_GROUP_LEAVE_PROMPT: &str =
     "Are you sure you want to leave {0}?\nType \"YES\" to confirm.";
+pub(crate) const EN_GROUP_CONSENT_USAGE: &str = "Usage: /group consent yes  or  /group consent no";
+pub(crate) const EN_GROUP_CONSENT_UPDATED: &str =
+    "Sharing your data with the other members of {1} is now {0}.";
 
 pub(crate) const EN_COACH_LIST_EMPTY: &str =
     "No coaches available. Ask your admin to add coaches to your workspace.";
@@ -655,6 +666,9 @@ pub(crate) const ES_GROUP_INVITE_UNAVAILABLE: &str =
     "Las invitaciones de grupo no están disponibles.";
 pub(crate) const ES_GROUP_LEAVE_PROMPT: &str =
     "¿Seguro que quieres salir de {0}?\nEscribe «YES» para confirmar.";
+pub(crate) const ES_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  o  /group consent no";
+pub(crate) const ES_GROUP_CONSENT_UPDATED: &str =
+    "Compartir tus datos con los demás miembros de {1} está ahora {0}.";
 
 pub(crate) const ES_COACH_LIST_EMPTY: &str =
     "No hay coaches disponibles. Pide a tu admin que añada coaches a tu espacio.";
@@ -779,6 +793,10 @@ pub(crate) const DE_GROUP_INVITE_BODY: &str =
 pub(crate) const DE_GROUP_INVITE_UNAVAILABLE: &str = "Gruppeneinladungen sind nicht verfügbar.";
 pub(crate) const DE_GROUP_LEAVE_PROMPT: &str =
     "Willst du {0} wirklich verlassen?\nTippe „YES\", um zu bestätigen.";
+pub(crate) const DE_GROUP_CONSENT_USAGE: &str =
+    "Verwendung: /group consent yes  oder  /group consent no";
+pub(crate) const DE_GROUP_CONSENT_UPDATED: &str =
+    "Das Teilen deiner Daten mit den anderen Mitgliedern von {1} ist jetzt {0}.";
 
 pub(crate) const DE_COACH_LIST_EMPTY: &str =
     "Keine Coaches verfügbar. Bitte deinen Admin, Coaches zu deinem Workspace hinzuzufügen.";
@@ -903,6 +921,9 @@ pub(crate) const PT_GROUP_INVITE_BODY: &str =
 pub(crate) const PT_GROUP_INVITE_UNAVAILABLE: &str = "Convites de grupo não estão disponíveis.";
 pub(crate) const PT_GROUP_LEAVE_PROMPT: &str =
     "Tens a certeza que queres sair de {0}?\nEscreve «YES» para confirmar.";
+pub(crate) const PT_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  ou  /group consent no";
+pub(crate) const PT_GROUP_CONSENT_UPDATED: &str =
+    "Partilhar os teus dados com os outros membros de {1} está agora {0}.";
 
 pub(crate) const PT_COACH_LIST_EMPTY: &str =
     "Nenhum coach disponível. Pede ao teu admin para adicionar coaches ao teu espaço.";
@@ -1004,6 +1025,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_BODY, "fr", FR_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "fr", FR_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "fr", FR_GROUP_LEAVE_PROMPT),
+    (KEY_GROUP_CONSENT_USAGE, "fr", FR_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_CONSENT_UPDATED, "fr", FR_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "fr", FR_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "fr", FR_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "fr", FR_COACH_LIST_ITEM),
@@ -1095,6 +1118,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_BODY, "en", EN_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "en", EN_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "en", EN_GROUP_LEAVE_PROMPT),
+    (KEY_GROUP_CONSENT_USAGE, "en", EN_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_CONSENT_UPDATED, "en", EN_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "en", EN_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "en", EN_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "en", EN_COACH_LIST_ITEM),
@@ -1186,6 +1211,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_BODY, "es", ES_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "es", ES_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "es", ES_GROUP_LEAVE_PROMPT),
+    (KEY_GROUP_CONSENT_USAGE, "es", ES_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_CONSENT_UPDATED, "es", ES_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "es", ES_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "es", ES_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "es", ES_COACH_LIST_ITEM),
@@ -1277,6 +1304,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_BODY, "de", DE_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "de", DE_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "de", DE_GROUP_LEAVE_PROMPT),
+    (KEY_GROUP_CONSENT_USAGE, "de", DE_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_CONSENT_UPDATED, "de", DE_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "de", DE_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "de", DE_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "de", DE_COACH_LIST_ITEM),
@@ -1368,6 +1397,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_BODY, "pt", PT_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "pt", PT_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "pt", PT_GROUP_LEAVE_PROMPT),
+    (KEY_GROUP_CONSENT_USAGE, "pt", PT_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_CONSENT_UPDATED, "pt", PT_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "pt", PT_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "pt", PT_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "pt", PT_COACH_LIST_ITEM),

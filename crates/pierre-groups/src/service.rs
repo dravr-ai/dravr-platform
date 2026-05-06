@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -129,26 +130,52 @@ impl GroupService {
             return Ok(base_system_prompt.to_owned());
         };
 
-        // Get member info
-        let member = self.repo.get_member(&group.id.to_string(), user_id).await?;
-
-        let is_admin = member.as_ref().is_some_and(|m| m.role.can_manage_members());
-
-        let member_count = self
+        // Pull the full member list once: we need both the requester's role
+        // (for the admin gate) and the per-member peer_sharing_consent flag
+        // (for the privacy filter on the snapshot list).
+        let members = self
             .repo
-            .count_members(&group.id.to_string())
+            .list_members(&group.id.to_string())
             .await
-            .unwrap_or(0) as usize;
+            .unwrap_or_default();
+
+        let is_admin = members
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .is_some_and(|m| m.role.can_manage_members());
+
+        let member_count = members.len();
 
         // Build summary cards from snapshots.
-        // When peer_data_sharing is OFF and the requester is not an admin,
-        // restrict to only the requesting user's snapshot. Passing other
-        // members' data to the LLM — even with a "don't mention it"
-        // instruction — leads to hallucinated comparisons.
+        //
+        // Privacy gate is two-layered:
+        //
+        //   Layer 1 (group-level): peer_sharing_allowed = is_admin
+        //     || group.peer_data_sharing. When OFF and the requester is
+        //     not an admin, only their own snapshot leaks — everything
+        //     else is hidden, even consenting members.
+        //
+        //   Layer 2 (per-member): peer_sharing_consent. Even when Layer 1
+        //     is permissive, each individual member must have opted in to
+        //     have their snapshot rendered for peers. The requester's own
+        //     snapshot is always visible regardless of consent.
+        //
+        // Without Layer 2, the per-member consent toggle (REST
+        // PUT /api/groups/{id}/consent and the /group consent slash
+        // command) would have no observable effect, since the LLM
+        // would still see non-consenting members' data.
         let summarizer = self.tier.summarization_strategy();
         let peer_sharing_allowed = is_admin || group.peer_data_sharing;
+        let consenting_user_ids: HashSet<Uuid> = members
+            .iter()
+            .filter(|m| m.peer_sharing_consent)
+            .map(|m| m.user_id)
+            .collect();
         let visible_snapshots: Vec<&MemberFitnessSnapshot> = if peer_sharing_allowed {
-            member_snapshots.iter().collect()
+            member_snapshots
+                .iter()
+                .filter(|s| s.user_id == user_id || consenting_user_ids.contains(&s.user_id))
+                .collect()
         } else {
             member_snapshots
                 .iter()
@@ -231,6 +258,8 @@ impl GroupService {
             peer_data_sharing: false,
             max_members: request.max_members.unwrap_or(20),
             is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -725,6 +754,8 @@ impl UnwrapSingle for Option<CoachingGroup> {
             peer_data_sharing: false,
             max_members: 0,
             is_active: false,
+            channel_type: None,
+            channel_chat_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         })

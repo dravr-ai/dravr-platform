@@ -17,6 +17,7 @@ use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
     MessagingRepository, TenantRepository, UserRepository,
 };
+use pierre_database::repositories::ChatRepository;
 use pierre_llm::TokenUsage;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
@@ -54,6 +55,7 @@ use crate::services::chat_orchestration;
 use crate::services::chat_pipeline::{
     self, ChannelProfile, DispatchResult, PipelineHooks, TurnInput,
 };
+use crate::services::messaging_group_bind::resolve_or_create_channel_group;
 use crate::services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
@@ -365,6 +367,7 @@ async fn forge_fresh_session_conversation(
         &title,
         None,
         None,
+        None,
     )
     .await?;
     let new_id = conversation.conversation.id.clone();
@@ -372,72 +375,154 @@ async fn forge_fresh_session_conversation(
     Ok(new_id)
 }
 
-/// Resolve a messaging session for a linked channel user
+/// Resolve a messaging session for a linked channel user.
 ///
 /// Looks up the channel link to find the Pierre user, then looks up or creates
 /// a session. Returns `None` if the sender has no channel link (unlinked user).
+///
+/// `is_direct_message == false` triggers the channel-group binding pass: the
+/// chat is mapped to (or auto-creates) a `coaching_groups` row, and the
+/// resulting `group_id` is attached to the conversation so the prompt-assembly
+/// stage injects group context (member roster, peer training data subject to
+/// per-member consent).
 async fn resolve_linked_session(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
     channel_conversation_id: Option<&str>,
+    is_direct_message: bool,
 ) -> Result<Option<ResolvedSession>, AppError> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
-    // Check for existing session first (fast path)
+    // Existing session, scoped to this specific chat. A user with a
+    // Telegram DM AND a Telegram group chat gets two sessions — one per
+    // (tenant, channel, user, chat) — because of migration
+    // 20260505000001_messaging_sessions_per_chat.
     if let Some(session) = db
-        .get_session_by_channel_identity(tenant_id, channel_type, sender_id)
+        .get_session_by_channel_identity(
+            tenant_id,
+            channel_type,
+            sender_id,
+            channel_conversation_id,
+        )
         .await?
     {
-        let session_id = session["id"]
-            .as_str()
-            .ok_or_else(|| AppError::internal("Session missing id field"))?
-            .to_owned();
-        let user_id = session["user_id"]
-            .as_str()
-            .ok_or_else(|| AppError::internal("Session missing user_id field"))?
-            .to_owned();
-
-        // Self-heal: if the session has no conversation (the chat_conversations row
-        // was deleted and the FK ON DELETE SET NULL fired, or the row is otherwise
-        // unreachable), forge a fresh one and repoint the session before returning.
-        // Without this, dispatch_and_respond would fail on every message for this
-        // channel user until they manually re-link.
-        let conversation = if let Some(id) = session["pierre_conversation_id"].as_str() {
-            id.to_owned()
-        } else {
-            forge_fresh_session_conversation(
-                resources,
-                db,
-                &session_id,
-                &user_id,
-                tenant_id,
-                channel_type,
-            )
-            .await?
-        };
-
-        if let Err(e) = db.touch_session(&session_id).await {
-            error!(error = %e, session_id = %session_id, "Failed to touch session");
-        }
-
-        hydrate_analytics_consent(resources, &user_id).await;
-
-        return Ok(Some(ResolvedSession {
-            session_id,
-            conversation,
-            user_id,
-        }));
+        return resume_existing_session(
+            resources,
+            db,
+            session,
+            tenant_id,
+            channel_type,
+            channel_conversation_id,
+            is_direct_message,
+        )
+        .await
+        .map(Some);
     }
 
-    // No existing session — check if user has linked this channel
+    // No existing session — open a fresh one for the linked user.
+    open_new_session(
+        resources,
+        db,
+        tenant_id,
+        channel_type,
+        sender_id,
+        channel_conversation_id,
+        is_direct_message,
+    )
+    .await
+}
+
+/// Resume the per-chat session row returned by
+/// `get_session_by_channel_identity`. Self-heals a missing conversation,
+/// retrofits the group binding for non-DM chats, and touches the session
+/// before returning.
+async fn resume_existing_session(
+    resources: &ServerContext,
+    db: &dyn MessagingRepository,
+    session: Value,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_conversation_id: Option<&str>,
+    is_direct_message: bool,
+) -> Result<ResolvedSession, AppError> {
+    let session_id = session["id"]
+        .as_str()
+        .ok_or_else(|| AppError::internal("Session missing id field"))?
+        .to_owned();
+    let user_id = session["user_id"]
+        .as_str()
+        .ok_or_else(|| AppError::internal("Session missing user_id field"))?
+        .to_owned();
+
+    // Self-heal: if the session has no conversation (the chat_conversations row
+    // was deleted and the FK ON DELETE SET NULL fired, or the row is otherwise
+    // unreachable), forge a fresh one and repoint the session before returning.
+    // Without this, dispatch_and_respond would fail on every message for this
+    // channel user until they manually re-link.
+    let conversation = if let Some(id) = session["pierre_conversation_id"].as_str() {
+        id.to_owned()
+    } else {
+        forge_fresh_session_conversation(
+            resources,
+            db,
+            &session_id,
+            &user_id,
+            tenant_id,
+            channel_type,
+        )
+        .await?
+    };
+
+    // Retrofit group_id on conversations that predate the channel binding.
+    if !is_direct_message {
+        if let Some(chat_id) = channel_conversation_id {
+            ensure_conversation_group_binding(
+                resources,
+                tenant_id,
+                channel_type,
+                chat_id,
+                &user_id,
+                &conversation,
+            )
+            .await;
+        }
+    }
+
+    if let Err(e) = db.touch_session(&session_id).await {
+        error!(error = %e, session_id = %session_id, "Failed to touch session");
+    }
+
+    hydrate_analytics_consent(resources, &user_id).await;
+
+    Ok(ResolvedSession {
+        session_id,
+        conversation,
+        user_id,
+    })
+}
+
+/// Open a brand-new session for a linked user. Returns `Ok(None)` when the
+/// sender has no channel link (unlinked user — caller sends the link
+/// prompt). For non-DM chats, resolves the channel-bound `coaching_group`
+/// and attaches its id to the new conversation so prompt assembly injects
+/// group context.
+async fn open_new_session(
+    resources: &ServerContext,
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel_type: &str,
+    sender_id: &str,
+    channel_conversation_id: Option<&str>,
+    is_direct_message: bool,
+) -> Result<Option<ResolvedSession>, AppError> {
     let channel_link = db
         .get_channel_link(tenant_id, channel_type, sender_id)
         .await?;
 
     let Some(link) = channel_link else {
-        return Ok(None); // Unlinked user
+        return Ok(None);
     };
 
     let user_id = link["user_id"]
@@ -445,7 +530,16 @@ async fn resolve_linked_session(
         .ok_or_else(|| AppError::internal("Channel link missing user_id"))?
         .to_owned();
 
-    // Create a new conversation and session for this linked user
+    let group_id_opt = resolve_group_for_new_session(
+        resources,
+        tenant_id,
+        channel_type,
+        channel_conversation_id,
+        is_direct_message,
+        &user_id,
+    )
+    .await;
+
     let title = format!("Messaging: {channel_type}");
     let conversation = chat_orchestration::create_conversation(
         resources.repos.chat.as_ref(),
@@ -454,6 +548,7 @@ async fn resolve_linked_session(
         &title,
         None,
         None,
+        group_id_opt.as_deref(),
     )
     .await?;
 
@@ -477,6 +572,7 @@ async fn resolve_linked_session(
         channel_type = %channel_type,
         sender_id = %sender_id,
         user_id = %user_id,
+        group_id = ?group_id_opt,
         "Created messaging session for linked user"
     );
 
@@ -494,6 +590,167 @@ async fn resolve_linked_session(
         conversation: conversation_id,
         user_id,
     }))
+}
+
+/// Pick the `coaching_groups.id` to attach to a new messaging conversation,
+/// or `None` for DMs / when no coach is available to bootstrap the group.
+async fn resolve_group_for_new_session(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_conversation_id: Option<&str>,
+    is_direct_message: bool,
+    user_id: &str,
+) -> Option<String> {
+    if is_direct_message {
+        return None;
+    }
+    let chat_id = channel_conversation_id?;
+    let chat_title_hint = format!("{channel_type} group {chat_id}");
+    match resolve_or_create_channel_group(
+        resources,
+        tenant_id,
+        channel_type,
+        chat_id,
+        user_id,
+        &chat_title_hint,
+    )
+    .await
+    {
+        Ok(opt) => opt,
+        Err(e) => {
+            error!(
+                error = %e,
+                channel_type,
+                chat_id,
+                "Failed to resolve/create channel-bound coaching_group; conversation will be ungrouped"
+            );
+            None
+        }
+    }
+}
+
+/// Retrofit `chat_conversations.group_id` for an existing conversation
+/// that pre-dates the channel/group binding.
+///
+/// Only writes if the conversation currently has a NULL `group_id`;
+/// failures are logged (not surfaced) so a binding hiccup doesn't block
+/// message handling.
+async fn ensure_conversation_group_binding(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_chat_id: &str,
+    user_id: &str,
+    conversation_id: &str,
+) {
+    let chat_repo = resources.repos.chat.as_ref();
+    let Ok(already_bound) =
+        conversation_already_bound(chat_repo, conversation_id, user_id, tenant_id).await
+    else {
+        return;
+    };
+    if already_bound {
+        return;
+    }
+
+    let chat_title_hint = format!("{channel_type} group {channel_chat_id}");
+    let Some(new_group_id) = resolve_group_for_retrofit(
+        resources,
+        tenant_id,
+        channel_type,
+        channel_chat_id,
+        user_id,
+        &chat_title_hint,
+    )
+    .await
+    else {
+        return;
+    };
+
+    if let Err(e) = chat_repo
+        .set_conversation_group_id(conversation_id, Some(&new_group_id), tenant_id)
+        .await
+    {
+        error!(
+            error = %e,
+            conversation_id,
+            group_id = %new_group_id,
+            "Failed to set group_id on conversation during retrofit"
+        );
+    } else {
+        info!(
+            conversation_id,
+            group_id = %new_group_id,
+            "Retrofit group_id onto pre-binding conversation"
+        );
+    }
+}
+
+/// Look up the conversation and report whether it already has a `group_id`.
+/// Returns `Err(())` on lookup failure (callers swallow the error so the
+/// ongoing message turn proceeds).
+async fn conversation_already_bound(
+    chat_repo: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Result<bool, ()> {
+    match chat_repo
+        .get_conversation(conversation_id, user_id, tenant_id)
+        .await
+    {
+        Ok(Some(c)) => Ok(c.group_id.is_some()),
+        Ok(None) => {
+            warn!(
+                conversation_id,
+                user_id, "Conversation not found while attempting group retrofit"
+            );
+            Err(())
+        }
+        Err(e) => {
+            error!(
+                error = %e,
+                conversation_id,
+                "Failed to load conversation for group retrofit"
+            );
+            Err(())
+        }
+    }
+}
+
+/// Resolve (or auto-create on first sender) the channel-bound
+/// `coaching_groups.id` for a retrofit pass. Logs and returns `None` on
+/// failure or when no coach is available to bootstrap the group.
+async fn resolve_group_for_retrofit(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_chat_id: &str,
+    user_id: &str,
+    chat_title_hint: &str,
+) -> Option<String> {
+    match resolve_or_create_channel_group(
+        resources,
+        tenant_id,
+        channel_type,
+        channel_chat_id,
+        user_id,
+        chat_title_hint,
+    )
+    .await
+    {
+        Ok(opt) => opt,
+        Err(e) => {
+            error!(
+                error = %e,
+                channel_type,
+                channel_chat_id,
+                "Failed to resolve/create coaching_group during retrofit"
+            );
+            None
+        }
+    }
 }
 
 /// Create a link state and return a prompt message with a clickable login URL
@@ -1641,6 +1898,7 @@ async fn resolve_or_prompt(
         channel,
         &message.sender_id,
         message.conversation_id.as_deref(),
+        message.is_direct_message,
     )
     .await
     {

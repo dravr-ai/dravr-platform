@@ -28,14 +28,20 @@ impl ChatRepository for PostgresDatabase {
         title: &str,
         model: &str,
         coach_id: Option<&str>,
+        group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
+        // chat_conversations.group_id is UUID in Postgres (see migration
+        // 20260326000001_fix_coaching_groups_uuid_types). Parse to Uuid before
+        // binding so the type matches.
+        let group_uuid: Option<Uuid> = group_id.map(parse_uuid).transpose()?;
+
         sqlx::query(
             r"
-            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, total_tokens, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $7)
+            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, group_id, total_tokens, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)
             ",
         )
         .bind(&id)
@@ -44,6 +50,7 @@ impl ChatRepository for PostgresDatabase {
         .bind(title)
         .bind(model)
         .bind(coach_id)
+        .bind(group_uuid)
         .bind(now)
         .execute(&self.pool)
         .await
@@ -60,7 +67,7 @@ impl ChatRepository for PostgresDatabase {
             total_tokens: 0,
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
-            group_id: None,
+            group_id: group_uuid.map(|u| u.to_string()),
         })
     }
 
@@ -72,7 +79,8 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, coach_id, session_id, total_tokens, created_at, updated_at, group_id
+            SELECT id, user_id, tenant_id, title, model, coach_id, session_id,
+                   total_tokens, created_at, updated_at, group_id::TEXT AS group_id
             FROM chat_conversations
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -501,6 +509,30 @@ impl ChatRepository for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set conversation session_id: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_conversation_group_id(
+        &self,
+        conversation_id: &str,
+        group_id: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        // chat_conversations.group_id is UUID in Postgres — parse the str.
+        let group_uuid: Option<Uuid> = group_id.map(parse_uuid).transpose()?;
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET group_id = $1
+            WHERE id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(group_uuid)
+        .bind(conversation_id)
+        .bind(tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation group_id: {e}")))?;
         Ok(result.rows_affected() > 0)
     }
 }

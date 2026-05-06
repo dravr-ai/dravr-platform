@@ -178,7 +178,7 @@ async fn seed_conversations_and_messages(
         let convo = resources
             .repos
             .chat
-            .create_conversation(user_id, tenant_id, &title, "gemini-2.0-flash", None)
+            .create_conversation(user_id, tenant_id, &title, "gemini-2.0-flash", None, None)
             .await
             .unwrap();
 
