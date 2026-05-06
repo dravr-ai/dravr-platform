@@ -101,7 +101,33 @@ jobs:
             --profile ${{ env.EAS_PROFILE }} \
             --non-interactive
 
+      # Skip TestFlight submission when the App Store Connect secrets
+      # aren't configured. eas.json references ${APPLE_ID}, ${ASC_APP_ID},
+      # and ${APPLE_TEAM_ID}; without all three set, `eas submit` fails
+      # with "Invalid Apple ID" / "Invalid Apple App Store Connect App ID"
+      # / "Invalid Apple Team ID". The build still validates on every
+      # push (signal that mobile compiles); the submit step is opt-in
+      # via repo secrets.
+      - name: Check submit credentials
+        id: submit_creds
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_ID" ] && [ -n "$ASC_APP_ID" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping TestFlight submit — APPLE_ID/ASC_APP_ID/APPLE_TEAM_ID secrets not set. Build completed; configure repo secrets to enable submission."
+          fi
+
       - name: Submit to TestFlight
+        if: steps.submit_creds.outputs.ready == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           eas submit \
             --platform ios \
