@@ -13,9 +13,12 @@ use axum::{
     Json,
 };
 
+use uuid::Uuid;
+
 use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
 use crate::services::chat_orchestration;
+use pierre_core::errors::ErrorCode;
 
 use super::common::{authenticate, get_tenant_id};
 use super::dto::{
@@ -23,6 +26,25 @@ use super::dto::{
     CreateConversationRequest, ListConversationsQuery, MessageResponse, MessagesListResponse,
     UpdateConversationRequest,
 };
+
+/// Reject conversation creation when the caller is not an active member of
+/// the requested group. `group_id` must be a real `coaching_group` the user
+/// belongs to — otherwise the LLM would be handed peer fitness data the
+/// caller has no relationship to.
+async fn verify_group_membership(
+    resources: &Arc<ServerContext>,
+    group_id: &str,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let member = resources.repos.groups.get_member(group_id, user_id).await?;
+    match member {
+        Some(m) if m.left_at.is_none() => Ok(()),
+        _ => Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Cannot attach conversation to a group you don't belong to",
+        )),
+    }
+}
 
 /// Create a new conversation.
 pub async fn create_conversation(
@@ -62,6 +84,12 @@ pub async fn create_conversation(
         }
     }
 
+    // Verify group membership when caller asks to attach a group_id —
+    // a user can only create a conversation scoped to a group they belong to.
+    if let Some(gid) = request.group_id.as_deref() {
+        verify_group_membership(&resources, gid, auth.user_id).await?;
+    }
+
     let result = chat_orchestration::create_conversation(
         resources.repos.chat.as_ref(),
         &user_id_str,
@@ -69,6 +97,7 @@ pub async fn create_conversation(
         &request.title,
         request.model.as_deref(),
         request.coach_id.as_deref(),
+        request.group_id.as_deref(),
     )
     .await?;
 
@@ -78,6 +107,7 @@ pub async fn create_conversation(
         title: conv.title,
         model: conv.model,
         coach_id: conv.coach_id,
+        group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,
         updated_at: conv.updated_at,
@@ -147,6 +177,7 @@ pub async fn get_conversation(
         title: conv.title,
         model: conv.model,
         coach_id: conv.coach_id,
+        group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,
         updated_at: conv.updated_at,
@@ -193,6 +224,7 @@ pub async fn update_conversation(
         title: conv.title,
         model: conv.model,
         coach_id: conv.coach_id,
+        group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,
         updated_at: conv.updated_at,

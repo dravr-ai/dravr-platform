@@ -37,6 +37,7 @@ pub async fn create_conversation(
     title: &str,
     requested_model: Option<&str>,
     coach_id: Option<&str>,
+    group_id: Option<&str>,
 ) -> AppResult<CreateConversationResult> {
     pipeline_create_conversation(
         database,
@@ -45,6 +46,7 @@ pub async fn create_conversation(
         title,
         requested_model,
         coach_id,
+        group_id,
     )
     .await
 }

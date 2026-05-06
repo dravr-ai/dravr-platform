@@ -18,6 +18,12 @@ pub struct CreateConversationRequest {
     /// system prompt is resolved at runtime from the `coaches` table.
     #[serde(default)]
     pub coach_id: Option<String>,
+    /// Coaching group ID to scope this conversation to (optional). When
+    /// set, the server-side prompt assembly stage injects group context
+    /// (member roster, peer training data with consent, role-aware
+    /// summaries). The caller must be an active member of the group.
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 /// Response for conversation creation
@@ -31,6 +37,9 @@ pub struct ConversationResponse {
     pub model: String,
     /// Coach attached to this conversation, if any
     pub coach_id: Option<String>,
+    /// Coaching group attached to this conversation, if any
+    #[serde(default)]
+    pub group_id: Option<String>,
     /// Total tokens used
     pub total_tokens: i64,
     /// Creation timestamp

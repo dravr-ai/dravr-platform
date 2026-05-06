@@ -50,14 +50,15 @@ impl ChatManager {
         title: &str,
         model: &str,
         coach_id: Option<&str>,
+        group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
             r"
-            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, total_tokens, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $7)
+            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, group_id, total_tokens, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)
             ",
         )
         .bind(&id)
@@ -66,6 +67,7 @@ impl ChatManager {
         .bind(title)
         .bind(model)
         .bind(coach_id)
+        .bind(group_id)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -82,7 +84,7 @@ impl ChatManager {
             total_tokens: 0,
             created_at: now.clone(),
             updated_at: now,
-            group_id: None,
+            group_id: group_id.map(ToOwned::to_owned),
         })
     }
 
@@ -499,8 +501,12 @@ impl ChatRepository for Database {
         title: &str,
         model: &str,
         coach_id: Option<&str>,
+        group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
-        Self::chat_create_conversation_impl(self, user_id, tenant_id, title, model, coach_id).await
+        Self::chat_create_conversation_impl(
+            self, user_id, tenant_id, title, model, coach_id, group_id,
+        )
+        .await
     }
     async fn get_conversation(
         &self,
@@ -638,6 +644,28 @@ impl ChatRepository for Database {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set conversation session_id: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_conversation_group_id(
+        &self,
+        conversation_id: &str,
+        group_id: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET group_id = $1
+            WHERE id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(group_id)
+        .bind(conversation_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation group_id: {e}")))?;
         Ok(result.rows_affected() > 0)
     }
 }

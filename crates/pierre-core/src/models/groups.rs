@@ -92,6 +92,14 @@ pub struct CoachingGroup {
     pub max_members: i32,
     /// Whether the group is active
     pub is_active: bool,
+    /// Channel platform when the group was bootstrapped from a messaging
+    /// chat (Telegram group, Slack channel, Discord channel). `None` for
+    /// REST-created (web/mobile) groups.
+    pub channel_type: Option<String>,
+    /// Channel-native chat identifier when bootstrapped from a messaging
+    /// chat (Telegram `chat_id`, Slack `channel_id`, Discord `channel_id`).
+    /// `None` for REST-created groups.
+    pub channel_chat_id: Option<String>,
     /// When the group was created
     pub created_at: DateTime<Utc>,
     /// When the group was last updated

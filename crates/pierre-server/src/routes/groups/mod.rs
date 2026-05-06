@@ -542,6 +542,8 @@ impl GroupRoutes {
             peer_data_sharing: false,
             max_members: body.max_members.unwrap_or(20).clamp(2, 100),
             is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

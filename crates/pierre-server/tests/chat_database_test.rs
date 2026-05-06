@@ -118,7 +118,14 @@ async fn test_create_conversation() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -141,7 +148,14 @@ async fn test_create_conversation_with_coach_id() {
     // route-level and orchestration integration tests.
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Fitness Chat", "gemini-1.5-pro", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Fitness Chat",
+            "gemini-1.5-pro",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -156,7 +170,14 @@ async fn test_get_conversation() {
 
     let tenant_id = test_tenant_id();
     let created = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -179,7 +200,14 @@ async fn test_get_conversation_tenant_isolation() {
     let tenant_id = test_tenant_id();
     let different_tenant = test_tenant_id_2();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -200,15 +228,36 @@ async fn test_list_conversations() {
     let tenant_id = test_tenant_id();
     // Create multiple conversations
     manager
-        .create_conversation("user-1", tenant_id, "Chat 1", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 1",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
     manager
-        .create_conversation("user-1", tenant_id, "Chat 2", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 2",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
     manager
-        .create_conversation("user-1", tenant_id, "Chat 3", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 3",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -234,6 +283,7 @@ async fn test_list_conversations_pagination() {
                 tenant_id,
                 &format!("Chat {i}"),
                 "gemini-1.5-flash",
+                None,
                 None,
             )
             .await
@@ -275,6 +325,7 @@ async fn test_update_conversation_title() {
             "Original Title",
             "gemini-1.5-flash",
             None,
+            None,
         )
         .await
         .unwrap();
@@ -302,7 +353,14 @@ async fn test_delete_conversation() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "To Delete", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "To Delete",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -332,7 +390,14 @@ async fn test_add_message() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -364,7 +429,14 @@ async fn test_add_assistant_message_with_finish_reason() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -395,7 +467,14 @@ async fn test_get_messages() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -455,7 +534,14 @@ async fn test_get_recent_messages() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -497,7 +583,14 @@ async fn test_message_updates_conversation_tokens() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -548,7 +641,14 @@ async fn test_get_message_count() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -595,7 +695,14 @@ async fn test_cascade_delete_messages() {
 
     let tenant_id = test_tenant_id();
     let conv = manager
-        .create_conversation("user-1", tenant_id, "Test Chat", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Test Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -650,15 +757,36 @@ async fn test_delete_all_user_conversations() {
     let tenant_id = test_tenant_id();
     // Create multiple conversations
     manager
-        .create_conversation("user-1", tenant_id, "Chat 1", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 1",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
     manager
-        .create_conversation("user-1", tenant_id, "Chat 2", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 2",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
     manager
-        .create_conversation("user-1", tenant_id, "Chat 3", "gemini-1.5-flash", None)
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Chat 3",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
         .await
         .unwrap();
 

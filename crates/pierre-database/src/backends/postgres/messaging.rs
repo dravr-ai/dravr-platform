@@ -239,10 +239,13 @@ impl MessagingRepository for PostgresDatabase {
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<Value>> {
         // Casts: migration 20260417000001 converted messaging_sessions.tenant_id
         // and user_id to UUID. SQL casts keep the Rust String/TenantId bind
         // sites stable while letting Postgres compare against UUID columns.
+        // The COALESCE expression mirrors the unique-index expression in
+        // migration 20260505000001_messaging_sessions_per_chat.
         let row = sqlx::query(
             r"
             SELECT id,
@@ -253,11 +256,13 @@ impl MessagingRepository for PostgresDatabase {
                    last_message_at, created_at
             FROM messaging_sessions
             WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
+              AND COALESCE(channel_conversation_id, '') = COALESCE($4, '')
             ",
         )
         .bind(tenant_id.to_string())
         .bind(channel_type)
         .bind(channel_user_id)
+        .bind(channel_conversation_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get session by identity: {e}")))?;

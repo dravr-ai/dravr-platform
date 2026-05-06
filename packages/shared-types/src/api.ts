@@ -12,6 +12,10 @@ export interface Conversation {
   /** Coach ID if conversation uses a coach; resolves to the coach's
    *  system_prompt at runtime via the coaches table. */
   coach_id?: string | null;
+  /** Coaching group ID if the conversation is group-scoped. When set,
+   *  prompt assembly injects group context (members, peer training data
+   *  subject to per-member consent). NULL for personal 1:1 chats. */
+  group_id?: string | null;
   /** Total tokens used in conversation */
   total_tokens?: number;
   /** Number of messages in conversation */

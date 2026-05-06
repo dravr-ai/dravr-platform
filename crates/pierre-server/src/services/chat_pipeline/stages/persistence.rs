@@ -49,6 +49,7 @@ pub async fn create_conversation(
     title: &str,
     requested_model: Option<&str>,
     coach_id: Option<&str>,
+    group_id: Option<&str>,
 ) -> AppResult<CreateConversationResult> {
     let model = match requested_model {
         Some(m) => m.to_owned(),
@@ -58,7 +59,7 @@ pub async fn create_conversation(
     };
 
     let conversation = database
-        .create_conversation(user_id, tenant_id, title, &model, coach_id)
+        .create_conversation(user_id, tenant_id, title, &model, coach_id, group_id)
         .await?;
 
     Ok(CreateConversationResult { conversation })

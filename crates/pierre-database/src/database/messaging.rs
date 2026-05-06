@@ -262,7 +262,12 @@ impl Database {
         Ok(())
     }
 
-    /// Look up a session by channel identity
+    /// Look up a session by channel identity (per-chat).
+    ///
+    /// `channel_conversation_id` keys group/DM split: a Telegram user has one
+    /// session per chat (DM vs each group). NULL is treated as the empty
+    /// sentinel to match the unique-index expression
+    /// `COALESCE(channel_conversation_id, '')`.
     ///
     /// # Errors
     ///
@@ -272,6 +277,7 @@ impl Database {
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<Value>> {
         let row = sqlx::query(
             r"
@@ -279,11 +285,13 @@ impl Database {
                    channel_conversation_id, pierre_conversation_id, last_message_at, created_at
             FROM messaging_sessions
             WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
+              AND COALESCE(channel_conversation_id, '') = COALESCE(?, '')
             ",
         )
         .bind(tenant_id)
         .bind(channel_type)
         .bind(channel_user_id)
+        .bind(channel_conversation_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get session by identity: {e}")))?;
@@ -1285,9 +1293,15 @@ impl MessagingRepository for Database {
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<Value>> {
-        self.get_session_by_channel_identity_impl(tenant_id, channel_type, channel_user_id)
-            .await
+        self.get_session_by_channel_identity_impl(
+            tenant_id,
+            channel_type,
+            channel_user_id,
+            channel_conversation_id,
+        )
+        .await
     }
 
     async fn touch_session(&self, session_id: &str) -> AppResult<()> {
