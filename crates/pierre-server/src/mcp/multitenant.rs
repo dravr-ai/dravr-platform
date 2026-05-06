@@ -1053,6 +1053,7 @@ impl MultiTenantMcpServer {
                 admin_api_key_limit,
                 admin_token_cache_ttl,
                 resources.tool_selection.clone(),
+                resources.harness_config_registry.clone(),
             );
             admin_context.tool_registry = Some(resources.tool_registry.clone());
             admin_context

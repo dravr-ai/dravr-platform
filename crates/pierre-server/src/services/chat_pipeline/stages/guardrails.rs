@@ -14,18 +14,21 @@
 //!   graceful fallback message.
 //! - Rejects replies that reference blocked topics.
 //!
-//! Uses a safe default profile; per-tenant overrides are a pending Tier 6
-//! admin GUI follow-up.
+//! Reads the active rules from
+//! [`crate::harness_config_registry::HarnessConfigRegistry`], so the
+//! disclaimer text, blocked-topic list, length cap, and trigger keywords
+//! reflect whatever the admin most recently saved via
+//! `PUT /admin/settings/harness`.
 
 use std::sync::Arc;
 
-use crate::config::text_guardrails::{GuardrailOutcome, GuardrailRejection, TextGuardrails};
+use crate::config::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
 };
 use crate::mcp::resources::ServerContext;
 
-/// Apply the safe-default text guardrails to an assistant reply.
+/// Apply the live admin-configured text guardrails to an assistant reply.
 ///
 /// Returns the (possibly disclaimer-prepended) reply, or a graceful
 /// fallback string from the `messaging_strings_registry` when guardrails
@@ -37,7 +40,7 @@ pub fn apply_text_guardrails(
     locale: Option<&str>,
 ) -> String {
     let locale = locale.unwrap_or(DEFAULT_LOCALE);
-    let rules = TextGuardrails::safe_default();
+    let rules = resources.harness_config_registry.current_guardrails();
     match rules.apply(reply) {
         GuardrailOutcome::Allowed(text) => text,
         GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {

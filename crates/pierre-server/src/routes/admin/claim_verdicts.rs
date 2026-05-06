@@ -21,6 +21,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
+use uuid::Uuid;
 
 use pierre_memory::claims::ClaimVerdict;
 
@@ -126,6 +127,21 @@ pub(super) async fn handle_list_claim_verdicts(
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
 
+    // The `coach_id` filter is purely client-supplied — validate the format
+    // before scanning so the admin sees a 400 on a typo instead of a
+    // silently-empty result. We accept the canonical UUID encoding only.
+    let coach_filter = params
+        .coach_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|raw| {
+            Uuid::parse_str(raw).map(|_| raw.to_owned()).map_err(|_| {
+                AppError::invalid_input(format!("coach_id must be a UUID, got `{raw}`"))
+            })
+        })
+        .transpose()?;
+
     let verdicts = context
         .repos
         .claim_verdicts
@@ -151,8 +167,7 @@ pub(super) async fn handle_list_claim_verdicts(
                 .is_none_or(|c| v.category.as_str() == c)
         })
         .filter(|v| {
-            params
-                .coach_id
+            coach_filter
                 .as_deref()
                 .is_none_or(|cid| v.coach_id.as_deref() == Some(cid))
         })

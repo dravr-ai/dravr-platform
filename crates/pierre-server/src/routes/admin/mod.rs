@@ -58,6 +58,8 @@ use pierre_auth::auth::AuthManager;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 
+use crate::harness_config_registry::HarnessConfigRegistry;
+
 /// Admin API context shared across all endpoints
 #[derive(Clone)]
 pub struct AdminApiContext {
@@ -83,6 +85,11 @@ pub struct AdminApiContext {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Public frontend URL used to build sign-in links in outbound emails
     pub frontend_url: Option<String>,
+    /// Shared coaching harness config registry, mutated by the
+    /// `PUT /admin/settings/harness` handler so subsequent chat turns
+    /// pick up the new compaction / Tier 6 guardrail values without a
+    /// server restart.
+    pub harness_config_registry: Arc<HarnessConfigRegistry>,
 }
 
 impl AdminApiContext {
@@ -97,6 +104,7 @@ impl AdminApiContext {
         admin_api_key_monthly_limit: u32,
         admin_token_cache_ttl_secs: u64,
         tool_selection: Arc<ToolSelectionService>,
+        harness_config_registry: Arc<HarnessConfigRegistry>,
     ) -> Self {
         info!("AdminApiContext initialized with JWT signing key");
         let auth_service = AdminAuthService::new(
@@ -116,6 +124,7 @@ impl AdminApiContext {
             tool_registry: None,
             email_service: None,
             frontend_url: None,
+            harness_config_registry,
         }
     }
 }

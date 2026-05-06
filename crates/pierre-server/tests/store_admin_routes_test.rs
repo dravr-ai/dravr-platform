@@ -26,6 +26,7 @@ use pierre_mcp_server::{
         AdminAuthService,
     },
     constants::system_config::STARTER_MONTHLY_LIMIT,
+    harness_config_registry::HarnessConfigRegistry,
     mcp::ToolSelectionService,
     models::TenantId,
     routes::admin::{AdminApiContext, AdminRoutes},
@@ -75,6 +76,7 @@ impl StoreAdminTestSetup {
             admin_api_key_monthly_limit,
             AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             tool_selection,
+            Arc::new(HarnessConfigRegistry::bootstrap()),
         );
 
         // Create test user
