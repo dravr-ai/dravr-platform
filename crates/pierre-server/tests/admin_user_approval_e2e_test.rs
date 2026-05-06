@@ -20,6 +20,7 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::AdminAuthService,
     constants::system_config::STARTER_MONTHLY_LIMIT,
+    harness_config_registry::HarnessConfigRegistry,
     mcp::ToolSelectionService,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -77,6 +78,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
+        Arc::new(HarnessConfigRegistry::bootstrap()),
     );
 
     // Create admin routes
@@ -288,6 +290,7 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
+        Arc::new(HarnessConfigRegistry::bootstrap()),
     );
     let admin_routes = AdminRoutes::routes(admin_context);
 
@@ -428,6 +431,7 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         admin_api_key_monthly_limit,
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
+        Arc::new(HarnessConfigRegistry::bootstrap()),
     );
     let admin_routes = AdminRoutes::routes(admin_context);
 
@@ -603,6 +607,7 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
         STARTER_MONTHLY_LIMIT,
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
+        Arc::new(HarnessConfigRegistry::bootstrap()),
     );
 
     let admin_routes = AdminRoutes::routes(admin_context);

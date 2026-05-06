@@ -33,6 +33,7 @@ use crate::contremaitre::{
 };
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
+use crate::harness_config_registry::HarnessConfigRegistry;
 use crate::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -225,6 +226,13 @@ pub struct ServerContext {
     /// overlay when the feature is enabled. Every handler that needs
     /// an `IntelligenceConfig` reads it through this registry.
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
+    /// Hot-swappable coaching harness config snapshot (compaction + Tier 6 guardrails).
+    ///
+    /// Loaded from `system_settings.harness_config` at startup. The chat
+    /// pipeline reads `CompactionConfig` and `TextGuardrails` projections
+    /// through this registry on every turn; `PUT /admin/settings/harness`
+    /// calls `install` to swap the snapshot live without a restart.
+    pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// AI-powered fitness activity analysis engine
     pub activity_intelligence: Arc<ActivityIntelligence>,
     /// A2A protocol client manager for agent-to-agent communication
@@ -408,6 +416,14 @@ impl ServerContext {
         // back to compiled-in defaults if env parsing fails; startup-time
         // env validation is handled upstream by `init_all_configs()`.
         let cageux_config_registry = Arc::new(CageuxConfigRegistry::from_env());
+
+        // Load the harness config snapshot from `system_settings.harness_config`.
+        // Falls back to compile-time defaults if the row is absent or invalid;
+        // the chat pipeline reads compaction + Tier 6 guardrails through this
+        // registry, and `PUT /admin/settings/harness` calls `install` on it
+        // after persisting a new document.
+        let harness_config_registry =
+            Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
 
         // Create activity intelligence once for shared use
         let activity_intelligence = Self::create_default_intelligence();
@@ -628,6 +644,7 @@ impl ServerContext {
             admin_jwt_secret: admin_jwt_secret.into(),
             config,
             cageux_config_registry,
+            harness_config_registry,
             activity_intelligence,
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,

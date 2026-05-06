@@ -21,7 +21,7 @@ use crate::llm::{ChatMessage, ChatProvider};
 use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::conversation_compaction::{
-    CompactionConfig, CompactionContext, CompactionOutcome, ConversationCompactor,
+    CompactionContext, CompactionOutcome, ConversationCompactor,
 };
 
 /// Run conversation compaction in place. Failures log and continue — a
@@ -34,7 +34,11 @@ pub async fn apply_tier1_compaction(
     history: &[MessageRecord],
     llm_messages: &mut Vec<ChatMessage>,
 ) {
-    let compactor = ConversationCompactor::new(CompactionConfig::default());
+    // Read the active compaction tunables from the harness config registry
+    // so admin updates via `PUT /admin/settings/harness` apply on the next
+    // turn without a server restart.
+    let compactor =
+        ConversationCompactor::new(resources.harness_config_registry.current_compaction());
     let ctx = CompactionContext {
         repo: resources.repos.memory.as_ref(),
         provider,

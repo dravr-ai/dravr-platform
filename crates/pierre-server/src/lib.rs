@@ -83,6 +83,9 @@ pub mod cageux_config;
 /// Coach definition parsing from markdown files
 pub mod coaches;
 
+/// Hot-reloadable harness config snapshot (compaction + Tier 6 guardrails)
+pub mod harness_config_registry;
+
 /// Prompt hot-reload system backed by a GitHub repository
 #[cfg(feature = "contremaitre")]
 pub mod contremaitre;

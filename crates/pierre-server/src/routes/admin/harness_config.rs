@@ -25,6 +25,7 @@ use tracing::{error, info};
 
 use crate::admin::models::{AdminPermission, ValidatedAdminToken};
 use crate::errors::{AppError, AppResult};
+use crate::harness_config_registry::HarnessConfigSource;
 
 use super::AdminApiContext;
 
@@ -214,6 +215,13 @@ pub(super) async fn handle_put_harness_config(
             error!(error = %e, "failed to persist harness config");
             AppError::internal(format!("Failed to persist harness config: {e}"))
         })?;
+
+    // Swap the in-memory snapshot the chat pipeline reads from. Done
+    // after the row write so a DB failure leaves both stores consistent
+    // on the previous values.
+    context
+        .harness_config_registry
+        .install(document.clone(), HarnessConfigSource::AdminUpdate);
 
     let updated_at = chrono::Utc::now().to_rfc3339();
     Ok((
