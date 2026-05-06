@@ -79,6 +79,11 @@ RUN useradd -m -u 1001 appuser \
 COPY --from=builder /app/target/release/pierre-mcp-server /app/pierre-mcp-server
 COPY --from=builder /app/target/release/pierre-cli /app/pierre-cli
 COPY --from=builder /app/commands /app/commands
+# Eval harness golden fixtures — admin /admin/evals/fixtures browser walks
+# this directory at runtime. PIERRE_EVALS_FIXTURES_DIR (set below) points
+# the runtime at this baked-in path so the route returns real data instead
+# of the empty fallback when the workspace tree isn't present.
+COPY --from=builder /app/crates/pierre-evals/fixtures /app/fixtures
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
 COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
@@ -107,6 +112,10 @@ ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
+# Eval harness fixtures location (see COPY above). The route resolves
+# this env var first; absent or pointing at a missing dir falls back to
+# the workspace-relative default and logs a single warn (no Slack page).
+ENV PIERRE_EVALS_FIXTURES_DIR=/app/fixtures
 # chromiumoxide auto-detection uses CHROME env var; point to our headless wrapper
 # which injects --ozone-platform=headless before delegating to the real binary
 ENV CHROME=/usr/local/bin/chromium-headless
