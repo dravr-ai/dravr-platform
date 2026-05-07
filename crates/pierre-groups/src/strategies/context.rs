@@ -55,6 +55,7 @@ impl GroupContextStrategy for IndividualFocusContext {
             let _ = writeln!(text, "- {}", card.summary_text.trim());
         }
 
+        write_absent_member_instructions(&mut text, group);
         let _ = writeln!(text, "--- End Group Context ---");
         text
     }
@@ -158,6 +159,7 @@ impl GroupContextStrategy for GroupOverviewContext {
             }
         }
 
+        write_absent_member_instructions(&mut text, group);
         let _ = writeln!(text, "--- End Group Context ---");
         text
     }
@@ -197,6 +199,45 @@ fn resolve_requester_name(group: &GroupContext, members: &[MemberSummaryCard]) -
         .iter()
         .find(|m| m.user_id == group.requester_user_id)
         .map_or_else(|| "the current user".to_owned(), |m| m.display_name.clone())
+}
+
+/// Append the "what to do when asked about an absent member" instructions
+/// to the context block. The auto-bind path enrolls a sender as a Member
+/// the first time they message in a Telegram/Slack/Discord group; until
+/// then, peers the requester knows from the chat (e.g. "Phil", "Patrick")
+/// won't appear on the roster above. Without this paragraph the LLM falls
+/// back to the generic "Je ne peux pas faire ça avec les outils dont je
+/// dispose", which leaves the user stuck without knowing the next step.
+fn write_absent_member_instructions(text: &mut String, group: &GroupContext) {
+    let _ = writeln!(text);
+    let _ = writeln!(
+        text,
+        "If the user mentions another person by name (e.g. \"avec Phil\", \
+         \"compared to Patrick\") and that person is NOT on the roster \
+         above, do NOT refuse with \"I can't do that with the tools I \
+         have\". Instead reply with what you DO see for the requester, \
+         then add a short note (in the user's language) explaining how to \
+         enroll the missing peer:"
+    );
+    let _ = writeln!(
+        text,
+        "  1. The peer must send any message in this same group chat so \
+         I can identify them as a member."
+    );
+    let _ = writeln!(
+        text,
+        "  2. Once enrolled, they type `/group consent yes` here to share \
+         their training data with the group."
+    );
+    if !group.group.peer_data_sharing {
+        let _ = writeln!(
+            text,
+            "Group-level peer data sharing is currently OFF. Even after a \
+             peer enrolls, their training summaries stay private to them \
+             until each peer sets their own consent. Don't fabricate \
+             other members' stats."
+        );
+    }
 }
 
 /// Build the detail level label for logging
