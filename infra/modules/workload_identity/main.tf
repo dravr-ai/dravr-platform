@@ -31,7 +31,16 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository_owner" = "assertion.repository_owner"
   }
 
-  attribute_condition = "assertion.repository_owner == '${var.github_org}' && assertion.repository == '${var.github_org}/${var.github_repo}'"
+  # Allow the primary platform repo plus any extra sister repos under the
+  # same org (e.g. dravr-contremaitre's prompt-mirror Action).
+  attribute_condition = format(
+    "assertion.repository_owner == '%s' && (%s)",
+    var.github_org,
+    join(" || ", [
+      for r in concat([var.github_repo], var.additional_repositories) :
+      format("assertion.repository == '%s/%s'", var.github_org, r)
+    ])
+  )
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

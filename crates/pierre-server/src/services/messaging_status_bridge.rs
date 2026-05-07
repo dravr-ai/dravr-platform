@@ -52,7 +52,7 @@ use tracing::{debug, warn};
 
 use crate::agui::RunRegistry;
 use crate::contremaitre::messaging_strings::{
-    format_template, MessagingStringsRegistry, KEY_STATUS_CALLING_TOOL, KEY_STATUS_ERROR,
+    format_template, MessagingStringsRegistry, KEY_STATUS_CALLING_TOOL,
     KEY_STATUS_GENERATING_RESPONSE, KEY_STATUS_READING_QUESTION, KEY_THINKING_PLACEHOLDER,
 };
 
@@ -321,11 +321,25 @@ fn status_text_for_event_localized(
             let template = strings.get(KEY_STATUS_CALLING_TOOL, locale);
             Some(format_template(&template, &[tool_name]))
         }
-        AgUiEvent::RunError { message, .. } => {
-            let template = strings.get(KEY_STATUS_ERROR, locale);
-            Some(format_template(&template, &[message]))
+        AgUiEvent::RunError { .. }
+        | AgUiEvent::StepFinished { .. }
+        | AgUiEvent::RunFinished { .. }
+        | AgUiEvent::Unknown => {
+            // `RunError` is suppressed on purpose. Earlier behavior
+            // interpolated the AG-UI `message` field into the localized
+            // "erreur : {0}" template and pushed it to the channel as a
+            // status update — that leaked operator-facing internals to
+            // end users (e.g. `copilot-acp: RPC error: {"code":-32000,
+            // "message":"Authentication required"}` during the
+            // GitHub-API rate-limit incident on 2026-05-07). The proper
+            // user-facing reply is owned by
+            // `messaging_ingress::report_dispatch_failure`, which renders
+            // the localized `KEY_ERROR_GENERIC` template plus a short
+            // correlation id. Keeping that as the sole user-visible
+            // channel reply on failure; the raw error stays in the
+            // structured log/Slack alert path.
+            None
         }
-        AgUiEvent::StepFinished { .. } | AgUiEvent::RunFinished { .. } | AgUiEvent::Unknown => None,
     }
 }
 
