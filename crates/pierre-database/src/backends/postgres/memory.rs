@@ -113,6 +113,7 @@ fn row_to_coach_note(row: &PgRow) -> AppResult<CoachNote> {
     let updated_at: DateTime<Utc> = row.get("updated_at");
     let scope = MemoryScope::parse(&scope_str)
         .ok_or_else(|| AppError::internal(format!("Invalid scope in coach_notes: {scope_str}")))?;
+    let suppressed: bool = row.try_get("suppressed").unwrap_or(false);
     Ok(CoachNote {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
@@ -124,6 +125,7 @@ fn row_to_coach_note(row: &PgRow) -> AppResult<CoachNote> {
         embedding: optional_embedding(row)?,
         created_at,
         updated_at,
+        suppressed,
     })
 }
 
@@ -506,6 +508,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
             embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: now,
             updated_at: now,
+            suppressed: false,
         })
     }
 
@@ -516,10 +519,15 @@ impl HarnessMemoryRepository for PostgresDatabase {
         coach_id: &str,
         limit: i64,
     ) -> AppResult<Vec<CoachNote>> {
+        // Recall queries exclude suppressed rows. Admins re-surface them
+        // via `list_coach_notes_for_tenant` in the audit panel.
         let rows = sqlx::query(
             r"
             SELECT * FROM coach_notes
-            WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND coach_id = $3
+              AND suppressed = FALSE
             ORDER BY created_at DESC
             LIMIT $4
             ",
@@ -555,6 +563,36 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to list coach notes for tenant: {e}")))?;
 
         rows.iter().map(row_to_coach_note).collect()
+    }
+
+    async fn set_coach_note_suppressed(
+        &self,
+        note_id: &str,
+        tenant_id: TenantId,
+        suppressed: bool,
+        actor: &str,
+    ) -> AppResult<bool> {
+        let now = Utc::now();
+        let result = sqlx::query(
+            r"
+            UPDATE coach_notes
+            SET suppressed = $1,
+                suppressed_at = CASE WHEN $1 THEN $2 ELSE NULL END,
+                suppressed_by = CASE WHEN $1 THEN $3 ELSE NULL END,
+                updated_at = $2
+            WHERE id = $4 AND tenant_id = $5 AND suppressed != $1
+            ",
+        )
+        .bind(suppressed)
+        .bind(now)
+        .bind(actor)
+        .bind(note_id)
+        .bind(tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set coach note suppressed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     async fn insert_coach_followup(
@@ -668,6 +706,30 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to mark followup delivered: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_due_followups(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<CoachFollowup>> {
+        let rows = sqlx::query(
+            r"
+            SELECT * FROM coach_followups
+            WHERE status = 'pending'
+              AND due_at IS NOT NULL
+              AND due_at <= $1
+            ORDER BY due_at ASC
+            LIMIT $2
+            ",
+        )
+        .bind(now)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list due followups: {e}")))?;
+
+        rows.iter().map(row_to_coach_followup).collect()
     }
 
     async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool> {

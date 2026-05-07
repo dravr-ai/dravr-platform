@@ -188,6 +188,7 @@ pub mod services;
 pub mod seeders;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
+pub use services::coach_followup_scheduler::start_followup_scheduler;
 #[cfg(feature = "client-messaging")]
 pub use services::discord_gateway::start_discord_gateway;
 #[cfg(feature = "client-messaging")]

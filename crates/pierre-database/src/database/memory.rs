@@ -134,6 +134,9 @@ fn row_to_coach_note(row: &SqliteRow) -> AppResult<CoachNote> {
     let updated_at_str: String = row.get("updated_at");
     let scope = MemoryScope::parse(&scope_str)
         .ok_or_else(|| AppError::internal(format!("Invalid scope in coach_notes: {scope_str}")))?;
+    // SQLite stores BOOLEANs as INTEGER (0/1). The migration set the
+    // default to 0 so older rows without the column flow naturally.
+    let suppressed_int: i64 = row.try_get("suppressed").unwrap_or(0);
     Ok(CoachNote {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
@@ -145,6 +148,7 @@ fn row_to_coach_note(row: &SqliteRow) -> AppResult<CoachNote> {
         embedding: optional_embedding(row)?,
         created_at: parse_datetime(&created_at_str)?,
         updated_at: parse_datetime(&updated_at_str)?,
+        suppressed: suppressed_int != 0,
     })
 }
 
@@ -528,6 +532,7 @@ impl HarnessMemoryRepository for Database {
             embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: parse_datetime(&now)?,
             updated_at: parse_datetime(&now)?,
+            suppressed: false,
         })
     }
 
@@ -538,10 +543,18 @@ impl HarnessMemoryRepository for Database {
         coach_id: &str,
         limit: i64,
     ) -> AppResult<Vec<CoachNote>> {
+        // Memory recall queries deliberately exclude rows where
+        // `suppressed=1`. The audit panel uses
+        // `list_coach_notes_for_tenant` which returns them so admins can
+        // un-suppress, but the chat pipeline must never see flagged
+        // content again.
         let rows = sqlx::query(
             r"
             SELECT * FROM coach_notes
-            WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND coach_id = $3
+              AND suppressed = 0
             ORDER BY created_at DESC
             LIMIT $4
             ",
@@ -577,6 +590,40 @@ impl HarnessMemoryRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to list coach notes for tenant: {e}")))?;
 
         rows.iter().map(row_to_coach_note).collect()
+    }
+
+    async fn set_coach_note_suppressed(
+        &self,
+        note_id: &str,
+        tenant_id: TenantId,
+        suppressed: bool,
+        actor: &str,
+    ) -> AppResult<bool> {
+        let now = Utc::now().to_rfc3339();
+        let target = i64::from(suppressed);
+        // Only flip rows whose current state differs — that's the cheap
+        // way to make the operation idempotent and to surface a useful
+        // `bool` to the caller without a SELECT.
+        let result = sqlx::query(
+            r"
+            UPDATE coach_notes
+            SET suppressed = $1,
+                suppressed_at = CASE WHEN $1 = 1 THEN $2 ELSE NULL END,
+                suppressed_by = CASE WHEN $1 = 1 THEN $3 ELSE NULL END,
+                updated_at = $2
+            WHERE id = $4 AND tenant_id = $5 AND suppressed != $1
+            ",
+        )
+        .bind(target)
+        .bind(&now)
+        .bind(actor)
+        .bind(note_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set coach note suppressed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     async fn insert_coach_followup(
@@ -692,6 +739,31 @@ impl HarnessMemoryRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to mark followup delivered: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_due_followups(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<CoachFollowup>> {
+        let now_str = now.to_rfc3339();
+        let rows = sqlx::query(
+            r"
+            SELECT * FROM coach_followups
+            WHERE status = 'pending'
+              AND due_at IS NOT NULL
+              AND due_at <= $1
+            ORDER BY due_at ASC
+            LIMIT $2
+            ",
+        )
+        .bind(&now_str)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list due followups: {e}")))?;
+
+        rows.iter().map(row_to_coach_followup).collect()
     }
 
     async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool> {

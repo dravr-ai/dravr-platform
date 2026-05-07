@@ -1058,6 +1058,28 @@ pub trait HarnessMemoryRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<pierre_memory::CoachNote>>;
 
+    /// Flip the `suppressed` flag on a single note.
+    ///
+    /// When `suppressed=true`, the chat pipeline's [`Self::list_coach_notes`]
+    /// recall query filters the row out, so the coach never re-injects it
+    /// into a user prompt. The audit panel still shows the row (via
+    /// [`Self::list_coach_notes_for_tenant`]) so an admin can un-suppress
+    /// later if they change their mind.
+    ///
+    /// Returns `true` when the row's flag actually changed,
+    /// `false` when the row already had the requested state or was
+    /// missing entirely (idempotent).
+    ///
+    /// `actor` is the admin service name attempting the change — written
+    /// to `suppressed_by` for the audit trail.
+    async fn set_coach_note_suppressed(
+        &self,
+        note_id: &str,
+        tenant_id: TenantId,
+        suppressed: bool,
+        actor: &str,
+    ) -> AppResult<bool>;
+
     // --- coach followups ---
 
     /// Schedule a coach followup.
@@ -1093,6 +1115,23 @@ pub trait HarnessMemoryRepository: Send + Sync {
         followup_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
+
+    /// Globally list followups whose `due_at` has elapsed and that are
+    /// still in `pending`. Used by the followup scheduler to dispatch
+    /// notifications when a coach commitment becomes overdue.
+    ///
+    /// Spans every tenant — the scheduler runs in a single background
+    /// task per server, not per-tenant, so per-tenant queries would be
+    /// chatty. Callers must clamp `limit` to a reasonable batch size
+    /// (the scheduler uses 200).
+    ///
+    /// Rows ordered by `due_at` ascending so the oldest commitments
+    /// dispatch first.
+    async fn list_due_followups(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
 
     /// Cancel a pending followup — admin clears a stale promise that
     /// should never reach the coach. Returns `false` if the followup was

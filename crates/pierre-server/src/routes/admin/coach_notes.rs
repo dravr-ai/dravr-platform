@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
@@ -61,6 +61,9 @@ pub struct CoachNoteAuditRow {
     pub content: String,
     pub created_at: String,
     pub updated_at: String,
+    /// `true` when an admin has flagged the note. Memory recall queries
+    /// skip these rows; the audit panel still displays them.
+    pub suppressed: bool,
 }
 
 impl From<CoachNote> for CoachNoteAuditRow {
@@ -75,6 +78,7 @@ impl From<CoachNote> for CoachNoteAuditRow {
             content: n.content,
             created_at: n.created_at.to_rfc3339(),
             updated_at: n.updated_at.to_rfc3339(),
+            suppressed: n.suppressed,
         }
     }
 }
@@ -131,5 +135,94 @@ pub(super) async fn handle_list_audit(
     Ok((
         StatusCode::OK,
         Json(CoachNoteAuditResponse { notes: rows, total }),
+    ))
+}
+
+/// Query params for the suppress / unsuppress endpoints — same `tenant_id`
+/// shape every other admin route uses.
+#[derive(Debug, Deserialize)]
+pub struct SuppressQuery {
+    /// Tenant the note belongs to (required for tenant-scoped writes).
+    pub tenant_id: String,
+}
+
+/// Wire response for suppress / unsuppress. `changed=false` is returned
+/// when the note already had the requested state (idempotent), or when
+/// the row could not be found.
+#[derive(Debug, Serialize)]
+pub struct SuppressResponse {
+    pub note_id: String,
+    pub suppressed: bool,
+    pub changed: bool,
+}
+
+/// Handle `POST /api/admin/coach-notes/{note_id}/suppress`.
+///
+/// Flips `suppressed=true`. The chat pipeline's memory recall skips
+/// suppressed rows so the coach won't re-inject the note into a future
+/// prompt. Idempotent — re-posting on an already-suppressed note returns
+/// `changed=false` without writing.
+pub(super) async fn handle_suppress_note(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(note_id): Path<String>,
+    Query(params): Query<SuppressQuery>,
+) -> AppResult<impl IntoResponse> {
+    set_suppressed(context, admin_token, note_id, params, true).await
+}
+
+/// Handle `POST /api/admin/coach-notes/{note_id}/unsuppress`.
+///
+/// Inverse of [`handle_suppress_note`] — flips `suppressed=false` so the
+/// note becomes recallable again. Same idempotency contract.
+pub(super) async fn handle_unsuppress_note(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(note_id): Path<String>,
+    Query(params): Query<SuppressQuery>,
+) -> AppResult<impl IntoResponse> {
+    set_suppressed(context, admin_token, note_id, params, false).await
+}
+
+async fn set_suppressed(
+    context: Arc<AdminApiContext>,
+    admin_token: ValidatedAdminToken,
+    note_id: String,
+    params: SuppressQuery,
+    suppressed: bool,
+) -> AppResult<impl IntoResponse> {
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+
+    let tenant: TenantId = params
+        .tenant_id
+        .parse()
+        .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
+
+    let changed = context
+        .repos
+        .memory
+        .set_coach_note_suppressed(&note_id, tenant, suppressed, &admin_token.service_name)
+        .await
+        .map_err(|e| {
+            error!(error = %e, note_id = %note_id, "failed to update coach note suppressed flag");
+            AppError::internal(format!("Failed to update suppressed flag: {e}"))
+        })?;
+
+    info!(
+        service = %admin_token.service_name,
+        tenant = %params.tenant_id,
+        note_id = %note_id,
+        suppressed,
+        changed,
+        "admin set coach note suppressed state"
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(SuppressResponse {
+            note_id,
+            suppressed,
+            changed,
+        }),
     ))
 }

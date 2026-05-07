@@ -38,4 +38,11 @@ pub struct CoachNote {
     pub created_at: DateTime<Utc>,
     /// When the note was last edited (rare — notes are mostly append-only).
     pub updated_at: DateTime<Utc>,
+    /// `true` when an admin has flagged this note as harmful, off-policy,
+    /// or otherwise unfit to surface in the coach's memory recall. Memory
+    /// retrieval queries filter these out so the coach pipeline never
+    /// re-injects them, even though the row remains visible in the audit
+    /// panel for review.
+    #[serde(default)]
+    pub suppressed: bool,
 }

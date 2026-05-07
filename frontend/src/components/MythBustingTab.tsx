@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type MythBustingSummary } from '../services/api/admin';
 import { Card, Button } from './ui';
 import { useAuth } from '../hooks/useAuth';
@@ -25,6 +26,11 @@ function humanizeCategory(cat: string): string {
 export default function MythBustingTab() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
+  const queryClient = useQueryClient();
+  const [promotionStatus, setPromotionStatus] = useState<{
+    topic: string;
+    added: boolean;
+  } | null>(null);
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<MythBustingSummary>({
     queryKey: ['admin', 'myth-busting', tenantId] as const,
@@ -32,6 +38,26 @@ export default function MythBustingTab() {
     enabled: Boolean(tenantId),
     refetchInterval: 120_000,
   });
+
+  const promoteMutation = useMutation({
+    mutationFn: (topic: string) => adminApi.promoteMythBustingTopic(topic),
+    onSuccess: (result) => {
+      setPromotionStatus({ topic: result.topic, added: result.added });
+      // Harness Config queries (if active) need to refresh so the
+      // operator sees the new blocked_topics value without reloading.
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'harness-config'] });
+    },
+  });
+
+  const handlePromote = (claimText: string) => {
+    const topic = window.prompt(
+      'Block topic — coach replies containing this substring will be rejected:',
+      claimText.slice(0, 200),
+    );
+    if (topic && topic.trim().length > 0) {
+      promoteMutation.mutate(topic.trim());
+    }
+  };
 
   if (!tenantId) {
     return (
@@ -126,17 +152,46 @@ export default function MythBustingTab() {
             <ul className="divide-y divide-gray-200 dark:divide-gray-700">
               {data.top_claims.map((claim) => (
                 <li key={claim.claim_excerpt} className="px-6 py-3">
-                  <p className="text-sm text-gray-900 dark:text-gray-100">
-                    {claim.claim_excerpt}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {claim.occurrences} occurrence{claim.occurrences === 1 ? '' : 's'} ·
-                    {claim.coach_count} coach{claim.coach_count === 1 ? '' : 'es'} · last seen{' '}
-                    {formatTimestamp(claim.last_seen_at)}
-                  </p>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {claim.claim_excerpt}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {claim.occurrences} occurrence{claim.occurrences === 1 ? '' : 's'} ·
+                        {claim.coach_count} coach{claim.coach_count === 1 ? '' : 'es'} · last seen{' '}
+                        {formatTimestamp(claim.last_seen_at)}
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => handlePromote(claim.claim_excerpt)}
+                      variant="secondary"
+                      disabled={promoteMutation.isPending}
+                      data-testid="promote-topic-btn"
+                    >
+                      {promoteMutation.isPending ? 'Blocking…' : 'Block topic'}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
+            {promotionStatus ? (
+              <div
+                className="border-t border-gray-200 px-6 py-3 text-xs dark:border-gray-700"
+                data-testid="promote-status"
+              >
+                {promotionStatus.added
+                  ? `Topic "${promotionStatus.topic}" added to harness blocked_topics — chat replies containing it will now be rejected.`
+                  : `Topic "${promotionStatus.topic}" was already in blocked_topics — no change.`}
+              </div>
+            ) : promoteMutation.isError ? (
+              <div className="border-t border-red-200 px-6 py-3 text-xs text-red-600 dark:border-red-700 dark:text-red-400">
+                Failed to promote topic:{' '}
+                {promoteMutation.error instanceof Error
+                  ? promoteMutation.error.message
+                  : 'unknown error'}
+              </div>
+            ) : null}
           </Card>
 
           <Card className="overflow-hidden">

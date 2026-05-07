@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type CoachNoteAuditRow } from '../services/api/admin';
 import { Card, Button, Badge } from './ui';
 import { useAuth } from '../hooks/useAuth';
@@ -48,10 +48,21 @@ export default function CoachNotesAuditTab() {
     [tenantId, limit],
   );
 
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey,
     queryFn: () => adminApi.listCoachNoteAudit(tenantId, limit),
     enabled: Boolean(tenantId),
+  });
+
+  const suppressMutation = useMutation({
+    mutationFn: ({ noteId, suppress }: { noteId: string; suppress: boolean }) =>
+      suppress
+        ? adminApi.suppressCoachNote(tenantId, noteId)
+        : adminApi.unsuppressCoachNote(tenantId, noteId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'coach-notes', 'audit'] });
+    },
   });
 
   const notes = useMemo(() => data?.notes ?? [], [data?.notes]);
@@ -219,10 +230,21 @@ export default function CoachNotesAuditTab() {
         ) : (
           <ul className="divide-y divide-gray-200 dark:divide-gray-700">
             {filtered.map((note) => (
-              <li key={note.id} className="px-6 py-4">
+              <li
+                key={note.id}
+                className={`px-6 py-4 ${
+                  note.suppressed ? 'bg-red-50 dark:bg-red-950/20' : ''
+                }`}
+                data-testid={`note-row-${note.id}`}
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <Badge variant={SCOPE_VARIANT[note.scope]}>{humanizeScope(note.scope)}</Badge>
+                    {note.suppressed ? (
+                      <Badge variant="error" data-testid={`note-suppressed-${note.id}`}>
+                        Suppressed
+                      </Badge>
+                    ) : null}
                     <span className="font-mono">coach {note.coach_id}</span>
                     <span className="text-gray-400 dark:text-gray-500">·</span>
                     <span className="font-mono">user {note.user_id}</span>
@@ -233,9 +255,28 @@ export default function CoachNotesAuditTab() {
                       </>
                     ) : null}
                   </div>
-                  <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">
-                    {formatTimestamp(note.created_at)}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      {formatTimestamp(note.created_at)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        suppressMutation.mutate({
+                          noteId: note.id,
+                          suppress: !note.suppressed,
+                        })
+                      }
+                      disabled={suppressMutation.isPending}
+                      data-testid={
+                        note.suppressed
+                          ? `unsuppress-btn-${note.id}`
+                          : `suppress-btn-${note.id}`
+                      }
+                    >
+                      {note.suppressed ? 'Unsuppress' : 'Suppress'}
+                    </Button>
+                  </div>
                 </div>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">
                   {note.content}
