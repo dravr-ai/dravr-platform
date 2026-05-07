@@ -335,14 +335,14 @@ async fn handle_manual_sync(
         ));
     };
 
-    let client = config.github_client();
+    let store = config.store();
     let result = super::sync::full_sync(
         &resources.prompt_registry,
         &resources.tool_description_registry,
         &resources.evidence_registry,
         &resources.cageux_config_registry,
         &resources.messaging_strings_registry,
-        &client,
+        store.as_ref(),
     )
     .await?;
 

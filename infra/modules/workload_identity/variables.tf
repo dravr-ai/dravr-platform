@@ -16,6 +16,12 @@ variable "github_repo" {
   type        = string
 }
 
+variable "additional_repositories" {
+  description = "Extra GitHub repository names (under the same org) whose Actions are allowed to assume identities through this pool. Used by sister repos that publish to GCP-managed assets — e.g. dravr-contremaitre's prompt mirror."
+  type        = list(string)
+  default     = []
+}
+
 variable "deployer_service_account_name" {
   description = "Full resource name of the deployer service account"
   type        = string

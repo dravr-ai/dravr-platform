@@ -134,7 +134,7 @@ fn spawn_selective_sync(
     let evidence_registry = Arc::clone(&resources.evidence_registry);
     let cageux_config_registry = Arc::clone(&resources.cageux_config_registry);
     let messaging_strings_registry = Arc::clone(&resources.messaging_strings_registry);
-    let client = config.github_client();
+    let store = config.store();
 
     tokio::spawn(async move {
         if let Err(e) = super::sync::selective_sync(
@@ -143,14 +143,17 @@ fn spawn_selective_sync(
             &evidence_registry,
             &cageux_config_registry,
             &messaging_strings_registry,
-            &client,
+            store.as_ref(),
             &filtered_paths,
         )
         .await
         {
             warn!(error = %e, "Contremaitre selective sync failed");
         } else {
-            info!("Contremaitre selective sync completed");
+            info!(
+                backend = store.backend_label(),
+                "Contremaitre selective sync completed"
+            );
         }
     });
 }

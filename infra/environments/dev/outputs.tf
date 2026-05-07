@@ -126,6 +126,29 @@ output "github_secrets_summary" {
 }
 
 # -----------------------------------------------------------------------------
+# Contremaitre Mirror Outputs
+# -----------------------------------------------------------------------------
+
+output "contremaitre_prompts_bucket" {
+  description = "GCS bucket name for the contremaitre prompt mirror (set as CONTREMAITRE_GCS_BUCKET on the backend)"
+  value       = google_storage_bucket.contremaitre_prompts.name
+}
+
+output "contremaitre_mirror_service_account_email" {
+  description = "Service account the dravr-contremaitre Action assumes via WIF to upload prompt files"
+  value       = google_service_account.contremaitre_mirror.email
+}
+
+output "contremaitre_mirror_github_secrets_summary" {
+  description = "Values to copy into the dravr-contremaitre repo's GitHub secrets so its mirror Action can authenticate to GCP"
+  value = {
+    GCP_WORKLOAD_IDENTITY_PROVIDER = module.workload_identity.provider_name
+    GCP_MIRROR_SERVICE_ACCOUNT     = google_service_account.contremaitre_mirror.email
+    GCP_PROMPTS_BUCKET             = google_storage_bucket.contremaitre_prompts.name
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Cloud Run Deployment Configuration
 # -----------------------------------------------------------------------------
 

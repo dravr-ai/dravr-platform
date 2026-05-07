@@ -328,6 +328,50 @@ pub struct ServerContext {
     pub billing_provider: Arc<dyn BillingProvider>,
 }
 
+/// Run a contremaitre full-sync against the freshly-built registries,
+/// logging the active backend (gcs vs github) and the result/error.
+///
+/// Extracted from [`init_contremaitre_registries`] to keep that function's
+/// cognitive-complexity budget under the workspace's clippy threshold;
+/// the block contains an `if-let` plus `match`, which clippy counts as
+/// two arms each.
+#[cfg(feature = "contremaitre")]
+async fn run_contremaitre_full_sync(
+    config: &ContremaitreConfig,
+    prompt_registry: &Arc<PromptRegistry>,
+    tool_desc_registry: &Arc<ToolDescriptionRegistry>,
+    evidence_registry: &Arc<EvidenceRegistry>,
+    cageux_config_registry: &Arc<CageuxConfigRegistry>,
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+) {
+    let store = config.store();
+    info!(
+        backend = store.backend_label(),
+        "Contremaitre sync starting"
+    );
+    let outcome = full_sync(
+        prompt_registry,
+        tool_desc_registry,
+        evidence_registry,
+        cageux_config_registry,
+        messaging_strings_registry,
+        store.as_ref(),
+    )
+    .await;
+    match outcome {
+        Ok(result) => info!(
+            %result,
+            backend = store.backend_label(),
+            "Contremaitre sync complete"
+        ),
+        Err(e) => warn!(
+            error = %e,
+            backend = store.backend_label(),
+            "Contremaitre sync failed, using compiled-in defaults"
+        ),
+    }
+}
+
 /// Initialize prompt, tool description, and evidence registries and sync
 /// from contremaitre when configured.
 ///
@@ -350,22 +394,15 @@ async fn init_contremaitre_registries(
     let messaging_strings_registry = Arc::new(MessagingStringsRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
-        let client = config.github_client();
-        match full_sync(
+        run_contremaitre_full_sync(
+            &config,
             &prompt_registry,
             &tool_desc_registry,
             &evidence_registry,
             cageux_config_registry,
             &messaging_strings_registry,
-            &client,
         )
-        .await
-        {
-            Ok(result) => info!(%result, "Contremaitre sync complete"),
-            Err(e) => {
-                warn!(error = %e, "Contremaitre sync failed, using compiled-in defaults");
-            }
-        }
+        .await;
     } else {
         info!("Contremaitre not configured, using compiled-in defaults");
     }

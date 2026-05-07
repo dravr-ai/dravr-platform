@@ -118,6 +118,10 @@ module "workload_identity" {
   github_repo                           = var.github_repo
   deployer_service_account_name         = module.service_accounts.deployer_service_account_name
   terraform_runner_service_account_name = module.service_accounts.terraform_runner_service_account_name
+  # Sister repos under the same GitHub org whose Actions also run against
+  # GCP. Currently: dravr-contremaitre's mirror Action that uploads prompt
+  # snapshots into the contremaitre_prompts bucket.
+  additional_repositories = ["dravr-contremaitre"]
 
   depends_on = [module.service_accounts]
 }
@@ -144,6 +148,85 @@ resource "google_storage_bucket_iam_member" "sciotte_scripts_reader" {
   member = "serviceAccount:${module.service_accounts.app_service_account_email}"
 
   depends_on = [module.service_accounts]
+}
+
+# -----------------------------------------------------------------------------
+# Contremaitre Prompts Bucket — read-path source of truth for prompts/tools/
+# strings/evidence/config files mirrored from the dravr-contremaitre GitHub
+# repo. A GitHub Action on that repo `gsutil rsync`s into this bucket on
+# every push to `main`. Pierre reads from here at runtime; this avoids the
+# 5000/hr per-GitHub-user core API rate limit shared with the Copilot LLM
+# provider (both use PATs owned by `jfarcand`).
+# -----------------------------------------------------------------------------
+
+resource "google_storage_bucket" "contremaitre_prompts" {
+  name          = "${var.project_id}-contremaitre-prompts"
+  project       = var.project_id
+  location      = var.region
+  force_destroy = true
+
+  uniform_bucket_level_access = true
+
+  # Versioning protects against a bad mirror push; we can roll back by
+  # restoring an older generation rather than waiting for a re-push.
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    condition {
+      num_newer_versions = 10
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  labels = merge(var.labels, { component = "contremaitre" })
+}
+
+# Grant the Cloud Run app service account read access to the bucket so the
+# Pierre server can `read_file` / `read_manifest` against it.
+resource "google_storage_bucket_iam_member" "contremaitre_prompts_app_reader" {
+  bucket = google_storage_bucket.contremaitre_prompts.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${module.service_accounts.app_service_account_email}"
+
+  depends_on = [module.service_accounts]
+}
+
+# Service account the dravr-contremaitre GitHub Action assumes via WIF to
+# upload the rendered repo tree on every push.
+resource "google_service_account" "contremaitre_mirror" {
+  project      = var.project_id
+  account_id   = "contremaitre-mirror"
+  display_name = "Contremaitre GCS Mirror"
+  description  = "Used by dravr-contremaitre's GitHub Action to upload prompt files to GCS."
+}
+
+resource "google_storage_bucket_iam_member" "contremaitre_prompts_mirror_writer" {
+  bucket = google_storage_bucket.contremaitre_prompts.name
+  # `roles/storage.admin` at bucket scope (NOT project scope) — gives the
+  # mirror SA the `storage.buckets.get` permission `gcloud storage rsync`
+  # needs to look up bucket metadata before walking objects, plus the
+  # object-level CRUD already covered by objectAdmin. Scoping to the
+  # bucket keeps the SA from touching anything else in the project.
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${google_service_account.contremaitre_mirror.email}"
+}
+
+# Allow the dravr-contremaitre repo's GitHub Action to impersonate the
+# mirror service account through the existing GitHub WIF pool. The pool
+# itself is created by the workload_identity module above; we just bind
+# this SA to a different repo's principalSet.
+resource "google_service_account_iam_member" "contremaitre_mirror_workload_identity" {
+  service_account_id = google_service_account.contremaitre_mirror.name
+  role               = "roles/iam.workloadIdentityUser"
+  member = format(
+    "principalSet://iam.googleapis.com/%s/attribute.repository/%s/dravr-contremaitre",
+    module.workload_identity.pool_name,
+    var.github_org
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -248,9 +331,13 @@ module "backend" {
       NOTIFY_EMAIL_FROM           = var.notify_email_from
       NOTIFY_EMAIL_TO             = var.notify_email_to
 
-      # Contremaitre prompt hot-reload from GitHub
-      CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
-      CONTREMAITRE_BRANCH = "main"
+      # Contremaitre prompt hot-reload — reads from GCS at runtime so the
+      # 5000/hr GitHub core API budget on `jfarcand` stays available for
+      # the Copilot LLM provider. Writes (admin coach-promotion) still
+      # commit to the repo via CONTREMAITRE_GITHUB_PAT.
+      CONTREMAITRE_REPO       = "dravr-ai/dravr-contremaitre"
+      CONTREMAITRE_BRANCH     = "main"
+      CONTREMAITRE_GCS_BUCKET = google_storage_bucket.contremaitre_prompts.name
 
       # Sciotte backpressure limiter — all seven knobs are required at
       # startup; the crate ships no numeric defaults. See

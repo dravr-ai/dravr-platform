@@ -12,10 +12,10 @@ use tracing::{debug, error, info, warn};
 
 use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
-use super::github::GitHubContentsClient;
 use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
 use super::messaging_strings::MessagingStringsRegistry;
 use super::registry::PromptRegistry;
+use super::store::{PromptStore, StoredFile};
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
 use crate::cageux_config::CageuxConfigRegistry;
 
@@ -92,7 +92,7 @@ fn apply_system_prompt(
     registry: &PromptRegistry,
     key: &str,
     entry: &ManifestEntry,
-    file: super::github::GitHubFile,
+    file: StoredFile,
 ) -> SyncOutcome {
     if !system_prompt_content_is_valid(key, &entry.path, &file.content) {
         return SyncOutcome::Failed;
@@ -117,7 +117,7 @@ fn apply_coach_prompt(
     slug: &str,
     locale: &str,
     entry: &ManifestEntry,
-    file: super::github::GitHubFile,
+    file: StoredFile,
 ) {
     let actual_sha = compute_sha256(file.content.as_bytes());
     if actual_sha != entry.sha256 {
@@ -136,7 +136,7 @@ fn apply_coach_prompt(
 /// Fetch and apply a single system prompt if its hash changed.
 async fn sync_single_system_prompt(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     key: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
@@ -144,7 +144,7 @@ async fn sync_single_system_prompt(
         debug!(key, "system prompt unchanged, skipping");
         return SyncOutcome::Skipped;
     }
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => apply_system_prompt(registry, key, entry, file),
         Err(e) => {
             warn!(key, error = %e, "failed to sync system prompt");
@@ -156,7 +156,7 @@ async fn sync_single_system_prompt(
 /// Fetch and apply a single coach-locale prompt if its hash changed.
 async fn sync_single_coach_prompt(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     slug: &str,
     locale: &str,
     entry: &ManifestEntry,
@@ -165,7 +165,7 @@ async fn sync_single_coach_prompt(
         debug!(slug, locale, "coach prompt unchanged, skipping");
         return SyncOutcome::Skipped;
     }
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             apply_coach_prompt(registry, slug, locale, entry, file);
             SyncOutcome::Synced
@@ -189,7 +189,7 @@ fn accumulate_outcome(result: &mut SyncResult, outcome: SyncOutcome) {
 /// Helper to sync all system prompts during full sync.
 async fn sync_all_system_prompts(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_system: &HashMap<String, ManifestEntry>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -199,7 +199,7 @@ async fn sync_all_system_prompts(
     };
 
     for (key, entry) in manifest_system {
-        let outcome = sync_single_system_prompt(registry, client, key, entry).await;
+        let outcome = sync_single_system_prompt(registry, store, key, entry).await;
         accumulate_outcome(&mut result, outcome);
     }
 
@@ -211,7 +211,7 @@ async fn sync_all_system_prompts(
 /// sync target so an `fr` failure never blocks `en`.
 async fn sync_all_coach_prompts(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -222,7 +222,7 @@ async fn sync_all_coach_prompts(
 
     for (slug, locales) in manifest_coaches {
         for (locale, entry) in locales {
-            let outcome = sync_single_coach_prompt(registry, client, slug, locale, entry).await;
+            let outcome = sync_single_coach_prompt(registry, store, slug, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -245,21 +245,20 @@ pub async fn full_sync(
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
     messaging_strings_registry: &MessagingStringsRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
 ) -> Result<SyncResult, ContremaitreError> {
     info!("Starting contremaitre full sync");
 
-    let manifest = client.read_manifest().await?;
+    let manifest = store.read_manifest().await?;
 
-    let system_result = sync_all_system_prompts(registry, client, &manifest.prompts.system).await?;
-    let coach_result = sync_all_coach_prompts(registry, client, &manifest.prompts.coaches).await?;
+    let system_result = sync_all_system_prompts(registry, store, &manifest.prompts.system).await?;
+    let coach_result = sync_all_coach_prompts(registry, store, &manifest.prompts.coaches).await?;
     let tool_result =
-        sync_all_tool_descriptions(tool_desc_registry, client, &manifest.tools.0).await?;
-    let evidence_result =
-        sync_all_evidence(evidence_registry, client, &manifest.evidence.0).await?;
-    let cageux_result = sync_cageux_config(cageux_config_registry, client, &manifest.config).await;
+        sync_all_tool_descriptions(tool_desc_registry, store, &manifest.tools.0).await?;
+    let evidence_result = sync_all_evidence(evidence_registry, store, &manifest.evidence.0).await?;
+    let cageux_result = sync_cageux_config(cageux_config_registry, store, &manifest.config).await;
     let strings_result =
-        sync_all_messaging_strings(messaging_strings_registry, client, &manifest.strings.0).await?;
+        sync_all_messaging_strings(messaging_strings_registry, store, &manifest.strings.0).await?;
 
     let result = SyncResult {
         synced: system_result.synced
@@ -303,11 +302,11 @@ pub async fn full_sync(
 /// running prod.
 async fn hot_reload_system_prompt(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     key: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             if !system_prompt_content_is_valid(key, &entry.path, &file.content) {
                 return SyncOutcome::Failed;
@@ -327,12 +326,12 @@ async fn hot_reload_system_prompt(
 /// Hot-reload a single coach-locale prompt from a webhook event.
 async fn hot_reload_coach_prompt(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     slug: &str,
     locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
             registry.update_coach_prompt(slug, locale, file.content, actual_sha);
@@ -349,7 +348,7 @@ async fn hot_reload_coach_prompt(
 /// Helper to sync changed system prompts during selective sync.
 async fn sync_changed_system_prompts(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_system: &HashMap<String, ManifestEntry>,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
@@ -363,7 +362,7 @@ async fn sync_changed_system_prompts(
         if !changed_set.contains(entry.path.as_str()) {
             continue;
         }
-        let outcome = hot_reload_system_prompt(registry, client, key, entry).await;
+        let outcome = hot_reload_system_prompt(registry, store, key, entry).await;
         accumulate_outcome(&mut result, outcome);
     }
 
@@ -375,7 +374,7 @@ async fn sync_changed_system_prompts(
 /// in `changed_set`.
 async fn sync_changed_coach_prompts(
     registry: &PromptRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
@@ -390,7 +389,7 @@ async fn sync_changed_coach_prompts(
             if !changed_set.contains(entry.path.as_str()) {
                 continue;
             }
-            let outcome = hot_reload_coach_prompt(registry, client, slug, locale, entry).await;
+            let outcome = hot_reload_coach_prompt(registry, store, slug, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -413,7 +412,7 @@ pub async fn selective_sync(
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
     messaging_strings_registry: &MessagingStringsRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
     info!(
@@ -421,33 +420,28 @@ pub async fn selective_sync(
         "Starting contremaitre selective sync"
     );
 
-    let manifest = client.read_manifest().await?;
+    let manifest = store.read_manifest().await?;
 
     let changed_set: HashSet<&str> = changed_paths.iter().map(String::as_str).collect();
 
     let system_result =
-        sync_changed_system_prompts(registry, client, &manifest.prompts.system, &changed_set)
+        sync_changed_system_prompts(registry, store, &manifest.prompts.system, &changed_set)
             .await?;
 
     let coach_result =
-        sync_changed_coach_prompts(registry, client, &manifest.prompts.coaches, &changed_set)
+        sync_changed_coach_prompts(registry, store, &manifest.prompts.coaches, &changed_set)
             .await?;
 
     let tool_result =
-        sync_changed_tool_descriptions(tool_desc_registry, client, &manifest.tools.0, &changed_set)
+        sync_changed_tool_descriptions(tool_desc_registry, store, &manifest.tools.0, &changed_set)
             .await?;
 
-    let evidence_result = sync_changed_evidence(
-        evidence_registry,
-        client,
-        &manifest.evidence.0,
-        &changed_set,
-    )
-    .await?;
+    let evidence_result =
+        sync_changed_evidence(evidence_registry, store, &manifest.evidence.0, &changed_set).await?;
 
     let cageux_result = sync_changed_cageux_config(
         cageux_config_registry,
-        client,
+        store,
         &manifest.config,
         &changed_set,
     )
@@ -455,7 +449,7 @@ pub async fn selective_sync(
 
     let strings_result = sync_changed_messaging_strings(
         messaging_strings_registry,
-        client,
+        store,
         &manifest.strings.0,
         &changed_set,
     )
@@ -499,7 +493,7 @@ pub async fn selective_sync(
 /// Sync all tool descriptions from the manifest (full sync).
 async fn sync_all_tool_descriptions(
     registry: &ToolDescriptionRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_tools: &HashMap<String, ManifestEntry>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -514,7 +508,7 @@ async fn sync_all_tool_descriptions(
             result.skipped += 1;
             continue;
         }
-        let outcome = fetch_and_apply_tool_description(registry, client, tool_name, entry).await;
+        let outcome = fetch_and_apply_tool_description(registry, store, tool_name, entry).await;
         accumulate_outcome(&mut result, outcome);
     }
 
@@ -524,7 +518,7 @@ async fn sync_all_tool_descriptions(
 /// Sync only changed tool descriptions (selective sync from webhook).
 async fn sync_changed_tool_descriptions(
     registry: &ToolDescriptionRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_tools: &HashMap<String, ManifestEntry>,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
@@ -538,7 +532,7 @@ async fn sync_changed_tool_descriptions(
         if !changed_set.contains(entry.path.as_str()) {
             continue;
         }
-        let outcome = fetch_and_apply_tool_description(registry, client, tool_name, entry).await;
+        let outcome = fetch_and_apply_tool_description(registry, store, tool_name, entry).await;
         accumulate_outcome(&mut result, outcome);
     }
 
@@ -548,11 +542,11 @@ async fn sync_changed_tool_descriptions(
 /// Download and apply a single tool description YAML.
 async fn fetch_and_apply_tool_description(
     registry: &ToolDescriptionRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     tool_name: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
             match parse_tool_yaml(&file.content) {
@@ -582,7 +576,7 @@ async fn fetch_and_apply_tool_description(
 /// skipping entries whose SHA-256 matches what's already in the registry.
 async fn sync_all_evidence(
     registry: &EvidenceRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     evidence_tree: &EvidenceTree,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -600,7 +594,7 @@ async fn sync_all_evidence(
                     continue;
                 }
                 let outcome =
-                    fetch_and_apply_evidence(registry, client, category, slug, entry).await;
+                    fetch_and_apply_evidence(registry, store, category, slug, entry).await;
                 accumulate_outcome(&mut result, outcome);
             }
         }
@@ -612,7 +606,7 @@ async fn sync_all_evidence(
 /// Sync only the evidence propositions whose paths appear in `changed_set`.
 async fn sync_changed_evidence(
     registry: &EvidenceRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     evidence_tree: &EvidenceTree,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
@@ -629,7 +623,7 @@ async fn sync_changed_evidence(
                     continue;
                 }
                 let outcome =
-                    fetch_and_apply_evidence(registry, client, category, slug, entry).await;
+                    fetch_and_apply_evidence(registry, store, category, slug, entry).await;
                 accumulate_outcome(&mut result, outcome);
             }
         }
@@ -641,12 +635,12 @@ async fn sync_changed_evidence(
 /// Download a single evidence markdown file and apply it to the registry.
 async fn fetch_and_apply_evidence(
     registry: &EvidenceRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     category: &str,
     slug: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
             match parse_evidence_markdown(&file.content) {
@@ -682,7 +676,7 @@ async fn fetch_and_apply_evidence(
 /// on failure.
 async fn sync_cageux_config(
     registry: &CageuxConfigRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_config: &ManifestConfig,
 ) -> SyncResult {
     let mut result = SyncResult {
@@ -704,7 +698,7 @@ async fn sync_cageux_config(
 
     accumulate_outcome(
         &mut result,
-        fetch_and_apply_cageux_config(registry, client, entry).await,
+        fetch_and_apply_cageux_config(registry, store, entry).await,
     );
     result
 }
@@ -713,7 +707,7 @@ async fn sync_cageux_config(
 /// `changed_set` (selective/webhook sync path).
 async fn sync_changed_cageux_config(
     registry: &CageuxConfigRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_config: &ManifestConfig,
     changed_set: &HashSet<&str>,
 ) -> SyncResult {
@@ -733,7 +727,7 @@ async fn sync_changed_cageux_config(
 
     accumulate_outcome(
         &mut result,
-        fetch_and_apply_cageux_config(registry, client, entry).await,
+        fetch_and_apply_cageux_config(registry, store, entry).await,
     );
     result
 }
@@ -743,7 +737,7 @@ async fn sync_changed_cageux_config(
 fn apply_cageux_overlay(
     registry: &CageuxConfigRegistry,
     entry: &ManifestEntry,
-    file: &super::github::GitHubFile,
+    file: &StoredFile,
 ) -> SyncOutcome {
     let actual_sha = compute_sha256(file.content.as_bytes());
     if actual_sha != entry.sha256 {
@@ -779,10 +773,10 @@ fn apply_cageux_overlay(
 /// parse, or validation) the previous snapshot stays live.
 async fn fetch_and_apply_cageux_config(
     registry: &CageuxConfigRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => apply_cageux_overlay(registry, entry, &file),
         Err(e) => {
             warn!(
@@ -809,7 +803,7 @@ type MessagingStringsTree = HashMap<String, HashMap<String, ManifestEntry>>;
 /// `(key, locale)` pairs whose hash already matches the registry.
 async fn sync_all_messaging_strings(
     registry: &MessagingStringsRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_strings: &MessagingStringsTree,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -826,7 +820,7 @@ async fn sync_all_messaging_strings(
                 continue;
             }
             let outcome =
-                fetch_and_apply_messaging_string(registry, client, key, locale, entry).await;
+                fetch_and_apply_messaging_string(registry, store, key, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -838,7 +832,7 @@ async fn sync_all_messaging_strings(
 /// `changed_set` (selective sync from a webhook push).
 async fn sync_changed_messaging_strings(
     registry: &MessagingStringsRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     manifest_strings: &MessagingStringsTree,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
@@ -854,7 +848,7 @@ async fn sync_changed_messaging_strings(
                 continue;
             }
             let outcome =
-                fetch_and_apply_messaging_string(registry, client, key, locale, entry).await;
+                fetch_and_apply_messaging_string(registry, store, key, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -868,12 +862,12 @@ async fn sync_changed_messaging_strings(
 /// time by [`super::messaging_strings::format_template`].
 async fn fetch_and_apply_messaging_string(
     registry: &MessagingStringsRegistry,
-    client: &GitHubContentsClient,
+    store: &dyn PromptStore,
     key: &str,
     locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    match client.read_file(&entry.path).await {
+    match store.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
             if actual_sha != entry.sha256 {

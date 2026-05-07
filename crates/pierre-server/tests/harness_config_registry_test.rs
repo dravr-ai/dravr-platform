@@ -17,7 +17,7 @@ use pierre_mcp_server::routes::admin::harness_config::{
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 
-/// Build an in-memory SQLite database for a single-test scope.
+/// Build an in-memory `SQLite` database for a single-test scope.
 #[cfg(not(feature = "postgresql"))]
 async fn fresh_database() -> Database {
     Database::new("sqlite::memory:", ENCRYPTION_KEY.to_vec())
