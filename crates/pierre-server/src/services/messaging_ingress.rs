@@ -340,6 +340,17 @@ async fn hydrate_analytics_consent(resources: &ServerContext, user_id: &str) {
     }
 }
 
+/// Bundle of inbound-chat metadata threaded through the session-resolution
+/// chain. Carries the platform-side chat id and (when the transport
+/// exposes one) the human-readable title so the auto-bound
+/// `coaching_groups` row can use the real Telegram / Discord channel name
+/// instead of a synthetic `{channel} group {chat_id}` placeholder.
+#[derive(Clone, Copy)]
+struct ChannelChatRef<'a> {
+    chat_id: Option<&'a str>,
+    chat_title: Option<&'a str>,
+}
+
 /// Create a fresh `chat_conversation` and repoint the session at it.
 ///
 /// Called from `resolve_linked_session` when a session's `pierre_conversation_id`
@@ -390,7 +401,7 @@ async fn resolve_linked_session(
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
-    channel_conversation_id: Option<&str>,
+    chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<Option<ResolvedSession>, AppError> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
@@ -400,12 +411,7 @@ async fn resolve_linked_session(
     // (tenant, channel, user, chat) — because of migration
     // 20260505000001_messaging_sessions_per_chat.
     if let Some(session) = db
-        .get_session_by_channel_identity(
-            tenant_id,
-            channel_type,
-            sender_id,
-            channel_conversation_id,
-        )
+        .get_session_by_channel_identity(tenant_id, channel_type, sender_id, chat_ref.chat_id)
         .await?
     {
         return resume_existing_session(
@@ -414,7 +420,7 @@ async fn resolve_linked_session(
             session,
             tenant_id,
             channel_type,
-            channel_conversation_id,
+            chat_ref,
             is_direct_message,
         )
         .await
@@ -428,7 +434,7 @@ async fn resolve_linked_session(
         tenant_id,
         channel_type,
         sender_id,
-        channel_conversation_id,
+        chat_ref,
         is_direct_message,
     )
     .await
@@ -444,7 +450,7 @@ async fn resume_existing_session(
     session: Value,
     tenant_id: TenantId,
     channel_type: &str,
-    channel_conversation_id: Option<&str>,
+    chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<ResolvedSession, AppError> {
     let session_id = session["id"]
@@ -477,12 +483,13 @@ async fn resume_existing_session(
 
     // Retrofit group_id on conversations that predate the channel binding.
     if !is_direct_message {
-        if let Some(chat_id) = channel_conversation_id {
+        if let Some(chat_id) = chat_ref.chat_id {
             ensure_conversation_group_binding(
                 resources,
                 tenant_id,
                 channel_type,
                 chat_id,
+                chat_ref.chat_title,
                 &user_id,
                 &conversation,
             )
@@ -514,7 +521,7 @@ async fn open_new_session(
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
-    channel_conversation_id: Option<&str>,
+    chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<Option<ResolvedSession>, AppError> {
     let channel_link = db
@@ -534,7 +541,7 @@ async fn open_new_session(
         resources,
         tenant_id,
         channel_type,
-        channel_conversation_id,
+        chat_ref,
         is_direct_message,
         &user_id,
     )
@@ -561,7 +568,7 @@ async fn open_new_session(
         tenant_id,
         channel_type,
         channel_user_id: sender_id,
-        channel_conversation_id,
+        channel_conversation_id: chat_ref.chat_id,
         pierre_conversation_id: Some(&conversation_id),
     };
     db.create_session(&session_params).await?;
@@ -594,19 +601,26 @@ async fn open_new_session(
 
 /// Pick the `coaching_groups.id` to attach to a new messaging conversation,
 /// or `None` for DMs / when no coach is available to bootstrap the group.
+///
+/// `chat_ref.chat_title` carries the human-readable group name from the
+/// inbound payload (Telegram `chat.title`, Discord `channel.name`). When
+/// `None`, the binding helper falls back to the synthetic
+/// `{channel} group {id}` label so existing groups still resolve.
 async fn resolve_group_for_new_session(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: &str,
-    channel_conversation_id: Option<&str>,
+    chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
     user_id: &str,
 ) -> Option<String> {
     if is_direct_message {
         return None;
     }
-    let chat_id = channel_conversation_id?;
-    let chat_title_hint = format!("{channel_type} group {chat_id}");
+    let chat_id = chat_ref.chat_id?;
+    let chat_title_hint = chat_ref
+        .chat_title
+        .map_or_else(|| format!("{channel_type} group {chat_id}"), str::to_owned);
     match resolve_or_create_channel_group(
         resources,
         tenant_id,
@@ -641,6 +655,7 @@ async fn ensure_conversation_group_binding(
     tenant_id: TenantId,
     channel_type: &str,
     channel_chat_id: &str,
+    chat_title: Option<&str>,
     user_id: &str,
     conversation_id: &str,
 ) {
@@ -654,7 +669,10 @@ async fn ensure_conversation_group_binding(
         return;
     }
 
-    let chat_title_hint = format!("{channel_type} group {channel_chat_id}");
+    let chat_title_hint = chat_title.map_or_else(
+        || format!("{channel_type} group {channel_chat_id}"),
+        str::to_owned,
+    );
     let Some(new_group_id) = resolve_group_for_retrofit(
         resources,
         tenant_id,
@@ -1892,12 +1910,16 @@ async fn resolve_or_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) -> Result<Option<ResolvedSession>, ()> {
+    let chat_ref = ChannelChatRef {
+        chat_id: message.conversation_id.as_deref(),
+        chat_title: message.chat_title.as_deref(),
+    };
     match resolve_linked_session(
         resources,
         tenant_id,
         channel,
         &message.sender_id,
-        message.conversation_id.as_deref(),
+        chat_ref,
         message.is_direct_message,
     )
     .await
