@@ -145,7 +145,7 @@ disallowed_methods = "deny"
 # This patch forces every consumer onto the single newest tag, so
 # `cargo tree -d` reports no dravr-* duplicates and the
 # dravr-duplicate-check CI gate passes. dravr-sciotte converges at
-# v0.5.13 via dravr-enforme v0.1.9 + the direct pierre-server pin.
+# v0.5.14 via dravr-enforme v0.1.11 + the direct pierre-server pin.
 [patch.crates-io]
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }

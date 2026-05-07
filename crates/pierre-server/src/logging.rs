@@ -30,11 +30,55 @@ use std::env;
 use std::io;
 use tracing::info;
 use tracing_subscriber::{
+    filter::{filter_fn, FilterFn},
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter,
+    EnvFilter, Layer,
 };
+
+/// Per-event closure type for the chromiumoxide teardown suppression
+/// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
+/// and `Copy` and can be wrapped in `FilterFn` once and applied to every
+/// downstream sink (stdout formatter + tronc Slack notifier) without
+/// fighting `tracing_subscriber`'s opaque-`Filter<S>` typing.
+type TeardownFilterFn = fn(&tracing::Metadata<'_>) -> bool;
+
+/// Returns `false` to suppress the event when:
+///   * its target is `chromiumoxide::handler`, AND
+///   * its level is ERROR, AND
+///   * sciotte advertises a browser teardown in progress.
+///
+/// chromiumoxide drives Chrome over a DevTools-Protocol WebSocket.
+/// Closing the browser exits Chrome without a polite WS Close frame,
+/// so the chromiumoxide handler task observes a `Ws(Protocol(
+/// ResetWithoutClosingHandshake))` and emits an `error!` log. The
+/// scrape data was already collected before the close — but
+/// `dravr-tronc` forwards every `error!` line to Slack, drowning real
+/// failures in lifecycle noise.
+///
+/// Globally downgrading `chromiumoxide::handler` would also hide
+/// genuine WS faults (Chrome crash mid-scrape, network reset on a
+/// live session), so this predicate ONLY fires while sciotte's
+/// `TeardownGuard` is alive (or in its 500 ms grace window). Outside
+/// that window every chromiumoxide error reaches both Cloud Logging
+/// and the Slack alert path with full fidelity.
+fn chromiumoxide_teardown_predicate(metadata: &tracing::Metadata<'_>) -> bool {
+    if metadata.target() == "chromiumoxide::handler"
+        && *metadata.level() == tracing::Level::ERROR
+        && dravr_sciotte::is_browser_teardown_in_progress()
+    {
+        return false;
+    }
+    true
+}
+
+/// Build a fresh `FilterFn` instance over [`chromiumoxide_teardown_predicate`].
+/// Cheap (no allocation) — call once per layer, hand the result to
+/// `.with_filter(...)`.
+fn chromiumoxide_teardown_filter() -> FilterFn<TeardownFilterFn> {
+    filter_fn(chromiumoxide_teardown_predicate as TeardownFilterFn)
+}
 
 /// Log output options for controlling what information is included
 #[derive(Debug, Clone, Copy)]
@@ -237,6 +281,12 @@ impl LoggingConfig {
         let error_layer =
             Self::build_error_notification_layer(&self.service_name, &self.environment);
 
+        // Per-layer filter that suppresses chromiumoxide's expected
+        // post-close WS-reset error events during the short teardown
+        // window sciotte advertises. Built fresh per sink so both the
+        // stdout/GCP-JSON formatter and the Slack error-notifier share
+        // the same suppression logic; outside the teardown window
+        // every event flows through normally.
         match self.format {
             LogFormat::Json => {
                 let json_layer = fmt::layer()
@@ -251,9 +301,13 @@ impl LoggingConfig {
                     } else {
                         FmtSpan::NONE
                     })
-                    .json();
+                    .json()
+                    .with_filter(chromiumoxide_teardown_filter());
 
-                registry.with(json_layer).with(error_layer).init();
+                registry
+                    .with(json_layer)
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
+                    .init();
             }
             LogFormat::Pretty => {
                 let pretty_layer = fmt::layer()
@@ -267,9 +321,13 @@ impl LoggingConfig {
                         FmtSpan::NEW | FmtSpan::CLOSE
                     } else {
                         FmtSpan::NONE
-                    });
+                    })
+                    .with_filter(chromiumoxide_teardown_filter());
 
-                registry.with(pretty_layer).with(error_layer).init();
+                registry
+                    .with(pretty_layer)
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
+                    .init();
             }
             LogFormat::Compact => {
                 let compact_layer = fmt::layer()
@@ -280,22 +338,29 @@ impl LoggingConfig {
                     .with_thread_names(false)
                     .with_target(false)
                     .with_writer(io::stdout)
-                    .with_span_events(FmtSpan::NONE);
+                    .with_span_events(FmtSpan::NONE)
+                    .with_filter(chromiumoxide_teardown_filter());
 
-                registry.with(compact_layer).with(error_layer).init();
+                registry
+                    .with(compact_layer)
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
+                    .init();
             }
             LogFormat::Gcp => {
-                let gcp_layer =
-                    fmt::layer()
-                        .with_writer(io::stdout)
-                        .event_format(GcpFormatter::new(
-                            &self.service_name,
-                            &self.service_version,
-                            &self.environment,
-                            self.output.location,
-                        ));
+                let gcp_layer = fmt::layer()
+                    .with_writer(io::stdout)
+                    .event_format(GcpFormatter::new(
+                        &self.service_name,
+                        &self.service_version,
+                        &self.environment,
+                        self.output.location,
+                    ))
+                    .with_filter(chromiumoxide_teardown_filter());
 
-                registry.with(gcp_layer).with(error_layer).init();
+                registry
+                    .with(gcp_layer)
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
+                    .init();
             }
         }
 
