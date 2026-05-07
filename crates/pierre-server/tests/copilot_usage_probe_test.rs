@@ -4,7 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! Diagnostic probe that calls the real Copilot CLI via embacle and dumps
+//! `response.usage` to stdout. Gated by `PIERRE_PROBE_COPILOT=1` so CI
+//! never spawns the subprocess; run locally to verify what the Copilot
+//! ACP transport actually returns for token counts.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
+
+use std::env;
 
 use embacle::types::LlmProvider as EmbacleLlmProvider;
 use pierre_llm::{ChatMessage, ChatRequest, CopilotHeadlessConfig, CopilotHeadlessRunner};
@@ -13,7 +20,7 @@ use pierre_llm::{ChatMessage, ChatRequest, CopilotHeadlessConfig, CopilotHeadles
 async fn probe_copilot_headless_response_usage() {
     // Gated to avoid spawning a real Copilot subprocess in CI; run locally with:
     //   PIERRE_PROBE_COPILOT=1 cargo test --test copilot_usage_probe_test -- --nocapture
-    if std::env::var("PIERRE_PROBE_COPILOT").is_err() {
+    if env::var("PIERRE_PROBE_COPILOT").is_err() {
         eprintln!("[probe] PIERRE_PROBE_COPILOT not set; skipping");
         return;
     }
