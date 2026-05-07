@@ -174,3 +174,7 @@ pub mod training_history_compute;
 
 /// Endurance Phase 5 workout library — loads compiled-in cornerstone TOML templates.
 pub mod workout_library;
+
+/// Coach followup scheduler — periodically dispatches notifications when
+/// pending followups become overdue and marks them delivered.
+pub mod coach_followup_scheduler;

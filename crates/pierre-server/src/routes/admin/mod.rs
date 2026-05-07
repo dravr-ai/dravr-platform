@@ -20,7 +20,7 @@ mod diagnostics;
 mod eval_harness;
 pub mod harness_config;
 mod memory_worker;
-mod myth_busting;
+pub mod myth_busting;
 mod settings;
 mod setup;
 mod store;
@@ -262,19 +262,31 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// Myth-busting summary routes (cookie auth)
+    /// Myth-busting summary + promote-topic feedback routes (cookie auth)
     fn myth_busting_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/myth-busting/summary",
                 get(myth_busting::handle_get_summary),
             )
+            .route(
+                "/api/admin/myth-busting/promote-topic",
+                post(myth_busting::handle_promote_topic),
+            )
             .with_state(context)
     }
 
-    /// Coach note audit log routes (cookie auth)
+    /// Coach note audit log + suppress routes (cookie auth)
     fn coach_note_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
+            .route(
+                "/api/admin/coach-notes/{note_id}/suppress",
+                post(coach_notes::handle_suppress_note),
+            )
+            .route(
+                "/api/admin/coach-notes/{note_id}/unsuppress",
+                post(coach_notes::handle_unsuppress_note),
+            )
             .route(
                 "/api/admin/coach-notes/audit",
                 get(coach_notes::handle_list_audit),

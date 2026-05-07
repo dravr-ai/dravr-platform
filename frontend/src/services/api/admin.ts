@@ -967,6 +967,52 @@ export const adminApi = {
     return response.data;
   },
 
+  /**
+   * Promote a recurring unsupported claim phrase into Harness Config's
+   * `blocked_topics` so the chat pipeline rejects future replies that
+   * include it. Idempotent: re-promoting an existing topic returns
+   * `added: false` and skips the registry write.
+   */
+  async promoteMythBustingTopic(topic: string): Promise<{
+    topic: string;
+    added: boolean;
+    total_blocked_topics: number;
+  }> {
+    const response = await axios.post(
+      `/api/admin/myth-busting/promote-topic`,
+      { topic },
+    );
+    return response.data;
+  },
+
+  /**
+   * Suppress an audited coach note so memory recall stops surfacing it
+   * to the coach. The audit panel still shows the row (suppressed=true)
+   * for review; admins can call `unsuppressCoachNote` to restore it.
+   */
+  async suppressCoachNote(
+    tenantId: string,
+    noteId: string,
+  ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.post(
+      `/api/admin/coach-notes/${encodeURIComponent(noteId)}/suppress?${query.toString()}`,
+    );
+    return response.data;
+  },
+
+  /** Inverse of [[suppressCoachNote]]. */
+  async unsuppressCoachNote(
+    tenantId: string,
+    noteId: string,
+  ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.post(
+      `/api/admin/coach-notes/${encodeURIComponent(noteId)}/unsuppress?${query.toString()}`,
+    );
+    return response.data;
+  },
+
   // ==================== COACH GRADING SUMMARY (Phase D C14) ====================
   async getCoachGradingSummary(
     tenantId: string,
@@ -1201,6 +1247,12 @@ export interface CoachNoteAuditRow {
   content: string;
   created_at: string;
   updated_at: string;
+  /**
+   * `true` when an admin has flagged this note as off-policy. Memory
+   * recall queries skip suppressed rows; the audit panel still renders
+   * them so admins can un-suppress later.
+   */
+  suppressed: boolean;
 }
 
 /**

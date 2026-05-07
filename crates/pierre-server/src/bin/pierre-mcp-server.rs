@@ -580,6 +580,12 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         info!("Messaging outbound retry worker started");
     }
 
+    // Start coach followup scheduler (polls coach_followups every 60 seconds)
+    {
+        use pierre_mcp_server::start_followup_scheduler;
+        start_followup_scheduler(&resources);
+    }
+
     // Start Discord Gateway WebSocket client for real-time message delivery
     #[cfg(feature = "client-messaging")]
     {
