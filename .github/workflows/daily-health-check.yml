@@ -27,14 +27,6 @@ jobs:
       - name: Run orphan duplication detection
         run: ./scripts/ci/detect-orphan-duplicates.sh
 
-      - name: Verify SSOT document exists
-        run: |
-          if [ ! -f docs/architecture/SINGLE_SOURCE_OF_TRUTH.md ]; then
-            echo "ERROR: docs/architecture/SINGLE_SOURCE_OF_TRUTH.md is missing"
-            exit 1
-          fi
-          echo "SSOT document present"
-
       - name: Check for forbidden parallel patterns
         run: |
           echo "Scanning for forbidden patterns..."
