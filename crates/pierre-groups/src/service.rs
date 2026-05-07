@@ -131,8 +131,8 @@ impl GroupService {
         };
 
         // Pull the full member list once: we need both the requester's role
-        // (for the admin gate) and the per-member peer_sharing_consent flag
-        // (for the privacy filter on the snapshot list).
+        // (for the admin overview view) and the per-member
+        // peer_sharing_consent flag (the single privacy gate).
         let members = self
             .repo
             .list_members(&group.id.to_string())
@@ -148,35 +148,33 @@ impl GroupService {
 
         // Build summary cards from snapshots.
         //
-        // Privacy gate is two-layered:
+        // Per-member `peer_sharing_consent` is the single source of
+        // truth: each individual member opts in independently and only
+        // their snapshot surfaces. A subset of members can be sharing
+        // while the rest stay private.
         //
-        //   Layer 1 (group-level): peer_sharing_allowed = is_admin
-        //     || group.peer_data_sharing. When OFF and the requester is
-        //     not an admin, only their own snapshot leaks — everything
-        //     else is hidden, even consenting members.
+        // `group.peer_data_sharing` is repurposed as an admin kill
+        // switch — when explicitly set to FALSE, every member's
+        // snapshot is hidden regardless of their consent (admin nuked
+        // sharing for the whole group). Default on auto-bound groups
+        // is TRUE so individual consent works without an extra step.
         //
-        //   Layer 2 (per-member): peer_sharing_consent. Even when Layer 1
-        //     is permissive, each individual member must have opted in to
-        //     have their snapshot rendered for peers. The requester's own
-        //     snapshot is always visible regardless of consent.
-        //
-        // Without Layer 2, the per-member consent toggle (REST
-        // PUT /api/groups/{id}/consent and the /group consent slash
-        // command) would have no observable effect, since the LLM
-        // would still see non-consenting members' data.
+        // The requester's own snapshot is always visible regardless of
+        // their own consent flag — they can see their own data even if
+        // they haven't opted in to peer sharing.
         let summarizer = self.tier.summarization_strategy();
-        let peer_sharing_allowed = is_admin || group.peer_data_sharing;
         let consenting_user_ids: HashSet<Uuid> = members
             .iter()
             .filter(|m| m.peer_sharing_consent)
             .map(|m| m.user_id)
             .collect();
-        let visible_snapshots: Vec<&MemberFitnessSnapshot> = if peer_sharing_allowed {
+        let visible_snapshots: Vec<&MemberFitnessSnapshot> = if group.peer_data_sharing {
             member_snapshots
                 .iter()
                 .filter(|s| s.user_id == user_id || consenting_user_ids.contains(&s.user_id))
                 .collect()
         } else {
+            // Kill switch: only the requester's own snapshot leaks.
             member_snapshots
                 .iter()
                 .filter(|s| s.user_id == user_id)
@@ -255,7 +253,12 @@ impl GroupService {
             description: request.description.clone(),
             coach_id: request.coach_id.clone(),
             owner_id,
-            peer_data_sharing: false,
+            // `peer_data_sharing` is the admin kill switch — defaults
+            // to TRUE so individual members' `/group consent yes` opt-
+            // ins immediately surface their data. Owner can flip to
+            // FALSE in group settings to disable everyone's sharing in
+            // one move.
+            peer_data_sharing: true,
             max_members: request.max_members.unwrap_or(20),
             is_active: true,
             channel_type: None,

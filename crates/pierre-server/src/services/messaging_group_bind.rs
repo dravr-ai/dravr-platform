@@ -17,9 +17,11 @@
 //!   as an active Member (idempotent — no-op if already enrolled).
 //!
 //! - If no row exists, the *first* sender bootstraps the group as Owner
-//!   with `peer_data_sharing = false` and is auto-enrolled as Owner.
-//!   Subsequent senders join as Member with `peer_sharing_consent = false`
-//!   (must opt in via `/group consent yes`).
+//!   with `peer_data_sharing = true` (group-level kill switch on, so
+//!   individual member consent is the gate) and is auto-enrolled as
+//!   Owner with `peer_sharing_consent = false`. Subsequent senders join
+//!   as Member with `peer_sharing_consent = false` and must opt in via
+//!   `/group consent yes` for their data to surface to peers.
 //!
 //! - DMs (`is_direct_message == true`) skip the helper entirely — the
 //!   caller doesn't invoke this path.
@@ -124,7 +126,13 @@ pub async fn resolve_or_create_channel_group(
         )),
         coach_id,
         owner_id: user_uuid,
-        peer_data_sharing: false,
+        // Group-level kill switch — TRUE means "individual member
+        // consent is the gate", FALSE means admin nuked all sharing.
+        // Defaults to TRUE so a member who runs `/group consent yes`
+        // immediately starts surfacing their data to peers without an
+        // owner intervention. Owner can flip to FALSE in the group
+        // settings to disable everyone's sharing in one move.
+        peer_data_sharing: true,
         max_members: 20,
         is_active: true,
         channel_type: Some(channel_type.to_owned()),
