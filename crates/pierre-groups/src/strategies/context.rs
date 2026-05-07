@@ -84,20 +84,32 @@ impl GroupContextStrategy for IndividualFocusContext {
                 "Group has {} active members. Tailor advice to {}'s individual level.",
                 group.active_count, member.display_name
             );
-            if group.group.peer_data_sharing {
-                // Peer sharing is on — include visible peer summaries
-                for peer in all_members.iter().filter(|m| m.user_id != member.user_id) {
-                    let _ = writeln!(text, "- {}", peer.summary_text.trim());
-                }
-            } else {
+            // Render every peer card the upstream consent filter let
+            // through. `all_members` was already pre-filtered in
+            // `inject_group_context` to (requester + consenting peers
+            // only), or to (requester only) when the kill switch is
+            // off. So we just loop here without re-checking the group
+            // flag.
+            let visible_peers: Vec<&MemberSummaryCard> = all_members
+                .iter()
+                .filter(|m| m.user_id != member.user_id)
+                .collect();
+            if visible_peers.is_empty() {
                 let _ = writeln!(
                     text,
-                    "IMPORTANT: Peer data sharing is DISABLED. You have NO data about \
-                     other group members. NEVER fabricate, estimate, or guess other \
-                     members' stats. If asked to compare members or plan joint activities \
-                     based on fitness data, explain that peer data sharing must be enabled \
-                     in the group settings first."
+                    "IMPORTANT: No peer data is visible right now. Either no \
+                     other member has opted in to peer data sharing for this \
+                     group (each member toggles their own consent via \
+                     `/group consent yes`), or the group admin has disabled \
+                     sharing entirely. NEVER fabricate, estimate, or guess \
+                     other members' stats. If asked to compare members or \
+                     plan joint activities, explain that peers haven't shared \
+                     their data yet and suggest they run `/group consent yes`."
                 );
+            } else {
+                for peer in visible_peers {
+                    let _ = writeln!(text, "- {}", peer.summary_text.trim());
+                }
             }
         }
 
@@ -232,10 +244,11 @@ fn write_absent_member_instructions(text: &mut String, group: &GroupContext) {
     if !group.group.peer_data_sharing {
         let _ = writeln!(
             text,
-            "Group-level peer data sharing is currently OFF. Even after a \
-             peer enrolls, their training summaries stay private to them \
-             until each peer sets their own consent. Don't fabricate \
-             other members' stats."
+            "Group-level peer data sharing is currently OFF (admin \
+             kill-switch is engaged). Even after a peer enrolls and \
+             opts in via `/group consent yes`, their training data \
+             stays private until the group admin re-enables sharing. \
+             Don't fabricate other members' stats."
         );
     }
 }
