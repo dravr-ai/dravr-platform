@@ -27,7 +27,7 @@ use tracing::{info, warn};
 use crate::errors::AppError;
 use crate::llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
-    FunctionDeclaration, FunctionResponse, TokenUsage, Tool,
+    FunctionDeclaration, FunctionResponse, MessageRole, TokenUsage, Tool,
 };
 use crate::models::TenantId;
 use crate::protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -403,12 +403,23 @@ pub async fn run_cli_tool_loop(
         };
 
         // Parse <tool_call> blocks from the response text (via embacle).
-        // Done before `emit_call_record` so the per-call usage row carries
-        // the parsed tool names — the structured `function_calls` field
-        // is absent on this provider's `complete()` return type.
+        // Done before `emit_call_record_with_text` so the per-call usage row
+        // carries the parsed tool names — the structured `function_calls`
+        // field is absent on this provider's `complete()` return type.
         let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
         let tools_in_response: Vec<String> = embacle_calls.iter().map(|c| c.name.clone()).collect();
-        emit_call_record(
+        // Last user prompt feeds the character-based token estimator when
+        // the provider returns `usage: None` (e.g. Copilot ACP, which
+        // doesn't expose token counts). Without this fallback the per-call
+        // row would land with zeros and no `_estimated` suffix.
+        let last_user_prompt = llm_messages
+            .iter()
+            .rev()
+            .find(|m| matches!(m.role, MessageRole::User))
+            .map(|m| m.content.as_str())
+            .unwrap_or_default()
+            .to_owned();
+        emit_call_record_with_text(
             params.call_recorder.as_ref(),
             params.provider.name(),
             params.model,
@@ -417,6 +428,8 @@ pub async fn run_cli_tool_loop(
             latency_ms,
             true,
             call_seq,
+            Some(&last_user_prompt),
+            Some(&response.content),
             tools_in_response,
         );
 
