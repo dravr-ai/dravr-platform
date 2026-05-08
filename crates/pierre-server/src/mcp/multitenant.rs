@@ -1230,6 +1230,15 @@ impl MultiTenantMcpServer {
         #[cfg(feature = "client-llm-settings")]
         let app = app.merge(LlmSettingsRoutes::routes(Arc::clone(resources)));
 
+        // Coach-athlete roster routes — gated by users.manages_roster=true
+        // (or is_admin=true). Always mounted; the permission check lives
+        // inside the handler so a user without the bit gets a 403 here
+        // rather than a 404 from a missing route.
+        let app = {
+            use crate::routes::roster;
+            app.merge(roster::router(Arc::clone(resources)))
+        };
+
         // ═══════════════════════════════════════════════════════════════
         // OTHER CLIENT ROUTES
         // ═══════════════════════════════════════════════════════════════

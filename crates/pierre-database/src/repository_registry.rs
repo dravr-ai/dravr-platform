@@ -17,12 +17,12 @@ use crate::repositories::{
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SleepRepository, SocialRepository, StoreListingsRepository, SubscriptionsRepository,
-    SyncCursorRepository, TenantRepository, TimeSeriesPointRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserPhysiologicalProfileRepository, UserRepository, WeatherCacheRepository,
-    WorkoutTemplateRepository,
+    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, TimeSeriesPointRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRepository,
+    WeatherCacheRepository, WorkoutTemplateRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -128,6 +128,9 @@ pub struct RepositoryRegistry {
     /// Continuous time-series points (`data_point_series` table) backing the
     /// dravr-enforme `TimeSeriesPointStore` adapter.
     pub time_series_points: Arc<dyn TimeSeriesPointRepository>,
+    /// Coach-athlete roster assignments (1:N junction). Gates routes that
+    /// require `manages_roster=true` and surfaces who coaches whom.
+    pub roster: Arc<dyn RosterRepository>,
 }
 
 impl RepositoryRegistry {
@@ -184,7 +187,8 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
-            time_series_points: db,
+            time_series_points: db.clone(),
+            roster: db,
         }
     }
 
@@ -239,7 +243,8 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
-            time_series_points: db,
+            time_series_points: db.clone(),
+            roster: db,
         }
     }
 }

@@ -52,6 +52,8 @@ pub mod provider_connections;
 pub mod recipes;
 /// Repository trait definitions for focused database access
 pub mod repositories;
+/// Coach-athlete roster assignments (`SQLite`) backing `RosterRepository`.
+pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)
 pub mod route_summaries;
 /// Security repository: RSA keypairs, key rotation, audit events, system secrets

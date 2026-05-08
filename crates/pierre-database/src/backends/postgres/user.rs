@@ -995,6 +995,19 @@ impl UserRepository for PostgresDatabase {
         Ok(())
     }
 
+    async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()> {
+        let result = sqlx::query("UPDATE users SET manages_roster = $1 WHERE id = $2")
+            .bind(manages_roster)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to set manages_roster: {e}")))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+        Ok(())
+    }
+
     async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
         let result = sqlx::query(
             r"

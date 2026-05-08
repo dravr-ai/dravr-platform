@@ -38,6 +38,8 @@ pub mod dossier;
 mod health;
 mod nutrition;
 mod oauth;
+/// Coach-athlete roster assignment shape backing `coach_athlete_assignments`.
+pub mod roster;
 mod sleep;
 mod tenant;
 mod tool_selection;
@@ -101,6 +103,7 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
 pub use athlete::{Athlete, PersonalRecord, PrMetric, Stats};
+pub use roster::CoachAthleteAssignment;
 
 // User domain
 pub use user::{
