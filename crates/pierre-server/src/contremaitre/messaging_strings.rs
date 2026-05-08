@@ -299,12 +299,18 @@ pub const FR_EMPTY_REPLY: &str =
 pub const FR_GUARDRAIL_TOO_LONG: &str = "J'ai une réponse plus longue prête, mais elle dépasse la limite de longueur configurée. Veux-tu que je te la résume plus brièvement?";
 /// French default for [`KEY_GUARDRAIL_BLOCKED_TOPIC`].
 pub const FR_GUARDRAIL_BLOCKED_TOPIC: &str = "Je préfère ne pas aborder ce sujet ici. Restons concentrés sur ton entraînement et ta récupération. Y a-t-il quelque chose de précis sur lequel je peux t'aider?";
-/// French default for [`KEY_VERIFICATION_WARN_SUFFIX`]. `{0}` = problem count.
+/// French default for [`KEY_VERIFICATION_WARN_SUFFIX`].
 ///
-/// The caller joins this suffix to the main reply with `\n\n---\n` so the
-/// separator stays in Rust and the externalized string is self-contained —
-/// friendlier for translators and for GitHub rendering of the raw markdown.
-pub const FR_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Attention — je ne suis pas tout à fait sûr de {0} affirmation(s) ci-dessus. Demande-moi de les étayer si tu veux voir les sources.";
+/// Used as the **header** for a bulleted list of the specific claims the
+/// verifier could not back up — the list itself is built in Rust and
+/// appended by the caller. Letting the user see *which* claims to push
+/// back on is more actionable than an opaque "I'm unsure about N
+/// things" tail.
+///
+/// The caller joins this header to the main reply with `\n\n---\n`, then
+/// appends each flagged claim as a `- {claim}` bullet line; both halves
+/// stay externalized so translators only see prose.
+pub const FR_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Quelques affirmations que je n'ai pas pu étayer formellement — corrige-moi si l'une d'elles est à côté :";
 /// French default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const FR_VERIFICATION_BLOCK_FALLBACK: &str = "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?";
 /// French canonical refusal for off-scope requests.
@@ -439,8 +445,9 @@ pub const EN_EMPTY_REPLY: &str =
 pub const EN_GUARDRAIL_TOO_LONG: &str = "I have a longer response prepared but it exceeds the configured length cap. Want me to break it into a shorter summary?";
 /// English default for [`KEY_GUARDRAIL_BLOCKED_TOPIC`].
 pub const EN_GUARDRAIL_BLOCKED_TOPIC: &str = "I'd rather not get into that here. Let's stay focused on your training and recovery. Is there something specific I can help with?";
-/// English default for [`KEY_VERIFICATION_WARN_SUFFIX`]. `{0}` = problem count.
-pub const EN_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Heads up — I'm not fully confident in {0} claim(s) above. Ask me to back them up if you want the evidence.";
+/// English default for [`KEY_VERIFICATION_WARN_SUFFIX`].
+pub const EN_VERIFICATION_WARN_SUFFIX: &str =
+    "⚠️ A few claims I couldn't formally back up — push back if any of these are off:";
 /// English default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const EN_VERIFICATION_BLOCK_FALLBACK: &str = "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?";
 /// English canonical refusal for off-scope requests.
@@ -569,7 +576,8 @@ pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
 pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?";
 pub(crate) const ES_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?";
-pub(crate) const ES_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atención — no estoy del todo seguro de {0} afirmación/es anterior/es. Pídeme las fuentes si quieres verificarlas.";
+pub(crate) const ES_VERIFICATION_WARN_SUFFIX: &str =
+    "⚠️ Algunas afirmaciones que no pude respaldar formalmente — corrígeme si alguna está fuera:";
 pub(crate) const ES_VERIFICATION_BLOCK_FALLBACK: &str = "Empecé a responder, pero algunas afirmaciones no coincidían con las fuentes que considero fiables. Déjame reformular — ¿puedes preguntarme de nuevo con un poco más de contexto sobre lo que intentas entender?";
 /// Spanish canonical refusal for off-scope requests.
 pub(crate) const ES_SCOPE_REFUSAL: &str =
@@ -696,7 +704,7 @@ pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
 pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?";
 pub(crate) const DE_GUARDRAIL_BLOCKED_TOPIC: &str = "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?";
-pub(crate) const DE_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Hinweis — ich bin mir bei {0} Aussage(n) oben nicht ganz sicher. Frag mich nach Belegen, wenn du die Quellen sehen willst.";
+pub(crate) const DE_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Ein paar Aussagen, die ich nicht formell belegen konnte — korrigier mich, wenn etwas davon nicht stimmt:";
 pub(crate) const DE_VERIFICATION_BLOCK_FALLBACK: &str = "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?";
 /// German canonical refusal for off-scope requests.
 pub(crate) const DE_SCOPE_REFUSAL: &str =
@@ -824,7 +832,7 @@ pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
 pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?";
 pub(crate) const PT_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?";
-pub(crate) const PT_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atenção — não tenho total certeza sobre {0} afirmação(ões) acima. Pede-me as fontes se quiseres verificá-las.";
+pub(crate) const PT_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Algumas afirmações que não consegui sustentar formalmente — corrige-me se alguma estiver errada:";
 pub(crate) const PT_VERIFICATION_BLOCK_FALLBACK: &str = "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?";
 /// Portuguese canonical refusal for off-scope requests.
 pub(crate) const PT_SCOPE_REFUSAL: &str =
