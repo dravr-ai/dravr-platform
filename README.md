@@ -1,169 +1,287 @@
 <div align="center">
   <img src="templates/dravr-logo.svg" width="150" height="150" alt="Dravr Logo">
-  <h1>Dravr</h1>
+  <h1>Dravr Platform</h1>
+  <p><em>Multi-tenant fitness coaching platform — same coach, every surface (web, mobile, MCP, messaging), with sports-science guardrails on every claim.</em></p>
 </div>
 
-[![Backend CI](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml)
-[![Cross-Platform](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml)
-[![Frontend Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml)
-[![SDK Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml)
-[![MCP Compliance](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml)
-[![Mobile Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml)
+[![CI: Backend (Rust)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml)
+[![CI: Backend (PostgreSQL)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-postgres.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-postgres.yml)
+[![CI: Web Frontend](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml)
+[![CI: TypeScript SDK](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml)
+[![CI: MCP Compliance](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml)
+[![CI: Integration (HTTP/MCP)](https://github.com/dravr-ai/dravr-platform/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/integration-tests.yml)
+[![CI: Mobile E2E (iOS)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-e2e-ios.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-e2e-ios.yml)
 
-Dravr connects AI assistants to fitness data from Strava, Garmin, Fitbit, WHOOP, COROS, and Terra (150+ wearables). Implements Model Context Protocol (MCP), A2A protocol, OAuth 2.0, and REST APIs for Claude, ChatGPT, and other AI assistants.
+---
 
-## Intelligence System
+## What this is
 
-Sports science-based fitness analysis including training load management, race predictions, sleep and recovery scoring, nutrition planning, and pattern detection.
+Dravr is the platform behind [dravr.ai](https://dravr.ai). It runs an AI fitness coach that lives wherever the user already is — chat apps, a mobile app, a web dashboard, or any AI assistant that speaks the [Model Context Protocol](https://modelcontextprotocol.io/).
 
-See [Intelligence Methodology](https://async-io.github.io/pierre_mcp_server/intelligence-methodology.html), [Nutrition Methodology](https://async-io.github.io/pierre_mcp_server/nutrition-methodology.html), and [Mobility Methodology](https://async-io.github.io/pierre_mcp_server/mobility-methodology.html) for details.
+The interesting bit isn't "an LLM that talks fitness." It's the architecture that turns a chat turn into a verifiable, tenant-scoped, provider-grounded coaching answer:
 
-## Features
+- A **coach** is a tenant-scoped persona — a system prompt plus a category, plus tier-specific behaviour rules — not a free-form chat session.
+- Every coach turn is **decomposed into atomic claims** and run through a layered verifier (heuristic + LLM-as-judge) before it reaches the user. False or unsupported physiological / nutrition / training-prescription claims are flagged, scored, and stored against the conversation turn.
+- Every coach turn is **grounded in real provider data** — Strava activities, WHOOP sleep, Garmin HRV — fetched through tool calls, not hallucinated from an activity title.
+- Every coach turn **streams identically** to whichever surface initiated it, via a single AG-UI event channel that all frontends and chat adapters subscribe to.
 
-- **MCP Protocol**: JSON-RPC 2.0 for AI assistant integration
-- **A2A Protocol**: Agent-to-agent communication
-- **OAuth 2.0 Server**: RFC 7591 dynamic client registration
-- **53 MCP Tools**: Activities, goals, analysis, sleep, recovery, nutrition, recipes, mobility, configuration
-- **TypeScript SDK**: `pierre-mcp-client` npm package
-- **Pluggable Providers**: Compile-time provider selection
-- **TOON Format**: Token-Oriented Object Notation output for ~40% LLM token reduction ([spec](https://toonformat.dev))
-
-## Provider Support
-
-| Provider | Feature Flag | Capabilities |
-|----------|-------------|--------------|
-| Strava | `provider-strava` | Activities, Stats, Routes |
-| Garmin | `provider-garmin` | Activities, Sleep, Health |
-| WHOOP | `provider-whoop` | Sleep, Recovery, Strain |
-| Fitbit | `provider-fitbit` | Activities, Sleep, Health |
-| COROS | `provider-coros` | Activities, Sleep, Recovery |
-| Terra | `provider-terra` | 150+ wearables, Activities, Sleep, Health |
-| Synthetic | `provider-synthetic` | Development/Testing |
-
-Build with specific providers:
-```bash
-cargo build --release                                                    # all providers
-cargo build --release --no-default-features --features "sqlite,provider-strava"  # strava only
-```
-
-See [Build Configuration](https://async-io.github.io/pierre_mcp_server/build.html) for provider architecture details.
-
-## Workspace Architecture
-
-Pierre is a Rust workspace with 14 crates for parallel compilation and modularity:
-
-| Crate | Description | LOC |
-|-------|-------------|-----|
-| `pierre_mcp_server` | Main binary: routes, MCP protocol, tools, transports, orchestration | ~136K |
-| `pierre-database` | Database abstraction with repository traits and SQLite/PostgreSQL backends | ~53K |
-| `pierre-core` | Core types, errors, pagination, redaction, constants | ~14K |
-| `pierre-providers` | Fitness data providers (Strava, Garmin, Fitbit, WHOOP, COROS, Terra) | ~12K |
-| `pierre-auth` | Authentication, authorization, JWT, OAuth2 server, CSRF | ~11K |
-| `pierre-llm` | LLM provider abstraction (Gemini, Groq, OpenAI-compatible, Ollama) | ~5.5K |
-| `pierre-evals` | Coaching evaluation harness (golden sets, LLM-as-judge, deterministic checks) | ~2.6K |
-| `pierre-groups` | Group coaching business logic for multi-person AI coaching | ~1.7K |
-| `pierre-cache` | Cache abstraction with tenant isolation (in-memory LRU + Redis) | ~1.1K |
-| `pierre-a2a` | A2A protocol types, agent card, client data structures | ~1K |
-| `pierre-memory` | Coaching harness memory (facts, compaction, sessions, notes, followups) | ~0.9K |
-| `pierre-intelligence` | Bridge re-exporting `dravr-cageux` fitness intelligence | <0.2K |
-| `pierre-messaging` | Bridge re-exporting `dravr-canot` multi-channel messaging | <0.1K |
-| `pierre-notifications` | Bridge re-exporting `dravr-commere` push notifications | <0.1K |
+## The system, end to end
 
 ```
-crates/
-├── pierre-server/         # Main binary + orchestration (routes, tools, MCP, transports)
-├── pierre-database/       # Database abstraction + SQLite/PostgreSQL backends
-├── pierre-core/           # Errors, models, redaction, constants
-├── pierre-providers/      # Fitness providers (Strava, Garmin, Fitbit, WHOOP, COROS, Terra)
-├── pierre-auth/           # Auth, JWT, OAuth2 server, CSRF middleware
-├── pierre-llm/            # LLM providers (Gemini, Groq, OpenAI-compatible, Ollama)
-├── pierre-evals/          # Coach evaluation harness
-├── pierre-groups/         # Group coaching logic
-├── pierre-cache/          # Cache backends (memory LRU + Redis)
-├── pierre-a2a/            # A2A protocol types (feature-gated: protocol-a2a)
-├── pierre-memory/         # Coaching harness memory primitives
-├── pierre-intelligence/   # Bridge → dravr-cageux
-├── pierre-messaging/      # Bridge → dravr-canot
-└── pierre-notifications/  # Bridge → dravr-commere
+                ┌─────────── surfaces ───────────┐
+   web (Vite)   mobile (Expo)   MCP (stdio/HTTP)   messaging (TG/Slack/Discord/WA/FB)
+                            │
+                            ▼
+            ┌─────────────────────────────────────┐
+            │  Transport layer (HTTP/SSE/WS/stdio)│
+            │  Protocol adapters (REST/MCP/A2A)   │
+            └─────────────────────────────────────┘
+                            │  (auth, tenant resolution, CSRF, rate limit)
+                            ▼
+            ┌─────────────────────────────────────┐
+            │   Chat orchestration (one path)     │
+            │  ┌────────────────────────────────┐ │
+            │  │ Coach harness pipeline:        │ │
+            │  │  1. memory recall + compaction │ │
+            │  │  2. persona + coach prompt     │ │
+            │  │  3. tool registry dispatch     │ │
+            │  │  4. LLM tool-loop              │ │
+            │  │  5. claim extraction           │ │
+            │  │  6. claim verification         │ │
+            │  │  7. coach notes + followups    │ │
+            │  └────────────────────────────────┘ │
+            │   AG-UI events fan out at every step│
+            └─────────────────────────────────────┘
+                │                  │             │
+                ▼                  ▼             ▼
+       Provider abstraction   LLM abstraction   Repository abstraction
+        Strava, Garmin,        Gemini, Groq,    SQLite | PostgreSQL
+        WHOOP, Fitbit,         OpenAI, Ollama,  every query is
+        COROS, Terra, ...      Copilot ACP      tenant_id-scoped
+                │                  │
+                └─── activity ─────┘
+                     streams,
+                     sleep, HRV
 ```
 
-Tool extensibility is provided by `pierre-server`'s `tools::ToolRegistry`
-(see `crates/pierre-server/src/tools/`); new tools implement the `McpTool`
-trait and register through `ToolRegistry::register_builtin_tools`.
+Every surface lands on the **same chat orchestration**. There is no "mobile pipeline" vs "web pipeline" — the channel adapter is responsible only for transport and rendering; the coaching logic is invariant.
 
-## Modular Architecture
+## Architectural pillars
 
-Pierre uses compile-time feature flags for modular deployments. Build only what you need.
+### Surface convergence
 
-### Server Profiles
+The web app, mobile app, MCP clients, and messaging adapters all hit the same orchestration. Surfaces differ only in:
 
-Pre-configured bundles for common deployment scenarios:
+- **Auth shape** — JWT (web/mobile), MCP token (CLI assistants), per-channel signed webhooks (Telegram/Slack/Discord/WhatsApp/Messenger).
+- **Rendering** — markdown blocks for chat surfaces, AG-UI step events for streaming surfaces, plain-text fallbacks for SMS-grade channels.
+- **Latency budget** — chat surfaces tolerate streaming with progressive AG-UI events; webhook channels render a "thinking…" message that gets edited in place as `STEP_FINISHED` events arrive.
 
-| Profile | Description | Binary Size |
-|---------|-------------|-------------|
-| `server-full` | All protocols, transports, clients (default) | ~50MB |
-| `server-mcp-stdio` | MCP protocol + stdio transport (desktop clients) | ~35MB |
-| `server-mcp-bridge` | MCP + A2A protocols, web transports | ~40MB |
-| `server-mobile-backend` | REST + MCP, mobile client routes | ~42MB |
-| `server-saas-full` | REST + MCP, web + admin clients | ~45MB |
+A coach exists once. Its behaviour is identical on every surface.
 
-```bash
-# Build for desktop MCP clients (minimal)
-cargo build --release --no-default-features --features "sqlite,server-mcp-stdio"
+### The coach harness pipeline
 
-# Build for SaaS deployment
-cargo build --release --no-default-features --features "postgresql,server-saas-full"
+A "coach turn" is a deterministic state machine, not a single LLM call. Each tier is independently observable and independently testable.
+
+| Tier | Responsibility | What it produces |
+|---|---|---|
+| 0 — Persona | Render base persona (casual / professional / supportive / direct) | System prompt header |
+| 1 — Coach | Inject tenant-scoped coach prompt from a hot-reload registry | Coach domain expertise |
+| 2 — Memory | Recall extracted user facts (goals, equipment, injuries) + coach-authored notes | User context |
+| 3 — Compaction | Summarise oldest N turns when window crosses warning threshold | Bounded context window |
+| 4 — Tool dispatch | Capability-filtered MCP tool registry runs the LLM tool-loop | Tool calls + provider data |
+| 5 — Guardrails | Token caps, blocked-topic filtering, disclaimer injection | Bounded output |
+| 5.5 — Claim verifier | Decompose response → atomic claims → heuristic + judge verdict | Verdict store, audit trail |
+| 6 — Memory write-back | Extract new facts from the turn, persist coach notes / follow-ups | Updated user model |
+
+Every tier emits AG-UI `STEP_STARTED` / `STEP_FINISHED` events so subscribers can show real-time progress instead of a spinner. Every tier is reconfigurable at runtime via the admin "Harness Config" panel — no redeploy.
+
+### Provider abstraction
+
+Fitness providers are behind a single `Provider` trait. Adding a provider means implementing the trait and gating a feature flag — the rest of the system is provider-agnostic.
+
+| Concern | How it's solved |
+|---|---|
+| OAuth lifecycle | Per-tenant token store; transparent token refresh inside tool execution. |
+| Activity normalization | Provider-specific responses are normalised through `dravr-cageux` / `dravr-riviere` / `dravr-equilibre` into a canonical activity / sleep / recovery model. |
+| Sync | `dravr-enforme` runs scheduled background sync per provider per tenant. |
+| Restricted jurisdictions | Sciotte (`dravr-sciotte`) ships a Strava mirror via headless Chrome where Strava's OAuth API isn't an option. |
+
+Coaches see a `&dyn Provider`. They never know whether the data came from Strava OAuth, a Garmin webhook, or a Sciotte scrape.
+
+### LLM abstraction
+
+LLM backends are interchangeable per tenant. Tool-loop dispatch picks one of three execution strategies based on the model's declared capabilities:
+
+- **API tool-loop** — for vendors with native function-calling (OpenAI-compatible, Gemini).
+- **Headless tool-loop** — for transports where tool calls go over Agent Client Protocol (Copilot via `dravr-embacle`).
+- **CLI tool-loop** — for local models without protocol support; uses text-based tool emission.
+
+A single `LlmProvider` trait abstracts all three; orchestration code is identical regardless of which backend is configured.
+
+### Multi-tenant by construction
+
+Tenant isolation is a CI-enforced invariant, not a runtime convention.
+
+- Every database query includes `tenant_id` in the `WHERE` clause. An architectural-validation script fails CI on missing scoping.
+- OAuth tokens, API keys, LLM credentials, cache keys are all per-tenant. There is no global / shared store.
+- Admin operations that touch a coach or a user must verify the target's tenant matches the caller's, including system coaches (which are pinned to the seed tenant but accepted unconditionally for read/use, only).
+- The frontend admin console runs under super-admin impersonation, but every route still goes through the same tenant resolver — there's no impersonation-only data path.
+
+### External `dravr-*` modules — embedded today, extractable as services
+
+The platform is composed against a set of independently versioned `dravr-*` modules. They split cleanly along an axis the architecture has been designed around: **stateless / CPU-bound libraries that don't benefit from RPC** vs. **stateful / I/O-bound subsystems that are natural service boundaries**.
+
+| Module | Role | Today | Extractable as service? |
+|---|---|---|---|
+| `dravr-cageux` | Sports-science formulas (training load, race predictions, fitness scoring) | Static link | No — pure CPU, RPC overhead dwarfs the work |
+| `dravr-riviere` | Time-series primitives for activity streams | Static link | No — same reason |
+| `dravr-equilibre` | Health / recovery domain models (sleep, HRV, strain) | Static link | No — same reason |
+| `dravr-enforme` | Provider sync harness (Strava / Garmin / WHOOP) | In-process worker | Yes — natural sync worker / Cloud Run job |
+| `dravr-embacle` | LLM runner (Copilot ACP, OpenAI, Gemini transports) | Static link + child process for ACP | Yes — natural inference proxy |
+| `dravr-canot` | Messaging gateway (Telegram / Slack / Discord / WA / Messenger) | In-process webhook handlers | Yes — extracts as a webhook receiver service |
+| `dravr-commere` | Push-notification service (APNs, FCM) | In-process | Yes — natural push gateway |
+| `dravr-tronc` | Notification / alerting layer | In-process | Yes — natural pubsub consumer |
+| `dravr-meteo` | Weather lookups | In-process HTTP client | Yes — small caching service |
+| `dravr-sciotte` | Headless-Chrome Strava mirror scraper | **Already a service** — separate Cloud Run | (already extracted) |
+| `dravr-contremaitre` | System prompts + coach definitions | **Already external** — separate GitHub repo, hot-reloaded over webhook | (already extracted) |
+
+**Today — embedded composition:**
+
+```mermaid
+graph LR
+    subgraph platform["Dravr Platform (pierre-mcp-server)"]
+        ORCH[Chat Orchestration]
+        TOOLS[Tool Registry]
+        REPO[(Repository Layer<br/>SQLite / PostgreSQL)]
+    end
+
+    subgraph libs["Stateless libraries — static link, no RPC"]
+        CAGEUX[dravr-cageux]
+        RIVIERE[dravr-riviere]
+        EQUILIBRE[dravr-equilibre]
+    end
+
+    subgraph embedded["I/O subsystems — embedded in-process today"]
+        ENFORME[dravr-enforme<br/>provider sync]
+        EMBACLE[dravr-embacle<br/>LLM runner]
+        CANOT[dravr-canot<br/>messaging]
+        COMMERE[dravr-commere<br/>push]
+        TRONC[dravr-tronc<br/>alerting]
+        METEO[dravr-meteo<br/>weather]
+    end
+
+    subgraph external["Already external services"]
+        SCIOTTE[dravr-sciotte<br/>Cloud Run<br/>headless Chrome]
+        CONTREMAITRE[(dravr-contremaitre<br/>GitHub repo<br/>hot-reload via webhook)]
+    end
+
+    ORCH --> TOOLS
+    ORCH --> REPO
+    ORCH --> CAGEUX
+    ORCH --> RIVIERE
+    ORCH --> EQUILIBRE
+    ORCH --> ENFORME
+    ORCH --> EMBACLE
+    ORCH --> CANOT
+    ORCH --> COMMERE
+    ORCH --> TRONC
+    ORCH --> METEO
+    ORCH -.HTTP.-> SCIOTTE
+    ORCH -.git pull + webhook.-> CONTREMAITRE
 ```
 
-### Feature Categories
+**Tomorrow — service extraction path (incremental, per-module):**
 
-| Category | Features | Description |
-|----------|----------|-------------|
-| **Protocols** | `protocol-rest`, `protocol-mcp`, `protocol-a2a` | API protocols |
-| **Transports** | `transport-http`, `transport-websocket`, `transport-sse`, `transport-stdio` | Communication layers |
-| **Clients** | `client-web`, `client-admin`, `client-mobile` | Route groups |
-| **Tools** | `tools-fitness-core`, `tools-wellness`, `tools-all` | MCP tool categories |
+```mermaid
+graph LR
+    subgraph platform["Dravr Platform (pierre-mcp-server)"]
+        ORCH[Chat Orchestration]
+    end
 
-See [Build Configuration](https://async-io.github.io/pierre_mcp_server/build.html) for detailed feature documentation.
+    subgraph libs["Stateless libraries — still linked"]
+        CAGEUX[dravr-cageux]
+        RIVIERE[dravr-riviere]
+        EQUILIBRE[dravr-equilibre]
+    end
 
-## What You Can Ask
+    subgraph mesh["Service mesh — each container scales independently"]
+        ENFORME_SVC[dravr-enforme-svc<br/>provider sync worker<br/>Cloud Run job]
+        EMBACLE_SVC[dravr-embacle-svc<br/>LLM proxy<br/>Cloud Run]
+        CANOT_SVC[dravr-canot-svc<br/>webhook receiver<br/>Cloud Run]
+        COMMERE_SVC[dravr-commere-svc<br/>push gateway<br/>Cloud Run]
+        TRONC_SVC[dravr-tronc-svc<br/>alerting consumer<br/>Cloud Run]
+        METEO_SVC[dravr-meteo-svc<br/>weather cache<br/>Cloud Run]
+        SCIOTTE[dravr-sciotte<br/>scraper<br/>Cloud Run]
+    end
 
-- "Calculate my daily nutrition needs for marathon training"
-- "Analyze my training load - do I need a recovery day?"
-- "Compare my three longest runs this month"
-- "Analyze this meal: 150g chicken, 200g rice, 100g broccoli"
-- "What's my predicted marathon time based on recent runs?"
+    ORCH --> CAGEUX
+    ORCH --> RIVIERE
+    ORCH --> EQUILIBRE
+    ORCH -.HTTP/gRPC.-> ENFORME_SVC
+    ORCH -.HTTP/gRPC.-> EMBACLE_SVC
+    ORCH -.HTTP/gRPC.-> CANOT_SVC
+    ORCH -.HTTP/gRPC.-> COMMERE_SVC
+    ORCH -.HTTP/gRPC.-> TRONC_SVC
+    ORCH -.HTTP/gRPC.-> METEO_SVC
+    ORCH -.HTTP/gRPC.-> SCIOTTE
+```
 
-See [Tools Reference](https://async-io.github.io/pierre_mcp_server/tools-reference.html) for the 53 available MCP tools.
+**Why the embedded-first design.** The crates expose clean library APIs (no `&self.db`, no global state) so wrapping them in a thin HTTP/gRPC server is a mechanical change, not a refactor. We keep them in-process until a real signal demands extraction:
 
-## Quick Start
+- **Independent scaling** — when scraper or LLM-proxy load patterns diverge from chat-orchestration load patterns.
+- **Blast-radius isolation** — a Chrome OOM in `sciotte` already takes down its own pod, not the orchestrator. Same model extends to the others.
+- **Polyglot deployments** — Telegram-only edge nodes that need just `dravr-canot` and a tiny embacle.
+- **Cost control** — push and alerting can run on cheaper instance shapes than the orchestrator.
+
+Adding a service for any of the extractable modules is: ship a thin binary that exposes the library trait over HTTP/gRPC, swap the in-process call for a client behind the same Rust trait the orchestrator already uses. Call sites do not change.
+
+### Hot-reloadable prompts
+
+System prompts and coach personas don't ship in the binary. They live in [`dravr-contremaitre`](https://github.com/dravr-ai/dravr-contremaitre) under `prompts/coaches/<category>/<slug>/<locale>.md`, and the server hot-reloads them on startup and on webhook from the contremaitre repo. Editing a coach prompt is a content change, not a deploy.
+
+### Streaming via AG-UI
+
+Real-time progress on every surface is delivered through the [AG-UI protocol](https://github.com/ag-ui-protocol/ag-ui). The orchestrator emits `RUN_STARTED` / `STEP_STARTED` / `STEP_FINISHED` / `RUN_FINISHED` / `RUN_ERROR` events into a per-run sink; SSE subscribers fan them out to whichever surface is rendering. Telegram-style webhooks consume the same stream and edit a "thinking…" message in place as steps complete.
+
+### Dual storage backend
+
+The repository layer abstracts SQLite and PostgreSQL behind the same trait set. SQLite is the default for local dev and single-machine deployments; PostgreSQL is what production runs on Cloud SQL. Migrations are maintained in parallel directories (`migrations/` and `migrations_pg/`), and CI exercises both. **Adding a feature without a PostgreSQL backend is a CI failure.**
+
+## Quick start
+
+Requires Rust (stable), Bun, direnv, macOS or Linux.
 
 ```bash
 git clone https://github.com/dravr-ai/dravr-platform.git
-cd pierre_mcp_server
-cp .envrc.example .envrc  # edit with your settings
-direnv allow              # or: source .envrc
+cd dravr-platform
 
-# Full dev environment: reset DB, seed data, start all 3 servers
+cp .envrc.example .envrc      # API keys, OAuth client secrets
+direnv allow
+
+# Resets DB → runs migrations → seeds admin/coaches/demo/social/mobility →
+# starts backend (8081), Vite frontend (5173), Expo mobile (8082).
 ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 ```
 
-This single command:
-- Resets database with fresh migrations
-- Seeds admin, AI coaches, demo users, test data, mobility data
-- Starts Pierre server (8081), web frontend (3000), Expo mobile (8082)
-- Displays all credentials, tokens, and log file paths
+Default credentials seeded by the script:
 
-See [Getting Started](https://async-io.github.io/pierre_mcp_server/getting-started.html) for detailed setup.
+| Role | Email | Password |
+|---|---|---|
+| Super admin | `admin@example.com` | `AdminPassword123` |
+| Web tester | `webtest@pierre.dev` | `WebTest123!` |
+| Mobile tester | `mobiletest@pierre.dev` | `MobileTest1234` |
+| Demo user | `alice@acme.com` | `DemoUser123!` |
 
-## MCP Client Configuration
+Admin API token written to `logs/admin-token.txt` for tooling.
 
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+## Connecting an AI assistant
+
+The same backend that serves web/mobile is an MCP server. Add to Claude Desktop's `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "pierre-fitness": {
+    "dravr": {
       "command": "npx",
       "args": ["-y", "pierre-mcp-client@next", "--server", "http://localhost:8081"]
     }
@@ -171,254 +289,122 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 }
 ```
 
-The SDK handles OAuth 2.0 authentication automatically. See [SDK Documentation](sdk/README.md).
+The TypeScript SDK handles OAuth 2.0 PKCE end-to-end. See [`sdk/README.md`](sdk/README.md).
 
-## AG-UI Progress Events
+## Build profiles
 
-Pierre implements the [AG-UI protocol](https://github.com/ag-ui-protocol/ag-ui)
-so web, mobile, and messaging clients can render live per-stage progress while
-the chat pipeline runs an agent turn.
+Each profile is a deployment shape, not just a feature subset.
 
-**Endpoint.** `GET /api/agui/runs/{run_id}/stream` — an SSE stream of
-JSON-serialized AG-UI events (`event: agui` data frames). Subscribers join at
-any time during a live run; missed events prior to subscription are dropped.
-
-**Event vocabulary.** `RUN_STARTED`, `STEP_STARTED`, `STEP_FINISHED`,
-`RUN_FINISHED`, `RUN_ERROR`, plus tool and text variants defined by the
-AG-UI spec. Types live in `crates/pierre-server/src/agui/events.rs`.
-
-**Wiring a turn.** Channel adapters generate a `run_id` (uuid), construct a
-`BroadcastSink` against `ServerResources::agui_registry`, and pass
-`AgUiRun { run_id, thread_id, sink }` through `PipelineHooks.agui`. The
-pipeline emits lifecycle events; the registry fans them out to every SSE
-subscriber. Operators filter high-volume kinds via `AgUiEventFilter::without`.
-
-**Downstream consumers.** `dravr-canot` ships a ready-to-use SSE consumer
-(`agui_consumer::AgUiConsumer`) plus a Telegram status adapter that edits a
-"thinking…" message in place as stages advance.
-
-## Available MCP Tools
-
-53 tools organized in 9 categories:
-
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Core Fitness** | 6 | Activities, athlete profile, provider connections |
-| **Goals** | 4 | Goal setting, suggestions, feasibility, progress |
-| **Analysis** | 10 | Metrics, trends, patterns, predictions, recommendations |
-| **Sleep & Recovery** | 5 | Sleep quality, recovery score, rest recommendations |
-| **Nutrition** | 5 | BMR/TDEE, macros, USDA food search, meal analysis |
-| **Recipes** | 7 | Training-aware meal planning and recipe storage |
-| **Mobility** | 6 | Stretching exercises, yoga poses, recovery sequences |
-| **Configuration** | 6 | User settings, training zones, profiles |
-| **Fitness Config** | 4 | Fitness parameters, thresholds |
-
-Full tool reference: [Tools Reference](https://async-io.github.io/pierre_mcp_server/tools-reference.html)
-
-## Server Management
+| Profile | Deployment shape |
+|---|---|
+| `server-full` | Local dev / single-machine — every protocol, transport, provider, channel. SQLite. |
+| `server-production` | Cloud Run target — REST + MCP + A2A, all production providers, PostgreSQL, no synthetic. |
+| `server-saas-full` | Multi-tenant SaaS — REST + MCP, web + admin clients, no stdio transport. |
+| `server-mcp-stdio` | Desktop MCP-only binary — smallest binary, stdio transport, no REST. |
+| `server-mcp-bridge` | Edge bridge — MCP + A2A over web transports, no REST clients. |
+| `server-mobile-backend` | Mobile-only backend — REST + MCP, mobile-specific routes only. |
 
 ```bash
-# Full development setup (recommended for first run or fresh start)
-./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
+# Production-shaped binary, PostgreSQL backend
+cargo build --release \
+  --no-default-features \
+  --features "postgresql,server-production"
 
-# Individual services
-./bin/start-server.sh     # start backend only (port 8081)
-./bin/stop-server.sh      # stop backend
-./bin/start-frontend.sh   # start web dashboard (port 3000)
+# Strava-only stdio binary for a desktop AI assistant
+cargo build --release \
+  --no-default-features \
+  --features "sqlite,server-mcp-stdio,provider-strava"
 ```
 
-The full setup script does everything:
-1. Resets database with fresh migrations
-2. Seeds admin user, AI coaches, demo users, test data, mobility data
-3. Starts Pierre server, web frontend, and Expo mobile
-4. Displays all credentials, tokens, and log file paths
+The full feature matrix (protocols × transports × clients × tools × providers × channels) is documented in [`book/src/build.md`](book/src/build.md).
 
-## User Portal Dashboard
+## Repo layout
 
-Web-based dashboard for users and administrators at `http://localhost:5173`.
-
-### Features
-- **Role-Based Access**: super_admin, admin, user roles with permission hierarchy
-- **User Registration**: Self-registration with admin approval workflow
-- **API Key Management**: Create, view, deactivate API keys
-- **MCP Tokens**: Generate tokens for Claude Desktop and AI assistants
-- **Usage Analytics**: Request patterns, tool usage charts
-- **Super Admin Impersonation**: View dashboard as any user for support
-
-### User Roles
-
-| Role | Capabilities |
-|------|--------------|
-| **User** | Own API keys, MCP tokens, analytics |
-| **Admin** | + User approval, all users analytics |
-| **Super Admin** | + Impersonation, admin tokens, system config |
-
-### First Admin Setup
-
-```bash
-cargo run --bin pierre-cli -- user create \
-  --email admin@example.com \
-  --password SecurePassword123 \
-  --super-admin
+```
+.
+├── crates/                # Rust workspace — backend, organised by bounded context
+├── frontend/              # React + Vite — web admin + user dashboard
+├── frontend-mobile/       # Expo + React Native — iOS + Android consumer app
+├── sdk/                   # pierre-mcp-client npm package (MCP bridge for AI assistants)
+├── packages/              # Bun workspace — shared TS code (api-client, types, ui-logic, i18n)
+├── migrations/            # SQLite migrations
+├── migrations_pg/         # PostgreSQL migrations (kept in parity)
+├── infra/                 # Terraform — GCP Cloud Run, Cloud SQL, Memorystore, Secret Manager
+├── book/                  # mdBook documentation source
+├── scripts/               # CI helpers, validation gates, generators
+├── bin/                   # Dev scripts (start/stop/setup/tunnel)
+├── templates/             # OAuth login/success/error HTML, brand assets
+└── website/               # Marketing site (Astro) deployed to GitHub Pages
 ```
 
-See [Frontend Documentation](frontend/README.md) for detailed dashboard documentation.
+## Development discipline
 
-## Mobile App
+### Pre-push validation
 
-React Native mobile app for iOS and Android with conversational AI interface.
-
-### Features
-- **AI Chat Interface**: Conversational UI with markdown rendering and real-time streaming
-- **Fitness Provider Integration**: Connect to Strava, Garmin, Fitbit, WHOOP, COROS via OAuth
-- **Activity Tracking**: View and analyze your fitness activities
-- **Training Insights**: Get AI-powered training recommendations
-
-### Quick Start
+The repo uses a marker-based pre-push gate so the full test matrix doesn't run on every push.
 
 ```bash
-cd frontend-mobile
-bun install
-bun start   # Start Expo development server
-bun run ios # Run on iOS Simulator
-```
+# Once per clone — wire the canonical hooks dir
+git submodule update --init --recursive
+git config core.hooksPath .build/hooks
 
-See [Mobile App README](frontend-mobile/README.md) and [Mobile Development Guide](https://async-io.github.io/pierre_mcp_server/mobile-development.html).
-
-## AI Coaches
-
-Pierre includes an AI coaching system with 9 default coaching personas and support for user-created personalized coaches.
-
-### Default Coaches
-
-The system includes 9 AI coaching personas across 5 categories:
-
-| Category | Icon | Coaches |
-|----------|------|---------|
-| **Training** | 🏃 | Endurance Coach, Speed Coach |
-| **Nutrition** | 🥗 | Sports Nutritionist, Hydration Specialist |
-| **Recovery** | 😴 | Recovery Specialist, Sleep Coach |
-| **Recipes** | 👨‍🍳 | Performance Chef, Meal Prep Expert |
-| **Analysis** | 📊 | Data Analyst |
-
-Default coaches are seeded automatically by `./bin/setup-and-start.sh` and are visible to all users.
-
-### Personalized Coaches
-
-Users can create their own AI coaches with custom:
-- Name and personality
-- System prompts and behavior
-- Category assignment
-- Avatar customization
-
-User-created coaches appear in a "Personalized" section above system coaches and are private to each user.
-
-### Coach Seeder
-
-Coach definitions are owned by the [dravr-contremaitre](https://github.com/dravr-ai/dravr-contremaitre)
-repository under `prompts/coaches/<category>/<slug>/<locale>.md`. To seed or
-refresh the default coaches, point the seeder at a checkout of that repo:
-
-```bash
-git clone https://github.com/dravr-ai/dravr-contremaitre /tmp/contremaitre
-cargo run --bin pierre-cli -- seed coaches \
-    --coaches-dir /tmp/contremaitre/prompts/coaches
-```
-
-The path can also be supplied via `PIERRE_COACHES_DIR`. The Cloud Run seed
-job clones contremaitre on every run; in CI the workflows check out the
-repo through `actions/checkout` and pass the path explicitly.
-
-## Documentation
-
-### Reference
-- [Getting Started](https://async-io.github.io/pierre_mcp_server/getting-started.html) - installation, configuration, first run
-- [Architecture](https://async-io.github.io/pierre_mcp_server/architecture.html) - system design, components, request flow
-- [Protocols](https://async-io.github.io/pierre_mcp_server/protocols.html) - MCP, OAuth2, A2A, REST
-- [Authentication](https://async-io.github.io/pierre_mcp_server/authentication.html) - JWT, API keys, OAuth2 flows
-- [Configuration](https://async-io.github.io/pierre_mcp_server/configuration.html) - environment variables, algorithms
-
-### Development
-- [Development Guide](https://async-io.github.io/pierre_mcp_server/development.html) - workflow, dashboard, testing
-- [Scripts Reference](scripts/README.md) - 23 development scripts across 6 subdirectories
-- [CI/CD](https://async-io.github.io/pierre_mcp_server/ci-cd.html) - GitHub Actions, pipelines
-- [Release Guide](https://async-io.github.io/pierre_mcp_server/release_how_to.html) - releasing server and SDK to npm
-- [Contributing](CONTRIBUTING.md) - code standards, PR workflow
-
-### Components
-- [SDK](sdk/README.md) - TypeScript client for MCP integration
-- [Frontend](frontend/README.md) - React dashboard
-- [Mobile](frontend-mobile/README.md) - React Native mobile app
-- [Mobile Development](https://async-io.github.io/pierre_mcp_server/mobile-development.html) - mobile dev setup guide
-
-### Methodology
-- [Intelligence](https://async-io.github.io/pierre_mcp_server/intelligence-methodology.html) - sports science formulas
-- [Nutrition](https://async-io.github.io/pierre_mcp_server/nutrition-methodology.html) - dietary calculations
-- [Mobility](https://async-io.github.io/pierre_mcp_server/mobility-methodology.html) - stretching and yoga sequences
-
-## Testing
-
-```bash
-cargo test                        # all tests
-./scripts/ci/lint-and-test.sh     # full CI suite
-./scripts/ci/pre-push-validate.sh # tiered validation before push
-```
-
-See [Testing Documentation](https://async-io.github.io/pierre_mcp_server/testing.html).
-
-## Development Workflow
-
-### Before Committing
-
-```bash
-# 1. Format code
-cargo fmt
-
-# 2. Architectural validation (includes security checks in CI)
-./scripts/ci/architectural-validation.sh
-
-# 3. Clippy (Cargo.toml defines all lint levels)
-cargo clippy -p pierre_mcp_server --all-targets
-
-# 4. Run relevant tests (always specify --test for speed)
-cargo test --test <test_file> <test_pattern> -- --nocapture
-```
-
-### Security Skills (Before Pushing Security-Sensitive Changes)
-
-Run these when modifying auth, OAuth, admin, database, or multi-tenant code:
-
-| Skill | Command | What It Checks |
-|-------|---------|----------------|
-| **Security Review** | `./scripts/ci/security-review.sh` | Authorization boundaries, tenant isolation, logging hygiene, SQL injection, XSS |
-| **Input Validation** | `./scripts/ci/check-input-validation.sh` | Division-by-zero, pagination bounds, cache key completeness, numeric ranges |
-| **Architecture** | `./scripts/ci/architectural-validation.sh` | Placeholder detection, error handling, algorithm DI, unsafe code, secret patterns |
-
-These scripts run automatically in CI via the `code-quality` job (gates all other jobs). Run them locally when:
-- Adding/modifying API endpoints or MCP tools
-- Changing database queries or cache operations
-- Modifying OAuth flows or authentication logic
-- Adding math operations on user-supplied input
-
-### Before Pushing
-
-```bash
-# 1. Enable git hooks (once per clone)
-git config core.hooksPath .githooks
-
-# 2. Run validation (creates marker valid for 15 min)
+# Before pushing, generate the validation marker (~2 min)
 ./scripts/ci/pre-push-validate.sh
 
-# 3. Push (hook checks for valid marker)
+# The pre-push hook checks the marker is fresh (15 min TTL) and matches HEAD
 git push
 ```
 
-The pre-push hook blocks pushes without a valid marker. This decouples test execution from the push to avoid SSH timeout issues.
+### Architectural CI gates
+
+These run as the `code-quality` job and block every other CI job. Run them locally when touching auth / OAuth / admin / database / tenant code:
+
+| Gate | What it enforces |
+|---|---|
+| `security-review.sh` | Tenant scoping, log redaction, SQL injection, XSS, OWASP Top 10. |
+| `check-input-validation.sh` | Division-by-zero, pagination bounds, cache key completeness, numeric ranges. |
+| `architectural-validation.sh` | No placeholder code, structured errors only (no `anyhow!`), tenant scoping, no unsafe outside the FFI allowlist, secret-pattern detection. |
+
+See [`book/src/development.md`](book/src/development.md) and [`book/src/testing.md`](book/src/testing.md).
+
+## Deployment
+
+Production runs on Google Cloud Run with Cloud SQL (PostgreSQL), Memorystore (Redis), and Secret Manager — all Terraform-managed in [`infra/`](infra/). The deploy pipeline is `Deploy: Build & Ship (dev)` (`.github/workflows/publish-images.yml`); hotfixes go via `Deploy: Hotfix (skip CI)`.
+
+The frontend and backend ship in the same Cloud Run service, joined by an nginx sidecar that proxies `/__/` to the Firebase auth handler and everything else to the Rust backend. The browser sees one origin — no CORS gymnastics.
+
+A separate `Contremaitre: Sync Prompts` workflow pushes prompt edits from `dravr-contremaitre` into the running Cloud Run instances by triggering the in-process hot-reloader. Coach prompt edits are zero-redeploy.
+
+## Documentation
+
+mdBook source in [`book/`](book/). Architectural reading order:
+
+- [`architecture.md`](book/src/architecture.md) — request lifecycle, repository pattern, tenant resolution.
+- [`coaching-harness-overview.md`](book/src/coaching-harness-overview.md) → [`-tiers.md`](book/src/coaching-harness-tiers.md) → [`-ops.md`](book/src/coaching-harness-ops.md) — the coach pipeline tiers, memory model, claim verifier wiring.
+- [`messaging-gateway.md`](book/src/messaging-gateway.md) — channel adapter design, AG-UI consumer, signed webhooks.
+- [`llm-providers.md`](book/src/llm-providers.md) — provider trait, three-way tool-loop dispatch.
+- [`protocols.md`](book/src/protocols.md), [`oauth2-server.md`](book/src/oauth2-server.md), [`authentication.md`](book/src/authentication.md) — protocol surface.
+- [`build.md`](book/src/build.md), [`ci-cd.md`](book/src/ci-cd.md), [`release_how_to.md`](book/src/release_how_to.md) — build and release.
+- [`intelligence-methodology.md`](book/src/intelligence-methodology.md), [`nutrition-methodology.md`](book/src/nutrition-methodology.md), [`mobility-methodology.md`](book/src/mobility-methodology.md), [`sleep-recovery-methodology.md`](book/src/sleep-recovery-methodology.md) — the sports-science formulas behind the guardrails.
+
+Build locally:
+
+```bash
+mdbook serve book/
+```
+
+Per-component READMEs: [`sdk/README.md`](sdk/README.md), [`frontend/README.md`](frontend/README.md), [`frontend-mobile/README.md`](frontend-mobile/README.md), [`scripts/README.md`](scripts/README.md), [`bin/README.md`](bin/README.md).
 
 ## Contributing
 
-See [Contributing Guide](CONTRIBUTING.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Architectural ground rules:
+
+- **No PRs.** Feature branches are squash-merged locally onto `main`.
+- **Bun only** for JS/TS workspaces.
+- **Structured errors only** in `src/` — no `anyhow!`, all errors flow through `AppError` / `DatabaseError` / `ProviderError`.
+- **Tenant scoping is non-negotiable.** Every query carries `tenant_id`; CI fails otherwise.
+- **No SQLite-only features.** PostgreSQL backend ships in the same change.
 
 ## License
 
-Dual-licensed under [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT).
+Dual-licensed under [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) — pick whichever fits your downstream use.
