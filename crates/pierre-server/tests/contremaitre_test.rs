@@ -135,6 +135,7 @@ fn test_manifest_round_trip() {
                 m
             },
             coaches: HashMap::new(),
+            personas: HashMap::new(),
         },
         tools: ManifestTools::default(),
         evidence: ManifestEvidence::default(),
@@ -154,7 +155,7 @@ fn test_manifest_round_trip() {
 #[test]
 fn test_new_registry_has_all_system_prompts() {
     let registry = PromptRegistry::new();
-    let prompts = registry.list_system_prompts();
+    let prompts = registry.list_system();
     assert_eq!(prompts.len(), 12, "expected 12 system prompts");
 
     let keys: Vec<String> = prompts.iter().map(|(k, _)| k.clone()).collect();
@@ -178,7 +179,8 @@ fn test_new_registry_all_compiled_in() {
     let stats = registry.stats();
     assert_eq!(stats.system_count, 12);
     assert_eq!(stats.coach_count, 0);
-    assert_eq!(stats.compiled_in_count, 12);
+    assert_eq!(stats.persona_count, 4);
+    assert_eq!(stats.compiled_in_count, 16);
     assert_eq!(stats.contremaitre_count, 0);
 }
 
@@ -213,7 +215,7 @@ fn test_update_system_prompt() {
 
     let stats = registry.stats();
     assert_eq!(stats.contremaitre_count, 1);
-    assert_eq!(stats.compiled_in_count, 11);
+    assert_eq!(stats.compiled_in_count, 15);
 }
 
 #[test]
@@ -282,7 +284,8 @@ fn test_stats_counts() {
     let stats = registry.stats();
     assert_eq!(stats.system_count, 12);
     assert_eq!(stats.coach_count, 3, "3 per-locale coach entries");
-    assert_eq!(stats.compiled_in_count, 11);
+    assert_eq!(stats.persona_count, 4);
+    assert_eq!(stats.compiled_in_count, 15);
     assert_eq!(stats.contremaitre_count, 4);
 }
 
@@ -324,7 +327,7 @@ fn test_compiled_in_fallback_for_unknown_key() {
 #[test]
 fn test_prompt_source_from_new_is_compiled_in() {
     let registry = PromptRegistry::new();
-    let prompts = registry.list_system_prompts();
+    let prompts = registry.list_system();
     for (_, entry) in &prompts {
         assert_eq!(entry.source, PromptSource::CompiledIn);
     }

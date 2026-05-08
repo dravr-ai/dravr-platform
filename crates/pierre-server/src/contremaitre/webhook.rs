@@ -134,6 +134,7 @@ fn spawn_selective_sync(
     let evidence_registry = Arc::clone(&resources.evidence_registry);
     let cageux_config_registry = Arc::clone(&resources.cageux_config_registry);
     let messaging_strings_registry = Arc::clone(&resources.messaging_strings_registry);
+    let persona_contract_registry = Arc::clone(&resources.persona_contract_registry);
     let store = config.store();
 
     tokio::spawn(async move {
@@ -143,6 +144,7 @@ fn spawn_selective_sync(
             &evidence_registry,
             &cageux_config_registry,
             &messaging_strings_registry,
+            &persona_contract_registry,
             store.as_ref(),
             &filtered_paths,
         )

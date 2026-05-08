@@ -148,6 +148,9 @@ pub mod models;
 /// Cursor-based pagination for efficient data traversal
 pub mod pagination;
 
+/// Per-persona output-format conformance contracts hot-reloaded from contremaitre
+pub mod persona_contracts;
+
 /// Role-based permission system with `super_admin`, `admin`, `user` hierarchy
 pub mod permissions;
 
