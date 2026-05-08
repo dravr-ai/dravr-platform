@@ -506,8 +506,15 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       }
 
       let assembled = '';
+      type StreamAssistantMessage = {
+        id?: string;
+        role?: 'user' | 'assistant' | 'system';
+        content?: string;
+        token_count?: number;
+        created_at?: string;
+      };
       type StreamFinalPayload = {
-        assistant_message?: { id?: string };
+        assistant_message?: StreamAssistantMessage;
         model?: string;
         execution_time_ms?: number;
         activity_list?: string;
@@ -603,15 +610,46 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         });
       }
 
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+      // Inject the persisted assistant message into the cache directly so
+      // the streaming bubble can be cleared in the same batch — invalidating
+      // and waiting for the refetch leaves a window where both the streaming
+      // bubble (assembled deltas) and the just-arrived persisted message
+      // render together, surfacing as a duplicated opening sentence. The
+      // server's `done` payload mirrors `ChatCompletionResponse`, so the
+      // assistant_message it carries already includes any post-processing
+      // additions the refetch would have brought in.
+      const assistantMessage = data.assistant_message;
+      if (assistantMessage?.id && assistantMessage.content) {
+        const persisted: Message = {
+          id: assistantMessage.id,
+          role: assistantMessage.role ?? 'assistant',
+          content: assistantMessage.content,
+          token_count: assistantMessage.token_count,
+          created_at: assistantMessage.created_at ?? new Date().toISOString(),
+        };
+        queryClient.setQueryData(
+          ['chat-messages', selectedConversation],
+          (old: { messages: Message[] } | undefined) => {
+            const existing = old?.messages ?? [];
+            if (existing.some(m => m.id === persisted.id)) {
+              return { messages: existing };
+            }
+            return { messages: [...existing, persisted] };
+          },
+        );
+      }
+
+      setIsStreaming(false);
+      setStreamingContent('');
+
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to send message';
       setErrorMessage(message);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-    } finally {
       setIsStreaming(false);
       setStreamingContent('');
+    } finally {
       usageStatus.invalidate();
     }
   }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token, usageStatus]);
