@@ -23,7 +23,7 @@ use pierre_evals::{ExtractedClaim, VerdictOutcome, VerificationConfig, Verificat
 use pierre_memory::claims::ClaimStatus;
 
 use crate::contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+    DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
@@ -147,12 +147,24 @@ pub async fn apply_claim_verification(
     } else {
         match config.fallback_behavior {
             VerificationFallback::Warn => {
-                let suffix_template = resources
+                // Surface each flagged claim explicitly under a localized
+                // header instead of an opaque "I'm unsure about N
+                // things" trailer the user couldn't act on. Empirically
+                // (Telegram nutrition-recommendation incident, 2026-05-08)
+                // the opaque count line just undermined credibility
+                // without giving the reader a way to challenge or
+                // confirm. Listing the verbatim claims keeps the model's
+                // self-doubt actionable: the user can push back on the
+                // specific sentence, or wave it through.
+                let header = resources
                     .messaging_strings_registry
                     .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
-                let count = problems.len().to_string();
-                let suffix = format_template(&suffix_template, &[&count]);
-                format!("{reply}\n\n---\n{suffix}")
+                let bullets: Vec<String> = problems
+                    .iter()
+                    .map(|claim| format!("- {}", claim.trim()))
+                    .collect();
+                let body = bullets.join("\n");
+                format!("{reply}\n\n---\n{header}\n{body}")
             }
             VerificationFallback::Silent => reply.to_owned(),
             VerificationFallback::Block => {
