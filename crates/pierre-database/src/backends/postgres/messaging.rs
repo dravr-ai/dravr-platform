@@ -990,16 +990,11 @@ impl MessagingRepository for PostgresDatabase {
     ) -> AppResult<()> {
         let tid = tenant_id.to_string();
 
-        sqlx::query(
-            "DELETE FROM messaging_sessions WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3",
-        )
-        .bind(&tid)
-        .bind(channel_type)
-        .bind(sender_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to delete sessions: {e}")))?;
-
+        // messaging_sessions and messaging_messages are intentionally retained for
+        // support and audit. The channel_link DELETE below is what unbinds the
+        // sender — resolve_linked_session checks the link before resuming a
+        // session, so post-logout messages route to the unlinked-prompt path
+        // instead of leaking to the previously linked Pierre user.
         sqlx::query(
             "DELETE FROM messaging_channel_links WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3",
         )
