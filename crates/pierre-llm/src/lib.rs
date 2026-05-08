@@ -59,7 +59,10 @@ pub use embacle::{
     CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, OpenCodeRunner,
     WarpCliRunner,
 };
-pub use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner, HeadlessToolResponse};
+pub use embacle::{
+    CopilotHeadlessConfig, CopilotHeadlessRunner, HeadlessEventStream, HeadlessStreamEvent,
+    HeadlessToolResponse, ObservedToolCall,
+};
 pub use embacle::{
     McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
 };

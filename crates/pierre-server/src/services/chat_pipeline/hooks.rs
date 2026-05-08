@@ -25,6 +25,7 @@
 //!   the LLM; conversational flows use a no-op.
 
 use async_trait::async_trait;
+use tokio::sync::mpsc;
 
 use super::turn::{DispatchResult, TurnContext};
 use crate::agui::AgUiSink;
@@ -96,6 +97,38 @@ pub struct AgUiRun<'a> {
     pub sink: &'a dyn AgUiSink,
 }
 
+/// Event emitted to a chat-stream sink while the pipeline runs.
+///
+/// Decoupled from the upstream `embacle::HeadlessStreamEvent` so the rest
+/// of pierre-server doesn't take a transitive dependency on the runner
+/// crate via the hooks layer. The headless tool loop translates each
+/// embacle event into one of these variants before forwarding.
+#[derive(Debug, Clone)]
+pub enum ChatStreamEvent {
+    /// A partial assistant text chunk — the next slice to append to the
+    /// in-flight assistant message bubble on the client.
+    TextDelta(String),
+    /// A tool call was observed (start or status update). Each event is a
+    /// snapshot of the call's latest known state, so consumers can either
+    /// accumulate or replace by `id`.
+    ToolCall {
+        /// Stable id of the tool call (from the underlying ACP protocol).
+        id: String,
+        /// Human-readable title describing the tool action.
+        title: String,
+        /// Latest status string (`"Pending"`, `"InProgress"`, `"Completed"`, ...).
+        status: String,
+    },
+}
+
+/// Sink that the chat pipeline forwards [`ChatStreamEvent`]s into when
+/// the calling channel adapter wants progressive token-level UX.
+///
+/// A simple `tokio::sync::mpsc::UnboundedSender` rather than a custom
+/// trait so the route layer can drop the receiver to abort the stream
+/// (the closed channel surfaces as a benign send error in the pipeline).
+pub type ChatStreamSink = mpsc::UnboundedSender<ChatStreamEvent>;
+
 /// Bundle of hooks a channel adapter passes to [`super::run`].
 ///
 /// Each hook is optional; when absent, the corresponding stage runs a
@@ -111,6 +144,11 @@ pub struct PipelineHooks<'a> {
     /// pipeline emits lifecycle, step, and error events against
     /// `agui.sink`.
     pub agui: Option<AgUiRun<'a>>,
+    /// Optional sink for token-level streaming. When present, the
+    /// dispatch stage calls the LLM provider's streaming variant and
+    /// forwards [`ChatStreamEvent`]s as the model produces them, so the
+    /// route layer can wrap the stream in an SSE response.
+    pub stream_sink: Option<ChatStreamSink>,
 }
 
 impl PipelineHooks<'_> {
@@ -122,6 +160,7 @@ impl PipelineHooks<'_> {
             usage_recorder: None,
             response_post_process: None,
             agui: None,
+            stream_sink: None,
         }
     }
 }

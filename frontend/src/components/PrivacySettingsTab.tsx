@@ -57,7 +57,7 @@ export default function PrivacySettingsTab() {
               <h3 className="text-sm font-medium text-on-surface">Usage Analytics</h3>
             </div>
             <p className="text-sm text-on-surface-variant leading-relaxed">
-              Help improve Pierre by sharing anonymized usage data. We track general usage
+              Help improve Dravr by sharing anonymized usage data. We track general usage
               patterns like which features you use and how often — never your personal data,
               messages, or fitness information. All identifiers are cryptographically hashed
               before leaving your device.

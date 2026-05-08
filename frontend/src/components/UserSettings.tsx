@@ -747,7 +747,7 @@ export default function UserSettings() {
               {/* Privacy note */}
               <div className="mt-4 p-3 bg-surface-container-low border ghost-border rounded-lg">
                 <p className="text-xs text-on-surface-variant">
-                  Pierre only accesses the data you authorize. We never share your fitness data with third parties.
+                  Dravr only accesses the data you authorize. We never share your fitness data with third parties.
                   You can disconnect any provider at any time.
                 </p>
               </div>
@@ -1030,7 +1030,7 @@ export default function UserSettings() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
                   <p className="text-lg mb-2 text-on-surface">No tokens yet</p>
-                  <p>Create a token to connect AI clients like Claude Desktop or Cursor to Pierre</p>
+                  <p>Create a token to connect AI clients like Claude Desktop or Cursor to Dravr</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1187,7 +1187,7 @@ Authorization: Bearer <your-token-here>`}
         {/* About Tab */}
         {activeTab === 'about' && (
           <Card variant="dark">
-            <h2 className="text-lg font-semibold text-on-surface mb-6">About Pierre</h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-6">About Dravr</h2>
             <div className="space-y-3">
               {/* Version */}
               <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
@@ -1204,7 +1204,7 @@ Authorization: Bearer <your-token-here>`}
 
               {/* Help Center */}
               <a
-                href="https://pierre.fitness/help"
+                href="https://dravr.ai/help"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
@@ -1225,7 +1225,7 @@ Authorization: Bearer <your-token-here>`}
 
               {/* Terms & Privacy */}
               <a
-                href="https://pierre.fitness/privacy"
+                href="https://dravr.ai/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"

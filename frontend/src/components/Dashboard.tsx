@@ -101,9 +101,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [selectedAdminToken, setSelectedAdminToken] = useState<AdminToken | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  // Use hooks from panel components for badge counts
-  const pendingUsersCount = usePendingUsersCount();
-  const storeStatsPendingCount = useStoreStatsPendingCount();
+  // Use hooks from panel components for badge counts.
+  // Gate behind admin role so regular users don't trigger 403s on /api/admin/*.
+  const pendingUsersCount = usePendingUsersCount(isAdminUser);
+  const storeStatsPendingCount = useStoreStatsPendingCount(isAdminUser);
   const { unreadCount: notificationUnreadCount } = useUnreadCount();
 
   // Chat conversations state

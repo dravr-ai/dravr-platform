@@ -23,9 +23,11 @@ export function useNotificationFeed(params?: ListNotificationsParams) {
   });
 
   const invalidate = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: QUERY_KEYS.notifications.all,
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
+      queryClient.invalidateQueries({ queryKey: ['notifications-feed'] }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
+    ]);
   }, [queryClient]);
 
   return {
@@ -65,10 +67,18 @@ export function useUnreadCount() {
 export function useNotificationActions() {
   const queryClient = useQueryClient();
 
+  // Invalidate every distinct notifications key. We can't rely on a single
+  // prefix match because the key tree is flat and uses dashed sentinels
+  // (`notifications-feed`, `notifications-unread-count`) rather than nested
+  // children of `['notifications']`.
   const invalidateAll = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: QUERY_KEYS.notifications.all,
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
+      queryClient.invalidateQueries({ queryKey: ['notifications-feed'] }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.preferences() }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.devices() }),
+    ]);
   }, [queryClient]);
 
   const markAsRead = useMutation({

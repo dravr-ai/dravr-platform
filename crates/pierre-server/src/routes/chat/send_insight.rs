@@ -106,6 +106,9 @@ pub async fn send_insight_message(
         max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
         call_recorder,
         temperature: None,
+        // Insight generation is a one-shot JSON response — no progressive
+        // UX, so the streaming sink stays absent.
+        stream_sink: None,
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
 

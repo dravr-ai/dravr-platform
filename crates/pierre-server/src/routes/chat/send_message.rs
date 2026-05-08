@@ -4,15 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use async_stream::stream;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header::ACCEPT, HeaderMap, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
-use tracing::{field, info, instrument, trace, Span};
+use serde_json::json;
+use tokio::sync::mpsc;
+use tracing::{field, info, instrument, trace, warn, Span};
 use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
@@ -276,6 +281,34 @@ pub async fn send_message(
         &conversation_id,
     )?;
 
+    // SSE branch: when the client sends `Accept: text/event-stream`, return
+    // a streaming response so nginx (default 60s `proxy_read_timeout`) sees
+    // periodic activity and the user gets progressive token-level feedback
+    // while the LLM produces its reply. The blocking JSON path below stays
+    // available for clients (tests, scripts) that prefer the simpler shape.
+    let wants_sse = headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.contains("text/event-stream"));
+
+    if wants_sse {
+        return Ok(send_message_sse(
+            Arc::clone(&resources),
+            turn_input,
+            profile,
+            agui_wiring,
+            request.content,
+            scope_coach_id,
+            tenant_id_str,
+            user_id_str,
+            auth.user_id,
+            tenant_id,
+            conversation_id,
+            usage_warning,
+        )
+        .await);
+    }
+
     let start_time = Instant::now();
     let hooks = pipeline::PipelineHooks {
         agui: agui_wiring.as_ref().map(AgUiWiring::run),
@@ -350,6 +383,186 @@ pub async fn send_message(
     let mut http_response = (StatusCode::OK, Json(response)).into_response();
     apply_usage_warning_headers(&mut http_response, usage_warning);
     Ok(http_response)
+}
+
+/// Streaming SSE branch of [`send_message`].
+///
+/// Spawns the chat pipeline on a background task with a token-stream sink
+/// installed on [`pipeline::PipelineHooks`], then returns an SSE response
+/// whose body forwards each [`pipeline::ChatStreamEvent`] as it arrives:
+///
+/// - `event: delta` carrying `{ "delta": "<chunk>" }` for partial text
+/// - `event: tool_call` carrying `{ "id, title, status }` for ACP tool
+///   observations
+/// - `event: done` carrying the same [`ChatCompletionResponse`] JSON the
+///   blocking branch returns, signalling the turn is finished
+/// - `event: error` carrying `{ "error": "<message>" }` if the pipeline
+///   fails
+///
+/// A 15-second SSE keep-alive prevents nginx (default 60s
+/// `proxy_read_timeout`) from dropping the connection during long
+/// LLM-side stalls between deltas.
+#[allow(clippy::too_many_arguments, clippy::unused_async)]
+async fn send_message_sse(
+    resources: Arc<ServerContext>,
+    turn_input: pipeline::TurnInput,
+    profile: pipeline::ChannelProfile,
+    agui_wiring: Option<AgUiWiring>,
+    user_content: String,
+    scope_coach_id: Option<String>,
+    tenant_id_str: String,
+    user_id_str: String,
+    auth_user_id: Uuid,
+    tenant_id: TenantId,
+    conversation_id: String,
+    usage_warning: super::quotas::UsageWarning,
+) -> Response {
+    let start_time = Instant::now();
+    let agui_run_id = agui_wiring.as_ref().map(|w| w.run_id().to_owned());
+
+    let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<pipeline::ChatStreamEvent>();
+    let (done_tx, mut done_rx) =
+        mpsc::unbounded_channel::<Result<pipeline::DispatchResult, AppError>>();
+
+    let resources_for_task = Arc::clone(&resources);
+    tokio::spawn(async move {
+        let agui_run = agui_wiring.as_ref().map(AgUiWiring::run);
+        let hooks = pipeline::PipelineHooks {
+            agui: agui_run,
+            stream_sink: Some(stream_tx),
+            ..pipeline::PipelineHooks::none()
+        };
+        let outcome = pipeline::run(&resources_for_task, turn_input, &profile, &hooks).await;
+        let _ = done_tx.send(outcome);
+        // agui_wiring drops here, unregistering the AG-UI run.
+    });
+
+    let body = stream! {
+        loop {
+            tokio::select! {
+                biased;
+                Some(event) = stream_rx.recv() => {
+                    let (name, data) = match event {
+                        pipeline::ChatStreamEvent::TextDelta(delta) => (
+                            "delta",
+                            json!({ "delta": delta }).to_string(),
+                        ),
+                        pipeline::ChatStreamEvent::ToolCall { id, title, status } => (
+                            "tool_call",
+                            json!({ "id": id, "title": title, "status": status }).to_string(),
+                        ),
+                    };
+                    yield Ok::<_, Infallible>(Event::default().event(name).data(data));
+                }
+                Some(outcome) = done_rx.recv() => {
+                    // Drain any remaining buffered stream events before emitting
+                    // the terminal `done` so clients see the full token sequence.
+                    while let Ok(event) = stream_rx.try_recv() {
+                        let (name, data) = match event {
+                            pipeline::ChatStreamEvent::TextDelta(delta) => (
+                                "delta",
+                                json!({ "delta": delta }).to_string(),
+                            ),
+                            pipeline::ChatStreamEvent::ToolCall { id, title, status } => (
+                                "tool_call",
+                                json!({ "id": id, "title": title, "status": status }).to_string(),
+                            ),
+                        };
+                        yield Ok(Event::default().event(name).data(data));
+                    }
+
+                    match outcome {
+                        Ok(dispatch) => {
+                            // Mirror the blocking-path post-processing so SSE
+                            // and JSON clients see identical final payloads
+                            // and identical usage-counter side effects.
+                            #[allow(clippy::cast_possible_truncation)]
+                            let execution_time_ms = start_time.elapsed().as_millis() as u64;
+                            let (prompt_tokens, completion_tokens) =
+                                tokens_from_dispatch(&dispatch, &user_content);
+                            let total_tokens = i64::from(prompt_tokens.unwrap_or(0))
+                                + i64::from(completion_tokens.unwrap_or(0));
+                            let inc_scope = UsageIncrementScope {
+                                conversation_id: Some(conversation_id.as_str()),
+                                coach_id: scope_coach_id.as_deref(),
+                            };
+                            increment_usage_counters_scoped(
+                                &resources,
+                                &tenant_id_str,
+                                &user_id_str,
+                                total_tokens,
+                                dispatch.tool_calls_count,
+                                &inc_scope,
+                            )
+                            .await;
+
+                            let response = ChatCompletionResponse {
+                                user_message: MessageResponse {
+                                    id: dispatch.user_message.id.clone(),
+                                    role: dispatch.user_message.role.clone(),
+                                    content: dispatch.user_message.content.clone(),
+                                    token_count: dispatch.user_message.token_count,
+                                    created_at: dispatch.user_message.created_at,
+                                },
+                                assistant_message: MessageResponse {
+                                    id: dispatch.assistant_message.id.clone(),
+                                    role: dispatch.assistant_message.role.clone(),
+                                    content: dispatch.assistant_message.content.clone(),
+                                    token_count: dispatch.assistant_message.token_count,
+                                    created_at: dispatch.assistant_message.created_at,
+                                },
+                                conversation_updated_at: dispatch.conversation.updated_at.clone(),
+                                model: dispatch.model.clone(),
+                                execution_time_ms,
+                                activity_list: dispatch.activity_list.clone(),
+                                card_title: None,
+                                actions: None,
+                                is_command_response: false,
+                                agui_run_id: agui_run_id.clone(),
+                            };
+
+                            #[cfg(feature = "client-notifications")]
+                            notify_coach_response(
+                                &resources,
+                                &dispatch.conversation,
+                                auth_user_id,
+                                tenant_id,
+                                &conversation_id,
+                            );
+                            // Reference the values when the feature is off
+                            // so they aren't reported as unused; matches the
+                            // blocking branch's silent capture.
+                            #[cfg(not(feature = "client-notifications"))]
+                            {
+                                let _ = (auth_user_id, tenant_id);
+                            }
+
+                            let payload = serde_json::to_string(&response)
+                                .unwrap_or_else(|_| "{}".to_owned());
+                            yield Ok(Event::default().event("done").data(payload));
+                        }
+                        Err(err) => {
+                            warn!(error = %err, "SSE chat pipeline failed");
+                            let payload = json!({ "error": err.to_string() }).to_string();
+                            yield Ok(Event::default().event("error").data(payload));
+                        }
+                    }
+                    break;
+                }
+                else => break,
+            }
+        }
+    };
+
+    let mut response = Sse::new(body)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keepalive"),
+        )
+        .into_response();
+    apply_usage_warning_headers(&mut response, usage_warning);
+    response
 }
 
 /// Attempt to execute the user's content as a slash command.

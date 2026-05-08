@@ -481,8 +481,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       if (selectedSource === 'system') return coach.is_system;
       return true;
     })
-    // Filter by category
-    .filter(coach => !categoryFilter || coach.category === categoryFilter)
+    // Filter by category. Backend stores lowercase ("training", "mobility")
+    // while the chip labels are TitleCase ("Training", "Mobility") — compare
+    // case-insensitively so seeded system coaches aren't filtered out.
+    .filter(coach => !categoryFilter || coach.category.toLowerCase() === categoryFilter.toLowerCase())
     // Filter by favorites
     .filter(coach => !favoritesOnly || coach.is_favorite)
     // Filter by search query
