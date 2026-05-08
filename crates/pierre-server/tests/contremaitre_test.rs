@@ -888,15 +888,20 @@ fn test_format_template_handles_empty_args_with_placeholder() {
 }
 
 #[test]
-fn test_warn_suffix_formats_with_count_fr_and_en() {
+fn test_warn_suffix_is_localized_header_for_flagged_claims() {
+    // Commit 6c7ee01a dropped the opaque "{0} affirmation(s)" tail and made
+    // KEY_VERIFICATION_WARN_SUFFIX a header line for a bulleted list of the
+    // specific claims the verifier could not back up. The header takes no
+    // positional args; verification.rs appends each flagged claim as a
+    // bullet beneath it.
     let reg = MessagingStringsRegistry::new();
-    let fr_rendered = format_template(&reg.get(KEY_VERIFICATION_WARN_SUFFIX, "fr"), &["3"]);
-    assert!(fr_rendered.contains("3 affirmation"));
-    assert!(fr_rendered.starts_with("⚠️"));
+    let fr = reg.get(KEY_VERIFICATION_WARN_SUFFIX, "fr");
+    assert!(fr.starts_with("⚠️"));
+    assert!(fr.contains("affirmation"));
 
-    let en_rendered = format_template(&reg.get(KEY_VERIFICATION_WARN_SUFFIX, "en"), &["3"]);
-    assert!(en_rendered.contains("3 claim"));
-    assert!(en_rendered.starts_with("⚠️"));
+    let en = reg.get(KEY_VERIFICATION_WARN_SUFFIX, "en");
+    assert!(en.starts_with("⚠️"));
+    assert!(en.contains("claim"));
 }
 
 // ── system_prompt_content_is_valid (Layer 1: load-time placeholder gate) ───

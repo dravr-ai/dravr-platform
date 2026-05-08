@@ -433,7 +433,6 @@ async fn resolve_linked_session(
     {
         return resume_existing_session(
             resources,
-            db,
             session,
             &linked_user_id,
             tenant_id,
@@ -448,7 +447,6 @@ async fn resolve_linked_session(
     // No existing session — open a fresh one for the linked user.
     open_new_session(
         resources,
-        db,
         &linked_user_id,
         tenant_id,
         channel_type,
@@ -466,7 +464,6 @@ async fn resolve_linked_session(
 /// before returning.
 async fn resume_existing_session(
     resources: &ServerContext,
-    db: &dyn MessagingRepository,
     session: Value,
     linked_user_id: &str,
     tenant_id: TenantId,
@@ -474,6 +471,7 @@ async fn resume_existing_session(
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<ResolvedSession, AppError> {
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let session_id = session["id"]
         .as_str()
         .ok_or_else(|| AppError::internal("Session missing id field"))?
@@ -543,12 +541,11 @@ async fn resume_existing_session(
 
 /// Open a brand-new session for a linked user. The caller
 /// (`resolve_linked_session`) has already verified the channel link exists
-/// and passes the linked user_id in. For non-DM chats, resolves the
+/// and passes the linked `user_id` in. For non-DM chats, resolves the
 /// channel-bound `coaching_group` and attaches its id to the new
 /// conversation so prompt assembly injects group context.
 async fn open_new_session(
     resources: &ServerContext,
-    db: &dyn MessagingRepository,
     linked_user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
@@ -556,6 +553,7 @@ async fn open_new_session(
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<ResolvedSession, AppError> {
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let user_id = linked_user_id.to_owned();
 
     let group_id_opt = resolve_group_for_new_session(

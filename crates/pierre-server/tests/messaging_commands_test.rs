@@ -222,11 +222,11 @@ mod command_tests {
         assert_eq!(status, StatusCode::OK);
     }
 
-    /// Logout retains messaging_sessions and messaging_messages for support
-    /// and audit, deleting only the channel link. Regression test for the
-    /// production FK violation when a sender with stored messages typed
-    /// `/logout` (messaging_messages_session_id_fkey blocked the session
-    /// DELETE on Postgres).
+    /// Logout retains `messaging_sessions` and `messaging_messages` for
+    /// support and audit, deleting only the channel link. Regression test
+    /// for the production FK violation when a sender with stored messages
+    /// typed `/logout` (`messaging_messages_session_id_fkey` blocked the
+    /// session DELETE on Postgres).
     #[tokio::test]
     async fn test_logout_retains_history() {
         let resources = create_test_server_resources().await.unwrap();
