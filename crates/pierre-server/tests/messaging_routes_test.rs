@@ -751,4 +751,172 @@ mod messaging_routes_tests {
         assert_eq!(response.status_code(), StatusCode::OK);
         assert_eq!(response.text(), "compat_challenge");
     }
+
+    // ════════════════════════════════════════════════════════════════
+    // Conversation self-heal regression
+    // ════════════════════════════════════════════════════════════════
+
+    /// Regression: when the same Telegram chat is rebound from one
+    /// Pierre user to another (e.g. user A `/logout`, user B `/start`),
+    /// the retained session row still carries user A's
+    /// `pierre_conversation_id`. The new linker can't read that
+    /// conversation (`chat_repo.get_conversation` filters by `user_id`),
+    /// so the LLM dispatch used to fail in
+    /// `chat_pipeline::stages::persistence` with a generic
+    /// "Conversation not found" reply. The self-heal in
+    /// `resume_existing_session` now forges a fresh conversation owned
+    /// by the linked user before dispatch runs.
+    #[tokio::test]
+    async fn test_webhook_self_heals_rebound_conversation_id() {
+        use crate::common::create_test_user_with_email;
+        use pierre_database::backends::{
+            CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
+            UpsertChannelConfigParams,
+        };
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let messaging_db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        // user_a is the *previous* linker. user_b is the *current*
+        // linker (the channel link points at user_b after rebind).
+        let (_, user_a) = create_test_user_with_email(&resources.database, "rebind_a@example.com")
+            .await
+            .unwrap();
+        let (_, user_b) = create_test_user_with_email(&resources.database, "rebind_b@example.com")
+            .await
+            .unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user_b.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+        let user_a_id = user_a.id.to_string();
+        let user_b_id = user_b.id.to_string();
+
+        // Telegram channel config with a known secret for webhook auth
+        let secret = "tg_self_heal_test_secret";
+        let config_id = Uuid::new_v4().to_string();
+        let cfg = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some(secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:FAKE_BOT_TOKEN"),
+            is_active: true,
+        };
+        messaging_db.upsert_channel_config(&cfg).await.unwrap();
+
+        // Channel link: sender 88888 currently routes to user_b
+        let link_id = Uuid::new_v4().to_string();
+        let link = CreateChannelLinkParams {
+            id: &link_id,
+            tenant_id,
+            user_id: &user_b_id,
+            channel_type: "telegram",
+            channel_user_id: "88888",
+            display_name: Some("Self-Heal Test"),
+        };
+        messaging_db.create_channel_link(&link).await.unwrap();
+
+        // Real conversation owned by user_a — the prior linker. The FK
+        // resolves; the row exists; but `get_conversation(id, user_b,
+        // tenant)` returns None because of the user_id filter.
+        let prior_conversation = resources
+            .repos
+            .chat
+            .create_conversation(
+                &user_a_id,
+                tenant_id,
+                "Messaging: telegram",
+                "gpt-4",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let stale_conversation_id = prior_conversation.id.clone();
+
+        // Session row retained from user_a's earlier link, now reused
+        // because get_session_by_channel_identity matches on (tenant,
+        // channel, sender, chat_id) — not user_id.
+        let session_id = Uuid::new_v4().to_string();
+        let session_params = CreateSessionParams {
+            id: &session_id,
+            user_id: &user_a_id,
+            tenant_id,
+            channel_type: "telegram",
+            channel_user_id: "88888",
+            channel_conversation_id: Some("88888"),
+            pierre_conversation_id: Some(&stale_conversation_id),
+        };
+        messaging_db.create_session(&session_params).await.unwrap();
+
+        // Fire a free-text inbound message — webhook handler runs
+        // `resolve_linked_session` synchronously before spawning the
+        // background dispatch, so the session's `pierre_conversation_id`
+        // has been repointed by the time the response returns.
+        let body = json!({
+            "update_id": 555,
+            "message": {
+                "message_id": 1,
+                "from": { "id": 88888, "first_name": "TestUser" },
+                "chat": { "id": 88888 },
+                "text": "Hello after rebind"
+            }
+        });
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let response = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", secret)
+            .json(&body)
+            .send(router)
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+
+        // The stale id must have been replaced.
+        let resumed = messaging_db
+            .get_session_by_channel_identity(tenant_id, "telegram", "88888", Some("88888"))
+            .await
+            .unwrap()
+            .expect("session must still exist after webhook");
+        let new_conversation_id = resumed["pierre_conversation_id"]
+            .as_str()
+            .expect("pierre_conversation_id should be set after self-heal");
+        assert_ne!(
+            new_conversation_id,
+            stale_conversation_id.as_str(),
+            "stale conversation_id (owned by previous linker) must be replaced"
+        );
+
+        // The forged conversation must be reachable for the *current*
+        // linker (user_b), not user_a.
+        let conv_for_b = resources
+            .repos
+            .chat
+            .get_conversation(new_conversation_id, &user_b_id, tenant_id)
+            .await
+            .unwrap();
+        assert!(
+            conv_for_b.is_some(),
+            "newly forged conversation must be reachable for the linked user (user_b)"
+        );
+        let conv_for_a = resources
+            .repos
+            .chat
+            .get_conversation(new_conversation_id, &user_a_id, tenant_id)
+            .await
+            .unwrap();
+        assert!(
+            conv_for_a.is_none(),
+            "forged conversation must NOT be visible to the previous linker (user_a)"
+        );
+    }
 }

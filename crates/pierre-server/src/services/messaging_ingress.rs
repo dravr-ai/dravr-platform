@@ -351,11 +351,48 @@ struct ChannelChatRef<'a> {
     chat_title: Option<&'a str>,
 }
 
+/// Resolve the conversation id a session should use for this turn.
+///
+/// Returns the stored `pierre_conversation_id` when it points to a
+/// row that the linked user can read; otherwise forges a fresh
+/// conversation, repoints the session at it, and returns the new id.
+/// The unreachable cases collapse into one branch: NULL column (FK
+/// `ON DELETE SET NULL` fired), row deleted out from under the FK,
+/// row owned by a previous linker (post-rebind), or row owned by a
+/// different tenant. Without this self-heal, every message in such a
+/// session fails the ownership check in
+/// `chat_pipeline::stages::persistence` and the user gets the generic
+/// "Conversation not found" error reply.
+async fn resolve_session_conversation(
+    resources: &ServerContext,
+    db: &dyn MessagingRepository,
+    session: &Value,
+    session_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    channel_type: &str,
+) -> Result<String, AppError> {
+    if let Some(id) = session["pierre_conversation_id"].as_str() {
+        if resources
+            .repos
+            .chat
+            .get_conversation(id, user_id, tenant_id)
+            .await?
+            .is_some()
+        {
+            return Ok(id.to_owned());
+        }
+    }
+    forge_fresh_session_conversation(resources, db, session_id, user_id, tenant_id, channel_type)
+        .await
+}
+
 /// Create a fresh `chat_conversation` and repoint the session at it.
 ///
-/// Called from `resolve_linked_session` when a session's `pierre_conversation_id`
-/// is NULL (FK `ON DELETE SET NULL` fired after the referenced conversation was
-/// deleted). Returns the new conversation id.
+/// Called from `resolve_session_conversation` whenever the session's
+/// `pierre_conversation_id` cannot be reused for the current linked
+/// user (NULL column, deleted row, rebind to a different user, or
+/// cross-tenant move). Returns the new conversation id.
 async fn forge_fresh_session_conversation(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -368,7 +405,7 @@ async fn forge_fresh_session_conversation(
         session_id = %session_id,
         user_id = %user_id,
         channel_type = %channel_type,
-        "Session has no pierre_conversation_id; self-healing with a fresh conversation"
+        "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
     let title = format!("Messaging: {channel_type}");
     let conversation = chat_orchestration::create_conversation(
@@ -491,24 +528,20 @@ async fn resume_existing_session(
     }
     let user_id = linked_user_id.to_owned();
 
-    // Self-heal: if the session has no conversation (the chat_conversations row
-    // was deleted and the FK ON DELETE SET NULL fired, or the row is otherwise
-    // unreachable), forge a fresh one and repoint the session before returning.
-    // Without this, dispatch_and_respond would fail on every message for this
-    // channel user until they manually re-link.
-    let conversation = if let Some(id) = session["pierre_conversation_id"].as_str() {
-        id.to_owned()
-    } else {
-        forge_fresh_session_conversation(
-            resources,
-            db,
-            &session_id,
-            &user_id,
-            tenant_id,
-            channel_type,
-        )
-        .await?
-    };
+    // Self-heal: forge a fresh conversation when the stored
+    // pierre_conversation_id can't be reused for this turn (NULL, row
+    // deleted, owned by a different user post-rebind, etc.). See
+    // [`resolve_session_conversation`] for the full case analysis.
+    let conversation = resolve_session_conversation(
+        resources,
+        db,
+        &session,
+        &session_id,
+        &user_id,
+        tenant_id,
+        channel_type,
+    )
+    .await?;
 
     // Retrofit group_id on conversations that predate the channel binding.
     if !is_direct_message {
