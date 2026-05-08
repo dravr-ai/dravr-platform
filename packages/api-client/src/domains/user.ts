@@ -56,11 +56,18 @@ export interface LlmCredentialSummary {
   updated_at: string;
 }
 
+export interface SystemProviderInfo {
+  name: string;
+  display_name: string;
+  model?: string;
+}
+
 export interface LlmSettingsResponse {
   current_provider: string | null;
   providers: LlmProviderStatus[];
   user_credentials: LlmCredentialSummary[];
   tenant_credentials: LlmCredentialSummary[];
+  system_provider?: SystemProviderInfo;
 }
 
 export interface SaveLlmCredentialsRequest {

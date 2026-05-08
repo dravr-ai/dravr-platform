@@ -39,7 +39,8 @@ pub mod turn;
 
 pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
 pub use hooks::{
-    AgUiRun, PipelineHooks, QuotaGate, QuotaWarning, ResponsePostProcess, UsageRecorder,
+    AgUiRun, ChatStreamEvent, ChatStreamSink, PipelineHooks, QuotaGate, QuotaWarning,
+    ResponsePostProcess, UsageRecorder,
 };
 // Re-exported so that flows which build `ToolLoopParams` directly (the
 // insight route, the messaging ingress) can attach the same per-call
@@ -152,6 +153,7 @@ async fn dispatch_stage(
         args.history,
         llm_messages,
         max_iterations,
+        args.hooks.stream_sink.clone(),
     )
     .await;
     emit_step_finished(args.hooks, "dispatch").await;

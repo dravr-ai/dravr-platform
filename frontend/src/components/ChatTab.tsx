@@ -483,27 +483,97 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }));
 
     try {
+      // Request SSE — the backend streams ACP token deltas + tool-call
+      // observations as they arrive and ends with a `done` event carrying
+      // the same JSON the blocking branch would have returned. The
+      // streaming body keeps nginx (60s `proxy_read_timeout`) from cutting
+      // off long turns and lets us render the assistant reply
+      // progressively as the model produces it.
       const response = await fetch(`/api/chat/conversations/${selectedConversation}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
           'Authorization': `Bearer ${token}`,
-          // Tells the server this turn came from the web chat. Routes
-          // channel_type through PlatformCommandContext for /coach,
-          // /group, etc. so analytics hashes and handler branches have
-          // a correct surface.
           'X-Client-Platform': 'web',
         },
         body: JSON.stringify({ content: messageContent }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      // Parse JSON response (non-streaming with MCP tool support)
-      const data = await response.json();
+      let assembled = '';
+      let finalData: {
+        assistant_message?: { id?: string };
+        model?: string;
+        execution_time_ms?: number;
+        activity_list?: string;
+        actions?: MessageActionItem[];
+      } | null = null;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const dispatch = (eventName: string, dataJson: string) => {
+        if (eventName === 'delta') {
+          try {
+            const parsed = JSON.parse(dataJson) as { delta?: string };
+            if (parsed.delta) {
+              assembled += parsed.delta;
+              setStreamingContent(assembled);
+            }
+          } catch {
+            // Ignore malformed delta payloads — keep the stream alive.
+          }
+        } else if (eventName === 'done') {
+          try {
+            finalData = JSON.parse(dataJson);
+          } catch {
+            finalData = null;
+          }
+        } else if (eventName === 'error') {
+          let message: string;
+          try {
+            const parsed = JSON.parse(dataJson) as { error?: string };
+            message = parsed.error ?? 'Server error';
+          } catch {
+            // Bad JSON — fall back to a generic surface message.
+            message = 'Server error';
+          }
+          throw new Error(message);
+        }
+        // Other events (tool_call, keepalive) — ignore for now; no UX yet.
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sep: number;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const chunk = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          let eventName = 'message';
+          const dataLines: string[] = [];
+          for (const line of chunk.split('\n')) {
+            if (line.startsWith('event:')) {
+              eventName = line.slice(line[6] === ' ' ? 7 : 6).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice(line[5] === ' ' ? 6 : 5));
+            }
+          }
+          if (dataLines.length > 0) {
+            dispatch(eventName, dataLines.join('\n'));
+          }
+        }
+      }
+
+      const data = finalData ?? {};
       const assistantMessageId = data.assistant_message?.id || '';
       const model = data.model || '';
       const executionTimeMs = data.execution_time_ms || 0;
@@ -516,19 +586,14 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         });
       }
 
-      // Store activity list if the API returned one (separate from message content)
       if (data.activity_list && assistantMessageId) {
         setActivityLists(prev => {
           const newMap = new Map(prev);
-          newMap.set(assistantMessageId, data.activity_list);
+          newMap.set(assistantMessageId, data.activity_list as string);
           return newMap;
         });
       }
 
-      // Slash-command responses (e.g. /coach) carry clickable action
-      // buttons. Attach them to the assistant message id so MessageItem
-      // renders buttons below the body. Not persisted — only live this
-      // turn; a reload shows the rendered text body without buttons.
       if (Array.isArray(data.actions) && data.actions.length > 0 && assistantMessageId) {
         setMessageActions(prev => {
           const newMap = new Map(prev);

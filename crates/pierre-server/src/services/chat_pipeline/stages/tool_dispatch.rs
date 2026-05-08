@@ -56,6 +56,7 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
     history: &[MessageRecord],
     llm_messages: &mut Vec<ChatMessage>,
     max_iterations: usize,
+    stream_sink: Option<super::super::ChatStreamSink>,
 ) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
     // Stage 9: MCP executor for tool calls.
     let executor = Arc::new(UniversalExecutor::new(Arc::clone(resources)));
@@ -122,6 +123,7 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
         tenant_id: input.tool_tenant_id,
         max_iterations,
         call_recorder,
+        stream_sink,
         temperature: coach_ctx.and_then(|c| c.temperature),
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;

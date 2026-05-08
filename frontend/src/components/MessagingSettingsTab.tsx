@@ -179,7 +179,7 @@ export default function MessagingSettingsTab() {
       <Card variant="dark">
         <h2 className="text-lg font-semibold text-on-surface mb-4">Messaging Channels</h2>
         <p className="text-sm text-on-surface/60 mb-6">
-          Configure messaging channels to enable users to chat with Pierre through WhatsApp,
+          Configure messaging channels to enable users to chat with Dravr through WhatsApp,
           Telegram, Slack, Discord, or Messenger.
         </p>
 

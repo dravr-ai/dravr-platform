@@ -155,9 +155,41 @@ export default function LlmSettingsTab() {
 
   const providers = settings?.providers || [];
   const currentProvider = settings?.current_provider;
-  const systemProvider = (settings as { system_provider?: { name: string; display_name: string; model?: string } })?.system_provider;
+  const systemProvider = settings?.system_provider;
 
-  // Admin users see the system provider as read-only
+  const SystemProviderBanner = ({ provider }: { provider: { name: string; display_name: string; model?: string } }) => (
+    <div className="p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
+      <div className="flex items-center gap-2 mb-2">
+        <svg
+          className="w-5 h-5 text-pierre-activity"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span className="text-sm font-medium text-pierre-activity">
+          Active for chat: {provider.display_name}
+        </span>
+        <Badge variant="warning">System</Badge>
+      </div>
+      {provider.model && (
+        <p className="text-sm text-on-surface/60 ml-7">
+          Model: <code className="text-on-surface/80">{provider.model}</code>
+        </p>
+      )}
+      <p className="text-sm text-on-surface/60 ml-7 mt-1">
+        Provider: <code className="text-on-surface/80">{provider.name}</code>
+      </p>
+    </div>
+  );
+
+  // Admin users see the system provider as read-only (no per-user override slot)
   if (user?.is_admin && systemProvider) {
     return (
       <Card variant="dark">
@@ -165,35 +197,7 @@ export default function LlmSettingsTab() {
         <p className="text-sm text-on-surface/60 mb-6">
           The platform uses a system-level AI provider configured by the server environment.
         </p>
-        <div className="p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <svg
-              className="w-5 h-5 text-pierre-activity"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <span className="text-sm font-medium text-pierre-activity">
-              Active Provider: {systemProvider.display_name}
-            </span>
-            <Badge variant="warning">System</Badge>
-          </div>
-          {systemProvider.model && (
-            <p className="text-sm text-on-surface/60 ml-7">
-              Model: <code className="text-on-surface/80">{systemProvider.model}</code>
-            </p>
-          )}
-          <p className="text-sm text-on-surface/60 ml-7 mt-1">
-            Provider: <code className="text-on-surface/80">{systemProvider.name}</code>
-          </p>
-        </div>
+        <SystemProviderBanner provider={systemProvider} />
       </Card>
     );
   }
@@ -204,11 +208,20 @@ export default function LlmSettingsTab() {
       <Card variant="dark">
         <h2 className="text-lg font-semibold text-on-surface mb-4">AI Provider Configuration</h2>
         <p className="text-sm text-on-surface/60 mb-6">
-          Configure your preferred AI provider for chat conversations. You can use your own API keys
-          or rely on organization-wide settings.
+          Chat currently routes through the system provider configured by the server. Configuring
+          your own API keys below stores them for future per-user routing — they do not change
+          which model answers your chats today.
         </p>
 
-        {currentProvider && (
+        {/* System provider is the authoritative chat router today (PIERRE_LLM_PROVIDER) */}
+        {systemProvider && (
+          <div className="mb-6">
+            <SystemProviderBanner provider={systemProvider} />
+          </div>
+        )}
+
+        {/* Stored credential indicator — only meaningful when no system override is in effect */}
+        {!systemProvider && currentProvider && (
           <div className="mb-6 p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
             <div className="flex items-center gap-2">
               <svg

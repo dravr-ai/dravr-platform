@@ -32,6 +32,7 @@ use crate::llm::{
 use crate::models::TenantId;
 use crate::protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::services::analytics::analytics;
+use crate::services::chat_pipeline::{ChatStreamEvent, ChatStreamSink};
 
 // ============================================================================
 // Shared Types
@@ -109,6 +110,13 @@ pub struct ToolLoopParams<'a> {
     /// to every `ChatRequest` in the loop via `with_temperature`. When
     /// `None`, the provider/server default is used.
     pub temperature: Option<f32>,
+    /// Optional sink for token-level streaming events. When set on the
+    /// headless tool loop branch, the loop calls Copilot's
+    /// `converse_stream()` instead of `converse()` and forwards each
+    /// observed text delta and tool-call snapshot through the sink.
+    /// The sink is a [`crate::services::chat_pipeline::ChatStreamSink`]
+    /// — see that type for the event shape.
+    pub stream_sink: Option<ChatStreamSink>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -1053,7 +1061,16 @@ async fn run_headless_tool_loop(
         )
     })?;
 
-    info!("Headless tool loop: invoking Copilot ACP converse()");
+    let stream = params.stream_sink.is_some();
+    info!(
+        stream,
+        "Headless tool loop: invoking Copilot ACP {}",
+        if stream {
+            "converse_stream()"
+        } else {
+            "converse()"
+        }
+    );
 
     // Build the ChatRequest from the accumulated messages
     let request = {
@@ -1066,7 +1083,14 @@ async fn run_headless_tool_loop(
 
     // Copilot Headless handles tool execution internally via ACP
     let call_start = Instant::now();
-    let converse_result = headless_runner.converse(&request).await;
+    let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
+        run_headless_streaming(headless_runner, &request, sink).await
+    } else {
+        headless_runner
+            .converse(&request)
+            .await
+            .map_err(AppError::from)
+    };
     let latency_ms = millis_elapsed(call_start);
     let last_user_prompt = llm_messages
         .iter()
@@ -1106,7 +1130,7 @@ async fn run_headless_tool_loop(
                 Some(1),
                 Vec::new(),
             );
-            return Err(AppError::from(e));
+            return Err(e);
         }
     };
 
@@ -1141,6 +1165,56 @@ async fn run_headless_tool_loop(
         // platform-side ProviderAuthRequired handoff is not possible without
         // visibility into the subprocess tool dispatches. Leave as None.
         pending_provider_auth_required: None,
+    })
+}
+
+/// Run a streaming Copilot ACP turn, forwarding text deltas and tool-call
+/// observations to `sink` while accumulating the same final
+/// [`HeadlessToolResponse`] that the non-streaming `converse()` produces.
+///
+/// Returns the aggregated response so the caller can record per-call usage
+/// and fold it into `ToolLoopResult` exactly like the non-streaming branch.
+async fn run_headless_streaming(
+    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    request: &ChatRequest,
+    sink: &ChatStreamSink,
+) -> Result<pierre_llm::HeadlessToolResponse, AppError> {
+    use pierre_llm::HeadlessStreamEvent;
+    use tokio_stream::StreamExt;
+
+    let mut stream = headless_runner
+        .converse_stream(request)
+        .await
+        .map_err(AppError::from)?;
+    let mut final_response: Option<pierre_llm::HeadlessToolResponse> = None;
+
+    while let Some(item) = stream.next().await {
+        let event = item.map_err(AppError::from)?;
+        match event {
+            HeadlessStreamEvent::TextDelta(delta) => {
+                // Send may fail if the receiver was dropped (client disconnected
+                // or the pipeline aborted) — treat as a benign no-op so the ACP
+                // session keeps draining and the run still completes cleanly.
+                let _ = sink.send(ChatStreamEvent::TextDelta(delta));
+            }
+            HeadlessStreamEvent::ToolCall(tc) => {
+                let _ = sink.send(ChatStreamEvent::ToolCall {
+                    id: tc.id,
+                    title: tc.title,
+                    status: tc.status,
+                });
+            }
+            HeadlessStreamEvent::Done(response) => {
+                final_response = Some(response);
+            }
+        }
+    }
+
+    final_response.ok_or_else(|| {
+        AppError::external_service(
+            "copilot-headless",
+            "converse_stream completed without a Done event",
+        )
     })
 }
 
