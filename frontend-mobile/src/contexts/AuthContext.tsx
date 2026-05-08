@@ -14,6 +14,7 @@ interface AuthContextType {
   loginWithFirebase: (idToken: string) => Promise<FirebaseLoginResponse>;
   logout: () => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
+  updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -98,6 +99,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // After registration, user needs to log in (or wait for approval if pending)
   }, []);
 
+  const updateUser = useCallback(async (patch: Partial<User>) => {
+    let next: User | null = null;
+    setUser((current) => {
+      if (!current) return current;
+      next = { ...current, ...patch };
+      return next;
+    });
+    if (next) {
+      await authApi.storeUser(next);
+    }
+  }, []);
+
   const isAuthenticated = !!user && user.user_status === 'active';
 
   // Memoize context value to prevent unnecessary re-renders of consumers
@@ -109,7 +122,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     loginWithFirebase,
     logout,
     register,
-  }), [user, isAuthenticated, isLoading, login, loginWithFirebase, logout, register]);
+    updateUser,
+  }), [user, isAuthenticated, isLoading, login, loginWithFirebase, logout, register, updateUser]);
 
   return (
     <AuthContext.Provider value={value}>

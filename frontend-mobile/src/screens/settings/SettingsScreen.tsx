@@ -320,6 +320,29 @@ export function SettingsScreen() {
           </View>
         </View>
 
+        {/* Coaching Style Section */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-coaching-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Coaching</Text>
+          <View style={glassCardStyle}>
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/coaching-style')}
+              testID="settings-coaching-style-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="message-square" size={20} color={colors.text.secondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Coaching Style</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary, textTransform: 'capitalize' }}>
+                  {(user?.coaching_persona ?? 'casual').replace('_', '-')}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Account Settings Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Account</Text>

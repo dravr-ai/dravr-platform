@@ -159,6 +159,10 @@ pub mod messaging;
 #[cfg(feature = "client-notifications")]
 pub mod notifications;
 
+/// Coach-athlete roster routes (assign / list / revoke). Gated by
+/// `users.manages_roster=true` or `is_admin=true`.
+pub mod roster;
+
 // ═══════════════════════════════════════════════════════════════
 // OPENAPI FEATURE
 // ═══════════════════════════════════════════════════════════════

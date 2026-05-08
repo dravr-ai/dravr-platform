@@ -38,6 +38,8 @@ pub mod oauth;
 pub mod prescribed_workouts;
 /// Recipe repository implementation (CRUD with nutrition caching)
 pub mod recipes;
+/// Coach-athlete roster assignments (Postgres) backing `RosterRepository`.
+pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (Postgres)
 pub mod route_summaries;
 /// Security and notification repository implementations
