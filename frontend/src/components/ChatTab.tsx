@@ -506,13 +506,14 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       }
 
       let assembled = '';
-      let finalData: {
+      type StreamFinalPayload = {
         assistant_message?: { id?: string };
         model?: string;
         execution_time_ms?: number;
         activity_list?: string;
         actions?: MessageActionItem[];
-      } | null = null;
+      };
+      let finalData: StreamFinalPayload | null = null;
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -573,7 +574,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         }
       }
 
-      const data = finalData ?? {};
+      const data: StreamFinalPayload = finalData ?? {};
       const assistantMessageId = data.assistant_message?.id || '';
       const model = data.model || '';
       const executionTimeMs = data.execution_time_ms || 0;
