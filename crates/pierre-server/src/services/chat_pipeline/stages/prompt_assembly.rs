@@ -21,7 +21,7 @@ use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::prompts::{get_coaching_persona_prompt, unsubstituted_placeholders};
+use pierre_llm::prompts::unsubstituted_placeholders;
 use tracing::error;
 
 use super::super::channel_profile::ChannelProfile;
@@ -94,12 +94,18 @@ fn interpolate_prompt_placeholders(
         let carve_out = coach_ctx
             .and_then(|c| coach_scope_carve_out_key(c.category))
             .map_or_else(String::new, |key| registry.get(key, locale));
-        let persona_block = get_coaching_persona_prompt(persona);
+        // Read the persona block from the prompt registry so a hot-reload
+        // from contremaitre takes effect on the very next turn — no
+        // redeploy needed. The registry seeds itself with the compiled-in
+        // `include_str!()` content at startup, so chat works before the
+        // first sync completes; once contremaitre lands a newer version
+        // via webhook → selective_sync, the same lookup here picks it up.
+        let persona_block = resources.prompt_registry.coaching_persona_prompt(persona);
         prompt
             .replace("{{SCOPE_REFUSAL}}", &scope)
             .replace("{{CAPABILITY_REFUSAL}}", &capability)
             .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
-            .replace("{{COACHING_PERSONA_RULES}}", persona_block)
+            .replace("{{COACHING_PERSONA_RULES}}", &persona_block)
     };
     let stray = unsubstituted_placeholders(&assembled);
     if !stray.is_empty() {
@@ -119,7 +125,10 @@ fn interpolate_prompt_placeholders(
 /// a malformed `user_id`, or a transient repository error all collapse to
 /// the default persona so chat continues to flow. Persona is a UX
 /// preference, not a security boundary.
-async fn resolve_user_persona(resources: &Arc<ServerContext>, user_id: &str) -> CoachingPersona {
+pub(in crate::services::chat_pipeline) async fn resolve_user_persona(
+    resources: &Arc<ServerContext>,
+    user_id: &str,
+) -> CoachingPersona {
     let Some(user_uuid) = parse_uuid(user_id).ok() else {
         return CoachingPersona::default();
     };

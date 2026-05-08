@@ -48,6 +48,7 @@ use crate::middleware::provider_link_token::{
 };
 use crate::middleware::redaction::RedactionConfig;
 use crate::middleware::{CsrfMiddleware, McpAuthMiddleware};
+use crate::persona_contracts::PersonaContractRegistry;
 use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
 use crate::services::commands::{
@@ -226,6 +227,14 @@ pub struct ServerContext {
     /// overlay when the feature is enabled. Every handler that needs
     /// an `IntelligenceConfig` reads it through this registry.
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
+    /// Hot-swappable per-persona output-format conformance contracts.
+    ///
+    /// Hydrated from `config/persona_contracts.yaml` in dravr-contremaitre
+    /// at startup and on every webhook push. The chat-pipeline
+    /// `persona_conformance` stage reads it post-LLM-dispatch and
+    /// surfaces violations as `warn!` events (or hard-blocks the reply
+    /// when a persona's `strict_mode` is set).
+    pub persona_contract_registry: Arc<PersonaContractRegistry>,
     /// Hot-swappable coaching harness config snapshot (compaction + Tier 6 guardrails).
     ///
     /// Loaded from `system_settings.harness_config` at startup. The chat
@@ -336,6 +345,7 @@ pub struct ServerContext {
 /// the block contains an `if-let` plus `match`, which clippy counts as
 /// two arms each.
 #[cfg(feature = "contremaitre")]
+#[allow(clippy::too_many_arguments)]
 async fn run_contremaitre_full_sync(
     config: &ContremaitreConfig,
     prompt_registry: &Arc<PromptRegistry>,
@@ -343,6 +353,7 @@ async fn run_contremaitre_full_sync(
     evidence_registry: &Arc<EvidenceRegistry>,
     cageux_config_registry: &Arc<CageuxConfigRegistry>,
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    persona_contract_registry: &Arc<PersonaContractRegistry>,
 ) {
     let store = config.store();
     info!(
@@ -355,6 +366,7 @@ async fn run_contremaitre_full_sync(
         evidence_registry,
         cageux_config_registry,
         messaging_strings_registry,
+        persona_contract_registry,
         store.as_ref(),
     )
     .await;
@@ -382,6 +394,7 @@ async fn run_contremaitre_full_sync(
 #[cfg(feature = "contremaitre")]
 async fn init_contremaitre_registries(
     cageux_config_registry: &Arc<CageuxConfigRegistry>,
+    persona_contract_registry: &Arc<PersonaContractRegistry>,
 ) -> (
     Arc<PromptRegistry>,
     Arc<ToolDescriptionRegistry>,
@@ -401,6 +414,7 @@ async fn init_contremaitre_registries(
             &evidence_registry,
             cageux_config_registry,
             &messaging_strings_registry,
+            persona_contract_registry,
         )
         .await;
     } else {
@@ -453,6 +467,14 @@ impl ServerContext {
         // back to compiled-in defaults if env parsing fails; startup-time
         // env validation is handled upstream by `init_all_configs()`.
         let cageux_config_registry = Arc::new(CageuxConfigRegistry::from_env());
+
+        // Empty persona-contract registry; the contremaitre sync engine
+        // hydrates it from `config/persona_contracts.yaml` either at
+        // boot (full sync) or on the next webhook push that touches the
+        // file. While empty, the chat-pipeline `persona_conformance`
+        // stage no-ops cleanly — least-restrictive default per the
+        // vault doc.
+        let persona_contract_registry = Arc::new(PersonaContractRegistry::new());
 
         // Load the harness config snapshot from `system_settings.harness_config`.
         // Falls back to compile-time defaults if the row is absent or invalid;
@@ -634,7 +656,7 @@ impl ServerContext {
             contremaitre_tool_desc_registry,
             contremaitre_evidence_registry,
             contremaitre_messaging_strings_registry,
-        ) = init_contremaitre_registries(&cageux_config_registry).await;
+        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry).await;
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
@@ -681,6 +703,7 @@ impl ServerContext {
             admin_jwt_secret: admin_jwt_secret.into(),
             config,
             cageux_config_registry,
+            persona_contract_registry,
             harness_config_registry,
             activity_intelligence,
             #[cfg(feature = "protocol-a2a")]

@@ -140,7 +140,7 @@ async fn handle_list_system_prompts(
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     require_admin(auth.user_id, &resources.repos.users).await?;
 
-    let entries = resources.prompt_registry.list_system_prompts();
+    let entries = resources.prompt_registry.list_system();
     let prompts: Vec<SystemPromptSummary> = entries
         .into_iter()
         .map(|(key, entry)| SystemPromptSummary {
@@ -172,7 +172,7 @@ async fn handle_get_system_prompt(
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     require_admin(auth.user_id, &resources.repos.users).await?;
 
-    let entries = resources.prompt_registry.list_system_prompts();
+    let entries = resources.prompt_registry.list_system();
     let entry = entries
         .into_iter()
         .find(|(k, _)| k == &key)
@@ -342,6 +342,7 @@ async fn handle_manual_sync(
         &resources.evidence_registry,
         &resources.cageux_config_registry,
         &resources.messaging_strings_registry,
+        &resources.persona_contract_registry,
         store.as_ref(),
     )
     .await?;

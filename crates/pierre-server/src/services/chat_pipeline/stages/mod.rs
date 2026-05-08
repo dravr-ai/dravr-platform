@@ -29,6 +29,8 @@ pub mod followups;
 pub mod guardrails;
 pub mod memory;
 pub mod persistence;
+/// Per-persona output-format conformance check (post-LLM, advisory).
+pub mod persona_conformance;
 /// Post-LLM content processing: canary scan, guardrails, verification, hook.
 pub mod post_process;
 pub mod prefetch;

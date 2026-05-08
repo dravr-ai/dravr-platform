@@ -18,6 +18,7 @@ use super::registry::PromptRegistry;
 use super::store::{PromptStore, StoredFile};
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
 use crate::cageux_config::CageuxConfigRegistry;
+use crate::persona_contracts::PersonaContractRegistry;
 
 /// Nested `domain → category → slug → entry` shape used by the manifest's
 /// evidence tree. Aliased to keep [`sync_all_evidence`] and
@@ -230,6 +231,80 @@ async fn sync_all_coach_prompts(
     Ok(result)
 }
 
+/// Apply a downloaded coaching-persona output-format block to the
+/// registry, logging hash mismatches.
+fn apply_coaching_persona(
+    registry: &PromptRegistry,
+    slug: &str,
+    entry: &ManifestEntry,
+    file: StoredFile,
+) {
+    let actual_sha = compute_sha256(file.content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            slug,
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for coaching persona block, using downloaded content"
+        );
+    }
+    registry.update_coaching_persona_prompt(slug, file.content, actual_sha);
+    info!(slug, "synced coaching persona block from contremaitre");
+}
+
+/// Fetch and apply a single coaching-persona output-format block if its
+/// hash changed.
+async fn sync_single_coaching_persona(
+    registry: &PromptRegistry,
+    store: &dyn PromptStore,
+    slug: &str,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    if registry.coaching_persona_sha256(slug).as_deref() == Some(&entry.sha256) {
+        debug!(slug, "coaching persona block unchanged, skipping");
+        return SyncOutcome::Skipped;
+    }
+    match store.read_file(&entry.path).await {
+        Ok(file) => {
+            apply_coaching_persona(registry, slug, entry, file);
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(slug, error = %e, "failed to sync coaching persona block");
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Helper to sync every coaching-persona output-format block referenced
+/// by the manifest. Iterates the flat `slug → entry` map; each block is
+/// independent of the others so a failure on one persona never blocks
+/// the rest.
+///
+/// When the manifest predates the `personas` field (older repo on a
+/// fresh deploy) the map is empty and the function returns a zero-sum
+/// result — the registry keeps the compiled-in fallback content seeded
+/// at [`PromptRegistry::new`] time, so chat continues to assemble the
+/// persona block from `include_str!()`.
+async fn sync_all_coaching_personas(
+    registry: &PromptRegistry,
+    store: &dyn PromptStore,
+    manifest_personas: &HashMap<String, ManifestEntry>,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (slug, entry) in manifest_personas {
+        let outcome = sync_single_coaching_persona(registry, store, slug, entry).await;
+        accumulate_outcome(&mut result, outcome);
+    }
+
+    Ok(result)
+}
+
 /// Perform a full sync: download manifest, compare hashes, fetch changed files.
 ///
 /// Called on server startup to load the latest prompts from the contremaitre
@@ -245,6 +320,7 @@ pub async fn full_sync(
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
     messaging_strings_registry: &MessagingStringsRegistry,
+    persona_contract_registry: &PersonaContractRegistry,
     store: &dyn PromptStore,
 ) -> Result<SyncResult, ContremaitreError> {
     info!("Starting contremaitre full sync");
@@ -253,31 +329,41 @@ pub async fn full_sync(
 
     let system_result = sync_all_system_prompts(registry, store, &manifest.prompts.system).await?;
     let coach_result = sync_all_coach_prompts(registry, store, &manifest.prompts.coaches).await?;
+    let persona_result =
+        sync_all_coaching_personas(registry, store, &manifest.prompts.personas).await?;
     let tool_result =
         sync_all_tool_descriptions(tool_desc_registry, store, &manifest.tools.0).await?;
     let evidence_result = sync_all_evidence(evidence_registry, store, &manifest.evidence.0).await?;
     let cageux_result = sync_cageux_config(cageux_config_registry, store, &manifest.config).await;
+    let contracts_result =
+        sync_persona_contracts(persona_contract_registry, store, &manifest.config).await;
     let strings_result =
         sync_all_messaging_strings(messaging_strings_registry, store, &manifest.strings.0).await?;
 
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
+            + persona_result.synced
             + tool_result.synced
             + evidence_result.synced
             + cageux_result.synced
+            + contracts_result.synced
             + strings_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
+            + persona_result.skipped
             + tool_result.skipped
             + evidence_result.skipped
             + cageux_result.skipped
+            + contracts_result.skipped
             + strings_result.skipped,
         failed: system_result.failed
             + coach_result.failed
+            + persona_result.failed
             + tool_result.failed
             + evidence_result.failed
             + cageux_result.failed
+            + contracts_result.failed
             + strings_result.failed,
     };
 
@@ -286,8 +372,10 @@ pub async fn full_sync(
         skipped = result.skipped,
         failed = result.failed,
         tools_synced = tool_result.synced,
+        personas_synced = persona_result.synced,
         evidence_synced = evidence_result.synced,
         cageux_synced = cageux_result.synced,
+        persona_contracts_synced = contracts_result.synced,
         strings_synced = strings_result.synced,
         "Contremaitre full sync complete"
     );
@@ -397,6 +485,52 @@ async fn sync_changed_coach_prompts(
     Ok(result)
 }
 
+/// Hot-reload a single coaching-persona output-format block from a
+/// webhook event.
+async fn hot_reload_coaching_persona(
+    registry: &PromptRegistry,
+    store: &dyn PromptStore,
+    slug: &str,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match store.read_file(&entry.path).await {
+        Ok(file) => {
+            let actual_sha = compute_sha256(file.content.as_bytes());
+            registry.update_coaching_persona_prompt(slug, file.content, actual_sha);
+            info!(slug, "hot-reloaded coaching persona block");
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(slug, error = %e, "failed to hot-reload coaching persona block");
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Helper to sync changed coaching-persona blocks during selective sync.
+async fn sync_changed_coaching_personas(
+    registry: &PromptRegistry,
+    store: &dyn PromptStore,
+    manifest_personas: &HashMap<String, ManifestEntry>,
+    changed_set: &HashSet<&str>,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (slug, entry) in manifest_personas {
+        if !changed_set.contains(entry.path.as_str()) {
+            continue;
+        }
+        let outcome = hot_reload_coaching_persona(registry, store, slug, entry).await;
+        accumulate_outcome(&mut result, outcome);
+    }
+
+    Ok(result)
+}
+
 /// Perform a selective sync for specific changed file paths.
 ///
 /// Called by the webhook handler when a push event is received. Re-fetches
@@ -412,6 +546,7 @@ pub async fn selective_sync(
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
     messaging_strings_registry: &MessagingStringsRegistry,
+    persona_contract_registry: &PersonaContractRegistry,
     store: &dyn PromptStore,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
@@ -432,6 +567,10 @@ pub async fn selective_sync(
         sync_changed_coach_prompts(registry, store, &manifest.prompts.coaches, &changed_set)
             .await?;
 
+    let persona_result =
+        sync_changed_coaching_personas(registry, store, &manifest.prompts.personas, &changed_set)
+            .await?;
+
     let tool_result =
         sync_changed_tool_descriptions(tool_desc_registry, store, &manifest.tools.0, &changed_set)
             .await?;
@@ -441,6 +580,14 @@ pub async fn selective_sync(
 
     let cageux_result = sync_changed_cageux_config(
         cageux_config_registry,
+        store,
+        &manifest.config,
+        &changed_set,
+    )
+    .await;
+
+    let contracts_result = sync_changed_persona_contracts(
+        persona_contract_registry,
         store,
         &manifest.config,
         &changed_set,
@@ -458,21 +605,27 @@ pub async fn selective_sync(
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
+            + persona_result.synced
             + tool_result.synced
             + evidence_result.synced
             + cageux_result.synced
+            + contracts_result.synced
             + strings_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
+            + persona_result.skipped
             + tool_result.skipped
             + evidence_result.skipped
             + cageux_result.skipped
+            + contracts_result.skipped
             + strings_result.skipped,
         failed: system_result.failed
             + coach_result.failed
+            + persona_result.failed
             + tool_result.failed
             + evidence_result.failed
             + cageux_result.failed
+            + contracts_result.failed
             + strings_result.failed,
     };
 
@@ -480,6 +633,8 @@ pub async fn selective_sync(
         synced = result.synced,
         skipped = result.skipped,
         failed = result.failed,
+        personas_synced = persona_result.synced,
+        persona_contracts_synced = contracts_result.synced,
         "Contremaitre selective sync complete"
     );
 
@@ -885,6 +1040,132 @@ async fn fetch_and_apply_messaging_string(
         }
         Err(e) => {
             warn!(key, locale, error = %e, "failed to sync messaging string");
+            SyncOutcome::Failed
+        }
+    }
+}
+
+// =============================================================================
+// Persona-conformance contract sync (hot-reloadable per-persona output rules)
+// =============================================================================
+
+/// Sync the persona-conformance contracts overlay from the manifest's
+/// `config.persona_contracts` entry (full-sync path).
+///
+/// Mirrors [`sync_cageux_config`]: skips when the registry's current SHA
+/// matches the manifest entry, propagates network/parse failures as
+/// [`SyncOutcome::Failed`] so the previous snapshot remains live.
+async fn sync_persona_contracts(
+    registry: &PersonaContractRegistry,
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.persona_contracts.as_ref() else {
+        debug!("No persona_contracts entry in manifest, conformance stage will no-op");
+        return result;
+    };
+
+    if registry.current_overlay_sha256().as_deref() == Some(&entry.sha256) {
+        debug!("persona_contracts overlay unchanged, skipping");
+        result.skipped += 1;
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_persona_contracts(registry, store, entry).await,
+    );
+    result
+}
+
+/// Sync the persona-conformance contracts overlay if its path appears in
+/// `changed_set` (selective/webhook sync path).
+async fn sync_changed_persona_contracts(
+    registry: &PersonaContractRegistry,
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+    changed_set: &HashSet<&str>,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.persona_contracts.as_ref() else {
+        return result;
+    };
+
+    if !changed_set.contains(entry.path.as_str()) {
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_persona_contracts(registry, store, entry).await,
+    );
+    result
+}
+
+/// Apply a downloaded persona-contracts YAML to the registry, logging the
+/// outcome.
+fn apply_persona_contracts_overlay(
+    registry: &PersonaContractRegistry,
+    entry: &ManifestEntry,
+    file: &StoredFile,
+) -> SyncOutcome {
+    let actual_sha = compute_sha256(file.content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for persona_contracts, using downloaded content"
+        );
+    }
+    match registry.apply_overlay(&file.content) {
+        Ok(()) => {
+            info!(
+                path = %entry.path,
+                sha256 = actual_sha,
+                "synced persona_contracts overlay"
+            );
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to apply persona_contracts overlay — keeping previous snapshot"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Download the persona-contracts YAML and install it via
+/// [`PersonaContractRegistry::apply_overlay`], which parses YAML, resolves
+/// `inherits` chains, and atomically swaps the snapshot. On any failure
+/// (network, parse, cycle, missing parent) the previous snapshot stays
+/// live and the conformance stage keeps using its last good ruleset.
+async fn fetch_and_apply_persona_contracts(
+    registry: &PersonaContractRegistry,
+    store: &dyn PromptStore,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match store.read_file(&entry.path).await {
+        Ok(file) => apply_persona_contracts_overlay(registry, entry, &file),
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to download persona_contracts overlay"
+            );
             SyncOutcome::Failed
         }
     }

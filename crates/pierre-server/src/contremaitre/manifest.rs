@@ -47,7 +47,8 @@ pub struct Manifest {
     pub strings: ManifestStrings,
 }
 
-/// Prompt entries grouped by type: system prompts and coach personas.
+/// Prompt entries grouped by type: system prompts, coach personas, and
+/// the coaching-persona output-format blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestPrompts {
     /// System prompts keyed by name (e.g., `pierre_system`, `coach_generation`)
@@ -56,6 +57,17 @@ pub struct ManifestPrompts {
     /// category as `prompts/coaches/<category>/<slug>/<locale>.md`, so the
     /// manifest entry itself carries no separate category field.
     pub coaches: HashMap<String, HashMap<String, ManifestEntry>>,
+    /// Coaching-persona output-format blocks keyed by `snake_case` enum
+    /// slug (`casual`, `enthusiast`, `power_athlete`, `coach`). Each
+    /// block defines the user's desired structure / citation density /
+    /// length / cadence — what the [`Coaching Persona Architecture`]
+    /// vault doc calls "how every coach speaks". Fall back to the
+    /// `include_str!()` content compiled into `pierre-llm` when an
+    /// entry is absent (older manifest, or the file briefly disappeared
+    /// from the repo). Defaults to `{}` so a manifest predating this
+    /// field still parses cleanly.
+    #[serde(default)]
+    pub personas: HashMap<String, ManifestEntry>,
 }
 
 /// Top-level manifest structure (version 2+) adds tool description entries.
@@ -90,16 +102,22 @@ pub struct ManifestEvidence(pub HashMap<String, HashMap<String, HashMap<String, 
 
 /// Configuration overlay entries keyed by consumer name (version 3+).
 ///
-/// Currently holds a single well-known entry: `cageux`, pointing at
-/// `config/cageux.yaml`, which the server applies via
-/// [`dravr_cageux::config::intelligence::IntelligenceConfig::with_overlay`]
-/// on startup and on every webhook push. Future entries can be added as
-/// additional downstream crates grow their own overlay sinks.
+/// Holds well-known config files that the server hot-reloads via the
+/// contremaitre webhook. Each is optional — a manifest predating the
+/// field still parses cleanly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestConfig {
     /// Overlay for the dravr-cageux intelligence configuration, if present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cageux: Option<ManifestEntry>,
+    /// Per-persona output-format conformance contract used by the chat
+    /// pipeline's `persona_conformance` stage to assert LLM replies
+    /// against the rules in
+    /// `[[Coaching Persona Architecture#5. Contract enforcement]]`.
+    /// Absent from the manifest = no runtime conformance checks; pierre
+    /// boots with an empty contract registry and the stage no-ops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_contracts: Option<ManifestEntry>,
 }
 
 /// A single prompt entry in the manifest.

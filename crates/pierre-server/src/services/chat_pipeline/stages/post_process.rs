@@ -15,6 +15,8 @@ use crate::services::prompt_leak;
 use super::super::hooks::PipelineHooks;
 use super::super::turn::TurnInput;
 use super::guardrails::apply_text_guardrails;
+use super::persona_conformance::check_reply_conformance;
+use super::prompt_assembly::resolve_user_persona;
 #[cfg(feature = "tools-verification")]
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
@@ -46,9 +48,7 @@ pub(in crate::services::chat_pipeline) struct PostProcessedReply {
 /// the message write succeeds — emitting verdicts before the message
 /// exists would leave orphan rows if the message write failed.
 pub(in crate::services::chat_pipeline) async fn post_process_assistant_reply(
-    #[cfg_attr(not(feature = "tools-verification"), allow(unused_variables))] resources: &Arc<
-        ServerContext,
-    >,
+    resources: &Arc<ServerContext>,
     input: &TurnInput,
     conv: &ConversationRecord,
     #[cfg_attr(not(feature = "tools-verification"), allow(unused_variables))] coach_ctx: Option<
@@ -69,6 +69,18 @@ pub(in crate::services::chat_pipeline) async fn post_process_assistant_reply(
     // Stage 16: Tier 6 text guardrails.
     let locale_opt = input.locale.as_deref();
     let mut content = apply_text_guardrails(resources, &raw_content, locale_opt);
+
+    // Stage 16b: Per-persona output-format conformance.
+    // Advisory only — emits structured warn!/error! per violation; the
+    // reply ships as-is. Re-prompt-with-fix-delta will land in a follow-up
+    // once the rule set has stabilised in shadow mode.
+    let persona = resolve_user_persona(resources, &input.user_id).await;
+    let conformance_violations = check_reply_conformance(resources, persona, &content);
+    tracing::debug!(
+        persona = persona.as_str(),
+        violations = conformance_violations.len(),
+        "persona conformance scan complete"
+    );
 
     // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
     // Verdicts are computed now — content may be rewritten under Warn/Block —
