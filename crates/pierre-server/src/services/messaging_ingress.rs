@@ -406,6 +406,23 @@ async fn resolve_linked_session(
 ) -> Result<Option<ResolvedSession>, AppError> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
+    // Channel link is the source of truth for "is this sender currently bound
+    // to a Pierre user". `logout_channel_sender` deletes only the link and
+    // retains messaging_sessions/messages for support and audit, so an
+    // orphaned session can outlive its link. Checking the link first prevents
+    // post-logout messages from leaking into the previously linked user's
+    // chat history.
+    let channel_link = db
+        .get_channel_link(tenant_id, channel_type, sender_id)
+        .await?;
+    let Some(link) = channel_link else {
+        return Ok(None);
+    };
+    let linked_user_id = link["user_id"]
+        .as_str()
+        .ok_or_else(|| AppError::internal("Channel link missing user_id"))?
+        .to_owned();
+
     // Existing session, scoped to this specific chat. A user with a
     // Telegram DM AND a Telegram group chat gets two sessions — one per
     // (tenant, channel, user, chat) — because of migration
@@ -418,6 +435,7 @@ async fn resolve_linked_session(
             resources,
             db,
             session,
+            &linked_user_id,
             tenant_id,
             channel_type,
             chat_ref,
@@ -431,6 +449,7 @@ async fn resolve_linked_session(
     open_new_session(
         resources,
         db,
+        &linked_user_id,
         tenant_id,
         channel_type,
         sender_id,
@@ -438,6 +457,7 @@ async fn resolve_linked_session(
         is_direct_message,
     )
     .await
+    .map(Some)
 }
 
 /// Resume the per-chat session row returned by
@@ -448,6 +468,7 @@ async fn resume_existing_session(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
     session: Value,
+    linked_user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
     chat_ref: ChannelChatRef<'_>,
@@ -457,10 +478,20 @@ async fn resume_existing_session(
         .as_str()
         .ok_or_else(|| AppError::internal("Session missing id field"))?
         .to_owned();
-    let user_id = session["user_id"]
-        .as_str()
-        .ok_or_else(|| AppError::internal("Session missing user_id field"))?
-        .to_owned();
+    // Routing follows the channel link, not the session row. session.user_id
+    // records the original linker (logout retains the session for audit), so
+    // a different Pierre user re-linking the same channel sender would
+    // otherwise route into the previous user's chat history.
+    let session_user_id = session["user_id"].as_str().unwrap_or("");
+    if session_user_id != linked_user_id {
+        warn!(
+            session_id = %session_id,
+            session_user_id = %session_user_id,
+            linked_user_id = %linked_user_id,
+            "Channel link rebound — routing this turn to the currently linked user"
+        );
+    }
+    let user_id = linked_user_id.to_owned();
 
     // Self-heal: if the session has no conversation (the chat_conversations row
     // was deleted and the FK ON DELETE SET NULL fired, or the row is otherwise
@@ -510,32 +541,22 @@ async fn resume_existing_session(
     })
 }
 
-/// Open a brand-new session for a linked user. Returns `Ok(None)` when the
-/// sender has no channel link (unlinked user — caller sends the link
-/// prompt). For non-DM chats, resolves the channel-bound `coaching_group`
-/// and attaches its id to the new conversation so prompt assembly injects
-/// group context.
+/// Open a brand-new session for a linked user. The caller
+/// (`resolve_linked_session`) has already verified the channel link exists
+/// and passes the linked user_id in. For non-DM chats, resolves the
+/// channel-bound `coaching_group` and attaches its id to the new
+/// conversation so prompt assembly injects group context.
 async fn open_new_session(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
+    linked_user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
-) -> Result<Option<ResolvedSession>, AppError> {
-    let channel_link = db
-        .get_channel_link(tenant_id, channel_type, sender_id)
-        .await?;
-
-    let Some(link) = channel_link else {
-        return Ok(None);
-    };
-
-    let user_id = link["user_id"]
-        .as_str()
-        .ok_or_else(|| AppError::internal("Channel link missing user_id"))?
-        .to_owned();
+) -> Result<ResolvedSession, AppError> {
+    let user_id = linked_user_id.to_owned();
 
     let group_id_opt = resolve_group_for_new_session(
         resources,
@@ -592,11 +613,11 @@ async fn open_new_session(
         true,
     );
 
-    Ok(Some(ResolvedSession {
+    Ok(ResolvedSession {
         session_id,
         conversation: conversation_id,
         user_id,
-    }))
+    })
 }
 
 /// Pick the `coaching_groups.id` to attach to a new messaging conversation,

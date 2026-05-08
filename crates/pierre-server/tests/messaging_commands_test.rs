@@ -27,7 +27,7 @@ mod command_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use pierre_database::backends::{
-        CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
+        CreateChannelLinkParams, CreateSessionParams, InsertMessageParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -220,6 +220,72 @@ mod command_tests {
 
         let (status, _) = send_command(&router, "/logout", 4).await;
         assert_eq!(status, StatusCode::OK);
+    }
+
+    /// Logout retains messaging_sessions and messaging_messages for support
+    /// and audit, deleting only the channel link. Regression test for the
+    /// production FK violation when a sender with stored messages typed
+    /// `/logout` (messaging_messages_session_id_fkey blocked the session
+    /// DELETE on Postgres).
+    #[tokio::test]
+    async fn test_logout_retains_history() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (router, _user_id, tenant_id) = setup_linked_user(&resources).await;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let session = db
+            .get_session_by_channel_identity(tenant_id, "telegram", SENDER_ID, None)
+            .await
+            .unwrap()
+            .expect("session must exist after setup_linked_user");
+        let session_id = session["id"].as_str().unwrap().to_owned();
+
+        // Persist an inbound message so logout has child rows the FK protects.
+        db.insert_message(&InsertMessageParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            session_id: &session_id,
+            direction: "inbound",
+            channel_type: "telegram",
+            channel_message_id: "tg-logout-history-1",
+            sender_id: SENDER_ID,
+            content_type: "text",
+            content_body: Some("hello"),
+            correlation_id: "test-logout-history",
+            raw_payload: None,
+        })
+        .await
+        .unwrap();
+
+        // Bare "logout" (no slash) is the confirmation reply that triggers the
+        // actual unlink — `/logout` only shows the confirmation prompt.
+        let (status, _) = send_command(&router, "logout", 100).await;
+        assert_eq!(status, StatusCode::OK);
+
+        assert!(
+            db.get_channel_link(tenant_id, "telegram", SENDER_ID)
+                .await
+                .unwrap()
+                .is_none(),
+            "channel link must be deleted on logout"
+        );
+
+        assert!(
+            db.get_session_by_channel_identity(tenant_id, "telegram", SENDER_ID, None)
+                .await
+                .unwrap()
+                .is_some(),
+            "session must be retained for support/audit"
+        );
+
+        let messages = db
+            .get_session_messages(&session_id, tenant_id, 100, 0)
+            .await
+            .unwrap();
+        assert!(
+            !messages.is_empty(),
+            "messages must be retained for support/audit"
+        );
     }
 
     #[tokio::test]

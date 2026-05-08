@@ -1191,7 +1191,11 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Logout a channel sender: delete link, sessions, and OTP states by sender identity.
+    /// Logout a channel sender: delete the channel link and invalidate OTP
+    /// states. `messaging_sessions` and `messaging_messages` are intentionally
+    /// retained for support and audit — `resolve_linked_session` gates session
+    /// resumption on the channel link, so the absence of the link is enough to
+    /// unbind the sender from the previously linked Pierre user.
     ///
     /// # Errors
     ///
@@ -1202,20 +1206,6 @@ impl Database {
         channel_type: &str,
         sender_id: &str,
     ) -> AppResult<()> {
-        // Delete sessions (references sender via channel_user_id)
-        sqlx::query(
-            r"
-            DELETE FROM messaging_sessions
-            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
-            ",
-        )
-        .bind(tenant_id)
-        .bind(channel_type)
-        .bind(sender_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to delete sessions: {e}")))?;
-
         // Delete channel link (uses channel_user_id, not user_id)
         sqlx::query(
             r"
