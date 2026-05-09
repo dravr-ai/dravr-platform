@@ -64,6 +64,58 @@ pub(crate) fn resolve_banner_locale(reply: &str, locale: Option<&str>) -> String
     locale.unwrap_or(DEFAULT_LOCALE).to_owned()
 }
 
+/// Approximate "lead" of a coach reply for verification-banner deduplication.
+///
+/// Returns the first ~600 bytes of `reply`, snapped to a UTF-8 char
+/// boundary. The Warn-banner builder uses this to decide whether a flagged
+/// claim is essentially the message's opening sentence — listing such a
+/// claim verbatim under the banner reads as duplication. 600 is wide
+/// enough to cover a short safety preamble (e.g. medical disclaimer)
+/// followed by the actual lead sentence, but narrow enough that a
+/// mid-body claim still escapes the filter and gets listed.
+///
+/// # Examples
+///
+/// Short reply is returned untouched:
+///
+/// ```
+/// use pierre_mcp_server::services::chat_pipeline::stages::verification::lead_window;
+/// let reply = "A short reply.";
+/// assert_eq!(lead_window(reply), reply);
+/// ```
+///
+/// Long reply is truncated at the lead window:
+///
+/// ```
+/// use pierre_mcp_server::services::chat_pipeline::stages::verification::lead_window;
+/// let reply = "x".repeat(2000);
+/// let lead = lead_window(&reply);
+/// assert_eq!(lead.len(), 600);
+/// ```
+///
+/// Truncation snaps to a UTF-8 char boundary (no panic mid-codepoint):
+///
+/// ```
+/// use pierre_mcp_server::services::chat_pipeline::stages::verification::lead_window;
+/// let prefix = "x".repeat(599);
+/// let reply = format!("{prefix}é trailing tail");
+/// let lead = lead_window(&reply);
+/// assert!(lead.len() <= 600);
+/// assert!(lead.is_char_boundary(lead.len()));
+/// ```
+#[must_use]
+pub fn lead_window(reply: &str) -> &str {
+    const LEAD_BYTES: usize = 600;
+    if reply.len() <= LEAD_BYTES {
+        return reply;
+    }
+    let mut end = LEAD_BYTES;
+    while end > 0 && !reply.is_char_boundary(end) {
+        end -= 1;
+    }
+    &reply[..end]
+}
+
 /// Inputs to [`apply_claim_verification`].
 ///
 /// Bundles the Tier 5.5 turn context so the function signature stays under
@@ -156,15 +208,33 @@ pub async fn apply_claim_verification(
                 // confirm. Listing the verbatim claims keeps the model's
                 // self-doubt actionable: the user can push back on the
                 // specific sentence, or wave it through.
-                let header = resources
-                    .messaging_strings_registry
-                    .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
+                //
+                // Skip listing claims whose trimmed text already lands in
+                // the lead window of the reply. The reader just saw that
+                // sentence as the message's opening; echoing it verbatim
+                // a few lines below reads as duplication without adding
+                // actionable signal (web re-test, 2026-05-08). Mid-body
+                // sentences past the lead window are still listed
+                // because the user might have skimmed them. If every
+                // flagged claim turns out to be a lead-position echo, we
+                // suppress the banner entirely — the per-message
+                // verdicts drawer still carries the signal for users
+                // who want to drill in.
+                let lead = lead_window(reply);
                 let bullets: Vec<String> = problems
                     .iter()
+                    .filter(|claim| !lead.contains(claim.trim()))
                     .map(|claim| format!("- {}", claim.trim()))
                     .collect();
-                let body = bullets.join("\n");
-                format!("{reply}\n\n---\n{header}\n{body}")
+                if bullets.is_empty() {
+                    reply.to_owned()
+                } else {
+                    let header = resources
+                        .messaging_strings_registry
+                        .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
+                    let body = bullets.join("\n");
+                    format!("{reply}\n\n---\n{header}\n{body}")
+                }
             }
             VerificationFallback::Silent => reply.to_owned(),
             VerificationFallback::Block => {
