@@ -17,7 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { SuggestionCard } from '../../components/social';
@@ -27,6 +27,7 @@ import type { InsightSuggestion, ShareVisibility, InsightType } from '../../type
 type ShareFlowState = 'loading' | 'suggestions' | 'editing' | 'submitting' | 'error';
 
 export function ShareInsightScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const params = useLocalSearchParams<{
     activityId?: string;
@@ -203,7 +204,7 @@ export function ShareInsightScreen() {
             style={{ backgroundColor: colors.pierre.violet }}
             onPress={handleRefresh}
           >
-            <Text className="text-text-primary font-semibold">Refresh</Text>
+            <Text className="font-semibold" style={{ color: colors.tokens.onPrimary }}>Refresh</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -239,9 +240,9 @@ export function ShareInsightScreen() {
             testID="share-button"
           >
             {flowState === 'submitting' ? (
-              <ActivityIndicator size="small" color={colors.text.primary} />
+              <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
             ) : (
-              <Text className="text-text-primary text-base font-semibold">Share</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Share</Text>
             )}
           </TouchableOpacity>
         </View>

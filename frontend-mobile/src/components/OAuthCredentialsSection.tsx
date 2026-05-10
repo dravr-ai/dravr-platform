@@ -11,17 +11,17 @@ import {
   FlatList,
 } from 'react-native';
 import { TouchableOpacity, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { colors } from '../constants/theme';
+import { PRIMARY_PALETTE, PROVIDER_COLORS } from '../constants/theme';
 import { Card, Button, Input } from './ui';
 import { userApi } from '../services/api';
 import type { OAuthApp, OAuthProvider } from '../types';
 
 const PROVIDERS: OAuthProvider[] = [
-  { id: 'strava', name: 'Strava', color: colors.providers.strava },
-  { id: 'fitbit', name: 'Fitbit', color: colors.providers.fitbit },
-  { id: 'garmin', name: 'Garmin', color: colors.providers.garmin },
-  { id: 'whoop', name: 'WHOOP', color: colors.providers.whoop },
-  { id: 'terra', name: 'Terra', color: colors.providers.terra },
+  { id: 'strava', name: 'Strava', color: PROVIDER_COLORS.strava },
+  { id: 'fitbit', name: 'Fitbit', color: PROVIDER_COLORS.fitbit },
+  { id: 'garmin', name: 'Garmin', color: PROVIDER_COLORS.garmin },
+  { id: 'whoop', name: 'WHOOP', color: PROVIDER_COLORS.whoop },
+  { id: 'terra', name: 'Terra', color: PROVIDER_COLORS.terra },
 ];
 
 const DEFAULT_REDIRECT_URI = 'https://pierre.fit/api/oauth/callback';
@@ -138,7 +138,7 @@ export function OAuthCredentialsSection() {
     return PROVIDERS.find(p => p.id.toLowerCase() === providerId.toLowerCase()) || {
       id: providerId,
       name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
-      color: colors.primary[500],
+      color: PRIMARY_PALETTE[500],
     };
   };
 
@@ -171,7 +171,7 @@ export function OAuthCredentialsSection() {
 
       <Card className="mb-3">
         {isLoading ? (
-          <ActivityIndicator size="small" color={colors.primary[500]} />
+          <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
         ) : oauthApps.length === 0 ? (
           <Text className="text-sm text-text-secondary text-center py-3">
             No custom OAuth credentials configured

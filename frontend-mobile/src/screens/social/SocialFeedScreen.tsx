@@ -16,13 +16,14 @@ import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
+import { spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InsightCard } from '../../components/social/InsightCard';
 import { SwipeableRow, type SwipeAction, FloatingSearchBar } from '../../components/ui';
 import type { FeedItem, ReactionType, InsightSuggestion } from '../../types';
 export function SocialFeedScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
@@ -212,7 +213,7 @@ export function SocialFeedScreen() {
       {
         icon: 'refresh-cw',
         label: 'Adapt',
-        color: '#FFFFFF',
+        color: colors.tokens.onPrimary,
         backgroundColor: colors.pierre.violet,
         onPress: () => handleAdapt(item.insight.id),
       },
@@ -262,8 +263,8 @@ export function SocialFeedScreen() {
         }}
         onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
-        <Feather name="user-plus" size={18} color="#FFFFFF" />
-        <Text className="text-on-surface text-base font-semibold">Find Friends</Text>
+        <Feather name="user-plus" size={18} color={colors.tokens.onPrimary} />
+        <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Find Friends</Text>
       </TouchableOpacity>
     </View>
   );
@@ -325,8 +326,8 @@ export function SocialFeedScreen() {
             onPress={() => router.push('/(app)/(tabs)/(social)/share-insight')}
             testID="share-suggestion-button"
           >
-            <Feather name="share-2" size={16} color="#FFFFFF" />
-            <Text className="text-on-surface font-semibold">
+            <Feather name="share-2" size={16} color={colors.tokens.onPrimary} />
+            <Text className="font-semibold" style={{ color: colors.tokens.onPrimary }}>
               Share with Friends ({suggestions.length} available)
             </Text>
           </TouchableOpacity>

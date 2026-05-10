@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X } from 'lucide-react-native';
-import { colors, glassCard } from '../constants/theme';
+import { glassCard, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { StravaLogo, GarminLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 
@@ -91,6 +91,7 @@ export function SciotteLoginModal({
   onConnected,
   target,
 }: SciotteLoginModalProps) {
+  const colors = useThemeColors();
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');

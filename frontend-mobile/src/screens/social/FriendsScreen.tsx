@@ -16,12 +16,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, glassCard, buttonGlow } from '../../constants/theme';
+import { spacing, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { FriendCard } from '../../components/social/FriendCard';
 import type { FriendWithInfo } from '../../types';
 export function FriendsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [friends, setFriends] = useState<FriendWithInfo[]>([]);
@@ -136,8 +137,8 @@ export function FriendsScreen() {
         }}
         onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
-        <Feather name="search" size={18} color="#FFFFFF" />
-        <Text className="text-on-surface text-base font-semibold">Find Friends</Text>
+        <Feather name="search" size={18} color={colors.tokens.onPrimary} />
+        <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Find Friends</Text>
       </TouchableOpacity>
     </View>
   );
@@ -171,7 +172,7 @@ export function FriendsScreen() {
                 className="absolute top-0 right-0 rounded-full min-w-[18px] h-[18px] justify-center items-center px-1"
                 style={{ backgroundColor: colors.pierre.violet }}
               >
-                <Text className="text-text-primary text-[10px] font-bold">
+                <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>
                   {pendingCount > 9 ? '9+' : pendingCount}
                 </Text>
               </View>

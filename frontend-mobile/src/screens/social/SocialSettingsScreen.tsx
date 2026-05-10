@@ -17,7 +17,7 @@ import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 
 type FeatherIconName = ComponentProps<typeof Feather>['name'];
 import { socialApi } from '../../services/api';
@@ -41,6 +41,7 @@ interface SettingRowProps {
 }
 
 function SettingRow({ icon, title, description, value, onValueChange, disabled, testID }: SettingRowProps) {
+  const colors = useThemeColors();
   return (
     <View className="flex-row items-center py-2">
       <View
@@ -66,6 +67,7 @@ function SettingRow({ icon, title, description, value, onValueChange, disabled, 
 }
 
 export function SocialSettingsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [settings, setSettings] = useState<UserSocialSettings | null>(null);
@@ -170,9 +172,12 @@ export function SocialSettingsScreen() {
           testID="save-button"
         >
           {isSaving ? (
-            <ActivityIndicator size="small" color={colors.text.primary} />
+            <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
           ) : (
-            <Text className={`text-text-primary text-base font-semibold ${!hasChanges ? 'opacity-50' : ''}`}>
+            <Text
+              className={`text-base font-semibold ${!hasChanges ? 'opacity-50' : ''}`}
+              style={{ color: colors.tokens.onPrimary }}
+            >
               Save
             </Text>
           )}

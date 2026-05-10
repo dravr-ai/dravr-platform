@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { AdaptedInsight } from '../../types';
@@ -51,6 +51,7 @@ interface AdaptedInsightCardProps {
 }
 
 function AdaptedInsightCard({ insight, onPress }: AdaptedInsightCardProps) {
+  const colors = useThemeColors();
   // Truncate content for preview
   const previewContent = insight.adapted_content.length > 150
     ? insight.adapted_content.substring(0, 150) + '...'
@@ -77,6 +78,7 @@ function AdaptedInsightCard({ insight, onPress }: AdaptedInsightCardProps) {
 }
 
 export function AdaptedInsightsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [insights, setInsights] = useState<AdaptedInsight[]>([]);
@@ -163,8 +165,8 @@ export function AdaptedInsightsScreen() {
         style={{ backgroundColor: colors.pierre.violet }}
         onPress={() => router.push('/(app)/(tabs)/(social)')}
       >
-        <Feather name="activity" size={18} color={colors.text.primary} />
-        <Text className="text-text-primary text-base font-semibold">Browse Feed</Text>
+        <Feather name="activity" size={18} color={colors.tokens.onPrimary} />
+        <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Browse Feed</Text>
       </TouchableOpacity>
     </View>
   );

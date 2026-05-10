@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { colors, spacing, borderRadius, fontSize, fontWeight } from '../../constants/theme';
+import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
@@ -45,6 +45,7 @@ function formatTimestamp(iso: string): string {
 }
 
 export function MemoryScreen(): React.JSX.Element {
+  const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<string>('');
 

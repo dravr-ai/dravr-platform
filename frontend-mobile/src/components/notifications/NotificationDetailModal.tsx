@@ -12,7 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { X, ExternalLink } from 'lucide-react-native';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import {
   NOTIFICATION_CATEGORY_META,
   formatNotificationTime,
@@ -27,14 +27,6 @@ interface NotificationDetailModalProps {
   onNavigate: (item: NotificationItem) => void;
 }
 
-const modalShadow: ViewStyle = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.4,
-  shadowRadius: 16,
-  elevation: 12,
-};
-
 export function NotificationDetailModal({
   visible,
   notification,
@@ -42,6 +34,15 @@ export function NotificationDetailModal({
   onAction,
   onNavigate,
 }: NotificationDetailModalProps) {
+  const colors = useThemeColors();
+  const modalShadow: ViewStyle = {
+    shadowColor: colors.text.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  };
+
   if (!notification) return null;
 
   const meta = NOTIFICATION_CATEGORY_META[notification.category];
@@ -62,7 +63,7 @@ export function NotificationDetailModal({
       >
         <View
           className="w-full max-w-[380px] rounded-2xl overflow-hidden"
-          style={[{ backgroundColor: '#1A1F3A' }, modalShadow]}
+          style={[{ backgroundColor: colors.background.elevated }, modalShadow]}
           onStartShouldSetResponder={() => true}
         >
           {/* Header with category badge and close button */}
@@ -82,7 +83,7 @@ export function NotificationDetailModal({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               testID="notification-detail-close"
             >
-              <X size={16} color="#94A3B8" />
+              <X size={16} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
 
@@ -117,14 +118,17 @@ export function NotificationDetailModal({
                     <TouchableOpacity
                       key={action.id}
                       className="px-4 py-2 rounded-lg"
-                      style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}
+                      style={{ backgroundColor: `${colors.pierre.violet}1F` }}
                       onPress={() => {
                         onAction(notification, action.id);
                         onClose();
                       }}
                       testID={`detail-action-${action.id}`}
                     >
-                      <Text className="text-sm font-medium" style={{ color: '#A78BFA' }}>
+                      <Text
+                        className="text-sm font-medium"
+                        style={{ color: colors.pierre.violet }}
+                      >
                         {action.title}
                       </Text>
                     </TouchableOpacity>
@@ -136,15 +140,18 @@ export function NotificationDetailModal({
               {hasRoute && (
                 <TouchableOpacity
                   className="flex-row items-center justify-center mt-4 py-3 rounded-lg"
-                  style={{ backgroundColor: colors.primary[600] }}
+                  style={{ backgroundColor: colors.pierre.violet }}
                   onPress={() => {
                     onNavigate(notification);
                     onClose();
                   }}
                   testID="notification-detail-navigate"
                 >
-                  <ExternalLink size={16} color="#FFFFFF" />
-                  <Text className="text-sm font-semibold text-on-surface ml-2">
+                  <ExternalLink size={16} color={colors.tokens.onPrimary} />
+                  <Text
+                    className="text-sm font-semibold ml-2"
+                    style={{ color: colors.tokens.onPrimary }}
+                  >
                     View Details
                   </Text>
                 </TouchableOpacity>

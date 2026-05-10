@@ -11,7 +11,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 
 interface ScrollFadeContainerProps {
   children: ReactNode;
@@ -38,12 +38,14 @@ interface ScrollFadeContainerProps {
  */
 export function ScrollFadeContainer({
   children,
-  backgroundColor = colors.background.primary,
+  backgroundColor,
   fadeWidth = 32,
   containerStyle,
   contentContainerStyle,
   testID,
 }: ScrollFadeContainerProps) {
+  const colors = useThemeColors();
+  const resolvedBackgroundColor = backgroundColor ?? colors.background.primary;
   const [showLeftFade, setShowLeftFade] = useState(false);
   const [showRightFade, setShowRightFade] = useState(false);
   const [contentWidth, setContentWidth] = useState(0);
@@ -86,12 +88,12 @@ export function ScrollFadeContainer({
   // Transparent to background color (for right edge - content fades into background)
   const rightGradientColors: [string, string] = [
     'transparent',
-    backgroundColor,
+    resolvedBackgroundColor,
   ];
 
   // Background color to transparent (for left edge - background fades into content)
   const leftGradientColors: [string, string] = [
-    backgroundColor,
+    resolvedBackgroundColor,
     'transparent',
   ];
 

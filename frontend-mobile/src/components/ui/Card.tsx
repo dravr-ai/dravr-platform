@@ -3,6 +3,7 @@
 
 import React, { type ReactNode } from 'react';
 import { View, type ViewStyle } from 'react-native';
+import { useThemeColors } from '../../constants/theme';
 
 interface CardProps {
   children: ReactNode;
@@ -12,15 +13,6 @@ interface CardProps {
   className?: string;
 }
 
-// Shadow styles for elevated variant (shadows need style objects in RN)
-const elevatedShadowStyle: ViewStyle = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.25,
-  shadowRadius: 4,
-  elevation: 4,
-};
-
 export function Card({
   children,
   variant = 'default',
@@ -28,6 +20,7 @@ export function Card({
   noPadding = false,
   className = '',
 }: CardProps) {
+  const colors = useThemeColors();
   const baseClasses = 'bg-background-secondary rounded-xl border border-border-subtle';
   const elevatedClasses = variant === 'elevated' ? 'bg-background-elevated' : '';
   const paddingClasses = noPadding ? '' : 'p-4';
@@ -38,6 +31,15 @@ export function Card({
     paddingClasses,
     className,
   ].filter(Boolean).join(' ');
+
+  // Shadow styles for elevated variant (shadows need style objects in RN)
+  const elevatedShadowStyle: ViewStyle = {
+    shadowColor: colors.text.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  };
 
   // Add shadow styles for elevated variant
   const combinedStyle: ViewStyle = {

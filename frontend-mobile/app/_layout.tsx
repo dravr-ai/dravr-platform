@@ -6,7 +6,7 @@
 
 import '../global.css';
 import React from 'react';
-import { View, ActivityIndicator, LogBox, useColorScheme } from 'react-native';
+import { View, ActivityIndicator, LogBox } from 'react-native';
 import { Slot, useSegments, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -36,7 +36,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
 import { WebSocketProvider } from '../src/contexts/WebSocketContext';
-import { BOREAL_LIGHT, BOREAL_DARK } from '../src/constants/theme';
+import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -52,8 +52,12 @@ function RootLayoutNav() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const scheme = useColorScheme();
-  const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;
+  // ThemeProvider resolves the user's appearance preference (System / Light /
+  // Dark, default = Dark) from AsyncStorage and pushes it to NativeWind so
+  // every Tailwind class flips automatically. `tokens` is the live BOREAL_*
+  // palette for inline JS styles below.
+  const { colors: themeColors } = useTheme();
+  const tokens = themeColors.tokens;
 
   // Load the Boreal Editorial typography stack. Keys match the font family
   // names declared in tailwind.config.js (`SpaceGrotesk`, `PlusJakartaSans`,
@@ -126,22 +130,34 @@ function RootLayoutNav() {
   );
 }
 
+function RootShell() {
+  const { scheme } = useTheme();
+  return (
+    <>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <RootLayoutNav />
+      <Toast config={toastConfig} />
+    </>
+  );
+}
+
 export default function RootLayout() {
-  // `auto` lets StatusBar follow the system color scheme — light icons on
-  // dark surfaces, dark icons on light surfaces.
+  // ThemeProvider sits above auth + query so its preference resolution runs
+  // independent of the auth state. StatusBar appearance follows the resolved
+  // scheme so the system clock/battery glyphs stay legible in both modes.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <SafeAreaProvider>
-          <AuthProvider>
-            <QueryProvider>
-              <WebSocketProvider>
-                <StatusBar style="auto" />
-                <RootLayoutNav />
-                <Toast config={toastConfig} />
-              </WebSocketProvider>
-            </QueryProvider>
-          </AuthProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <QueryProvider>
+                <WebSocketProvider>
+                  <RootShell />
+                </WebSocketProvider>
+              </QueryProvider>
+            </AuthProvider>
+          </ThemeProvider>
         </SafeAreaProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>

@@ -16,12 +16,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { useGroupActions } from '../../hooks/useGroups';
 
 export function JoinGroupScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ code?: string }>();
   const { joinGroup, isJoining, joinError } = useGroupActions();

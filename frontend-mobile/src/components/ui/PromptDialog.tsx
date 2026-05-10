@@ -14,7 +14,7 @@ import {
   Keyboard,
   type ViewStyle,
 } from 'react-native';
-import { colors } from '../../constants/theme';
+import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
 
 interface PromptDialogProps {
   visible: boolean;
@@ -29,15 +29,6 @@ interface PromptDialogProps {
   testID?: string;
 }
 
-// Shadow styles need style objects in React Native
-const containerShadow: ViewStyle = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.4,
-  shadowRadius: 16,
-  elevation: 12,
-};
-
 export function PromptDialog({
   visible,
   title,
@@ -50,6 +41,15 @@ export function PromptDialog({
   onCancel,
   testID,
 }: PromptDialogProps) {
+  const colors = useThemeColors();
+  // Shadow styles need style objects in React Native; track active scheme.
+  const containerShadow: ViewStyle = {
+    shadowColor: colors.text.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  };
   const [inputValue, setInputValue] = useState(defaultValue);
   const inputRef = useRef<TextInput>(null);
 
@@ -118,7 +118,7 @@ export function PromptDialog({
                 onChangeText={setInputValue}
                 placeholder={placeholder}
                 placeholderTextColor={colors.text.tertiary}
-                selectionColor={colors.primary[500]}
+                selectionColor={PRIMARY_PALETTE[500]}
                 autoCapitalize="sentences"
                 autoCorrect
                 returnKeyType="done"

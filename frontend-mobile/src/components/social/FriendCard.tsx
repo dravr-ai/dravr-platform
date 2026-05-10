@@ -4,7 +4,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { colors, glassCard, buttonGlow } from '../../constants/theme';
+import { glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import type { FriendWithInfo, DiscoverableUser, PendingRequestWithInfo } from '@pierre/shared-types';
 
 // Generate avatar initials from name or email
@@ -45,6 +45,7 @@ interface FriendCardProps {
 }
 
 export function FriendCard({ friend, onRemove, isRemoving }: FriendCardProps) {
+  const colors = useThemeColors();
   const displayName = friend.friend_display_name || friend.friend_email;
   const initials = getInitials(friend.friend_display_name, friend.friend_email);
   const avatarColor = getAvatarColor(friend.friend_email);
@@ -104,6 +105,7 @@ export function RequestCard({
   onCancel,
   isLoading,
 }: RequestCardProps) {
+  const colors = useThemeColors();
   // PendingRequestWithInfo includes user_display_name, user_email, user_id
   const userEmail = request.user_email;
   const initials = getInitials(request.user_display_name, userEmail);
@@ -175,6 +177,7 @@ interface SearchUserCardProps {
 }
 
 export function SearchUserCard({ user, onAddFriend, isAdding }: SearchUserCardProps) {
+  const colors = useThemeColors();
   const initials = getInitials(user.display_name, user.email);
   const avatarColor = getAvatarColor(user.email ?? user.id);
   const displayName = user.display_name || user.email || 'Unknown User';
@@ -215,11 +218,11 @@ export function SearchUserCard({ user, onAddFriend, isAdding }: SearchUserCardPr
           disabled={isAdding}
         >
           {isAdding ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
           ) : (
             <>
-              <Feather name="user-plus" size={16} color="#FFFFFF" />
-              <Text className="text-sm font-semibold text-on-surface">Add</Text>
+              <Feather name="user-plus" size={16} color={colors.tokens.onPrimary} />
+              <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>Add</Text>
             </>
           )}
         </TouchableOpacity>

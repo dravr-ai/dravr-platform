@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, glassCard } from '../../constants/theme';
+import { glassCard, useThemeColors } from '../../constants/theme';
 import { DragIndicator } from '../../components/ui';
 import type { AdaptedInsight } from '../../types';
 
@@ -66,6 +66,7 @@ const formatAdaptationContext = (contextJson: string): string => {
 };
 
 export function AdaptedInsightScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { adaptedInsight: adaptedInsightParam } = useLocalSearchParams<{ adaptedInsight: string }>();
   const adaptedInsight: AdaptedInsight = JSON.parse(adaptedInsightParam);
@@ -177,8 +178,8 @@ export function AdaptedInsightScreen() {
             style={{ backgroundColor: colors.pierre.violet }}
             onPress={() => router.push('/(app)/(tabs)/(social)')}
           >
-            <Feather name="home" size={18} color={colors.text.primary} />
-            <Text className="text-text-primary text-base font-semibold">Back to Feed</Text>
+            <Feather name="home" size={18} color={colors.tokens.onPrimary} />
+            <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Back to Feed</Text>
           </TouchableOpacity>
           <TouchableOpacity
             className="flex-row items-center justify-center py-4 rounded-lg bg-background-secondary gap-2"

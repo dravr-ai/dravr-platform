@@ -15,10 +15,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
+import { spacing, glassCard, buttonGlow, gradients, useThemeColors } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 export function ResetPasswordScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { email } = useLocalSearchParams<{ email: string }>();
   const [code, setCode] = useState('');
@@ -121,7 +122,7 @@ export function ResetPasswordScreen() {
               {/* Header */}
               <View className="items-center mb-6">
                 <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-success-500/20">
-                  <Ionicons name="shield-checkmark-outline" size={28} color={colors.success[500]} />
+                  <Ionicons name="shield-checkmark-outline" size={28} color={colors.success} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
                   Enter Reset Code

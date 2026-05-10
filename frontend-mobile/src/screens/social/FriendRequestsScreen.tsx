@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { RequestCard } from '../../components/social/FriendCard';
@@ -24,6 +24,7 @@ import type { PendingRequestWithInfo } from '@pierre/shared-types';
 type TabType = 'incoming' | 'outgoing';
 
 export function FriendRequestsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('incoming');
@@ -228,7 +229,10 @@ export function FriendRequestsScreen() {
           }}
           onPress={() => setActiveTab('incoming')}
         >
-          <Text className={`text-base font-semibold ${activeTab === 'incoming' ? 'text-on-surface' : 'text-text-secondary'}`}>
+          <Text
+            className="text-base font-semibold"
+            style={{ color: activeTab === 'incoming' ? colors.tokens.onPrimary : colors.text.secondary }}
+          >
             Incoming
           </Text>
           {incomingRequests.length > 0 && (
@@ -236,7 +240,10 @@ export function FriendRequestsScreen() {
               className="rounded-full min-w-[20px] h-5 justify-center items-center px-1.5"
               style={{ backgroundColor: activeTab === 'incoming' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 92, 246, 0.2)' }}
             >
-              <Text className={`text-xs font-bold ${activeTab === 'incoming' ? 'text-on-surface' : ''}`} style={activeTab !== 'incoming' ? { color: colors.pierre.violet } : undefined}>
+              <Text
+                className="text-xs font-bold"
+                style={{ color: activeTab === 'incoming' ? colors.tokens.onPrimary : colors.pierre.violet }}
+              >
                 {incomingRequests.length}
               </Text>
             </View>
@@ -257,7 +264,10 @@ export function FriendRequestsScreen() {
           }}
           onPress={() => setActiveTab('outgoing')}
         >
-          <Text className={`text-base font-semibold ${activeTab === 'outgoing' ? 'text-on-surface' : 'text-text-secondary'}`}>
+          <Text
+            className="text-base font-semibold"
+            style={{ color: activeTab === 'outgoing' ? colors.tokens.onPrimary : colors.text.secondary }}
+          >
             Outgoing
           </Text>
           {outgoingRequests.length > 0 && (
@@ -265,7 +275,10 @@ export function FriendRequestsScreen() {
               className="rounded-full min-w-[20px] h-5 justify-center items-center px-1.5"
               style={{ backgroundColor: activeTab === 'outgoing' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 92, 246, 0.2)' }}
             >
-              <Text className={`text-xs font-bold ${activeTab === 'outgoing' ? 'text-on-surface' : ''}`} style={activeTab !== 'outgoing' ? { color: colors.pierre.violet } : undefined}>
+              <Text
+                className="text-xs font-bold"
+                style={{ color: activeTab === 'outgoing' ? colors.tokens.onPrimary : colors.pierre.violet }}
+              >
                 {outgoingRequests.length}
               </Text>
             </View>

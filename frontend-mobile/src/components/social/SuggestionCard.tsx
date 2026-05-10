@@ -5,7 +5,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import type { InsightSuggestion, InsightType } from '../../types';
 
 type FeatherIconName = ComponentProps<typeof Feather>['name'];
@@ -43,6 +43,7 @@ export function SuggestionCard({
   isSelected = false,
   testID,
 }: SuggestionCardProps) {
+  const colors = useThemeColors();
   const config = INSIGHT_TYPE_CONFIG[suggestion.insight_type];
   const relevancePercentage = Math.round(suggestion.relevance_score * 100);
 
@@ -139,8 +140,8 @@ export function SuggestionCard({
           className="flex-row items-center px-4 py-2 rounded-lg gap-2"
           style={{ backgroundColor: colors.pierre.violet }}
         >
-          <Feather name="share-2" size={16} color={colors.text.primary} />
-          <Text className="text-text-primary text-sm font-semibold">Share This</Text>
+          <Feather name="share-2" size={16} color={colors.tokens.onPrimary} />
+          <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>Share This</Text>
         </View>
       </View>
     </TouchableOpacity>

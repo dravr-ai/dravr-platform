@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, glassCard, buttonGlow } from '../../constants/theme';
+import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
@@ -31,6 +31,7 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function StoreCoachDetailScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
@@ -127,7 +128,7 @@ export function StoreCoachDetailScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="mt-3 text-text-secondary text-base">Loading coach details...</Text>
         </View>
       </SafeAreaView>
@@ -227,7 +228,7 @@ export function StoreCoachDetailScreen() {
                 style={{
                   ...glassCard,
                   borderRadius: 12,
-                  borderColor: 'rgba(0, 36, 26, 0.15)',
+                  borderColor: colors.border.default,
                 }}
               >
                 <Text className="text-base text-text-primary leading-5">{prompt}</Text>
@@ -274,7 +275,7 @@ export function StoreCoachDetailScreen() {
             style={{
               ...glassCard,
               borderRadius: 12,
-              borderColor: 'rgba(0, 36, 26, 0.15)',
+              borderColor: colors.border.default,
             }}
           >
             <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-subtle">
@@ -307,7 +308,7 @@ export function StoreCoachDetailScreen() {
             style={{
               ...glassCard,
               borderRadius: 12,
-              borderColor: 'rgba(0, 36, 26, 0.2)',
+              borderColor: colors.border.strong,
             }}
             onPress={handleUninstall}
             disabled={isInstalling}
@@ -332,11 +333,11 @@ export function StoreCoachDetailScreen() {
             disabled={isInstalling}
           >
             {isInstalling ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
             ) : (
               <>
-                <Feather name="download" size={18} color="#FFFFFF" />
-                <Text className="text-on-surface text-base font-semibold ml-2">Install Coach</Text>
+                <Feather name="download" size={18} color={colors.tokens.onPrimary} />
+                <Text className="text-base font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>Install Coach</Text>
               </>
             )}
           </TouchableOpacity>

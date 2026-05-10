@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, useThemeColors } from '../../constants/theme';
 import type { ShareVisibility } from '../../types';
 
 interface SharePreviewModalProps {
@@ -36,6 +36,7 @@ export function SharePreviewModal({
   onEdit,
   onClose,
 }: SharePreviewModalProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
   return (
@@ -123,7 +124,7 @@ export function SharePreviewModal({
                 style={{
                   backgroundColor:
                     visibility === 'friends_only'
-                      ? colors.primary[500] + '20'
+                      ? PRIMARY_PALETTE[500] + '20'
                       : colors.background.tertiary,
                 }}
               >
@@ -132,7 +133,7 @@ export function SharePreviewModal({
                   size={20}
                   color={
                     visibility === 'friends_only'
-                      ? colors.primary[500]
+                      ? PRIMARY_PALETTE[500]
                       : colors.text.secondary
                   }
                 />
@@ -149,7 +150,7 @@ export function SharePreviewModal({
                 <Ionicons
                   name="checkmark-circle"
                   size={24}
-                  color={colors.primary[500]}
+                  color={PRIMARY_PALETTE[500]}
                 />
               )}
             </TouchableOpacity>
@@ -168,7 +169,7 @@ export function SharePreviewModal({
                 style={{
                   backgroundColor:
                     visibility === 'public'
-                      ? colors.primary[500] + '20'
+                      ? PRIMARY_PALETTE[500] + '20'
                       : colors.background.tertiary,
                 }}
               >
@@ -177,7 +178,7 @@ export function SharePreviewModal({
                   size={20}
                   color={
                     visibility === 'public'
-                      ? colors.primary[500]
+                      ? PRIMARY_PALETTE[500]
                       : colors.text.secondary
                   }
                 />
@@ -194,7 +195,7 @@ export function SharePreviewModal({
                 <Ionicons
                   name="checkmark-circle"
                   size={24}
-                  color={colors.primary[500]}
+                  color={PRIMARY_PALETTE[500]}
                 />
               )}
             </TouchableOpacity>
@@ -227,8 +228,8 @@ export function SharePreviewModal({
             className="rounded-xl py-4 items-center"
             style={{
               backgroundColor: isSharing
-                ? colors.primary[400]
-                : colors.primary[600],
+                ? PRIMARY_PALETTE[400]
+                : PRIMARY_PALETTE[600],
             }}
             onPress={onShare}
             disabled={isSharing}

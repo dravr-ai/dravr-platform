@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, glassCard, gradients } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { FloatingSearchBar, PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
@@ -55,23 +55,23 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
   custom: '#00241a',    // Violet per Stitch spec
 };
 
-// Action menu with glassmorphism style
-const actionMenuStyle: ViewStyle = {
-  backgroundColor: 'rgba(30, 27, 45, 0.95)',
-  borderRadius: 16,
-  paddingVertical: spacing.sm,
-  minWidth: 240,
-  borderWidth: 1,
-  borderColor: 'rgba(0, 36, 26, 0.2)',
-  shadowColor: colors.pierre.violet,
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 12,
-  elevation: 8,
-  overflow: 'hidden',
-};
-
 export function CoachLibraryScreen() {
+  const colors = useThemeColors();
+  // Action menu with glassmorphism style
+  const actionMenuStyle: ViewStyle = useMemo(() => ({
+    backgroundColor: colors.background.elevated,
+    borderRadius: 16,
+    paddingVertical: spacing.sm,
+    minWidth: 240,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    shadowColor: colors.text.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+    overflow: 'hidden',
+  }), [colors]);
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -362,7 +362,7 @@ export function CoachLibraryScreen() {
       {
         icon: 'message-circle',
         label: 'Chat',
-        color: '#FFFFFF',
+        color: colors.tokens.onPrimary,
         backgroundColor: colors.pierre.violet,
         onPress: () => handleCoachPress(item),
       },
@@ -378,6 +378,9 @@ export function CoachLibraryScreen() {
         style={[
           {
             ...glassCard,
+            backgroundColor: colors.background.elevated,
+            borderColor: colors.border.subtle,
+            shadowColor: colors.text.primary,
             borderRadius: 16,
             overflow: 'hidden',
           },
@@ -462,21 +465,23 @@ export function CoachLibraryScreen() {
             )}
           </View>
 
-          {/* Chat button with violet glow per Stitch spec */}
+          {/* Chat CTA — primary surface, accessible label color, soft halo */}
           <TouchableOpacity
             className="px-4 py-2 rounded-full ml-2"
             style={{
               backgroundColor: colors.pierre.violet,
               shadowColor: colors.pierre.violet,
-              shadowOffset: { width: 0, height: 0 },
-              shadowOpacity: 0.4,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.25,
               shadowRadius: 8,
               elevation: 4,
             }}
             onPress={() => handleCoachPress(item)}
             testID={`chat-button-${item.id}`}
           >
-            <Text className="text-sm font-semibold text-on-surface">Chat</Text>
+            <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>
+              Chat
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -487,7 +492,7 @@ export function CoachLibraryScreen() {
             {item.is_system && (
               <TouchableOpacity
                 className="flex-row items-center px-2 py-1 rounded"
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}
+                style={{ backgroundColor: colors.background.tertiary }}
                 onPress={() => handleForkCoach(item)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 testID={`fork-button-${item.id}`}
@@ -500,7 +505,7 @@ export function CoachLibraryScreen() {
             {item.is_system && (
               <TouchableOpacity
                 className="flex-row items-center px-2 py-1 rounded"
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}
+                style={{ backgroundColor: colors.background.tertiary }}
                 onPress={() => {
                   if (isHidden) {
                     handleShowCoach(item);
@@ -548,11 +553,11 @@ export function CoachLibraryScreen() {
             style={{
               backgroundColor: selectedCategory === filter.key
                 ? colors.pierre.violet
-                : 'rgba(255, 255, 255, 0.05)',
+                : colors.background.tertiary,
               borderWidth: 1,
               borderColor: selectedCategory === filter.key
                 ? colors.pierre.violet
-                : 'rgba(255, 255, 255, 0.1)',
+                : colors.border.default,
             }}
             onPress={() => setSelectedCategory(filter.key)}
             testID={`category-filter-${filter.key}`}
@@ -560,9 +565,14 @@ export function CoachLibraryScreen() {
             <Text
               className={`text-sm ${
                 selectedCategory === filter.key
-                  ? 'text-on-surface font-semibold'
+                  ? 'font-semibold'
                   : 'text-on-surface-variant'
               }`}
+              style={
+                selectedCategory === filter.key
+                  ? { color: colors.tokens.onPrimary }
+                  : undefined
+              }
             >
               {filter.label}
             </Text>
@@ -580,7 +590,7 @@ export function CoachLibraryScreen() {
           className="px-3 py-1.5 rounded-full"
           style={{
             backgroundColor: selectedSource === filter.key
-              ? 'rgba(0, 36, 26, 0.2)'
+              ? colors.background.tertiary
               : 'transparent',
             borderWidth: 1,
             borderColor: selectedSource === filter.key
@@ -684,7 +694,7 @@ export function CoachLibraryScreen() {
       <View className="flex-1">
         {isLoading && (
           <View className="absolute inset-0 z-10 items-center justify-center bg-background-primary">
-            <ActivityIndicator size="large" color={colors.primary[500]} />
+            <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           </View>
         )}
         <FlashList
@@ -698,7 +708,7 @@ export function CoachLibraryScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor={colors.primary[500]}
+              tintColor={PRIMARY_PALETTE[500]}
             />
           }
           ListEmptyComponent={

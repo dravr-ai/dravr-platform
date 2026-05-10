@@ -27,7 +27,7 @@ import {
   Brain,
   Clock,
 } from 'lucide-react-native';
-import { colors } from '../../constants/theme';
+import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
 import {
   useNotificationFeed,
   useNotificationActions,
@@ -66,6 +66,7 @@ function NotificationRow({
   onAction: (item: NotificationItem, actionId: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const colors = useThemeColors();
   const isUnread = !item.read_at;
   const meta = NOTIFICATION_CATEGORY_META[item.category];
   const collapsedLabel = formatCollapsedCount(item.collapsed_count);
@@ -73,7 +74,7 @@ function NotificationRow({
   return (
     <TouchableOpacity
       className="flex-row items-start px-4 py-3 border-b ghost-border"
-      style={{ backgroundColor: isUnread ? 'rgba(139, 92, 246, 0.05)' : 'transparent' }}
+      style={{ backgroundColor: isUnread ? colors.background.secondary : 'transparent' }}
       onPress={() => onPress(item)}
       activeOpacity={0.7}
       testID={`notification-${item.id}`}
@@ -117,7 +118,10 @@ function NotificationRow({
         </View>
         <Text
           className="text-sm mb-0.5"
-          style={{ color: isUnread ? '#F8FAFC' : '#CBD5E1', fontWeight: isUnread ? '600' : '400' }}
+          style={{
+            color: isUnread ? colors.text.primary : colors.text.secondary,
+            fontWeight: isUnread ? '600' : '400',
+          }}
           numberOfLines={1}
         >
           {item.title}
@@ -132,11 +136,11 @@ function NotificationRow({
               <TouchableOpacity
                 key={action.id}
                 className="px-3 py-1.5 rounded-md"
-                style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}
+                style={{ backgroundColor: `${colors.pierre.violet}1F` }}
                 onPress={() => onAction(item, action.id)}
                 testID={`action-${action.id}`}
               >
-                <Text className="text-xs font-medium" style={{ color: '#A78BFA' }}>
+                <Text className="text-xs font-medium" style={{ color: colors.pierre.violet }}>
                   {action.title}
                 </Text>
               </TouchableOpacity>
@@ -151,7 +155,7 @@ function NotificationRow({
         onPress={() => onDelete(item.id)}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <Trash2 size={14} color="#64748B" />
+        <Trash2 size={14} color={colors.text.tertiary} />
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -160,6 +164,7 @@ function NotificationRow({
 export function NotificationCenterScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const colors = useThemeColors();
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
   const [detailNotification, setDetailNotification] = useState<NotificationItem | null>(null);
 
@@ -218,15 +223,23 @@ export function NotificationCenterScreen() {
           onPress={() => router.back()}
           testID="notifications-back"
         >
-          <ChevronLeft size={24} color="#E2E8F0" />
+          <ChevronLeft size={24} color={colors.text.primary} />
         </TouchableOpacity>
 
         <View className="flex-1 flex-row items-center">
-          <Bell size={20} color={colors.primary[400]} />
+          <Bell size={20} color={colors.pierre.violet} />
           <Text className="text-lg font-semibold text-on-surface ml-2">Notifications</Text>
           {unreadCount > 0 && (
-            <View className="ml-2 px-2 py-0.5 rounded-full bg-violet-600">
-              <Text className="text-xs font-bold text-on-surface">{unreadCount}</Text>
+            <View
+              className="ml-2 px-2 py-0.5 rounded-full"
+              style={{ backgroundColor: colors.pierre.violet }}
+            >
+              <Text
+                className="text-xs font-bold"
+                style={{ color: colors.tokens.onPrimary }}
+              >
+                {unreadCount}
+              </Text>
             </View>
           )}
         </View>
@@ -238,8 +251,10 @@ export function NotificationCenterScreen() {
             disabled={isMarkingAllRead}
             testID="mark-all-read"
           >
-            <CheckCheck size={14} color={colors.primary[400]} />
-            <Text className="text-xs text-primary-400 ml-1">Read all</Text>
+            <CheckCheck size={14} color={colors.pierre.violet} />
+            <Text className="text-xs ml-1" style={{ color: colors.pierre.violet }}>
+              Read all
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -259,17 +274,17 @@ export function NotificationCenterScreen() {
               key={key}
               className="flex-row items-center px-3 py-1.5 rounded-full"
               style={{
-                backgroundColor: isActive ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                backgroundColor: isActive ? `${colors.pierre.violet}26` : colors.background.tertiary,
                 borderWidth: isActive ? 1 : 0,
-                borderColor: isActive ? 'rgba(139, 92, 246, 0.4)' : 'transparent',
+                borderColor: isActive ? `${colors.pierre.violet}66` : 'transparent',
               }}
               onPress={() => setSelectedCategory(key)}
               testID={`filter-${key}`}
             >
-              <Icon size={12} color={isActive ? '#A78BFA' : '#94A3B8'} />
+              <Icon size={12} color={isActive ? colors.pierre.violet : colors.text.tertiary} />
               <Text
                 className="text-xs ml-1"
-                style={{ color: isActive ? '#A78BFA' : '#94A3B8' }}
+                style={{ color: isActive ? colors.pierre.violet : colors.text.tertiary }}
               >
                 {label}
               </Text>
@@ -286,7 +301,7 @@ export function NotificationCenterScreen() {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor={colors.primary[400]}
+            tintColor={PRIMARY_PALETTE[400]}
           />
         }
       >

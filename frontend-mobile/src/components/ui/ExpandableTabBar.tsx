@@ -27,7 +27,7 @@ import {
   UserPlus,
 } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { GlassContainer } from './GlassContainer';
 import { TabMenuItem } from './TabMenuItem';
 
@@ -57,6 +57,7 @@ export function ExpandableTabBar() {
   const insets = useSafeAreaInsets();
   const segments = useSegments();
   const router = useRouter();
+  const colors = useThemeColors();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { width: screenWidth } = useWindowDimensions();
@@ -235,7 +236,7 @@ export function ExpandableTabBar() {
               <View
                 style={{
                   height: 1,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor: colors.border.default,
                   marginHorizontal: 16,
                   marginVertical: 8,
                 }}
@@ -272,7 +273,7 @@ export function ExpandableTabBar() {
               {TAB_ROUTES.map((route, index) => {
                 const isFocused = activeIndex === index;
                 const IconComponent = TAB_ICONS[index];
-                const iconColor = isFocused ? colors.pierre.violet : colors.text.tertiary;
+                const iconColor = isFocused ? colors.pierre.violet : colors.text.secondary;
 
                 return (
                   <Pressable

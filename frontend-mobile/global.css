@@ -1,31 +1,191 @@
-/* ABOUTME: NativeWind v4 global stylesheet — Dravr Boreal Editorial components */
-/* ABOUTME: Class names preserved from the prior Pierre system; styles resolve to Boreal tokens */
+/* ABOUTME: NativeWind v4 global stylesheet — Boreal Editorial CSS variables */
+/* ABOUTME: Light defaults under :root, dark overrides under .dark; flips via class */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* ──────────────────────────────────────────────────────────────────────
+     Boreal Light — declarative default. Mirrors BOREAL_LIGHT in
+     packages/shared-constants/src/design-system.ts. RGB triples (no commas)
+     so they compose with `<alpha-value>` slots in tailwind.config.js.
+     ────────────────────────────────────────────────────────────────────── */
+  :root {
+    --color-primary: 0 36 26;
+    --color-primary-container: 13 59 46;
+    --color-primary-fixed: 190 237 217;
+    --color-primary-fixed-dim: 163 208 190;
+    --color-on-primary: 255 255 255;
+    --color-on-primary-container: 121 166 148;
+
+    --color-tertiary: 3 35 29;
+    --color-tertiary-container: 27 57 50;
+    --color-tertiary-fixed-dim: 173 205 195;
+    --color-on-tertiary: 255 255 255;
+    --color-on-tertiary-container: 131 163 153;
+
+    --color-error: 186 26 26;
+    --color-error-container: 255 218 214;
+    --color-on-error: 255 255 255;
+    --color-on-error-container: 147 0 10;
+
+    --color-surface: 249 249 246;
+    --color-surface-dim: 218 218 215;
+    --color-surface-bright: 249 249 246;
+    --color-surface-tint: 60 102 88;
+    --color-surface-variant: 226 227 224;
+    --color-surface-container: 238 238 235;
+    --color-surface-container-lowest: 255 255 255;
+    --color-surface-container-low: 244 244 241;
+    --color-surface-container-high: 232 232 229;
+    --color-surface-container-highest: 226 227 224;
+
+    --color-on-surface: 26 28 27;
+    --color-on-surface-variant: 65 72 69;
+    --color-outline: 113 121 116;
+    --color-outline-variant: 192 200 195;
+
+    /* Pillar tints — tuned for surface (#F9F9F6) at WCAG AA. */
+    --color-pillar-activity: 60 102 88;
+    --color-pillar-nutrition: 143 106 46;
+    --color-pillar-recovery: 94 122 130;
+    --color-pillar-mobility: 122 77 94;
+
+    /* Pierre legacy gray ladder — light direction. */
+    --color-gray-50: 249 249 246;
+    --color-gray-100: 244 244 241;
+    --color-gray-200: 238 238 235;
+    --color-gray-300: 232 232 229;
+    --color-gray-400: 192 200 195;
+    --color-gray-500: 113 121 116;
+    --color-gray-600: 65 72 69;
+    --color-gray-700: 47 49 47;
+    --color-gray-800: 26 28 27;
+    --color-gray-900: 17 19 15;
+
+    --color-green-50: 238 244 241;
+    --color-green-100: 214 227 220;
+    --color-green-500: 60 102 88;
+    --color-green-600: 35 78 64;
+    --color-green-700: 13 59 46;
+
+    --color-yellow-50: 245 239 223;
+    --color-yellow-100: 233 220 176;
+    --color-yellow-500: 143 106 46;
+    --color-yellow-600: 110 80 32;
+    --color-yellow-700: 76 55 22;
+
+    --color-blue-50: 238 244 241;
+    --color-blue-100: 214 227 220;
+    --color-blue-500: 60 102 88;
+    --color-blue-600: 35 78 64;
+    --color-blue-700: 13 59 46;
+
+    /* Border base — `<alpha-value>` slot is set in tailwind.config.js. */
+    --color-border: 192 200 195;
+
+    --color-success: 46 125 91;
+    --color-warning: 143 106 46;
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────
+     Boreal Dark — applied when ThemeProvider sets the `dark` class on root.
+     Mirrors BOREAL_DARK; pillar tints lifted to remain readable on near-black.
+     ────────────────────────────────────────────────────────────────────── */
+  :root.dark, .dark {
+    --color-primary: 163 208 190;
+    --color-primary-container: 35 78 64;
+    --color-primary-fixed: 190 237 217;
+    --color-primary-fixed-dim: 163 208 190;
+    --color-on-primary: 0 33 23;
+    --color-on-primary-container: 190 237 217;
+
+    --color-tertiary: 173 205 195;
+    --color-tertiary-container: 47 76 69;
+    --color-tertiary-fixed-dim: 173 205 195;
+    --color-on-tertiary: 1 32 26;
+    --color-on-tertiary-container: 200 234 223;
+
+    --color-error: 255 180 171;
+    --color-error-container: 147 0 10;
+    --color-on-error: 105 0 5;
+    --color-on-error-container: 255 218 214;
+
+    --color-surface: 17 19 15;
+    --color-surface-dim: 17 19 15;
+    --color-surface-bright: 54 58 53;
+    --color-surface-tint: 163 208 190;
+    --color-surface-variant: 65 72 69;
+    --color-surface-container: 29 32 29;
+    --color-surface-container-lowest: 11 14 11;
+    --color-surface-container-low: 25 28 25;
+    --color-surface-container-high: 39 43 39;
+    --color-surface-container-highest: 50 53 50;
+
+    --color-on-surface: 225 227 222;
+    --color-on-surface-variant: 192 200 195;
+    --color-outline: 138 147 137;
+    --color-outline-variant: 65 72 69;
+
+    --color-pillar-activity: 121 166 148;
+    --color-pillar-nutrition: 214 184 122;
+    --color-pillar-recovery: 155 182 189;
+    --color-pillar-mobility: 196 146 158;
+
+    --color-gray-50: 17 19 15;
+    --color-gray-100: 25 28 25;
+    --color-gray-200: 29 32 29;
+    --color-gray-300: 39 43 39;
+    --color-gray-400: 65 72 69;
+    --color-gray-500: 138 147 137;
+    --color-gray-600: 192 200 195;
+    --color-gray-700: 218 218 215;
+    --color-gray-800: 225 227 222;
+    --color-gray-900: 249 249 246;
+
+    --color-green-50: 13 59 46;
+    --color-green-100: 35 78 64;
+    --color-green-500: 121 166 148;
+    --color-green-600: 163 208 190;
+    --color-green-700: 190 237 217;
+
+    --color-yellow-50: 58 45 16;
+    --color-yellow-100: 76 55 22;
+    --color-yellow-500: 214 184 122;
+    --color-yellow-600: 233 220 176;
+    --color-yellow-700: 245 239 223;
+
+    --color-blue-50: 13 59 46;
+    --color-blue-100: 35 78 64;
+    --color-blue-500: 121 166 148;
+    --color-blue-600: 163 208 190;
+    --color-blue-700: 190 237 217;
+
+    --color-border: 192 200 195;
+
+    --color-success: 121 166 148;
+    --color-warning: 214 184 122;
+  }
+}
 
 @layer components {
   /* ==========================================================================
      Cards — DESIGN.md §4 tonal layering
      ========================================================================== */
 
-  /* Light glass panel (boreal-glass from the website) */
   .card-glass {
     @apply bg-surface-container-lowest rounded-lg;
   }
 
-  /* Featured floating card */
   .card-glow {
     @apply bg-surface-container-lowest rounded-lg;
   }
 
-  /* Dark signature panel — for hero callouts over imagery */
   .card-boreal-overlay {
     @apply bg-primary-container rounded-lg;
   }
 
-  /* Pillar cards — subtle tonal washes, no hard borders */
   .card-activity {
     @apply bg-surface-container-low rounded-lg;
   }
@@ -48,7 +208,7 @@
   }
 
   /* ==========================================================================
-     Chat bubbles — tonal layering on light surface
+     Chat bubbles — tonal layering
      ========================================================================== */
 
   .chat-bubble-ai {
@@ -60,7 +220,7 @@
   }
 
   /* ==========================================================================
-     AI legacy classes — flattened to tonal washes, no violet glow
+     AI legacy classes — flattened to tonal washes
      ========================================================================== */
 
   .card-ai {

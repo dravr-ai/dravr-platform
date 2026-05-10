@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, useThemeColors, useTheme } from '../../constants/theme';
 import { TAB_BAR_BOTTOM_OFFSET } from './ExpandableTabBar';
 
 // Transparent container — only the inner pill is visible
@@ -40,6 +40,9 @@ export function FloatingSearchBar({
   testID,
   autoFocus = false,
 }: FloatingSearchBarProps) {
+  const colors = useThemeColors();
+  const { scheme } = useTheme();
+  const isDark = scheme === 'dark';
   const inputRef = useRef<TextInput>(null);
   const bottomAnim = useRef(new Animated.Value(TAB_BAR_BOTTOM_OFFSET)).current;
 
@@ -98,10 +101,15 @@ export function FloatingSearchBar({
       <View
         className="flex-row items-center rounded-full px-4 min-h-[44px]"
         style={{
-          backgroundColor: 'rgba(30, 30, 46, 0.92)',
-          borderColor: 'rgba(139, 92, 246, 0.4)',
+          backgroundColor: isDark ? colors.background.elevated : colors.background.primary,
+          borderColor: isDark ? 'rgba(192, 200, 195, 0.18)' : 'rgba(26, 28, 27, 0.10)',
           borderWidth: 1,
           borderRadius: 9999,
+          shadowColor: isDark ? '#000000' : '#1a1c1b',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDark ? 0.4 : 0.06,
+          shadowRadius: 12,
+          elevation: 4,
         }}
       >
         <Feather name="search" size={18} color={colors.text.tertiary} />
@@ -120,7 +128,7 @@ export function FloatingSearchBar({
           autoFocus={autoFocus}
         />
         {isSearching ? (
-          <ActivityIndicator size="small" color={colors.primary[500]} />
+          <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
         ) : value.length > 0 ? (
           <TouchableOpacity
             onPress={handleClear}
