@@ -42,6 +42,16 @@ pub struct DispatchRequest<'a> {
     /// chat are always `true` (each conversation is per-user); messaging
     /// channels set this from their native chat-kind signal.
     pub is_direct_message: bool,
+    /// Pierre `chat_conversations.id` carrying this turn, when known.
+    ///
+    /// Set by every chat surface that has a resolved conversation: web/
+    /// mobile chat (path param), messaging ingress (`session.conversation`).
+    /// Group-scoped commands (notably `/group consent yes`) read
+    /// `chat_conversations.group_id` from this id so consent lands on
+    /// the chat-bound coaching group instead of the user's most-recent
+    /// group from `list_groups_for_user` (which is non-deterministic
+    /// when a user belongs to several groups).
+    pub conversation_id: Option<&'a str>,
     /// Raw user input. The dispatcher inspects it for the `/` prefix and
     /// routes accordingly.
     pub text: &'a str,
@@ -144,6 +154,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         resources: Arc::clone(req.resources),
         locale: req.locale.to_owned(),
         is_direct_message: req.is_direct_message,
+        conversation_id: req.conversation_id.map(ToOwned::to_owned),
     };
 
     let result = handler.execute(&ctx).await;

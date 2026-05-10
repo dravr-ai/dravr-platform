@@ -16,7 +16,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 // ============================================================================
@@ -180,6 +180,16 @@ impl GroupService {
                 .filter(|s| s.user_id == user_id)
                 .collect()
         };
+        debug!(
+            group_id = %group.id,
+            requester_user_id = %user_id,
+            peer_data_sharing = group.peer_data_sharing,
+            total_members = members.len(),
+            consenting_count = consenting_user_ids.len(),
+            input_snapshot_count = member_snapshots.len(),
+            visible_count = visible_snapshots.len(),
+            "Group context visibility filter applied"
+        );
         let cards: Vec<MemberSummaryCard> = visible_snapshots
             .iter()
             .map(|s| summarizer.summarize_member(s))

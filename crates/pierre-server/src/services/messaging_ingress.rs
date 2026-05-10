@@ -1612,6 +1612,7 @@ async fn try_handle_slash_command(
         channel_type: channel,
         locale: &locale,
         is_direct_message,
+        conversation_id: Some(&session.conversation),
         text,
     })
     .await

@@ -60,6 +60,15 @@ pub struct PlatformCommandContext {
     /// semantics (notably `/coach select` → user-scoped default coach in
     /// DM, group coach binding otherwise) branch on this flag.
     pub is_direct_message: bool,
+    /// Pierre `chat_conversations.id` for this turn, when known.
+    ///
+    /// Carries the chat-bound conversation from the dispatch layer so
+    /// commands can resolve the conversation's `group_id` without
+    /// guessing from `list_groups_for_user`. Populated by every chat
+    /// surface that has a resolved conversation (web/mobile chat,
+    /// messaging ingress); `None` only on synthetic dispatch sites
+    /// without a persisted conversation.
+    pub conversation_id: Option<String>,
 }
 
 /// Handler for a slash command.

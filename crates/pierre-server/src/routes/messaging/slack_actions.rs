@@ -252,6 +252,11 @@ async fn handle_command_postback(
         // use the channel ID prefix convention ("D" = IM, "C" = channel,
         // "G" = private group).
         is_direct_message: action.channel_id.starts_with('D'),
+        // Block-actions buttons fire outside a Pierre conversation
+        // turn — there's no chat_conversations row associated with the
+        // click. Group-scoped commands fall back to the user's most
+        // recent group via list_groups_for_user when this is None.
+        conversation_id: None,
     };
 
     let response = handler.execute(&ctx).await?;

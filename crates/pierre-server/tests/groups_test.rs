@@ -141,6 +141,13 @@ async fn test_create_group() {
     assert_eq!(body["description"], "Weekly runs together");
     assert!(body["id"].as_str().is_some());
     assert_eq!(body["is_active"], true);
+    // peer_data_sharing defaults to TRUE so individual /group consent
+    // toggles surface peer data without an extra owner action. The
+    // owner can still flip this off in Group Settings as a kill switch.
+    assert_eq!(
+        body["peer_data_sharing"], true,
+        "REST POST should default peer_data_sharing=true (kill-switch off, individual consent gates) — matches messaging_group_bind auto-bind default"
+    );
 }
 
 #[tokio::test]

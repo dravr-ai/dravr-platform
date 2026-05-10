@@ -459,6 +459,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            conversation_id: None,
         };
 
         let response = PrivacyOnHandler.execute(&ctx).await.unwrap();
@@ -509,6 +510,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            conversation_id: None,
         };
 
         let response = PrivacyOffHandler.execute(&ctx).await.unwrap();
@@ -609,6 +611,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "fr".to_owned(),
             is_direct_message: true,
+            conversation_id: None,
         };
 
         let response = CoachSelectHandler.execute(&ctx).await.unwrap();
@@ -660,6 +663,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            conversation_id: None,
         };
 
         CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
@@ -710,6 +714,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            conversation_id: None,
         };
 
         let response = CoachListHandler.execute(&ctx).await.unwrap();
@@ -724,6 +729,191 @@ mod command_tests {
         assert!(
             rendered.contains("what not to do"),
             "expected emphasis-stripped description to survive, got: {rendered}"
+        );
+    }
+
+    /// Regression: `/group consent yes` must flip the consent flag on
+    /// the chat-bound group when the conversation has a `group_id`,
+    /// not on `list_groups_for_user.first()` (which is non-deterministic
+    /// for a user in multiple groups). This covers the production bug
+    /// where Phil's Telegram-chat consent could land on the wrong
+    /// `coaching_groups` row, leaving his peer data hidden in the
+    /// chat-bound group.
+    #[tokio::test]
+    async fn test_group_consent_uses_conversation_group_id() {
+        use chrono::Utc;
+        use pierre_core::models::coaches::{
+            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        };
+        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+        use pierre_mcp_server::services::commands::group::GroupConsentHandler;
+        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+        let user_id_str = user_id.to_string();
+
+        // Coach (required as FK for both groups). Seed a minimal system
+        // coach directly via the repo — `create_test_server_resources`
+        // does not auto-seed coaches.
+        let coach = resources
+            .repos
+            .coaches
+            .create_system_coach(
+                user_id,
+                tenant_id,
+                &CreateSystemCoachRequest {
+                    title: "Test Coach".to_owned(),
+                    description: None,
+                    system_prompt: "Test prompt".to_owned(),
+                    category: CoachCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: CoachVisibility::Global,
+                },
+            )
+            .await
+            .unwrap();
+        let coach_id = coach.id;
+
+        // Two groups, both with this user as Owner+Member. Pre-fix,
+        // `groups.first()` (ORDER BY updated_at DESC) flipped consent
+        // on whichever was most recently touched; here we make the
+        // OTHER group the most-recent so the chat-bound group would
+        // miss the update under the buggy code path.
+        let chat_group_id = Uuid::new_v4();
+        let other_group_id = Uuid::new_v4();
+        let now = Utc::now();
+        let mk_group = |id: Uuid, name: &str, updated_at| CoachingGroup {
+            id,
+            tenant_id: tenant_id.to_string(),
+            name: name.to_owned(),
+            description: None,
+            coach_id: coach_id.to_string(),
+            owner_id: user_id,
+            peer_data_sharing: true,
+            max_members: 10,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at,
+        };
+        let chat_group = mk_group(chat_group_id, "Chat-bound group", now);
+        // Other group has a *later* updated_at — it would win under
+        // `list_groups_for_user.first()`.
+        let other_group = mk_group(
+            other_group_id,
+            "Other group",
+            now + chrono::Duration::seconds(60),
+        );
+        resources
+            .repos
+            .groups
+            .create_group(tenant_id, &chat_group)
+            .await
+            .unwrap();
+        resources
+            .repos
+            .groups
+            .create_group(tenant_id, &other_group)
+            .await
+            .unwrap();
+
+        let mk_member = |group_id: Uuid| GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            role: GroupRole::Owner,
+            peer_sharing_consent: false,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        };
+        resources
+            .repos
+            .groups
+            .add_member(&mk_member(chat_group_id))
+            .await
+            .unwrap();
+        resources
+            .repos
+            .groups
+            .add_member(&mk_member(other_group_id))
+            .await
+            .unwrap();
+
+        // Conversation explicitly bound to the chat group.
+        let conversation = resources
+            .repos
+            .chat
+            .create_conversation(
+                &user_id_str,
+                tenant_id,
+                "Group chat",
+                "gpt-4",
+                None,
+                Some(&chat_group_id.to_string()),
+            )
+            .await
+            .unwrap();
+
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec!["yes".to_owned()],
+            raw_text: "/group consent yes".to_owned(),
+            resources: Arc::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: false,
+            conversation_id: Some(conversation.id.clone()),
+        };
+
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+        assert!(
+            response.text.contains("Chat-bound group"),
+            "consent confirmation should name the chat-bound group, got: {}",
+            response.text
+        );
+
+        // Verify the chat-bound group has consent=true while the other
+        // group remains untouched. This is the behavioral assertion
+        // that fails under the pre-fix `groups.first()` path because
+        // `other_group` (more recently updated) would be chosen.
+        let chat_members = resources
+            .repos
+            .groups
+            .list_members(&chat_group_id.to_string())
+            .await
+            .unwrap();
+        let chat_member_consent = chat_members
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .expect("chat-group member row")
+            .peer_sharing_consent;
+        assert!(
+            chat_member_consent,
+            "consent must flip on the conversation-bound group"
+        );
+
+        let other_members = resources
+            .repos
+            .groups
+            .list_members(&other_group_id.to_string())
+            .await
+            .unwrap();
+        let other_member_consent = other_members
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .expect("other-group member row")
+            .peer_sharing_consent;
+        assert!(
+            !other_member_consent,
+            "consent must NOT leak to a different group the user belongs to"
         );
     }
 
@@ -744,6 +934,7 @@ mod command_tests {
             resources: Arc::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            conversation_id: None,
         };
 
         // Default state: consent disabled
