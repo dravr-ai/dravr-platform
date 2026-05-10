@@ -618,6 +618,7 @@ async fn try_handle_chat_command(
         // Web and mobile conversations are per-user by definition —
         // no multi-party DM surface here.
         is_direct_message: true,
+        conversation_id: Some(conversation_id),
         text: &request.content,
     })
     .await?;

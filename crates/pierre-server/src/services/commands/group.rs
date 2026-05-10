@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
+use tracing::info;
 
 #[cfg(feature = "tools-groups")]
 use crate::contremaitre::messaging_strings::KEY_GROUP_INVITE_BODY;
@@ -247,11 +248,19 @@ impl CommandHandler for GroupLeaveHandler {
 /// Handler for `/group consent yes|no` — toggle peer-sharing consent.
 ///
 /// Updates `coaching_group_members.peer_sharing_consent` for the requester
-/// in their first listed group. The privacy gate in
-/// `pierre_groups::GroupService::inject_group_context` honors this flag:
-/// even when the group has `peer_data_sharing = true`, only members who
-/// have set their consent to `true` will have their training summaries
-/// rendered to peers.
+/// in the group bound to the current chat conversation. Resolution order:
+///
+///   1. `chat_conversations.group_id` for `ctx.conversation_id` — used by
+///      Telegram/Slack/Discord group chats (auto-bound) and any web/mobile
+///      conversation explicitly created against a group.
+///   2. The user's most recently updated group from `list_groups_for_user`
+///      — fallback for chat surfaces that haven't propagated a
+///      conversation id (notably Slack `block_actions` buttons).
+///
+/// The privacy gate in `pierre_groups::GroupService::inject_group_context`
+/// honors this flag: even when the group has `peer_data_sharing = true`,
+/// only members who have set their consent to `true` will have their
+/// training summaries rendered to peers.
 pub struct GroupConsentHandler;
 
 #[async_trait]
@@ -273,22 +282,66 @@ impl CommandHandler for GroupConsentHandler {
             }
         };
 
-        let groups = ctx
+        let user_id_str = ctx.user_id.to_string();
+        let conversation_group = if let Some(conv_id) = ctx.conversation_id.as_deref() {
+            ctx.resources
+                .repos
+                .chat
+                .get_conversation(conv_id, &user_id_str, ctx.tenant_id)
+                .await?
+                .and_then(|c| c.group_id)
+        } else {
+            None
+        };
+
+        let (group_id_str, group_name) = if let Some(gid) = conversation_group {
+            let group = ctx
+                .resources
+                .repos
+                .groups
+                .get_group(&gid, ctx.tenant_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]))
+                })?;
+            (group.id.to_string(), group.name)
+        } else {
+            let groups = ctx
+                .resources
+                .repos
+                .groups
+                .list_groups_for_user(ctx.user_id)
+                .await?;
+            let group = groups.first().ok_or_else(|| {
+                AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]))
+            })?;
+            (group.id.to_string(), group.name.clone())
+        };
+
+        let rows_affected = ctx
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id)
+            .update_peer_sharing_consent(&group_id_str, ctx.user_id, consent_choice)
             .await?;
 
-        let group = groups
-            .first()
-            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+        info!(
+            user_id = %ctx.user_id,
+            group_id = %group_id_str,
+            group_name = %group_name,
+            consent_choice,
+            rows_affected,
+            source = if ctx.conversation_id.is_some() { "conversation_group_id" } else { "list_groups_for_user_first" },
+            "Applied /group consent — peer_sharing_consent updated"
+        );
 
-        ctx.resources
-            .repos
-            .groups
-            .update_peer_sharing_consent(&group.id.to_string(), ctx.user_id, consent_choice)
-            .await?;
+        if !rows_affected {
+            return Err(AppError::not_found(reg.render(
+                KEY_GROUP_NOT_A_MEMBER,
+                locale,
+                &[],
+            )));
+        }
 
         let state_key = if consent_choice {
             KEY_GROUP_PEER_SHARING_ON
@@ -296,7 +349,7 @@ impl CommandHandler for GroupConsentHandler {
             KEY_GROUP_PEER_SHARING_OFF
         };
         let state = reg.render(state_key, locale, &[]);
-        let body = reg.render(KEY_GROUP_CONSENT_UPDATED, locale, &[&state, &group.name]);
+        let body = reg.render(KEY_GROUP_CONSENT_UPDATED, locale, &[&state, &group_name]);
 
         Ok(CommandResponse::text(body))
     }

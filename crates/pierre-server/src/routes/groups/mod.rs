@@ -539,7 +539,15 @@ impl GroupRoutes {
             description: body.description.clone(),
             coach_id: body.coach_id.clone(),
             owner_id: auth.user_id,
-            peer_data_sharing: false,
+            // Default to TRUE so that once a member runs `/group consent
+            // yes` (or toggles consent through the web UI), their data
+            // surfaces to peers without an extra owner action. Owners
+            // can flip this to FALSE in Group Settings as a global
+            // kill-switch — see `pierre_groups::GroupService::inject_group_context`
+            // for the visibility filter that honors both flags.
+            // Auto-bound channel groups (Telegram/Slack/Discord) follow
+            // the same default in `messaging_group_bind::resolve_or_create_channel_group`.
+            peer_data_sharing: true,
             max_members: body.max_members.unwrap_or(20).clamp(2, 100),
             is_active: true,
             channel_type: None,
