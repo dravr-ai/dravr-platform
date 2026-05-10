@@ -4,7 +4,7 @@
 // ABOUTME: Main dashboard orchestrator with admin sidebar and user mode navigation
 // ABOUTME: Admin lands on Users tab; delegates data fetching to focused panel components
 
-import { useState, lazy, Suspense, useEffect, useMemo } from 'react';
+import { useState, lazy, Suspense, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
 import type { AdminToken } from '../types/api';
@@ -50,7 +50,6 @@ const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
 const GroupManagement = lazy(() => import('./groups/GroupManagement'));
 const GroupDetail = lazy(() => import('./groups/GroupDetail'));
-import { NotificationBell } from './notifications/NotificationBell';
 import { Card } from './ui';
 
 // Tab definition type with optional badge for notification counts
@@ -98,6 +97,54 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('pierre.sidebar_collapsed') === 'true';
   });
+  // User-tunable sidebar width when expanded. The default 260px truncates
+  // long chat-session titles and the user button's display name (web QA
+  // 2026-05-09); a drag handle lets the user widen the panel to fit
+  // their content. Bounds keep it useful — narrower than 220 starts
+  // truncating again, wider than 480 swallows half the chat pane.
+  const SIDEBAR_MIN_WIDTH = 220;
+  const SIDEBAR_MAX_WIDTH = 480;
+  const SIDEBAR_DEFAULT_WIDTH = 260;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const stored = localStorage.getItem('pierre.sidebar_width');
+    const parsed = stored ? Number.parseInt(stored, 10) : Number.NaN;
+    if (Number.isFinite(parsed) && parsed >= SIDEBAR_MIN_WIDTH && parsed <= SIDEBAR_MAX_WIDTH) {
+      return parsed;
+    }
+    return SIDEBAR_DEFAULT_WIDTH;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const onSidebarResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return;
+    event.preventDefault();
+    setIsResizingSidebar(true);
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const handleMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const next = Math.min(
+        SIDEBAR_MAX_WIDTH,
+        Math.max(SIDEBAR_MIN_WIDTH, startWidth + delta),
+      );
+      setSidebarWidth(next);
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      setIsResizingSidebar(false);
+      // Persist the final width so the next session opens at the user's
+      // chosen size; reading the React state here would close over the
+      // stale value, so we read the latest via setState's functional form.
+      setSidebarWidth(current => {
+        localStorage.setItem('pierre.sidebar_width', String(current));
+        return current;
+      });
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  }, [sidebarCollapsed, sidebarWidth]);
   const [selectedAdminToken, setSelectedAdminToken] = useState<AdminToken | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -297,12 +344,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Admin user view: Full sidebar with tabs - Dark Theme
   return (
     <div className="min-h-screen bg-surface flex">
-      {/* Vertical Sidebar - Dark */}
+      {/* Vertical Sidebar - Dark.
+          Width animates only when toggling collapse; while the user is
+          actively dragging the resize handle we suspend the transition
+          so the cursor tracks the edge in real time. */}
       <aside
         className={clsx(
-          'fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex flex-col z-40 transition-all duration-300 ease-in-out overflow-hidden',
-          sidebarCollapsed ? 'w-[72px]' : 'w-[260px]'
+          'fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex flex-col z-40 overflow-hidden',
+          isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
+        style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
       >
         {/* Sidebar accent bar */}
         <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b boreal-hero-gradient"></div>
@@ -444,9 +495,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               )}
             </button>
 
-            {/* Notification bell */}
-            <NotificationBell onViewAll={() => setActiveTab('notifications')} onNavigate={setActiveTab} />
-
             {/* Settings gear icon - visible shortcut to user settings */}
             <button
               onClick={() => setActiveTab('settings')}
@@ -502,14 +550,31 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
+
+        {/* Drag handle: a thin invisible strip on the right edge that
+            users grab to resize the panel. Only active when expanded;
+            the collapse toggle still owns the 72↔width transition. */}
+        {!sidebarCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            onPointerDown={onSidebarResizeStart}
+            className={clsx(
+              'absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-pierre-violet/40 transition-colors',
+              isResizingSidebar && 'bg-pierre-violet/60',
+            )}
+          />
+        )}
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Content Area — margin tracks the sidebar's live width. */}
       <main
         className={clsx(
-          'flex-1 h-screen flex flex-col transition-all duration-300 ease-in-out',
-          sidebarCollapsed ? 'ml-[72px]' : 'ml-[260px]'
+          'flex-1 h-screen flex flex-col',
+          isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
+        style={{ marginLeft: sidebarCollapsed ? 72 : sidebarWidth }}
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (

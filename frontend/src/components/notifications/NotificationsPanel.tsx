@@ -30,6 +30,7 @@ import {
   formatCollapsedCount,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
+import { mapScreenToTab } from './navigation';
 
 /** Map Lucide icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -64,8 +65,17 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       if (!item.read_at) {
         markAsRead(item.id);
       }
-      if (item.data?.route && typeof item.data.route === 'string' && onNavigate) {
-        onNavigate(item.data.route);
+      // Backend triggers (dravr-commere) emit `data.screen` as the
+      // routing hint; the legacy `data.route` key was never wired on
+      // the server side, so reading it left every Recovery / activity
+      // notification stranded with no destination (web QA 2026-05-09).
+      // Resolve via the shared mapper so the panel and any future
+      // surface (slash-command card, push-tap handler) agree.
+      const data = item.data as Record<string, unknown> | undefined;
+      const screen = typeof data?.screen === 'string' ? data.screen : undefined;
+      const tab = mapScreenToTab(screen);
+      if (tab && onNavigate) {
+        onNavigate(tab);
       }
     },
     [markAsRead, onNavigate],
@@ -76,10 +86,11 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       if (!item.read_at) {
         markAsRead(item.id);
       }
-      const data = item.data as Record<string, string> | undefined;
-      const screen = data?.screen ?? action.id;
-      if (onNavigate) {
-        onNavigate(screen);
+      const data = item.data as Record<string, unknown> | undefined;
+      const screen = typeof data?.screen === 'string' ? data.screen : undefined;
+      const tab = mapScreenToTab(screen) ?? mapScreenToTab(action.id);
+      if (tab && onNavigate) {
+        onNavigate(tab);
       }
     },
     [markAsRead, onNavigate],

@@ -16,16 +16,11 @@ vi.mock('../dashboard/index', () => ({
   useStoreStatsPendingCount: () => 0,
 }));
 
-// Mock notification hooks used by Dashboard and NotificationBell
+// Mock notification hooks used by Dashboard
 vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
   useNotificationFeed: () => ({ notifications: [], total: 0, unreadCount: 0, isLoading: false, isRefetching: false, isError: false, error: null, refetch: vi.fn(), invalidate: vi.fn() }),
   useNotificationActions: () => ({ markAsRead: vi.fn(), markAllAsRead: vi.fn(), deleteNotification: vi.fn(), isMarkingRead: false, isMarkingAllRead: false, isDeleting: false }),
-}));
-
-// Mock NotificationBell to avoid deep dependency chain (lucide-react, shared-constants)
-vi.mock('../notifications/NotificationBell', () => ({
-  NotificationBell: () => <div data-testid="notification-bell">Bell</div>,
 }));
 
 // Mock all dependencies to avoid complex setup
