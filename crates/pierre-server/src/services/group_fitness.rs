@@ -522,6 +522,24 @@ async fn fetch_single_member_snapshot(
     let tenant_id = resolve_member_tenant(resources, user_id, fallback_tenant_id).await;
 
     let activities = fetch_member_activities(resources, user_id, tenant_id).await;
+    // Emit one log line per fetched activity so an operator can verify
+    // what reached the training-load calc when a snapshot looks stale
+    // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
+    // isn't on the provider yet, or its TSS was skipped for missing
+    // fields). debug! to keep the noise off INFO in normal operation.
+    for a in &activities {
+        info!(
+            user_id = %user_id,
+            activity_id = %a.id(),
+            name = %a.name(),
+            sport = ?a.sport_type(),
+            start = %a.start_date(),
+            duration_s = a.duration_seconds(),
+            distance_m = ?a.distance_meters(),
+            avg_hr = ?a.average_heart_rate(),
+            "Snapshot: activity included in training-load input"
+        );
+    }
     if activities.is_empty() {
         return empty_snapshot(user_id, display_name, now);
     }
