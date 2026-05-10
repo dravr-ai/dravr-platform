@@ -20,7 +20,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import { CoachVersionHistory } from '../../components/coaches/CoachVersionHistory';
@@ -43,6 +43,7 @@ const MAX_SYSTEM_PROMPT_LENGTH = 8000;
 const CONTEXT_WINDOW_SIZE = 128000;
 
 export function CoachEditorScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId?: string }>();
   const isEditMode = Boolean(coachId);
@@ -237,7 +238,7 @@ export function CoachEditorScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="text-text-secondary mt-3 text-base">Loading coach...</Text>
         </View>
       </SafeAreaView>
@@ -283,9 +284,9 @@ export function CoachEditorScreen() {
             testID={canSave ? 'save-button' : 'save-button-disabled'}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
             ) : (
-              <Text className="text-base font-semibold text-on-surface">Save</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Save</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -300,9 +301,9 @@ export function CoachEditorScreen() {
             <View
               className="flex-row items-center mb-5 p-3 rounded-xl"
               style={{
-                backgroundColor: 'rgba(0, 36, 26, 0.1)',
+                backgroundColor: colors.background.tertiary,
                 borderWidth: 1,
-                borderColor: 'rgba(0, 36, 26, 0.2)',
+                borderColor: colors.border.default,
                 borderRadius: 12,
               }}
               testID="forked-from-banner"
@@ -323,7 +324,7 @@ export function CoachEditorScreen() {
               style={{
                 ...glassCard,
                 borderRadius: 12,
-                borderColor: errors.title ? colors.error : 'rgba(0, 36, 26, 0.2)',
+                borderColor: errors.title ? colors.error : colors.border.default,
               }}
               value={title}
               onChangeText={setTitle}
@@ -375,7 +376,7 @@ export function CoachEditorScreen() {
               style={{
                 ...glassCard,
                 borderRadius: 12,
-                borderColor: errors.description ? colors.error : 'rgba(0, 36, 26, 0.2)',
+                borderColor: errors.description ? colors.error : colors.border.default,
               }}
               value={description}
               onChangeText={setDescription}
@@ -418,7 +419,7 @@ export function CoachEditorScreen() {
               style={{
                 ...glassCard,
                 borderRadius: 12,
-                borderColor: errors.systemPrompt ? colors.error : 'rgba(0, 36, 26, 0.2)',
+                borderColor: errors.systemPrompt ? colors.error : colors.border.default,
               }}
               value={systemPrompt}
               onChangeText={setSystemPrompt}
@@ -444,7 +445,7 @@ export function CoachEditorScreen() {
               </Text>
               <View
                 className="h-1.5 rounded-full overflow-hidden"
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                style={{ backgroundColor: colors.background.tertiary }}
               >
                 <LinearGradient
                   colors={gradients.violetCyan as [string, string]}
@@ -486,7 +487,7 @@ export function CoachEditorScreen() {
                 onPress={addTag}
                 testID="add-tag-button"
               >
-                <Text className="text-on-surface text-xl font-bold">+</Text>
+                <Text className="text-xl font-bold" style={{ color: colors.tokens.onPrimary }}>+</Text>
               </TouchableOpacity>
             </View>
             <View className="flex-row flex-wrap gap-2 mt-3" testID="tags-container">
@@ -495,9 +496,9 @@ export function CoachEditorScreen() {
                   key={tag}
                   className="flex-row items-center px-3 py-1.5 rounded-full gap-1"
                   style={{
-                    backgroundColor: 'rgba(0, 36, 26, 0.15)',
+                    backgroundColor: colors.background.tertiary,
                     borderWidth: 1,
-                    borderColor: 'rgba(0, 36, 26, 0.3)',
+                    borderColor: colors.border.default,
                   }}
                   testID={`tag-chip-${tag}`}
                 >
@@ -553,18 +554,18 @@ export function CoachEditorScreen() {
                 style={{
                   backgroundColor: prefetchEnabled ? colors.pierre.violet : 'transparent',
                   borderWidth: prefetchEnabled ? 0 : 1.5,
-                  borderColor: 'rgba(0, 36, 26, 0.4)',
+                  borderColor: colors.border.strong,
                 }}
               >
                 {prefetchEnabled && (
-                  <Text className="text-on-surface text-xs font-bold">{'\u2713'}</Text>
+                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'\u2713'}</Text>
                 )}
               </View>
               <Text className="text-text-primary text-sm">Pre-fetch activity data</Text>
             </TouchableOpacity>
 
             {prefetchEnabled && (
-              <View className="pl-3" style={{ borderLeftWidth: 2, borderLeftColor: 'rgba(0, 36, 26, 0.2)' }}>
+              <View className="pl-3" style={{ borderLeftWidth: 2, borderLeftColor: colors.border.default }}>
                 <View className="flex-row gap-3 mb-3">
                   <View className="flex-1">
                     <Text className="text-text-secondary text-xs font-semibold mb-1">Activity count</Text>
@@ -608,7 +609,7 @@ export function CoachEditorScreen() {
                         style={{
                           backgroundColor: selected ? colors.pierre.violet : 'transparent',
                           borderWidth: 1,
-                          borderColor: selected ? colors.pierre.violet : 'rgba(0, 36, 26, 0.3)',
+                          borderColor: selected ? colors.pierre.violet : colors.border.default,
                         }}
                         onPress={() => {
                           setSportTypes(selected
@@ -619,7 +620,7 @@ export function CoachEditorScreen() {
                       >
                         <Text
                           className="text-sm"
-                          style={{ color: selected ? '#fff' : colors.text.secondary }}
+                          style={{ color: selected ? colors.tokens.onPrimary : colors.text.secondary }}
                         >
                           {sport}
                         </Text>
@@ -668,11 +669,11 @@ export function CoachEditorScreen() {
                     style={{
                       backgroundColor: athleteProfile ? colors.pierre.violet : 'transparent',
                       borderWidth: athleteProfile ? 0 : 1.5,
-                      borderColor: 'rgba(0, 36, 26, 0.4)',
+                      borderColor: colors.border.strong,
                     }}
                   >
                     {athleteProfile && (
-                      <Text className="text-on-surface text-[10px] font-bold">{'\u2713'}</Text>
+                      <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>{'\u2713'}</Text>
                     )}
                   </View>
                   <Text className="text-text-secondary text-xs">Also fetch athlete profile</Text>
@@ -744,7 +745,7 @@ export function CoachEditorScreen() {
                 key={cat.key}
                 className="flex-row items-center py-3.5 px-4 mb-1 rounded-xl"
                 style={{
-                  backgroundColor: category === cat.key ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  backgroundColor: category === cat.key ? colors.background.tertiary : 'transparent',
                 }}
                 onPress={() => selectCategory(cat.key)}
                 testID={`category-option-${cat.key}`}
@@ -758,7 +759,7 @@ export function CoachEditorScreen() {
             ))}
             <TouchableOpacity
               className="mt-3 py-3.5 rounded-xl"
-              style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              style={{ backgroundColor: colors.background.tertiary }}
               onPress={() => setShowCategoryModal(false)}
               testID="category-cancel"
             >

@@ -5,7 +5,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { colors, glassCard } from '../../constants/theme';
+import { glassCard, useThemeColors } from '../../constants/theme';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -20,6 +20,7 @@ export function CollapsibleSection({
   children,
   testID,
 }: CollapsibleSectionProps) {
+  const colors = useThemeColors();
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const toggle = useCallback(() => {

@@ -4,7 +4,7 @@
 // ABOUTME: Create group screen for building a new coaching group
 // ABOUTME: Form with name, description, coach selection, and max members picker
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { coachesApi } from '../../services/api';
@@ -35,14 +35,14 @@ const coachItemStyle: ViewStyle = {
   borderColor: 'rgba(139, 92, 246, 0.15)',
 };
 
-const selectedCoachStyle: ViewStyle = {
-  ...glassCard,
-  borderRadius: 12,
-  borderColor: colors.pierre.violet,
-  borderWidth: 2,
-};
-
 export function CreateGroupScreen() {
+  const colors = useThemeColors();
+  const selectedCoachStyle: ViewStyle = useMemo(() => ({
+    ...glassCard,
+    borderRadius: 12,
+    borderColor: colors.pierre.violet,
+    borderWidth: 2,
+  }), [colors]);
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { createGroup, isCreating, createError } = useGroupActions();

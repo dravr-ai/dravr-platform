@@ -19,7 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
+import { PROVIDER_COLORS, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
 import {
   isFirebaseEnabled,
   useGoogleAuth,
@@ -226,17 +226,24 @@ export function LoginScreen() {
             </Text>
           </View>
 
-          {/* Floating form card — white surface over the forest hero */}
+          {/* Floating form card — white surface over the forest hero. Every
+              element inside this region uses BOREAL_LIGHT directly because
+              the card is brand-fixed and must read correctly even when the
+              user's global preference is dark. */}
           <View style={cardStyle}>
             <View className="px-6 py-7">
               <View className="mb-5">
                 <Text
-                  className="text-text-primary"
-                  style={{ fontFamily: 'SpaceGrotesk_SemiBold', fontSize: 24, marginBottom: 4 }}
+                  style={{
+                    fontFamily: 'SpaceGrotesk_SemiBold',
+                    fontSize: 24,
+                    marginBottom: 4,
+                    color: BOREAL_LIGHT.onSurface,
+                  }}
                 >
                   Sign in
                 </Text>
-                <Text className="text-text-secondary text-sm">
+                <Text style={{ fontSize: 14, color: BOREAL_LIGHT.onSurfaceVariant }}>
                   Welcome back. Enter your credentials to continue.
                 </Text>
               </View>
@@ -252,6 +259,7 @@ export function LoginScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={errors.email}
+                  surface="light"
                   testID="email-input"
                 />
 
@@ -265,6 +273,7 @@ export function LoginScreen() {
                   returnKeyType="go"
                   onSubmitEditing={handleLogin}
                   error={errors.password}
+                  surface="light"
                   testID="password-input"
                 />
 
@@ -273,7 +282,9 @@ export function LoginScreen() {
                   className="self-end mb-2"
                   testID="forgot-password-link"
                 >
-                  <Text className="text-xs text-text-tertiary">Forgot password?</Text>
+                  <Text style={{ fontSize: 12, color: BOREAL_LIGHT.outline }}>
+                    Forgot password?
+                  </Text>
                 </TouchableOpacity>
 
                 <Button
@@ -281,6 +292,7 @@ export function LoginScreen() {
                   onPress={handleLogin}
                   loading={isLoading}
                   fullWidth
+                  surface="light"
                   style={glowButtonStyle}
                   testID="login-button"
                 />
@@ -289,25 +301,51 @@ export function LoginScreen() {
                 {isFirebaseEnabled() && (
                   <>
                     <View className="flex-row items-center my-5">
-                      <View className="flex-1 h-px bg-border-default" />
-                      <Text className="text-sm text-text-secondary px-3">or continue with</Text>
-                      <View className="flex-1 h-px bg-border-default" />
+                      <View
+                        style={{ flex: 1, height: 1, backgroundColor: BOREAL_LIGHT.outlineVariant }}
+                      />
+                      <Text
+                        className="px-3"
+                        style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}
+                      >
+                        or continue with
+                      </Text>
+                      <View
+                        style={{ flex: 1, height: 1, backgroundColor: BOREAL_LIGHT.outlineVariant }}
+                      />
                     </View>
 
                     <TouchableOpacity
-                      className="flex-row items-center justify-center bg-background-tertiary border border-border-default rounded-xl py-3 px-5 gap-2"
                       onPress={handleGoogleSignIn}
                       disabled={isGoogleLoading}
                       testID="google-signin-button"
                       activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: 'rgba(26, 28, 27, 0.12)',
+                        backgroundColor: BOREAL_LIGHT.surfaceContainerLowest,
+                      }}
                     >
                       {isGoogleLoading ? (
-                        <ActivityIndicator size="small" color={colors.text.primary} />
+                        <ActivityIndicator size="small" color={BOREAL_LIGHT.onSurface} />
                       ) : (
-                        <AntDesign name="google" size={20} color={colors.google} />
+                        <AntDesign name="google" size={20} color={PROVIDER_COLORS.google} />
                       )}
-                      <Text className="text-base font-medium text-text-primary">
-                        {isGoogleLoading ? 'Signing in...' : 'Continue with Google'}
+                      <Text
+                        style={{
+                          fontSize: 15,
+                          fontWeight: '500',
+                          color: BOREAL_LIGHT.onSurface,
+                        }}
+                      >
+                        {isGoogleLoading ? 'Signing in…' : 'Continue with Google'}
                       </Text>
                     </TouchableOpacity>
                   </>
@@ -316,9 +354,15 @@ export function LoginScreen() {
 
               {/* Register Link */}
               <View className="flex-row justify-center items-center gap-1 pt-4">
-                <Text className="text-sm text-text-secondary">Don't have an account?</Text>
+                <Text style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}>
+                  Don&apos;t have an account?
+                </Text>
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-                  <Text className="text-sm font-semibold text-text-accent">Create one</Text>
+                  <Text
+                    style={{ fontSize: 13, fontWeight: '600', color: BOREAL_LIGHT.primary }}
+                  >
+                    Create one
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>

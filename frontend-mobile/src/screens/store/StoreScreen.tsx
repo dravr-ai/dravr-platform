@@ -17,7 +17,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
 
 // Shadow styles for coach cards (React Native shadows cannot use className)
@@ -315,7 +315,7 @@ export function StoreScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="mt-3 text-text-secondary text-base">Loading coaches...</Text>
         </View>
       </SafeAreaView>
@@ -366,7 +366,7 @@ export function StoreScreen() {
         ListFooterComponent={
           isLoadingMore ? (
             <View className="flex-row items-center justify-center py-4 gap-2">
-              <ActivityIndicator size="small" color={colors.primary[500]} />
+              <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
               <Text className="text-sm text-text-secondary">Loading more coaches...</Text>
             </View>
           ) : null
@@ -375,7 +375,7 @@ export function StoreScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => loadCoaches(true)}
-            tintColor={colors.primary[500]}
+            tintColor={PRIMARY_PALETTE[500]}
           />
         }
       />

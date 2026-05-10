@@ -5,21 +5,22 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Modal, Image } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
 import type { Conversation } from '../../types';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
+import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 
-const popoverContainerStyle: ViewStyle = {
+// popoverContainerStyle is built inside the component so its background and
+// shadow track the active scheme (it's a floating menu — needs surface
+// contrast in both modes). Layout stays constant.
+const POPOVER_LAYOUT: ViewStyle = {
   position: 'absolute',
   top: 68,
   left: 60,
   right: 60,
-  backgroundColor: colors.background.secondary,
   borderRadius: 12,
   paddingVertical: spacing.xs,
-  shadowColor: '#000',
   shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.4,
   shadowRadius: 16,
   elevation: 12,
 };
@@ -45,6 +46,13 @@ export function ChatHeader({
   onMenuRename,
   onMenuDelete,
 }: ChatHeaderProps) {
+  const colors = useThemeColors();
+  const popoverContainerStyle: ViewStyle = {
+    ...POPOVER_LAYOUT,
+    backgroundColor: colors.background.secondary,
+    shadowColor: colors.text.primary,
+    shadowOpacity: 0.4,
+  };
   return (
     <>
       <View
@@ -92,6 +100,9 @@ export function ChatHeader({
             <Text className="text-[10px] ml-1 text-text-tertiary">▼</Text>
           )}
         </TouchableOpacity>
+
+        {/* Quick appearance toggle (sun/moon) — flips persisted Light/Dark pref */}
+        <AppearanceToggleButton size={20} color={colors.text.secondary} />
 
         {/* Notification bell */}
         <NotificationBellButton size={20} color={colors.text.secondary} />

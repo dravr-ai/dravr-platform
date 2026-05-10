@@ -5,9 +5,10 @@
 // ABOUTME: Contains Login, Register, ForgotPassword, ResetPassword, PendingApproval screens
 
 import { Stack } from 'expo-router';
-import { colors } from '../../src/constants/theme';
+import { useThemeColors } from '../../src/constants/theme';
 
 export default function AuthLayout() {
+  const colors = useThemeColors();
   return (
     <Stack
       screenOptions={{

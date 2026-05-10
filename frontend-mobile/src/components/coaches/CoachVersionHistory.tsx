@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, glassCard } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 
 // Shadow style for version cards
@@ -56,6 +56,7 @@ export function CoachVersionHistory({
   onClose,
   onReverted,
 }: CoachVersionHistoryProps) {
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [versionsData, setVersionsData] = useState<VersionsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -284,7 +285,7 @@ export function CoachVersionHistory({
           {/* Content */}
           {isLoading ? (
             <View className="flex-1 items-center justify-center py-12">
-              <ActivityIndicator size="large" color={colors.primary[500]} />
+              <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
               <Text className="mt-3 text-text-secondary">Loading versions...</Text>
             </View>
           ) : !versionsData || versionsData.versions.length === 0 ? (

@@ -1,5 +1,5 @@
 // ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal Editorial tokens
-// ABOUTME: Matches frontend/tailwind.config.cjs and packages/shared-constants/src/design-system.ts
+// ABOUTME: CSS variables drive light/dark — values declared in global.css
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -9,107 +9,111 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   presets: [require('nativewind/preset')],
+  // The `dark` class is toggled on the root view by the ThemeProvider; values
+  // for every `--color-*` token below live in global.css. Light is the
+  // declarative default, dark overrides under the `.dark` selector.
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // ── Boreal MD3 canonical tokens (light) ──
+        // ── Boreal MD3 canonical tokens ──
         primary: {
-          DEFAULT: '#00241a',
-          container: '#0d3b2e',
-          fixed: '#beedd9',
-          'fixed-dim': '#a3d0be',
+          DEFAULT: 'rgb(var(--color-primary) / <alpha-value>)',
+          container: 'rgb(var(--color-primary-container) / <alpha-value>)',
+          fixed: 'rgb(var(--color-primary-fixed) / <alpha-value>)',
+          'fixed-dim': 'rgb(var(--color-primary-fixed-dim) / <alpha-value>)',
         },
-        'on-primary': '#ffffff',
-        'on-primary-container': '#79a694',
+        'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
+        'on-primary-container': 'rgb(var(--color-on-primary-container) / <alpha-value>)',
 
         tertiary: {
-          DEFAULT: '#03231d',
-          container: '#1b3932',
-          'fixed-dim': '#adcdc3',
+          DEFAULT: 'rgb(var(--color-tertiary) / <alpha-value>)',
+          container: 'rgb(var(--color-tertiary-container) / <alpha-value>)',
+          'fixed-dim': 'rgb(var(--color-tertiary-fixed-dim) / <alpha-value>)',
         },
-        'on-tertiary': '#ffffff',
-        'on-tertiary-container': '#83a399',
+        'on-tertiary': 'rgb(var(--color-on-tertiary) / <alpha-value>)',
+        'on-tertiary-container': 'rgb(var(--color-on-tertiary-container) / <alpha-value>)',
 
         error: {
-          DEFAULT: '#ba1a1a',
-          container: '#ffdad6',
+          DEFAULT: 'rgb(var(--color-error) / <alpha-value>)',
+          container: 'rgb(var(--color-error-container) / <alpha-value>)',
         },
-        'on-error': '#ffffff',
-        'on-error-container': '#93000a',
+        'on-error': 'rgb(var(--color-on-error) / <alpha-value>)',
+        'on-error-container': 'rgb(var(--color-on-error-container) / <alpha-value>)',
 
         surface: {
-          DEFAULT: '#f9f9f6',
-          dim: '#dadad7',
-          bright: '#f9f9f6',
-          tint: '#3c6658',
-          variant: '#e2e3e0',
+          DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
+          dim: 'rgb(var(--color-surface-dim) / <alpha-value>)',
+          bright: 'rgb(var(--color-surface-bright) / <alpha-value>)',
+          tint: 'rgb(var(--color-surface-tint) / <alpha-value>)',
+          variant: 'rgb(var(--color-surface-variant) / <alpha-value>)',
           container: {
-            DEFAULT: '#eeeeeb',
-            lowest: '#ffffff',
-            low: '#f4f4f1',
-            high: '#e8e8e5',
-            highest: '#e2e3e0',
+            DEFAULT: 'rgb(var(--color-surface-container) / <alpha-value>)',
+            lowest: 'rgb(var(--color-surface-container-lowest) / <alpha-value>)',
+            low: 'rgb(var(--color-surface-container-low) / <alpha-value>)',
+            high: 'rgb(var(--color-surface-container-high) / <alpha-value>)',
+            highest: 'rgb(var(--color-surface-container-highest) / <alpha-value>)',
           },
         },
         'on-surface': {
-          DEFAULT: '#1a1c1b',
-          variant: '#414845',
+          DEFAULT: 'rgb(var(--color-on-surface) / <alpha-value>)',
+          variant: 'rgb(var(--color-on-surface-variant) / <alpha-value>)',
         },
         outline: {
-          DEFAULT: '#717974',
-          variant: '#c0c8c3',
+          DEFAULT: 'rgb(var(--color-outline) / <alpha-value>)',
+          variant: 'rgb(var(--color-outline-variant) / <alpha-value>)',
         },
 
-        // ── Legacy `pierre.*` namespace — repointed at Boreal semantics ──
-        // Keeps in-tree bg-pierre-* class references rendering in boreal tones
-        // during the sweep phase. Migrate call sites over time, then drop.
+        // ── Legacy `pierre.*` namespace — repointed at Boreal CSS variables ──
+        // Keeps in-tree bg-pierre-* class references valid during the sweep.
+        // Pillar tints harmonize on both canvases via the --color-pillar-* vars.
         pierre: {
-          violet: '#00241a',
-          cyan: '#0d3b2e',
-          activity: '#3c6658',
-          nutrition: '#8f6a2e',
-          recovery: '#5e7a82',
-          mobility: '#7a4d5e',
-          red: '#ba1a1a',
-          dark: '#1a1c1b',
-          slate: '#eeeeeb',
+          violet: 'rgb(var(--color-primary) / <alpha-value>)',
+          cyan: 'rgb(var(--color-primary-container) / <alpha-value>)',
+          activity: 'rgb(var(--color-pillar-activity) / <alpha-value>)',
+          nutrition: 'rgb(var(--color-pillar-nutrition) / <alpha-value>)',
+          recovery: 'rgb(var(--color-pillar-recovery) / <alpha-value>)',
+          mobility: 'rgb(var(--color-pillar-mobility) / <alpha-value>)',
+          red: 'rgb(var(--color-error) / <alpha-value>)',
+          dark: 'rgb(var(--color-on-surface) / <alpha-value>)',
+          slate: 'rgb(var(--color-surface-container) / <alpha-value>)',
           gray: {
-            50: '#f9f9f6',
-            100: '#f4f4f1',
-            200: '#eeeeeb',
-            300: '#e8e8e5',
-            400: '#c0c8c3',
-            500: '#717974',
-            600: '#414845',
-            700: '#2f312f',
-            800: '#1a1c1b',
-            900: '#11130f',
+            50: 'rgb(var(--color-gray-50) / <alpha-value>)',
+            100: 'rgb(var(--color-gray-100) / <alpha-value>)',
+            200: 'rgb(var(--color-gray-200) / <alpha-value>)',
+            300: 'rgb(var(--color-gray-300) / <alpha-value>)',
+            400: 'rgb(var(--color-gray-400) / <alpha-value>)',
+            500: 'rgb(var(--color-gray-500) / <alpha-value>)',
+            600: 'rgb(var(--color-gray-600) / <alpha-value>)',
+            700: 'rgb(var(--color-gray-700) / <alpha-value>)',
+            800: 'rgb(var(--color-gray-800) / <alpha-value>)',
+            900: 'rgb(var(--color-gray-900) / <alpha-value>)',
           },
           green: {
-            50: '#eef4f1',
-            100: '#d6e3dc',
-            500: '#3c6658',
-            600: '#234e40',
-            700: '#0d3b2e',
+            50: 'rgb(var(--color-green-50) / <alpha-value>)',
+            100: 'rgb(var(--color-green-100) / <alpha-value>)',
+            500: 'rgb(var(--color-green-500) / <alpha-value>)',
+            600: 'rgb(var(--color-green-600) / <alpha-value>)',
+            700: 'rgb(var(--color-green-700) / <alpha-value>)',
           },
           yellow: {
-            50: '#f5efdf',
-            100: '#e9dcb0',
-            500: '#8f6a2e',
-            600: '#6e5020',
-            700: '#4c3716',
+            50: 'rgb(var(--color-yellow-50) / <alpha-value>)',
+            100: 'rgb(var(--color-yellow-100) / <alpha-value>)',
+            500: 'rgb(var(--color-yellow-500) / <alpha-value>)',
+            600: 'rgb(var(--color-yellow-600) / <alpha-value>)',
+            700: 'rgb(var(--color-yellow-700) / <alpha-value>)',
           },
           blue: {
-            50: '#eef4f1',
-            100: '#d6e3dc',
-            500: '#3c6658',
-            600: '#234e40',
-            700: '#0d3b2e',
+            50: 'rgb(var(--color-blue-50) / <alpha-value>)',
+            100: 'rgb(var(--color-blue-100) / <alpha-value>)',
+            500: 'rgb(var(--color-blue-500) / <alpha-value>)',
+            600: 'rgb(var(--color-blue-600) / <alpha-value>)',
+            700: 'rgb(var(--color-blue-700) / <alpha-value>)',
           },
         },
 
-        // Legacy aliases still used in theme.ts + app components.
+        // Legacy primary_scale — full ladder kept stable across both canvases
+        // (used in JS-side gradient endpoints that don't flip).
         primary_scale: {
           50: '#eef4f1',
           100: '#d6e3dc',
@@ -125,29 +129,29 @@ module.exports = {
         },
 
         background: {
-          primary: '#f9f9f6',           // surface — base canvas
-          secondary: '#f4f4f1',         // surface-container-low — sections
-          tertiary: '#eeeeeb',          // surface-container — elevated
-          elevated: '#ffffff',          // surface-container-lowest — floating cards
+          primary: 'rgb(var(--color-surface) / <alpha-value>)',
+          secondary: 'rgb(var(--color-surface-container-low) / <alpha-value>)',
+          tertiary: 'rgb(var(--color-surface-container) / <alpha-value>)',
+          elevated: 'rgb(var(--color-surface-container-lowest) / <alpha-value>)',
         },
 
         text: {
-          primary: '#1a1c1b',           // on-surface — body copy
-          secondary: '#414845',         // on-surface-variant
-          tertiary: '#717974',          // outline — helper / label
-          accent: '#00241a',            // primary — links, active state
+          primary: 'rgb(var(--color-on-surface) / <alpha-value>)',
+          secondary: 'rgb(var(--color-on-surface-variant) / <alpha-value>)',
+          tertiary: 'rgb(var(--color-outline) / <alpha-value>)',
+          accent: 'rgb(var(--color-primary) / <alpha-value>)',
         },
 
         border: {
-          subtle: 'rgba(192, 200, 195, 0.10)',
-          DEFAULT: 'rgba(192, 200, 195, 0.15)',  // ghost border baseline
-          strong: 'rgba(192, 200, 195, 0.25)',
+          subtle: 'rgb(var(--color-border) / 0.08)',
+          DEFAULT: 'rgb(var(--color-border) / 0.14)',
+          strong: 'rgb(var(--color-border) / 0.22)',
         },
 
-        success: '#2e7d5b',
-        warning: '#8f6a2e',
+        success: 'rgb(var(--color-success) / <alpha-value>)',
+        warning: 'rgb(var(--color-warning) / <alpha-value>)',
 
-        // Provider brand colors — belong to third parties, unchanged
+        // Provider brand colors — belong to third parties, unchanged across modes.
         providers: {
           strava: '#FC4C02',
           garmin: '#007CC3',
@@ -182,17 +186,17 @@ module.exports = {
         full: '9999px',
       },
       boxShadow: {
-        // Ambient boreal shadow (6% on_surface, blur 24, spread -4).
-        // RN note: most shadows are applied via style props, not NativeWind
-        // classes; keep the utilities available for compatibility with web
-        // components that still reference them during the sweep.
-        ambient: '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        card: '0 24px 48px -12px rgba(26, 28, 27, 0.06)',
-        'glow-violet': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-cyan': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-activity': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-nutrition': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-recovery': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        // Static shadow recipes — deepened for the dark canvas. RN style props
+        // get the fully tuned values from the JS theme tokens; these utilities
+        // exist for compatibility with components that still reference the
+        // class form during the sweep.
+        ambient: '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        card: '0 24px 48px -12px rgba(0, 0, 0, 0.55)',
+        'glow-violet': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        'glow-cyan': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        'glow-activity': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        'glow-nutrition': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        'glow-recovery': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
       },
     },
   },

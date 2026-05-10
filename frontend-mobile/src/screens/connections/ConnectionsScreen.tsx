@@ -16,7 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, glassCard, gradients } from '../../constants/theme';
+import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { Modal } from 'react-native';
 import { Card, DragIndicator } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
@@ -28,6 +28,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 
 export function ConnectionsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
@@ -152,11 +153,11 @@ export function ConnectionsScreen() {
   // Provider display config (colors, icons, descriptions)
   const getProviderConfig = (providerId: string) => {
     const configs: Record<string, { color: string; icon: string; description: string }> = {
-      strava: { color: colors.providers.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
-      garmin: { color: colors.providers.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
-      fitbit: { color: colors.providers.fitbit, icon: 'F', description: 'Activity, sleep, and heart rate data' },
-      whoop: { color: colors.providers.whoop, icon: 'W', description: 'Recovery, strain, and sleep metrics' },
-      terra: { color: colors.providers.terra, icon: 'T', description: 'Aggregate data from multiple fitness platforms' },
+      strava: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
+      garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
+      fitbit: { color: PROVIDER_COLORS.fitbit, icon: 'F', description: 'Activity, sleep, and heart rate data' },
+      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, and sleep metrics' },
+      terra: { color: PROVIDER_COLORS.terra, icon: 'T', description: 'Aggregate data from multiple fitness platforms' },
       coros: { color: '#E91E63', icon: 'C', description: 'Training and performance data from COROS devices' },
       synthetic: { color: '#9C27B0', icon: '🧪', description: 'Synthetic test data for development' },
       synthetic_sleep: { color: '#673AB7', icon: '😴', description: 'Synthetic sleep data for development' },
@@ -260,7 +261,7 @@ export function ConnectionsScreen() {
 
         {isLoading ? (
           <View className="items-center py-12">
-            <ActivityIndicator size="large" color={colors.primary[500]} />
+            <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
             <Text className="mt-3 text-text-secondary text-base">Loading connections...</Text>
           </View>
         ) : error ? (

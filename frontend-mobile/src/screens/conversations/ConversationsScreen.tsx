@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { chatApi, coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog, SwipeableRow, type SwipeAction } from '../../components/ui';
@@ -30,12 +30,6 @@ const searchBarStyle: ViewStyle = {
   ...glassCard,
   borderRadius: 22,
   borderColor: 'rgba(139, 92, 246, 0.2)',
-};
-
-// FAB with violet glow
-const fabStyle: ViewStyle = {
-  backgroundColor: colors.pierre.violet,
-  ...buttonGlow,
 };
 
 // Glassmorphic menu style
@@ -65,6 +59,12 @@ type ListRow =
   | { kind: 'conversation'; conversation: Conversation; groupKey: string };
 
 export function ConversationsScreen() {
+  const colors = useThemeColors();
+  // FAB with violet glow
+  const fabStyle: ViewStyle = useMemo(() => ({
+    backgroundColor: colors.pierre.violet,
+    ...buttonGlow,
+  }), [colors]);
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -374,7 +374,7 @@ export function ConversationsScreen() {
       {
         icon: 'edit-2',
         label: 'Rename',
-        color: '#FFFFFF',
+        color: colors.tokens.onPrimary,
         backgroundColor: colors.pierre.violet,
         onPress: () => {
           setSelectedConversation(conversation);
@@ -490,7 +490,7 @@ export function ConversationsScreen() {
       {/* Conversations List */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
         </View>
       ) : (
         <FlashList
@@ -552,7 +552,7 @@ export function ConversationsScreen() {
           style={fabStyle}
           onPress={handleNewChat}
         >
-          <Feather name="plus" size={24} color="#FFFFFF" />
+          <Feather name="plus" size={24} color={colors.tokens.onPrimary} />
         </TouchableOpacity>
       </View>
 

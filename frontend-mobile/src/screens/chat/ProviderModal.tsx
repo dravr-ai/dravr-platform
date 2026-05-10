@@ -1,10 +1,10 @@
 // ABOUTME: Provider selection modal for connecting fitness data providers
 // ABOUTME: Shows available providers with connection status and OAuth flow initiation
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import type { ViewStyle } from 'react-native';
-import { colors, spacing, borderRadius } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import type { ExtendedProviderStatus } from '../../types';
 
 const PROVIDER_ICONS: Record<string, string> = {
@@ -16,19 +16,6 @@ const PROVIDER_ICONS: Record<string, string> = {
   terra: '🌍',
   synthetic: '🧪',
   synthetic_sleep: '😴',
-};
-
-const providerModalContainerStyle: ViewStyle = {
-  backgroundColor: colors.background.primary,
-  borderRadius: borderRadius.lg,
-  padding: spacing.lg,
-  minWidth: 280,
-  maxWidth: 320,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 8,
-  elevation: 8,
 };
 
 interface ProviderModalProps {
@@ -50,6 +37,19 @@ export function ProviderModal({
   onConnectProvider,
   onConnectSciotte,
 }: ProviderModalProps) {
+  const colors = useThemeColors();
+  const providerModalContainerStyle: ViewStyle = useMemo(() => ({
+    backgroundColor: colors.background.primary,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    minWidth: 280,
+    maxWidth: 320,
+    shadowColor: colors.text.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  }), [colors]);
   return (
     <Modal
       visible={visible}
@@ -99,7 +99,7 @@ export function ProviderModal({
                 disabled={!isConnectable || isOtherConnecting || isConnecting}
               >
                 {isConnecting ? (
-                  <ActivityIndicator size="small" color={colors.primary[500]} className="mr-4" />
+                  <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} className="mr-4" />
                 ) : (
                   <Text className="text-2xl mr-4">{icon}</Text>
                 )}

@@ -7,7 +7,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Keyboard, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing } from '../../constants/theme';
+import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 
 interface ChatInputBarProps {
@@ -36,8 +36,19 @@ export function ChatInputBar({
   onVoicePress,
   onSendMessage,
 }: ChatInputBarProps) {
+  const colors = useThemeColors();
+  const { scheme } = useTheme();
   const displayText = isListening ? partialTranscript : inputText;
   const canSend = inputText.trim() && !isSending && !isListening && !disabled;
+  const isDark = scheme === 'dark';
+
+  // Composer pill matches the surrounding canvas — elevated lowest tier with
+  // a hairline outline-variant edge in both schemes. The accent ring uses the
+  // active primary so the input reads as the primary action surface.
+  const pillBackground = isDark ? colors.background.elevated : colors.background.primary;
+  const pillBorder = isDark
+    ? 'rgba(192, 200, 195, 0.18)'
+    : 'rgba(26, 28, 27, 0.10)';
 
   const bottomAnim = useRef(new Animated.Value(TAB_BAR_BOTTOM_OFFSET)).current;
 
@@ -79,10 +90,15 @@ export function ChatInputBar({
       <View
         className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
         style={{
-          backgroundColor: 'rgba(30, 30, 46, 0.92)',
-          borderColor: 'rgba(139, 92, 246, 0.4)',
+          backgroundColor: pillBackground,
+          borderColor: pillBorder,
           borderWidth: 1,
           borderRadius: 9999,
+          shadowColor: isDark ? '#000000' : '#1a1c1b',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDark ? 0.4 : 0.06,
+          shadowRadius: 12,
+          elevation: 4,
         }}
       >
         <TextInput
@@ -117,9 +133,13 @@ export function ChatInputBar({
           testID={canSend ? 'send-button' : 'send-button-disabled'}
         >
           {isSending ? (
-            <ActivityIndicator size="small" color={colors.text.primary} />
+            <ActivityIndicator size="small" color={canSend ? colors.tokens.onPrimary : colors.text.tertiary} />
           ) : (
-            <Ionicons name="arrow-up" size={20} color={colors.text.primary} />
+            <Ionicons
+              name="arrow-up"
+              size={20}
+              color={canSend ? colors.tokens.onPrimary : colors.text.tertiary}
+            />
           )}
         </TouchableOpacity>
       </View>

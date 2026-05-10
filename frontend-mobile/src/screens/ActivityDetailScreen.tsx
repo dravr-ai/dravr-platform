@@ -16,7 +16,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { colors, spacing, aiGlow } from '../constants/theme';
+import { spacing, aiGlow, useThemeColors } from '../constants/theme';
 // Activity type icons
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   run: 'walk-outline',
@@ -26,21 +26,23 @@ const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   default: 'fitness-outline',
 };
 
-// Glassmorphism card style
-const glassCardStyle: ViewStyle = {
-  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  borderWidth: 1,
-  borderColor: 'rgba(255, 255, 255, 0.1)',
-  borderRadius: 16,
-};
-
-// AI card with glow
-const aiCardStyle: ViewStyle = {
-  ...glassCardStyle,
-  ...aiGlow.ambient,
-};
-
 export function ActivityDetailScreen() {
+  const colors = useThemeColors();
+
+  // Glassmorphism card style
+  const glassCardStyle: ViewStyle = {
+    backgroundColor: colors.background.tertiary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 16,
+  };
+
+  // AI card with glow
+  const aiCardStyle: ViewStyle = {
+    ...glassCardStyle,
+    ...aiGlow.ambient,
+  };
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -175,8 +177,8 @@ export function ActivityDetailScreen() {
                 onPress={handleAskPierre}
                 testID="ask-pierre-button"
               >
-                <Feather name="message-circle" size={18} color="white" />
-                <Text className="text-sm font-semibold text-on-surface ml-2">
+                <Feather name="message-circle" size={18} color={colors.tokens.onPrimary} />
+                <Text className="text-sm font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>
                   Ask Dravr for More
                 </Text>
               </TouchableOpacity>
@@ -213,8 +215,8 @@ export function ActivityDetailScreen() {
                 onPress={handleShareWithFriends}
                 testID="share-with-friends-button"
               >
-                <Feather name="users" size={18} color="white" />
-                <Text className="text-sm font-semibold text-on-surface ml-2">
+                <Feather name="users" size={18} color={colors.tokens.onPrimary} />
+                <Text className="text-sm font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>
                   Share with Friends
                 </Text>
               </TouchableOpacity>
@@ -248,8 +250,8 @@ export function ActivityDetailScreen() {
                 onPress={handleAskPierre}
                 testID="get-insights-button"
               >
-                <Feather name="message-circle" size={18} color="white" />
-                <Text className="text-sm font-semibold text-on-surface ml-2">
+                <Feather name="message-circle" size={18} color={colors.tokens.onPrimary} />
+                <Text className="text-sm font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>
                   Ask Dravr
                 </Text>
               </TouchableOpacity>

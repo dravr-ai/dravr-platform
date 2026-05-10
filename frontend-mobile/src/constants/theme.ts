@@ -1,5 +1,5 @@
 // ABOUTME: Theme constants for the Dravr mobile app — Boreal Editorial tokens
-// ABOUTME: Re-exports shared design system with RN shadow recipes + dark variant
+// ABOUTME: Static `colors` is the dark-mode fallback; live palette lives in ThemeContext
 
 // Relative import — mobile is isolated from workspaces for Jest compatibility.
 // Metro resolves @pierre/* via extraNodeModules at runtime.
@@ -36,20 +36,59 @@ export const typography = TYPOGRAPHY;
 export const brandTracking = BRAND_TRACKING;
 export const surfaceHierarchy = SURFACE_HIERARCHY;
 
-// Combined colors object for mobile (stable API, Boreal semantics)
+// Combined colors object for mobile (stable API, Boreal DARK semantics).
+// Mobile is dark by default — `pierre.*`, pillar tints, text, and background
+// are all rebased on BOREAL_DARK so JS-driven colors (icons, indicators,
+// inline styles) stay legible on the near-black canvas. The shared
+// PIERRE_COLORS / PILLAR_COLORS constants stay aligned with the light-mode
+// web frontend.
+const MOBILE_PIERRE_COLORS = {
+  violet: BOREAL_DARK.primary,           // #a3d0be — light mint for icons/CTAs
+  cyan: BOREAL_DARK.primaryContainer,    // #234e40 — gradient endpoints
+  dark: BOREAL_DARK.onSurface,           // #e1e3de — body ink on dark canvas
+  slate: BOREAL_DARK.surfaceContainer,   // #1d201d — section fills
+} as const;
+
+const MOBILE_PILLAR_COLORS = {
+  activity: '#79a694',   // brighter sage — readable on near-black
+  nutrition: '#d6b87a',  // warm wheat
+  recovery: '#9bb6bd',   // pale steel
+  mobility: '#c4929e',   // dusty rose
+} as const;
+
+const MOBILE_BACKGROUND_COLORS = {
+  primary: BOREAL_DARK.surface,                  // #11130f — base canvas
+  secondary: BOREAL_DARK.surfaceContainerLow,    // #191c19 — sections
+  tertiary: BOREAL_DARK.surfaceContainer,        // #1d201d — elevated
+  elevated: BOREAL_DARK.surfaceContainerLowest,  // #0b0e0b — floating cards
+} as const;
+
+const MOBILE_TEXT_COLORS = {
+  primary: BOREAL_DARK.onSurface,          // #e1e3de — body copy
+  secondary: BOREAL_DARK.onSurfaceVariant, // #c0c8c3 — secondary copy
+  tertiary: BOREAL_DARK.outline,           // #8a9389 — helper / labels
+  accent: BOREAL_DARK.primary,             // #a3d0be — links, active state
+} as const;
+
+const MOBILE_BORDER_COLORS = {
+  subtle: 'rgba(192, 200, 195, 0.08)',
+  default: 'rgba(192, 200, 195, 0.14)',
+  strong: 'rgba(192, 200, 195, 0.22)',
+} as const;
+
 export const colors = {
   pierre: {
-    ...PIERRE_COLORS,
-    activity: PILLAR_COLORS.activity,
-    nutrition: PILLAR_COLORS.nutrition,
-    recovery: PILLAR_COLORS.recovery,
-    red: BOREAL_LIGHT.error,
+    ...MOBILE_PIERRE_COLORS,
+    activity: MOBILE_PILLAR_COLORS.activity,
+    nutrition: MOBILE_PILLAR_COLORS.nutrition,
+    recovery: MOBILE_PILLAR_COLORS.recovery,
+    red: BOREAL_DARK.error,
   },
-  pillars: PILLAR_COLORS,
+  pillars: MOBILE_PILLAR_COLORS,
   primary: PRIMARY_PALETTE,
-  background: BACKGROUND_COLORS,
-  text: TEXT_COLORS,
-  border: BORDER_COLORS,
+  background: MOBILE_BACKGROUND_COLORS,
+  text: MOBILE_TEXT_COLORS,
+  border: MOBILE_BORDER_COLORS,
   success: SEMANTIC_COLORS.success,
   warning: SEMANTIC_COLORS.warning,
   error: SEMANTIC_COLORS.error,
@@ -151,3 +190,13 @@ export {
   TYPOGRAPHY,
   BRAND_TRACKING,
 };
+
+// Live palette hook — preferred over the static `colors` const above. Returns
+// an object with the same shape, but values flip when the user toggles
+// appearance from Settings. Components imported as
+//   `import { useThemeColors } from '../constants/theme';`
+//   const colors = useThemeColors();
+// keep their existing `colors.pierre.*` access patterns and gain runtime
+// reactivity in one swap.
+export { useTheme, useThemeColors } from '../contexts/ThemeContext';
+export type { AppearancePref } from '../hooks/useAppearancePref';

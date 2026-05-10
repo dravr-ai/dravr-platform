@@ -17,20 +17,13 @@ import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, borderRadius } from '../../constants/theme';
+import { spacing, borderRadius, useThemeColors, useTheme } from '../../constants/theme';
+import type { AppearancePref } from '../../hooks/useAppearancePref';
 import { Input } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
 import type { McpToken, ExtendedProviderStatus } from '../../types';
-// Glassmorphism card style
-const glassCardStyle: ViewStyle = {
-  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  borderWidth: 1,
-  borderColor: 'rgba(255, 255, 255, 0.1)',
-  borderRadius: 16,
-};
-
 // Settings row style
 const settingsRowStyle: ViewStyle = {
   flexDirection: 'row',
@@ -51,12 +44,16 @@ function formatCompactNumber(value: number): string {
 }
 
 /** Return hex color based on usage percentage: green < 70%, amber 70-90%, red > 90% */
-function getUsageBarColor(current: number, limit: number): string {
-  if (limit <= 0) return colors.pierre.activity;
+function getUsageBarColor(
+  current: number,
+  limit: number,
+  palette: { activity: string; nutrition: string; red: string },
+): string {
+  if (limit <= 0) return palette.activity;
   const pct = (current / limit) * 100;
-  if (pct > 90) return colors.pierre.red;
-  if (pct > 70) return colors.pierre.nutrition;
-  return colors.pierre.activity;
+  if (pct > 90) return palette.red;
+  if (pct > 70) return palette.nutrition;
+  return palette.activity;
 }
 
 /** Format ISO 8601 reset time in user's local timezone */
@@ -77,6 +74,16 @@ export function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const { pref: appearancePref, setPref: setAppearancePref } = useTheme();
+
+  // Glassmorphism card style — derived per render so it tracks the active scheme.
+  const glassCardStyle: ViewStyle = {
+    backgroundColor: colors.background.tertiary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 16,
+  };
   const [tokens, setTokens] = useState<McpToken[]>([]);
   const [showCreateToken, setShowCreateToken] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -293,7 +300,7 @@ export function SettingsScreen() {
               elevation: 6,
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>Edit Profile</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.tokens.onPrimary }}>Edit Profile</Text>
           </TouchableOpacity>
         </View>
 
@@ -347,7 +354,7 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Account</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]} testID="settings-personal-info-button">
+            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]} testID="settings-personal-info-button">
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="user" size={20} color={colors.text.secondary} />
               </View>
@@ -356,7 +363,7 @@ export function SettingsScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
               onPress={() => setShowChangePassword(true)}
               testID="settings-change-password-button"
             >
@@ -377,6 +384,63 @@ export function SettingsScreen() {
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Appearance Section — System / Light / Dark */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-appearance-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Appearance</Text>
+          <View style={glassCardStyle}>
+            {(['system', 'dark', 'light'] as const).map((option, idx, arr) => {
+              const isSelected = appearancePref === option;
+              const label = option === 'system' ? 'System' : option === 'dark' ? 'Dark' : 'Light';
+              const description =
+                option === 'system'
+                  ? 'Follow device setting'
+                  : option === 'dark'
+                    ? 'Boreal ink — recommended'
+                    : 'Boreal paper';
+              const icon = option === 'system' ? 'smartphone' : option === 'dark' ? 'moon' : 'sun';
+              const isLast = idx === arr.length - 1;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  testID={`appearance-option-${option}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => {
+                    void setAppearancePref(option as AppearancePref);
+                  }}
+                  style={[
+                    settingsRowStyle,
+                    !isLast && { borderBottomWidth: 1, borderBottomColor: colors.border.subtle },
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.background.secondary,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                    }}
+                  >
+                    <Feather name={icon} size={20} color={colors.text.secondary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, color: colors.text.primary }}>{label}</Text>
+                    <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>{description}</Text>
+                  </View>
+                  <Feather
+                    name={isSelected ? 'check-circle' : 'circle'}
+                    size={20}
+                    color={isSelected ? colors.pierre.violet : colors.text.tertiary}
+                  />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
@@ -407,12 +471,16 @@ export function SettingsScreen() {
                           {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
                         </Text>
                       </View>
-                      <View style={{ height: 8, backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                      <View style={{ height: 8, backgroundColor: colors.background.tertiary, borderRadius: 4, overflow: 'hidden' }}>
                         <View
                           style={{
                             height: '100%',
                             width: `${pct}%`,
-                            backgroundColor: getUsageBarColor(counter.current, counter.limit),
+                            backgroundColor: getUsageBarColor(counter.current, counter.limit, {
+                              activity: colors.pierre.activity,
+                              nutrition: colors.pierre.nutrition,
+                              red: colors.pierre.red,
+                            }),
                             borderRadius: 4,
                           }}
                         />
@@ -427,15 +495,15 @@ export function SettingsScreen() {
                 </Text>
 
                 {/* Resource counts */}
-                <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)', paddingTop: 16 }}>
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.border.default, paddingTop: 16 }}>
                   <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
+                    <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
                       <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Coaches</Text>
                       <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.coaches} / {usageData.resources.max_coaches}
                       </Text>
                     </View>
-                    <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
+                    <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
                       <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Conversations</Text>
                       <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.conversations} / {usageData.resources.max_conversations}
@@ -466,7 +534,7 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>About</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}>
+            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}>
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="info" size={20} color={colors.text.secondary} />
               </View>
@@ -476,7 +544,7 @@ export function SettingsScreen() {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}>
+            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}>
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="help-circle" size={20} color={colors.text.secondary} />
               </View>
@@ -543,7 +611,7 @@ export function SettingsScreen() {
                     setNewToken(null);
                   }}
                 >
-                  <Text className="text-base font-semibold text-on-surface">Done</Text>
+                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Done</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -557,7 +625,7 @@ export function SettingsScreen() {
                 <View className="flex-row gap-3 mt-4">
                   <TouchableOpacity
                     className="flex-1 py-3 rounded-full items-center"
-                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                    style={{ backgroundColor: colors.background.tertiary }}
                     onPress={() => setShowCreateToken(false)}
                   >
                     <Text className="text-base font-semibold text-on-surface">Cancel</Text>
@@ -569,9 +637,9 @@ export function SettingsScreen() {
                     disabled={isCreatingToken}
                   >
                     {isCreatingToken ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
+                      <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                     ) : (
-                      <Text className="text-base font-semibold text-on-surface">Create</Text>
+                      <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Create</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -625,7 +693,7 @@ export function SettingsScreen() {
             <View className="flex-row gap-3 mt-4">
               <TouchableOpacity
                 className="flex-1 py-3 rounded-full items-center"
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                style={{ backgroundColor: colors.background.tertiary }}
                 onPress={() => setShowChangePassword(false)}
               >
                 <Text className="text-base font-semibold text-on-surface">Cancel</Text>
@@ -637,9 +705,9 @@ export function SettingsScreen() {
                 disabled={isChangingPassword}
               >
                 {isChangingPassword ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                 ) : (
-                  <Text className="text-base font-semibold text-on-surface">Change</Text>
+                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Change</Text>
                 )}
               </TouchableOpacity>
             </View>

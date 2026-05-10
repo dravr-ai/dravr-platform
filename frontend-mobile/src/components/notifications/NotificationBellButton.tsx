@@ -6,11 +6,12 @@ import { View, TouchableOpacity, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Bell } from 'lucide-react-native';
 import { useUnreadCount } from '../../hooks/useNotifications';
+import { useThemeColors } from '../../constants/theme';
 
 interface NotificationBellButtonProps {
   /** Icon size in pixels */
   size?: number;
-  /** Icon color */
+  /** Icon color override; falls back to the active theme's secondary text. */
   color?: string;
 }
 
@@ -20,10 +21,12 @@ interface NotificationBellButtonProps {
  */
 export function NotificationBellButton({
   size = 22,
-  color = '#E2E8F0',
+  color,
 }: NotificationBellButtonProps) {
   const router = useRouter();
+  const colors = useThemeColors();
   const { unreadCount } = useUnreadCount();
+  const iconColor = color ?? colors.text.secondary;
 
   return (
     <TouchableOpacity
@@ -32,12 +35,16 @@ export function NotificationBellButton({
       testID="notification-bell"
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
     >
-      <Bell size={size} color={color} />
+      <Bell size={size} color={iconColor} />
       {unreadCount > 0 && (
         <View
-          className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-violet-600 items-center justify-center px-1"
+          className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full items-center justify-center px-1"
+          style={{ backgroundColor: colors.pierre.violet }}
         >
-          <Text className="text-[10px] font-bold text-on-surface">
+          <Text
+            className="text-[10px] font-bold"
+            style={{ color: colors.tokens.onPrimary }}
+          >
             {unreadCount > 99 ? '99+' : unreadCount}
           </Text>
         </View>

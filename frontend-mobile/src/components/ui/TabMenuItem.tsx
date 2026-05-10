@@ -9,7 +9,7 @@ import { Pressable, Text } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import type { LucideIcon } from 'lucide-react-native';
-import { colors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 
 interface TabMenuItemProps {
   icon: LucideIcon;
@@ -30,6 +30,7 @@ export function TabMenuItem({
   isQuickAction = false,
   testID,
 }: TabMenuItemProps) {
+  const colors = useThemeColors();
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();

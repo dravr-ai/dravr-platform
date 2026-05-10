@@ -4,7 +4,7 @@
 // ABOUTME: Group detail screen showing group info, stats, members, and actions
 // ABOUTME: Supports admin actions for owners/admins and common actions for all members
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { colors, spacing, glassCard, buttonGlow } from '../../constants/theme';
+import { spacing, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import { useGroup, useGroupMembers, useGroupStats, useGroupActions } from '../../hooks/useGroups';
 import { groupsApi } from '../../services/api';
 import type { GroupMember, GroupRole } from '../../types';
@@ -37,12 +37,6 @@ const ROLE_LABELS: Record<GroupRole, string> = {
   member: 'Member',
 };
 
-const ROLE_COLORS: Record<GroupRole, string> = {
-  owner: colors.pierre.violet,
-  admin: colors.pierre.activity,
-  member: colors.pierre.recovery,
-};
-
 interface StatItemProps {
   icon: FeatherIconName;
   label: string;
@@ -50,6 +44,7 @@ interface StatItemProps {
 }
 
 function StatItem({ icon, label, value }: StatItemProps) {
+  const colors = useThemeColors();
   return (
     <View className="items-center flex-1">
       <Feather name={icon} size={18} color={colors.pierre.violet} />
@@ -67,7 +62,13 @@ interface MemberRowProps {
 }
 
 function MemberRow({ member, isAdmin, onRemove, isRemoving }: MemberRowProps) {
-  const roleColor = ROLE_COLORS[member.role];
+  const colors = useThemeColors();
+  const roleColors = useMemo<Record<GroupRole, string>>(() => ({
+    owner: colors.pierre.violet,
+    admin: colors.pierre.activity,
+    member: colors.pierre.recovery,
+  }), [colors]);
+  const roleColor = roleColors[member.role];
   const displayName = member.display_name ?? 'Unknown';
 
   // Generate initials from display name
@@ -132,6 +133,7 @@ function MemberRow({ member, isAdmin, onRemove, isRemoving }: MemberRowProps) {
 }
 
 export function GroupDetailScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
@@ -323,8 +325,8 @@ export function GroupDetailScreen() {
             }
             testID="chat-with-coach-button"
           >
-            <Feather name="message-circle" size={18} color="#FFFFFF" />
-            <Text className="text-on-surface text-sm font-semibold">Chat with Coach</Text>
+            <Feather name="message-circle" size={18} color={colors.tokens.onPrimary} />
+            <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>Chat with Coach</Text>
           </TouchableOpacity>
 
           {isAdmin && (

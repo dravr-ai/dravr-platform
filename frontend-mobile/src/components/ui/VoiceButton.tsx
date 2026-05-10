@@ -16,7 +16,7 @@ import Animated, {
   withTiming,
   cancelAnimation,
 } from 'react-native-reanimated';
-import { colors, borderRadius } from '../../constants/theme';
+import { borderRadius, useThemeColors } from '../../constants/theme';
 
 interface VoiceButtonProps {
   isListening: boolean;
@@ -47,6 +47,7 @@ export function VoiceButton({
   size = 'md',
   testID,
 }: VoiceButtonProps) {
+  const colors = useThemeColors();
   const pulseScale = useSharedValue(1);
   const buttonSize = BUTTON_SIZES[size];
   const iconScale = ICON_SCALES[size];

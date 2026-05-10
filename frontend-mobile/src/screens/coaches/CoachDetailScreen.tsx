@@ -1,7 +1,7 @@
 // ABOUTME: Coach detail screen showing full coach info with edit/delete actions
 // ABOUTME: Read-only view of user's coach with option to edit or use in chat
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,26 +17,11 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Markdown from 'react-native-markdown-display';
 import { Platform } from 'react-native';
-import { colors, spacing, fontSize, borderRadius, glassCard, gradients, buttonGlow } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
 import type { Coach } from '../../types';
-
-const coachMarkdownStyles = {
-  body: { color: colors.text.secondary, fontSize: fontSize.md, lineHeight: fontSize.md * 1.6 },
-  heading2: { color: colors.text.primary, fontSize: fontSize.lg, fontWeight: '600' as const, marginTop: spacing.sm, marginBottom: spacing.xs },
-  heading3: { color: colors.text.primary, fontSize: fontSize.md, fontWeight: '600' as const, marginTop: spacing.xs },
-  strong: { color: colors.text.primary, fontWeight: '700' as const },
-  em: { color: colors.text.secondary, fontStyle: 'italic' as const },
-  bullet_list: { marginLeft: spacing.sm },
-  ordered_list: { marginLeft: spacing.sm },
-  list_item: { marginBottom: spacing.xs },
-  code_inline: { backgroundColor: colors.background.tertiary, color: colors.primary[400], paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: fontSize.sm },
-  fence: { backgroundColor: colors.background.tertiary, borderRadius: borderRadius.sm, padding: spacing.sm, marginVertical: spacing.xs },
-  link: { color: colors.primary[400], textDecorationLine: 'underline' as const },
-  hr: { backgroundColor: colors.border.default, height: 1, marginVertical: spacing.sm },
-};
 
 // Coach category colors matching Stitch UX spec
 const COACH_CATEGORY_COLORS: Record<string, string> = {
@@ -49,9 +34,24 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function CoachDetailScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
+  const coachMarkdownStyles = useMemo(() => ({
+    body: { color: colors.text.secondary, fontSize: fontSize.md, lineHeight: fontSize.md * 1.6 },
+    heading2: { color: colors.text.primary, fontSize: fontSize.lg, fontWeight: '600' as const, marginTop: spacing.sm, marginBottom: spacing.xs },
+    heading3: { color: colors.text.primary, fontSize: fontSize.md, fontWeight: '600' as const, marginTop: spacing.xs },
+    strong: { color: colors.text.primary, fontWeight: '700' as const },
+    em: { color: colors.text.secondary, fontStyle: 'italic' as const },
+    bullet_list: { marginLeft: spacing.sm },
+    ordered_list: { marginLeft: spacing.sm },
+    list_item: { marginBottom: spacing.xs },
+    code_inline: { backgroundColor: colors.background.tertiary, color: PRIMARY_PALETTE[400], paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: fontSize.sm },
+    fence: { backgroundColor: colors.background.tertiary, borderRadius: borderRadius.sm, padding: spacing.sm, marginVertical: spacing.xs },
+    link: { color: PRIMARY_PALETTE[400], textDecorationLine: 'underline' as const },
+    hr: { backgroundColor: colors.border.default, height: 1, marginVertical: spacing.sm },
+  }), [colors]);
   const [coach, setCoach] = useState<Coach | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -149,7 +149,7 @@ export function CoachDetailScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
           <Text className="mt-3 text-text-secondary text-base">Loading coach details...</Text>
         </View>
       </SafeAreaView>
@@ -194,7 +194,7 @@ export function CoachDetailScreen() {
             className="p-2"
             onPress={handleEdit}
           >
-            <Feather name="edit-2" size={20} color={colors.primary[500]} />
+            <Feather name="edit-2" size={20} color={PRIMARY_PALETTE[500]} />
           </TouchableOpacity>
         )}
         {coach.is_system && <View className="w-10" />}
@@ -214,8 +214,16 @@ export function CoachDetailScreen() {
               </Text>
             </View>
             {coach.is_system && (
-              <View className="px-2 py-1 rounded" style={{ backgroundColor: colors.primary[500] + '30' }}>
-                <Text className="text-xs font-semibold text-primary-500">System</Text>
+              <View
+                className="px-2 py-1 rounded"
+                style={{ backgroundColor: `${PRIMARY_PALETTE[500]}30` }}
+              >
+                <Text
+                  className="text-xs font-semibold"
+                  style={{ color: PRIMARY_PALETTE[500] }}
+                >
+                  System
+                </Text>
               </View>
             )}
             {coach.is_favorite && (
@@ -247,9 +255,9 @@ export function CoachDetailScreen() {
                   key={tag}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2"
                   style={{
-                    backgroundColor: 'rgba(0, 36, 26, 0.15)',
+                    backgroundColor: colors.background.tertiary,
                     borderWidth: 1,
-                    borderColor: 'rgba(0, 36, 26, 0.3)',
+                    borderColor: colors.border.default,
                   }}
                 >
                   <Text className="text-sm" style={{ color: colors.pierre.violet }}>{tag}</Text>
@@ -400,9 +408,9 @@ export function CoachDetailScreen() {
         className="absolute left-0 right-0 flex-row p-4 pb-3 gap-3"
         style={{
           bottom: TAB_BAR_BOTTOM_OFFSET,
-          backgroundColor: 'rgba(15, 15, 23, 0.95)',
+          backgroundColor: colors.background.elevated,
           borderTopWidth: 1,
-          borderTopColor: 'rgba(0, 36, 26, 0.2)',
+          borderTopColor: colors.border.default,
         }}
       >
         <TouchableOpacity
@@ -414,8 +422,8 @@ export function CoachDetailScreen() {
           onPress={handleUseInChat}
           testID="use-in-chat-button"
         >
-          <Feather name="message-circle" size={18} color="#FFFFFF" />
-          <Text className="text-on-surface text-base font-semibold">Use in Chat</Text>
+          <Feather name="message-circle" size={18} color={colors.tokens.onPrimary} />
+          <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Use in Chat</Text>
         </TouchableOpacity>
 
         {coach.is_system && (
@@ -424,7 +432,7 @@ export function CoachDetailScreen() {
             style={{
               ...glassCard,
               borderRadius: 12,
-              borderColor: isHidden ? colors.pierre.violet : 'rgba(255, 255, 255, 0.1)',
+              borderColor: isHidden ? colors.pierre.violet : colors.border.default,
             }}
             onPress={handleToggleHidden}
             disabled={isTogglingHidden}

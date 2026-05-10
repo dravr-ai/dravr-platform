@@ -4,10 +4,10 @@
 // ABOUTME: Reusable group card component for displaying coaching group info
 // ABOUTME: Shows group name, member count, role badge, and navigates to detail on press
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { colors, glassCard } from '../../constants/theme';
+import { glassCard, useThemeColors } from '../../constants/theme';
 import type { GroupSummary, GroupRole } from '../../types';
 
 const cardStyle: ViewStyle = {
@@ -22,12 +22,6 @@ const ROLE_LABELS: Record<GroupRole, string> = {
   member: 'Member',
 };
 
-const ROLE_COLORS: Record<GroupRole, string> = {
-  owner: colors.pierre.violet,
-  admin: colors.pierre.activity,
-  member: colors.pierre.recovery,
-};
-
 interface GroupCardProps {
   group: GroupSummary;
   onPress: (group: GroupSummary) => void;
@@ -35,7 +29,13 @@ interface GroupCardProps {
 }
 
 export function GroupCard({ group, onPress, testID }: GroupCardProps) {
-  const roleColor = ROLE_COLORS[group.my_role];
+  const colors = useThemeColors();
+  const roleColors = useMemo<Record<GroupRole, string>>(() => ({
+    owner: colors.pierre.violet,
+    admin: colors.pierre.activity,
+    member: colors.pierre.recovery,
+  }), [colors]);
+  const roleColor = roleColors[group.my_role];
   const roleLabel = ROLE_LABELS[group.my_role];
 
   return (

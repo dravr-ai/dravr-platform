@@ -13,13 +13,14 @@ import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { SearchUserCard } from '../../components/social/FriendCard';
 import type { DiscoverableUser } from '../../types';
 export function SearchFriendsScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [query, setQuery] = useState('');

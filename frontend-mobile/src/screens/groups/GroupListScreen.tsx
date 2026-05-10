@@ -16,12 +16,13 @@ import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { colors, spacing, buttonGlow } from '../../constants/theme';
+import { spacing, buttonGlow, useThemeColors } from '../../constants/theme';
 import { useMyGroups } from '../../hooks/useGroups';
 import { GroupCard } from '../../components/groups/GroupCard';
 import type { GroupSummary } from '../../types';
 
 export function GroupListScreen() {
+  const colors = useThemeColors();
   const router = useRouter();
   const {
     groups,
@@ -101,8 +102,8 @@ export function GroupListScreen() {
           onPress={handleCreateGroup}
           testID="create-group-empty-button"
         >
-          <Feather name="plus" size={18} color="#FFFFFF" />
-          <Text className="text-on-surface text-base font-semibold">Create</Text>
+          <Feather name="plus" size={18} color={colors.tokens.onPrimary} />
+          <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Create</Text>
         </TouchableOpacity>
       </View>
     </View>

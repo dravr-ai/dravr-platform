@@ -1,7 +1,7 @@
 // ABOUTME: Message list component with FlatList rendering and empty states
 // ABOUTME: Handles message display, thinking indicator, and coach grid for new chats
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,18 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
-import { colors, spacing, fontSize, borderRadius, aiGlow } from '../../constants/theme';
+import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
 
-// Coach category badge background colors
-const COACH_CATEGORY_BADGE_BG: Record<string, string> = {
-  training: 'rgba(60, 102, 88, 0.15)',
-  nutrition: 'rgba(143, 106, 46, 0.15)',
-  recovery: 'rgba(94, 122, 130, 0.15)',
-  recipes: 'rgba(249, 115, 22, 0.15)',
-  mobility: 'rgba(122, 77, 94, 0.15)',
-  custom: 'rgba(0, 36, 26, 0.15)',
-};
+type ThemeColors = ReturnType<typeof useThemeColors>;
 
 // Coach category emoji icons
 const COACH_CATEGORY_ICONS: Record<string, string> = {
@@ -40,8 +32,9 @@ const COACH_CATEGORY_ICONS: Record<string, string> = {
   custom: '⚙️',
 };
 
-// Markdown styles for assistant messages
-const markdownStyles = {
+// Markdown styles for assistant messages — built per palette so the rendered
+// markdown flips with the active theme.
+const buildMarkdownStyles = (colors: ThemeColors) => ({
   body: {
     color: colors.text.primary,
     fontSize: fontSize.md,
@@ -87,7 +80,7 @@ const markdownStyles = {
   },
   code_inline: {
     backgroundColor: colors.background.tertiary,
-    color: colors.primary[400],
+    color: PRIMARY_PALETTE[400],
     paddingHorizontal: 4,
     borderRadius: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -105,7 +98,7 @@ const markdownStyles = {
     color: colors.text.primary,
   },
   link: {
-    color: colors.primary[400],
+    color: PRIMARY_PALETTE[400],
     textDecorationLine: 'underline' as const,
   },
   hr: {
@@ -144,7 +137,7 @@ const markdownStyles = {
     color: colors.text.secondary,
     flexShrink: 1,
   },
-};
+});
 
 // Helper to detect OAuth authorization URLs
 const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } => {
@@ -175,6 +168,8 @@ const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } 
 
 // Collapsible section for the activity list — closed by default
 function CollapsibleActivities({ activityText }: { activityText: string }) {
+  const colors = useThemeColors();
+  const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
   const [expanded, setExpanded] = useState(false);
 
   const activityCount = countActivities(activityText);
@@ -257,6 +252,10 @@ export function MessageList({
   onOpenUrl,
   onActionClick,
 }: MessageListProps) {
+  const colors = useThemeColors();
+  const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
+  const { scheme } = useTheme();
+  const isDark = scheme === 'dark';
   const handleCopyMessage = async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
@@ -306,7 +305,7 @@ export function MessageList({
               <TouchableOpacity
                 key={`oauth-${index}`}
                 className="px-4 py-2 rounded-lg my-1 self-start"
-                style={{ backgroundColor: colors.providers.strava }}
+                style={{ backgroundColor: PROVIDER_COLORS.strava }}
                 onPress={() => onOpenUrl(url)}
               >
                 <Text className="text-base font-semibold text-text-primary">
@@ -358,10 +357,17 @@ export function MessageList({
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
         {isUser ? (
-          /* User message — right-aligned bubble with distinct background */
+          /* User message — right-aligned bubble. Uses surface-container-high
+             so it sits one tier above the canvas in both modes (clearly
+             darker than cream in light, clearly lighter than ink in dark)
+             plus a strong hairline border for added separation. */
           <View
             className="max-w-[85%] rounded-2xl rounded-br-[4px] px-4 py-3"
-            style={{ backgroundColor: 'rgba(0, 36, 26, 0.15)', borderWidth: 1, borderColor: 'rgba(0, 36, 26, 0.25)' }}
+            style={{
+              backgroundColor: colors.tokens.surfaceContainerHigh,
+              borderWidth: 1,
+              borderColor: colors.border.strong,
+            }}
           >
             {renderMessageContent(item.content, true, item.id)}
           </View>
@@ -454,9 +460,9 @@ export function MessageList({
       <View
         className="flex-row max-w-[85%] rounded-2xl rounded-bl-[4px] p-4"
         style={{
-          backgroundColor: 'rgba(244, 244, 241, 0.9)',
+          backgroundColor: colors.background.elevated,
           borderWidth: 1,
-          borderColor: 'rgba(0, 36, 26, 0.3)',
+          borderColor: colors.border.strong,
           ...aiGlow.thinking,
         }}
       >
@@ -477,40 +483,85 @@ export function MessageList({
   );
 
   const renderCoachCard = (coach: Coach) => {
-    const categoryColor = COACH_CATEGORY_BADGE_BG[coach.category] || 'rgba(0, 36, 26, 0.15)';
+    // Pillar tint per category — drives the icon container, the small caps
+    // label, and the favorite star so a card reads as one cohesive object.
+    const pillarKey = (
+      ['training', 'nutrition', 'recovery', 'mobility', 'recipes'] as const
+    ).includes(coach.category as never)
+      ? (coach.category === 'recipes' ? 'nutrition' : (coach.category as 'training' | 'nutrition' | 'recovery' | 'mobility'))
+      : null;
+    const pillarMap = {
+      training: colors.pierre.activity,
+      nutrition: colors.pierre.nutrition,
+      recovery: colors.pierre.recovery,
+      mobility: colors.pierre.mobility,
+    } as const;
+    const pillarColor = pillarKey ? pillarMap[pillarKey] : colors.pierre.violet;
+
+    // Light surfaces use a hairline outline-variant edge + soft 4% ink
+    // shadow; dark surfaces lean on a deeper black drop so cards float over
+    // the near-black canvas. Both sit on the cream/ink base canvas one tier up.
+    const cardBg = colors.background.elevated;
+    const cardBorder = isDark
+      ? 'rgba(192, 200, 195, 0.10)'
+      : 'rgba(26, 28, 27, 0.06)';
+    const cardShadow = {
+      shadowColor: isDark ? '#000000' : '#1a1c1b',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.35 : 0.04,
+      shadowRadius: 16,
+      elevation: 3,
+    };
 
     return (
       <TouchableOpacity
         key={coach.id}
-        className="bg-background-secondary rounded-2xl px-5 pt-4 pb-5 mb-3"
+        className="rounded-2xl px-5 pt-4 pb-5 mb-3"
+        style={{
+          backgroundColor: cardBg,
+          borderWidth: 1,
+          borderColor: cardBorder,
+          ...cardShadow,
+        }}
         onPress={() => onCoachSelect(coach)}
-        activeOpacity={0.7}
+        activeOpacity={0.85}
       >
-        {/* Top row: category icon + category label + chevron */}
+        {/* Top row: pillar-tinted icon tile + category label + chevron */}
         <View className="flex-row items-center mb-3">
           <View
-            className="w-8 h-8 rounded-lg items-center justify-center mr-2"
-            style={{ backgroundColor: categoryColor }}
+            className="w-9 h-9 rounded-xl items-center justify-center mr-3"
+            style={{ backgroundColor: `${pillarColor}1F` }}
           >
             <Text className="text-base">{COACH_CATEGORY_ICONS[coach.category]}</Text>
           </View>
-          <Text className="text-xs font-semibold uppercase tracking-wide flex-1" style={{ color: colors.pierre.violet }}>
+          <Text
+            className="text-[11px] font-semibold uppercase tracking-[0.12em] flex-1"
+            style={{ color: pillarColor }}
+          >
             {coach.category}
           </Text>
           {coach.is_favorite && (
-            <Text className="text-sm mr-1" style={{ color: '#8f6a2e' }}>★</Text>
+            <Text className="text-sm mr-1" style={{ color: colors.pierre.nutrition }}>★</Text>
           )}
-          <Text className="text-lg text-text-tertiary">›</Text>
+          <Text className="text-lg" style={{ color: colors.text.tertiary }}>›</Text>
         </View>
 
-        {/* Coach name — large, like Health app values */}
-        <Text className="text-lg font-bold text-text-primary mb-1" numberOfLines={2}>
+        {/* Coach name — large editorial weight */}
+        <Text
+          className="text-lg font-bold mb-1"
+          style={{ color: colors.text.primary }}
+          numberOfLines={2}
+        >
           {coach.title}
         </Text>
 
         {/* Description */}
         {coach.description && (
-          <Text className="text-sm text-text-secondary leading-5" numberOfLines={5}>
+          <Text
+            className="text-sm leading-5"
+            style={{ color: colors.text.secondary }}
+            numberOfLines={5}
+          >
             {coach.description}
           </Text>
         )}
@@ -554,7 +605,7 @@ export function MessageList({
   if (isLoading) {
     return (
       <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color={colors.primary[500]} />
+        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
       </View>
     );
   }

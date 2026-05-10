@@ -5,7 +5,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { colors, glassCard } from '../../constants/theme';
+import { glassCard, useThemeColors } from '../../constants/theme';
 import type { FeedItem, ReactionType } from '../../types';
 
 type FeatherIconName = ComponentProps<typeof Feather>['name'];
@@ -85,6 +85,7 @@ export function InsightCard({
   isReacting,
   isAdapting,
 }: InsightCardProps) {
+  const colors = useThemeColors();
   const { insight, author, reactions, user_reaction, user_has_adapted } = item;
   const displayName = author.display_name || author.email.split('@')[0];
   const initials = getInitials(author.display_name, author.email);
@@ -187,19 +188,17 @@ export function InsightCard({
           disabled={isAdapting || user_has_adapted}
         >
           {isAdapting ? (
-            <ActivityIndicator size="small" color={colors.text.primary} />
+            <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
           ) : (
             <>
               <Feather
                 name={user_has_adapted ? 'check-circle' : 'refresh-cw'}
                 size={16}
-                color={user_has_adapted ? colors.pierre.activity : colors.text.primary}
+                color={user_has_adapted ? colors.pierre.activity : colors.tokens.onPrimary}
               />
               <Text
-                className={`text-base font-semibold ${
-                  user_has_adapted ? '' : 'text-text-primary'
-                }`}
-                style={user_has_adapted ? { color: colors.pierre.activity } : undefined}
+                className="text-base font-semibold"
+                style={{ color: user_has_adapted ? colors.pierre.activity : colors.tokens.onPrimary }}
               >
                 {user_has_adapted ? 'Adapted' : 'Adapt to My Training'}
               </Text>

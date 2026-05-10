@@ -15,7 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
+import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 
 export function ForgotPasswordScreen() {
@@ -90,7 +90,7 @@ export function ForgotPasswordScreen() {
               {/* Header */}
               <View className="items-center mb-6">
                 <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-primary-500/20">
-                  <Ionicons name="lock-closed-outline" size={28} color={colors.primary[500]} />
+                  <Ionicons name="lock-closed-outline" size={28} color={PRIMARY_PALETTE[500]} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
                   Reset Your Password
