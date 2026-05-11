@@ -360,7 +360,9 @@ fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64
     let mut tss_some = 0_usize;
     let mut tss_none = 0_usize;
     for a in &sorted {
-        let tss = calculator.calculate_tss(a, None, None, None, None, None).ok();
+        let tss = calculator
+            .calculate_tss(a, None, None, None, None, None)
+            .ok();
         match tss {
             Some(v) => {
                 total_tss += v;
