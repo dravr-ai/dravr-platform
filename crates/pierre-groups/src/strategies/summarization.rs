@@ -4,13 +4,56 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::models::groups::{
     GroupSummaryBlock, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
     SummaryDetailLevel,
 };
+
+/// Number of seconds in one hour, used by the weekly-duration formatter.
+const SECONDS_PER_HOUR: f64 = 3_600.0;
+
+/// Format the per-provider freshness map as a stable comma-separated string
+/// (e.g. `"strava 33d, whoop 0d"`). Providers appear sorted by name so the
+/// rendering is deterministic across snapshot fetches — the LLM is allergic
+/// to nondeterministic context lines and tends to over-interpret reorderings
+/// as semantic signals. Returns an empty string when the map is empty so the
+/// caller can skip the line entirely instead of emitting `Sources: `.
+fn format_provider_freshness(
+    last_activity_per_provider: &HashMap<String, DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> String {
+    if last_activity_per_provider.is_empty() {
+        return String::new();
+    }
+    let mut entries: Vec<(&String, &DateTime<Utc>)> = last_activity_per_provider.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut out = String::with_capacity(entries.len() * 16);
+    for (idx, (provider, latest)) in entries.iter().enumerate() {
+        if idx > 0 {
+            out.push_str(", ");
+        }
+        let days = (now - **latest).num_days().max(0);
+        let _ = write!(out, "{provider} {days}d");
+    }
+    out
+}
+
+/// Format weekly active duration as a fixed-precision hour string for prompt rendering.
+///
+/// Returns one decimal place (e.g. `0.0`, `1.5`, `12.3`) so the LLM sees
+/// stable shape even when the value is zero, and so very short weeks
+/// (~6 minutes) still render as `0.1h` rather than disappearing into `0`.
+fn format_weekly_duration_hours(weekly_duration_seconds: i64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    // weekly_duration_seconds is capped at one week of activity time; far below f64 precision limits
+    let hours = weekly_duration_seconds.max(0) as f64 / SECONDS_PER_HOUR;
+    format!("{hours:.1}")
+}
 
 /// Strategy for compressing member fitness data into LLM-consumable summaries.
 ///
@@ -75,7 +118,14 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         if let Some(tsb) = snapshot.tsb {
             let _ = write!(text, " TSB {tsb:+.0}");
         }
-        let _ = write!(text, " | {:.0}km/wk", snapshot.weekly_volume_km);
+        // Render duration alongside distance so HR/duration-only sources
+        // (WHOOP, indoor trainers) don't collapse to a misleading "0km/wk".
+        let _ = write!(
+            text,
+            " | {}h / {:.0}km/wk",
+            format_weekly_duration_hours(snapshot.weekly_duration_seconds),
+            snapshot.weekly_volume_km
+        );
         if let Some(sport) = &snapshot.primary_sport {
             let _ = write!(text, " {sport}");
         }
@@ -135,11 +185,23 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
 
         let mut text = String::with_capacity(256);
         let _ = writeln!(text, "{} (this week):", snapshot.display_name);
+        // Always emit duration alongside distance: HR/duration-only sources
+        // (WHOOP, indoor trainers) carry no GPS and would otherwise look
+        // like the athlete trained 0 km despite hours of work.
         let _ = writeln!(
             text,
-            "  {} activities, {:.1}km total",
-            snapshot.weekly_activity_count, snapshot.weekly_volume_km
+            "  {} activities, {}h active, {:.1}km total",
+            snapshot.weekly_activity_count,
+            format_weekly_duration_hours(snapshot.weekly_duration_seconds),
+            snapshot.weekly_volume_km
         );
+        // Per-provider freshness so the LLM can see "strava 33d, whoop 0d"
+        // and avoid attributing low volume to a "not synced" excuse.
+        let freshness =
+            format_provider_freshness(&snapshot.last_activity_per_provider, snapshot.computed_at);
+        if !freshness.is_empty() {
+            let _ = writeln!(text, "  Sources: {freshness}");
+        }
         if let (Some(ctl), Some(atl), Some(tsb)) = (snapshot.ctl, snapshot.atl, snapshot.tsb) {
             let _ = writeln!(text, "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0}");
         }

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
@@ -255,6 +256,12 @@ pub struct MemberFitnessSnapshot {
     pub previous_week_volume_km: Option<f64>,
     /// Number of activities this week
     pub weekly_activity_count: i32,
+    /// Total weekly active duration in seconds across all activities.
+    /// Surfaces training volume for HR/duration-only sources (WHOOP,
+    /// indoor trainers, treadmill sessions) that report no GPS distance
+    /// — without this the group card renders such weeks as `0.0 km`
+    /// and the LLM has no visibility into the athlete's actual workload.
+    pub weekly_duration_seconds: i64,
     /// Primary sport type
     pub primary_sport: Option<String>,
     /// VDOT (running fitness estimator)
@@ -263,6 +270,11 @@ pub struct MemberFitnessSnapshot {
     pub overtraining_risk: OvertrainingRiskLevel,
     /// Days since last activity
     pub days_since_last_activity: Option<i32>,
+    /// Most recent activity date observed per connected provider.
+    /// Lets the LLM see "Strava last seen 33 days ago, WHOOP today"
+    /// and stop attributing a quiet provider to "not synced" excuses.
+    /// Keyed by provider slug (`strava`, `whoop`, `sciotte`, ...).
+    pub last_activity_per_provider: HashMap<String, DateTime<Utc>>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
 }
