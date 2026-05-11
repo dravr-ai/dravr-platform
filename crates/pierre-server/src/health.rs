@@ -977,30 +977,41 @@ impl LlmHealthState {
         }
     }
 
-    /// Record a successful probe result.
-    pub async fn record_healthy(&self, provider: impl Into<String>) {
+    /// Record a successful probe result. Returns the previous status so
+    /// callers can detect transitions and log accordingly (e.g. emit
+    /// `error!` on `Healthy -> Unhealthy` so the tronc Slack layer pages).
+    pub async fn record_healthy(&self, provider: impl Into<String>) -> LlmHealthStatus {
         let mut guard = self.inner.write().await;
+        let previous = guard.status;
         *guard = LlmHealthSnapshot {
             status: LlmHealthStatus::Healthy,
             provider: Some(provider.into()),
             error: None,
             checked_at: Some(chrono::Utc::now()),
         };
+        previous
     }
 
     /// Record a failed probe result. The error message is truncated to a
     /// single line so it stays grep-able in the readiness JSON payload.
-    pub async fn record_unhealthy(&self, provider: impl Into<String>, error: impl Into<String>) {
+    /// Returns the previous status so callers can detect transitions.
+    pub async fn record_unhealthy(
+        &self,
+        provider: impl Into<String>,
+        error: impl Into<String>,
+    ) -> LlmHealthStatus {
         let provider = provider.into();
         let raw = error.into();
         let first_line = raw.lines().next().unwrap_or(raw.as_str()).to_owned();
         let mut guard = self.inner.write().await;
+        let previous = guard.status;
         *guard = LlmHealthSnapshot {
             status: LlmHealthStatus::Unhealthy,
             provider: Some(provider),
             error: Some(first_line),
             checked_at: Some(chrono::Utc::now()),
         };
+        previous
     }
 
     /// Copy the current snapshot for a readiness/JSON response.
