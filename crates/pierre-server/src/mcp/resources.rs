@@ -34,6 +34,7 @@ use crate::contremaitre::{
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
 use crate::harness_config_registry::HarnessConfigRegistry;
+use crate::health::LlmHealthState;
 use crate::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -340,7 +341,7 @@ pub struct ServerContext {
     /// `/ready` and `/health/llm` Axum handlers. Boot defaults to
     /// `LlmHealthStatus::Unknown` so the readiness gate stays open
     /// during the probe's first round-trip.
-    pub llm_health: Arc<crate::health::LlmHealthState>,
+    pub llm_health: Arc<LlmHealthState>,
 }
 
 /// Run a contremaitre full-sync against the freshly-built registries,
@@ -766,7 +767,7 @@ impl ServerContext {
             // compile and run without a vendor crate. Production binaries
             // override via ServerContextBuilder::with_billing_provider.
             billing_provider: Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>,
-            llm_health: Arc::new(crate::health::LlmHealthState::new()),
+            llm_health: Arc::new(LlmHealthState::new()),
         }
     }
 

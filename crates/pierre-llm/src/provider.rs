@@ -131,7 +131,26 @@ impl ChatProvider {
         }
 
         let secondary_result = Self::create_provider(fallback_type).await;
+        Self::resolve_runtime_chain(
+            primary_result,
+            secondary_result,
+            primary_type,
+            fallback_type,
+        )
+    }
 
+    /// Combine the primary and secondary init results into a single provider
+    /// (the chain, or whichever side worked, or a combined error).
+    ///
+    /// Split from [`Self::build_runtime_chain`] purely to keep its cognitive
+    /// complexity under the workspace clippy budget — same match block,
+    /// no behavioral change.
+    fn resolve_runtime_chain(
+        primary_result: Result<Self, AppError>,
+        secondary_result: Result<Self, AppError>,
+        primary_type: LlmProviderType,
+        fallback_type: LlmProviderType,
+    ) -> Result<Self, AppError> {
         match (primary_result, secondary_result) {
             (Ok(primary), Ok(secondary)) => {
                 info!(
