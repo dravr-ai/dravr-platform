@@ -7,8 +7,8 @@
 use crate::config::environment::RateLimitConfig;
 use crate::constants::key_prefixes;
 use crate::errors::{AppError, AppResult};
-use crate::models::UserStatus;
 use crate::providers::errors::ProviderError;
+use crate::services::user_status_gate::enforce_user_status;
 use crate::utils::errors::auth_error;
 use crate::utils::uuid::parse_uuid;
 use axum::http::HeaderMap;
@@ -323,21 +323,11 @@ impl McpAuthMiddleware {
         // SECURITY: Enforce account status on every API request.
         // Login endpoints let pending users authenticate (so the frontend can show
         // the "pending approval" page), but API routes must not serve data.
-        match user.user_status {
-            UserStatus::Active => {}
-            UserStatus::Pending => {
-                warn!(user_id = %user_id, "API access denied: account pending approval");
-                return Err(AppError::account_pending(
-                    "Your account is pending admin approval",
-                ));
-            }
-            UserStatus::Suspended => {
-                warn!(user_id = %user_id, "API access denied: account suspended");
-                return Err(AppError::account_suspended(
-                    "Your account has been suspended",
-                ));
-            }
-        }
+        // Same gate runs in services::messaging_ingress so Telegram / WhatsApp /
+        // Discord / Slack / Messenger channel traffic can't bypass approval.
+        enforce_user_status(user.user_status).inspect_err(|e| {
+            warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
+        })?;
 
         // Get current usage for rate limiting
         let current_usage = self.repos.usage.get_jwt_current_usage(user_id).await?;

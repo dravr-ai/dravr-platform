@@ -10,7 +10,7 @@ use pierre_core::models::messaging::{
     CardAction, ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
-use pierre_core::models::{ConversationTurnId, TenantId, User};
+use pierre_core::models::{ConversationTurnId, TenantId, User, UserStatus};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::backends::{
@@ -60,6 +60,7 @@ use crate::services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 use crate::services::usage_counter::UsageCounterService;
+use crate::services::user_status_gate::{enforce_user_status, messaging_key_for_status};
 
 /// Outcome of persisting a single inbound message
 pub(crate) enum PersistOutcome {
@@ -253,6 +254,38 @@ async fn execute_link_code(
     Ok(user_id)
 }
 
+/// Translate the account-status policy into a localized messaging reply.
+///
+/// Returns `None` for active accounts (caller proceeds normally) and
+/// `Some(translated_template)` for pending / suspended accounts so the caller
+/// can short-circuit the linking confirmation or inbound chat dispatch with a
+/// transport-appropriate message. The check funnels through
+/// [`crate::services::user_status_gate::enforce_user_status`], the same policy
+/// the JWT middleware enforces for the HTTP API.
+fn account_status_reply(
+    resources: &ServerContext,
+    status: UserStatus,
+    locale: &str,
+) -> Option<String> {
+    let err = enforce_user_status(status).err()?;
+    let key = messaging_key_for_status(err.code)?;
+    Some(resources.messaging_strings_registry.get(key, locale))
+}
+
+/// Pick the locale to render a link-time reply in.
+///
+/// At link time the channel-link row may not exist yet (deep-link path) or may
+/// have been created with no override (OTP path), so [`resolve_messaging_locale`]
+/// would just fall back to the user profile anyway. Reading `user.locale`
+/// directly avoids an unnecessary DB round-trip in the hot post-link reply path.
+fn user_locale_or_default(user: &User) -> String {
+    if user.locale.trim().is_empty() {
+        DEFAULT_LOCALE.to_owned()
+    } else {
+        user.locale.clone()
+    }
+}
+
 /// Consume a link code and create the permanent channel link
 ///
 /// Returns a user-facing message describing the result, translated through
@@ -274,6 +307,22 @@ async fn consume_and_link(
             let hashed_channel_id = hash_id(&format!("{channel}:{sender_id}"));
             analytics().alias(&hashed_channel_id, &hashed_user);
             analytics().track_linking_completed(channel, &hashed_tenant, &hashed_user, "deep_link");
+
+            // Surface the account-status policy at link time so a Pending /
+            // Suspended user sees "waiting for approval" rather than the
+            // unconditional success copy. The channel link itself is still
+            // created so once admin flips status to Active no re-link is
+            // required.
+            if let Ok(uuid) = Uuid::parse_str(&user_id) {
+                if let Ok(Some(user)) = resources.repos.users.get_global(uuid).await {
+                    let locale = user_locale_or_default(&user);
+                    if let Some(reply) = account_status_reply(resources, user.user_status, &locale)
+                    {
+                        return reply;
+                    }
+                }
+            }
+
             reg.get(KEY_LINK_SUCCESS, DEFAULT_LOCALE)
         }
         Err(err) => {
@@ -1429,14 +1478,20 @@ async fn handle_otp_verification_step(
     analytics().alias(&hashed_channel_id, &hashed_user);
     analytics().track_linking_completed(params.channel, &hashed_tenant, &hashed_user, "otp");
 
-    otp_reply(
-        params.channel_type,
-        params.sender_id,
-        params
-            .resources
-            .messaging_strings_registry
-            .get(KEY_LINK_SUCCESS, DEFAULT_LOCALE),
-    )
+    // Run the account-status gate at link time so the post-OTP reply already
+    // reflects approval state. Pending / Suspended users get the localized
+    // "waiting for approval" copy; the channel link persists so they don't
+    // re-OTP after activation.
+    let locale = user_locale_or_default(&user);
+    let body =
+        account_status_reply(params.resources, user.user_status, &locale).unwrap_or_else(|| {
+            params
+                .resources
+                .messaging_strings_registry
+                .get(KEY_LINK_SUCCESS, &locale)
+        });
+
+    otp_reply(params.channel_type, params.sender_id, body)
 }
 
 /// Start a new OTP linking flow for an unlinked user
@@ -1775,6 +1830,27 @@ async fn persist_single_message(
     let Some(session) = session else {
         return Ok(PersistOutcome::HandledNotStored);
     };
+
+    // Authorize the linked user — Pending / Suspended accounts must not reach
+    // slash commands, message storage, or LLM dispatch. Same policy enforced
+    // by the JWT middleware on the HTTP API (see services::user_status_gate),
+    // surfaced as a translated channel reply through the strings registry
+    // instead of an HTTP error envelope.
+    if let Some(reply) = check_account_status_gate(AccountStatusGateInputs {
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        session: &session,
+        sender_id: &message.sender_id,
+        conversation_id: message.conversation_id.as_deref(),
+        thread_id: thread_id.clone(),
+    })
+    .await
+    {
+        send_channel_response(db, tenant_id, channel, adapter, reply).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
 
     // Check for slash commands before storing or dispatching to LLM.
     // Commands are handled immediately and not stored in conversation history.
@@ -2129,6 +2205,97 @@ pub async fn resolve_messaging_locale(
     }
 
     DEFAULT_LOCALE.to_owned()
+}
+
+/// Inputs for [`check_account_status_gate`].
+///
+/// Bundled into a struct to keep the gate's signature small enough to stay
+/// under the cognitive-complexity threshold while still carrying the inbound-
+/// message metadata required to emit a localized reply on the same thread /
+/// conversation.
+struct AccountStatusGateInputs<'a> {
+    resources: &'a ServerContext,
+    tenant_id: TenantId,
+    channel: &'a str,
+    channel_type: ChannelType,
+    session: &'a ResolvedSession,
+    sender_id: &'a str,
+    conversation_id: Option<&'a str>,
+    thread_id: Option<String>,
+}
+
+/// Resolve the linked [`User`] for the active gate evaluation.
+///
+/// Returns `None` and logs at error level on any failure path (invalid UUID,
+/// orphan `channel_link` row, DB unavailable) — failing open here matches
+/// [`resolve_messaging_locale`] so a transient lookup miss doesn't cement
+/// itself as a permanent denial.
+async fn load_gate_user(resources: &ServerContext, user_id: &str) -> Option<(Uuid, User)> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .inspect_err(|e| {
+            error!(error = %e, user_id = %user_id, "Account-status gate skipped: invalid user_id");
+        })
+        .ok()?;
+
+    match resources.repos.users.get_global(user_uuid).await {
+        Ok(Some(user)) => Some((user_uuid, user)),
+        Ok(None) => {
+            error!(user_id = %user_uuid, "Account-status gate skipped: linked user not found");
+            None
+        }
+        Err(e) => {
+            error!(error = %e, user_id = %user_uuid, "Account-status gate skipped: user lookup failed");
+            None
+        }
+    }
+}
+
+/// Authorize the linked-user account status before any chat dispatch.
+///
+/// Mirrors the gate at [`crate::middleware::auth`] for inbound messaging
+/// traffic. Returns `Some(OutgoingMessage)` carrying a localized "pending
+/// approval" / "account suspended" reply when the session resolves to a
+/// non-active user, and `None` for active users (caller proceeds with slash
+/// commands and LLM dispatch).
+///
+/// On user-lookup failure (orphan `channel_link`, parse error, DB unavailable),
+/// returns `None` and logs at error level — failing open here matches the
+/// existing [`resolve_messaging_locale`] behavior, since the gate fires on the
+/// next inbound message once the underlying issue clears.
+async fn check_account_status_gate(inputs: AccountStatusGateInputs<'_>) -> Option<OutgoingMessage> {
+    let (user_uuid, user) = load_gate_user(inputs.resources, &inputs.session.user_id).await?;
+
+    if user.user_status == UserStatus::Active {
+        return None;
+    }
+
+    let locale = resolve_messaging_locale(
+        inputs.resources,
+        inputs.tenant_id,
+        user_uuid,
+        inputs.channel,
+        inputs.sender_id,
+    )
+    .await;
+    let body = account_status_reply(inputs.resources, user.user_status, &locale)?;
+
+    warn!(
+        user_id = %user_uuid,
+        status = ?user.user_status,
+        channel = %inputs.channel,
+        "Messaging access denied by user-status gate"
+    );
+
+    let mut message = OutgoingMessage {
+        channel_type: inputs.channel_type,
+        recipient_id: inputs.sender_id.to_owned(),
+        content: MessageContent::Text { body },
+        turn_id: CanotTurnId::new(),
+        reply_to: None,
+        thread_id: inputs.thread_id,
+    };
+    apply_conversation_recipient(&mut message, inputs.conversation_id);
+    Some(message)
 }
 
 /// Detect the turn's *content* locale from the raw user text.
