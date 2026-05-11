@@ -391,8 +391,7 @@ impl ChatProvider {
                 // Recursive async over `Self` requires Box::pin to satisfy
                 // the compiler's "recursive async fn must introduce
                 // indirection" rule.
-                let primary_call =
-                    Box::pin(primary.complete_with_tools(request, tools.clone()));
+                let primary_call = Box::pin(primary.complete_with_tools(request, tools.clone()));
                 match primary_call.await {
                     Ok(response) => Ok(response),
                     Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
