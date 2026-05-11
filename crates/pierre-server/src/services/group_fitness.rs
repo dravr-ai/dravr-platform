@@ -335,9 +335,15 @@ async fn fetch_user_display_name(resources: &Arc<ServerContext>, user_id: Uuid) 
         Ok(Some(user)) => user
             .display_name
             .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Unknown").to_owned()),
-        Ok(None) => "Unknown".to_owned(),
+        Ok(None) => {
+            info!(
+                user_id = %user_id,
+                "Snapshot: user record not found, display_name falls back to 'Unknown'"
+            );
+            "Unknown".to_owned()
+        }
         Err(e) => {
-            debug!(user_id = %user_id, error = %e, "Failed to fetch user for snapshot");
+            info!(user_id = %user_id, error = %e, "Snapshot: failed to fetch user; display_name falls back to 'Unknown'");
             "Unknown".to_owned()
         }
     }
@@ -418,8 +424,14 @@ fn log_per_activity_tss(calculator: &TrainingLoadCalculator, sorted: &[Activity]
 
 /// Compute weekly metrics from activities in the past 7 days.
 ///
-/// Returns `(activity_count, volume_km, days_since_last)`.
-fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, f64, Option<i32>) {
+/// Returns `(activity_count, volume_km, duration_seconds, days_since_last)`.
+/// `duration_seconds` is the sum of `Activity::duration_seconds()` across the
+/// week — preserved separately from `volume_km` so HR/duration-only sources
+/// (WHOOP, indoor trainers) surface as training volume even with no GPS.
+fn compute_weekly_metrics(
+    activities: &[Activity],
+    now: DateTime<Utc>,
+) -> (i32, f64, i64, Option<i32>) {
     let seven_days_ago = now - Duration::days(7);
     let weekly_activities: Vec<_> = activities
         .iter()
@@ -434,13 +446,23 @@ fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, 
         .sum::<f64>()
         / 1000.0;
 
+    let weekly_duration_seconds: i64 = weekly_activities
+        .iter()
+        .map(|a| i64::try_from(a.duration_seconds()).unwrap_or(i64::MAX))
+        .sum();
+
     let days_since_last = activities
         .iter()
         .map(Activity::start_date)
         .max()
         .map(|last| i32::try_from((now - last).num_days()).unwrap_or(i32::MAX));
 
-    (weekly_activity_count, weekly_volume_km, days_since_last)
+    (
+        weekly_activity_count,
+        weekly_volume_km,
+        weekly_duration_seconds,
+        days_since_last,
+    )
 }
 
 /// Get all connected provider names for a user.
@@ -476,7 +498,7 @@ async fn try_fetch_from_provider(
         .create_authenticated_provider(provider_name, user_id, Some(tenant_id_str))
         .await
         .map_err(|e| {
-            debug!(user_id = %user_id, provider = %provider_name, error = ?e, "Snapshot: auth failed");
+            info!(user_id = %user_id, provider = %provider_name, error = ?e, "Snapshot: auth failed");
         })
         .ok()?;
 
@@ -484,7 +506,7 @@ async fn try_fetch_from_provider(
         .get_activities_with_params(params)
         .await
         .map_err(|e| {
-            debug!(user_id = %user_id, provider = %provider_name, error = %e, "Snapshot: fetch failed");
+            info!(user_id = %user_id, provider = %provider_name, error = %e, "Snapshot: fetch failed");
         })
         .ok()
         .filter(|a| !a.is_empty())?;
@@ -511,7 +533,12 @@ async fn resolve_member_tenant(
     match resources.repos.tenants.list_for_user(user_id).await {
         Ok(tenants) => pick_member_tenant_id(user_id, fallback, &tenants),
         Err(e) => {
-            debug!(user_id = %user_id, error = %e, "Failed to resolve member tenant");
+            info!(
+                user_id = %user_id,
+                error = %e,
+                fallback_tenant = %fallback,
+                "Snapshot: failed to resolve member tenant — using fallback tenant for OAuth lookup"
+            );
             fallback
         }
     }
@@ -524,7 +551,7 @@ async fn resolve_member_tenant(
 /// complexity threshold and is easier to reason about at a glance.
 fn pick_member_tenant_id(user_id: Uuid, fallback: TenantId, tenants: &[Tenant]) -> TenantId {
     if tenants.is_empty() {
-        debug!(user_id = %user_id, "Member has no tenant, using fallback");
+        info!(user_id = %user_id, "Snapshot: member has no tenant memberships, using fallback");
         return fallback;
     }
     if tenants.iter().any(|t| t.id == fallback) {
@@ -534,10 +561,10 @@ fn pick_member_tenant_id(user_id: Uuid, fallback: TenantId, tenants: &[Tenant]) 
         log_member_tenant_resolution(user_id, only.id, fallback);
         return only.id;
     }
-    debug!(
+    info!(
         user_id = %user_id,
         tenant_count = tenants.len(),
-        "Member does not share requester's tenant and has multiple memberships; using fallback to avoid ambiguous resolution"
+        "Snapshot: member does not share requester's tenant and has multiple memberships; using fallback to avoid ambiguous resolution"
     );
     fallback
 }
@@ -606,7 +633,11 @@ async fn fetch_member_activities(
 ) -> Vec<Activity> {
     let providers = get_connected_providers(resources, user_id, tenant_id).await;
     if providers.is_empty() {
-        debug!(user_id = %user_id, "Snapshot: no connected providers");
+        info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            "Snapshot: member has no connected providers — emitting empty snapshot (weekly counts and CTL/ATL/TSB will all be zero/None)"
+        );
         return Vec::new();
     }
 
@@ -625,10 +656,11 @@ fn build_snapshot_from_activities(
     now: DateTime<Utc>,
 ) -> MemberFitnessSnapshot {
     let (ctl, atl, tsb) = compute_training_metrics(activities);
-    let (weekly_activity_count, weekly_volume_km, days_since_last) =
+    let (weekly_activity_count, weekly_volume_km, weekly_duration_seconds, days_since_last) =
         compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
+    let last_activity_per_provider = compute_last_activity_per_provider(activities);
 
     MemberFitnessSnapshot {
         user_id,
@@ -639,12 +671,37 @@ fn build_snapshot_from_activities(
         weekly_volume_km,
         previous_week_volume_km: None,
         weekly_activity_count,
+        weekly_duration_seconds,
         primary_sport,
         vdot: None,
         overtraining_risk,
         days_since_last_activity: days_since_last,
+        last_activity_per_provider,
         computed_at: now,
     }
+}
+
+/// Group activities by provider and keep the most-recent `start_date` per provider.
+///
+/// Gives the LLM a per-source freshness signal so it can say "Strava
+/// stale 33 days, WHOOP current today" instead of pasting a single
+/// `days_since_last_activity` over a multi-provider member and inventing
+/// "your Strava is not synced" defenses.
+fn compute_last_activity_per_provider(activities: &[Activity]) -> HashMap<String, DateTime<Utc>> {
+    let mut latest: HashMap<String, DateTime<Utc>> = HashMap::new();
+    for activity in activities {
+        let provider = activity.provider().to_owned();
+        let start = activity.start_date();
+        latest
+            .entry(provider)
+            .and_modify(|existing| {
+                if start > *existing {
+                    *existing = start;
+                }
+            })
+            .or_insert(start);
+    }
+    latest
 }
 
 /// Create an empty snapshot for a user with no activity data.
@@ -662,10 +719,12 @@ fn empty_snapshot(
         weekly_volume_km: 0.0,
         previous_week_volume_km: None,
         weekly_activity_count: 0,
+        weekly_duration_seconds: 0,
         primary_sport: None,
         vdot: None,
         overtraining_risk: OvertrainingRiskLevel::Low,
         days_since_last_activity: None,
+        last_activity_per_provider: HashMap::new(),
         computed_at,
     }
 }

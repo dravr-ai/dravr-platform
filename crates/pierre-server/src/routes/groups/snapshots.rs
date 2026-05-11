@@ -180,6 +180,29 @@ fn build_snapshot_from_activities(
         Some(sum_distance_km(&previous_week))
     };
 
+    // Sum weekly active duration so HR/duration-only sources (WHOOP,
+    // indoor trainers) surface in the snapshot even when km is zero.
+    let weekly_duration_seconds: i64 = current_week
+        .iter()
+        .map(|a| i64::try_from(a.duration_seconds()).unwrap_or(i64::MAX))
+        .sum();
+
+    // Per-provider freshness: latest activity start_date per source slug.
+    // Lets the LLM distinguish "Strava 33d stale" from "WHOOP current".
+    let mut last_activity_per_provider: HashMap<String, chrono::DateTime<Utc>> = HashMap::new();
+    for a in activities {
+        let provider = a.provider().to_owned();
+        let start = a.start_date();
+        last_activity_per_provider
+            .entry(provider)
+            .and_modify(|existing| {
+                if start > *existing {
+                    *existing = start;
+                }
+            })
+            .or_insert(start);
+    }
+
     // Days since last activity
     let days_since_last = activities
         .iter()
@@ -217,10 +240,12 @@ fn build_snapshot_from_activities(
         weekly_volume_km,
         previous_week_volume_km,
         weekly_activity_count,
+        weekly_duration_seconds,
         primary_sport,
         vdot: None,
         overtraining_risk,
         days_since_last_activity: days_since_last,
+        last_activity_per_provider,
         computed_at: now,
     }
 }
@@ -240,10 +265,12 @@ fn default_snapshot(
         weekly_volume_km: 0.0,
         previous_week_volume_km: None,
         weekly_activity_count: 0,
+        weekly_duration_seconds: 0,
         primary_sport: None,
         vdot: None,
         overtraining_risk: OvertrainingRiskLevel::Low,
         days_since_last_activity: None,
+        last_activity_per_provider: HashMap::new(),
         computed_at: now,
     }
 }

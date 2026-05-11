@@ -180,6 +180,38 @@ fn test_messaging_prompt_handles_followups() {
 }
 
 // =============================================================================
+// Group hallucination regression: bot fabricated "234.4 km vendredi" and
+// "plusieurs séances" under social pressure when the roster snapshot had
+// no per-day breakdown / no recent Strava activity. The fix is a set of
+// strict no-fabrication rules in the group-chat section of the prompt.
+// =============================================================================
+
+#[test]
+fn test_messaging_prompt_forbids_group_data_fabrication() {
+    let prompt = get_messaging_context_prompt();
+
+    assert!(
+        prompt.contains("per-day"),
+        "Messaging prompt must remind the LLM the roster has only week totals (no per-day breakdown for other members)"
+    );
+
+    assert!(
+        prompt.contains("Sources:"),
+        "Messaging prompt must reference the per-provider freshness field so the LLM stops blaming 'not synced'"
+    );
+
+    assert!(
+        prompt.contains("HR/duration-only") || prompt.contains("no GPS distance"),
+        "Messaging prompt must explain how to read a 0.0km / Xh-active line (WHOOP/indoor) without claiming the member didn't train"
+    );
+
+    assert!(
+        prompt.contains("re-quote") || prompt.contains("Re-quote"),
+        "Messaging prompt must instruct the LLM to re-quote the roster line instead of inventing new specifics when challenged"
+    );
+}
+
+// =============================================================================
 // Issue #2: Activity fetch limit — single env var governs all paths
 // ACTIVITY_FETCH_LIMIT defaults to 100, governs both the direct
 // analyze_training_load tool and group-coaching snapshot fetches.

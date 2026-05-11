@@ -16,7 +16,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
-use tracing::{debug, info};
+use tracing::info;
 use uuid::Uuid;
 
 // ============================================================================
@@ -180,7 +180,7 @@ impl GroupService {
                 .filter(|s| s.user_id == user_id)
                 .collect()
         };
-        debug!(
+        info!(
             group_id = %group.id,
             requester_user_id = %user_id,
             peer_data_sharing = group.peer_data_sharing,
