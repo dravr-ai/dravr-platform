@@ -533,7 +533,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             localStorage.setItem('pierre.sidebar_collapsed', String(next));
             setSidebarCollapsed(next);
           }}
-          className="absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full flex items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-50"
+          className="absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full flex items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-[60]"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >

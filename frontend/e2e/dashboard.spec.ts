@@ -466,15 +466,17 @@ test.describe('Dashboard Responsive Behavior', () => {
     // Get main content area
     const main = page.locator('main');
 
-    // Check initial margin when sidebar is expanded
-    await expect(main).toHaveClass(/ml-\[260px\]/);
+    // Margin is applied via inline style={{ marginLeft: ... }} on <main>
+    // to support continuous resize, not via a fixed Tailwind class. Verify
+    // the computed margin-left rather than asserting on a class name.
+    await expect(main).toHaveCSS('margin-left', '260px');
 
     // Collapse sidebar
     const collapseButton = page.locator('button[title="Collapse sidebar"]');
     await collapseButton.click();
 
     // Check margin changes to smaller value
-    await expect(main).toHaveClass(/ml-\[72px\]/);
+    await expect(main).toHaveCSS('margin-left', '72px');
   });
 });
 
