@@ -50,6 +50,17 @@ pub enum ChatProvider {
     /// production providers are resolved via [`ChatProvider::from_env`] or
     /// the per-tenant credential factory.
     Custom(Arc<dyn LlmProvider>),
+    /// Runtime fallback chain. Built when `PIERRE_LLM_RUNTIME_FALLBACK=true`
+    /// at boot. Every public method tries `primary` first and, on a
+    /// retryable error (see [`is_retryable_for_fallback`]), reissues the
+    /// call against `secondary`. Init-time fallback ([`from_env`]'s existing
+    /// behavior) is preserved separately by `PIERRE_LLM_FALLBACK_ENABLED`.
+    Chain {
+        /// Provider tried first for every request.
+        primary: Box<ChatProvider>,
+        /// Provider tried when `primary` returns a retryable error.
+        secondary: Box<ChatProvider>,
+    },
 }
 
 impl ChatProvider {
@@ -78,8 +89,88 @@ impl ChatProvider {
             LlmProviderType::ENV_VAR
         );
 
-        let result = Self::create_provider(provider_type).await;
-        Self::finalize_or_fallback(result, provider_type).await
+        let primary_result = Self::create_provider(provider_type).await;
+
+        if LlmProviderType::is_runtime_fallback_enabled() {
+            return Self::build_runtime_chain(primary_result, provider_type).await;
+        }
+
+        Self::finalize_or_fallback(primary_result, provider_type).await
+    }
+
+    /// Build a [`ChatProvider::Chain`] when `PIERRE_LLM_RUNTIME_FALLBACK=true`.
+    ///
+    /// Requires `PIERRE_LLM_FALLBACK_PROVIDER` to be set. If the primary
+    /// fails to initialize, the chain collapses to a fallback-only provider
+    /// (same effective result as the init-time fallback path). If the
+    /// fallback is missing or fails to initialize, the chain collapses to
+    /// primary-only so callers always get a usable provider when at least
+    /// one side worked.
+    async fn build_runtime_chain(
+        primary_result: Result<Self, AppError>,
+        primary_type: LlmProviderType,
+    ) -> Result<Self, AppError> {
+        let fallback_type = LlmProviderType::fallback_provider_from_env();
+
+        let Some(fallback_type) = fallback_type else {
+            warn!(
+                "{} is true but {} is unset — runtime fallback disabled",
+                LlmProviderType::RUNTIME_FALLBACK_ENV_VAR,
+                LlmProviderType::FALLBACK_PROVIDER_ENV_VAR,
+            );
+            return Self::finalize_or_fallback(primary_result, primary_type).await;
+        };
+
+        if fallback_type == primary_type {
+            warn!(
+                "{} matches {} ({primary_type}) — runtime fallback disabled",
+                LlmProviderType::FALLBACK_PROVIDER_ENV_VAR,
+                LlmProviderType::ENV_VAR,
+            );
+            return Self::finalize_or_fallback(primary_result, primary_type).await;
+        }
+
+        let secondary_result = Self::create_provider(fallback_type).await;
+
+        match (primary_result, secondary_result) {
+            (Ok(primary), Ok(secondary)) => {
+                info!(
+                    primary = %primary_type,
+                    secondary = %fallback_type,
+                    "Runtime LLM fallback chain initialized"
+                );
+                validate_model_for_provider(&primary);
+                validate_model_for_provider(&secondary);
+                Ok(Self::Chain {
+                    primary: Box::new(primary),
+                    secondary: Box::new(secondary),
+                })
+            }
+            (Ok(primary), Err(secondary_err)) => {
+                warn!(
+                    primary = %primary_type,
+                    secondary = %fallback_type,
+                    error = %secondary_err,
+                    "Fallback provider failed to initialize; running primary-only"
+                );
+                validate_model_for_provider(&primary);
+                Ok(primary)
+            }
+            (Err(primary_err), Ok(secondary)) => {
+                warn!(
+                    primary = %primary_type,
+                    secondary = %fallback_type,
+                    error = %primary_err,
+                    "Primary provider failed to initialize; running fallback-only"
+                );
+                validate_model_for_provider(&secondary);
+                Ok(secondary)
+            }
+            (Err(primary_err), Err(secondary_err)) => Err(AppError::config(format!(
+                "Both runtime-chain providers failed. Primary ({primary_type}): {primary_err}. \
+                 Secondary ({fallback_type}): {secondary_err}"
+            ))),
+        }
     }
 
     /// Finalize provider initialization or attempt fallback on failure
@@ -237,6 +328,10 @@ impl ChatProvider {
             Self::Groq(_) => LlmProviderType::Groq,
             Self::Local(_) => LlmProviderType::Local,
             Self::Cli(p) => p.provider_type(),
+            // The chain reports as the primary — metrics and analytics
+            // should attribute requests to the active first-line provider;
+            // when fallback fires, the warn! log line carries both names.
+            Self::Chain { primary, .. } => primary.provider_type(),
         }
     }
 
@@ -291,6 +386,28 @@ impl ChatProvider {
                     function_calls: None,
                     finish_reason: response.finish_reason,
                 })
+            }
+            Self::Chain { primary, secondary } => {
+                // Recursive async over `Self` requires Box::pin to satisfy
+                // the compiler's "recursive async fn must introduce
+                // indirection" rule.
+                let primary_call =
+                    Box::pin(primary.complete_with_tools(request, tools.clone()));
+                match primary_call.await {
+                    Ok(response) => Ok(response),
+                    Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+                        warn!(
+                            primary = primary.name(),
+                            secondary = secondary.name(),
+                            error = %primary_err,
+                            "Primary LLM complete_with_tools() failed with retryable error; falling back"
+                        );
+                        let secondary_call =
+                            Box::pin(secondary.complete_with_tools(request, tools));
+                        secondary_call.await
+                    }
+                    Err(primary_err) => Err(primary_err),
+                }
             }
         }
     }
@@ -415,8 +532,33 @@ impl fmt::Debug for ChatProvider {
             Self::Local(_) => f.debug_tuple("ChatProvider::Local").finish(),
             Self::Cli(_) => f.debug_tuple("ChatProvider::Cli").finish(),
             Self::Custom(_) => f.debug_tuple("ChatProvider::Custom").finish(),
+            Self::Chain { primary, secondary } => f
+                .debug_struct("ChatProvider::Chain")
+                .field("primary", primary)
+                .field("secondary", secondary)
+                .finish(),
         }
     }
+}
+
+/// Decide whether a runtime error should trigger a fallback retry.
+///
+/// We only fall back on errors that hint at primary-provider unavailability
+/// (auth failures, upstream 5xx, transient network). Bad input or quota
+/// errors stay on the primary so the caller sees the right diagnostic
+/// instead of getting silently rerouted to a different provider.
+fn is_retryable_for_fallback(error: &AppError) -> bool {
+    use pierre_core::errors::ErrorCode;
+    matches!(
+        error.code,
+        ErrorCode::ExternalAuthFailed
+            | ErrorCode::ExternalServiceUnavailable
+            | ErrorCode::ExternalServiceError
+            | ErrorCode::ResourceUnavailable
+            | ErrorCode::AuthInvalid
+            | ErrorCode::AuthExpired
+            | ErrorCode::InternalError
+    )
 }
 
 // Implement LlmProvider trait for ChatProvider to enable trait object usage
@@ -429,6 +571,7 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.name(),
             Self::Cli(p) => p.name(),
             Self::Custom(p) => p.name(),
+            Self::Chain { primary, .. } => primary.name(),
         }
     }
 
@@ -439,6 +582,7 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.display_name(),
             Self::Cli(p) => p.display_name(),
             Self::Custom(p) => p.display_name(),
+            Self::Chain { primary, .. } => primary.display_name(),
         }
     }
 
@@ -449,6 +593,7 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.capabilities(),
             Self::Cli(p) => p.capabilities(),
             Self::Custom(p) => p.capabilities(),
+            Self::Chain { primary, .. } => primary.capabilities(),
         }
     }
 
@@ -459,6 +604,7 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.default_model(),
             Self::Cli(p) => p.default_model(),
             Self::Custom(p) => p.default_model(),
+            Self::Chain { primary, .. } => primary.default_model(),
         }
     }
 
@@ -469,6 +615,7 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.available_models(),
             Self::Cli(p) => p.available_models(),
             Self::Custom(p) => p.available_models(),
+            Self::Chain { primary, .. } => primary.available_models(),
         }
     }
 
@@ -479,6 +626,19 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.complete(request).await,
             Self::Cli(p) => p.complete(request).await,
             Self::Custom(p) => p.complete(request).await,
+            Self::Chain { primary, secondary } => match primary.complete(request).await {
+                Ok(response) => Ok(response),
+                Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+                    warn!(
+                        primary = primary.name(),
+                        secondary = secondary.name(),
+                        error = %primary_err,
+                        "Primary LLM complete() failed with retryable error; falling back"
+                    );
+                    secondary.complete(request).await
+                }
+                Err(primary_err) => Err(primary_err),
+            },
         }
     }
 
@@ -489,6 +649,19 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.complete_stream(request).await,
             Self::Cli(p) => p.complete_stream(request).await,
             Self::Custom(p) => p.complete_stream(request).await,
+            Self::Chain { primary, secondary } => match primary.complete_stream(request).await {
+                Ok(stream) => Ok(stream),
+                Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+                    warn!(
+                        primary = primary.name(),
+                        secondary = secondary.name(),
+                        error = %primary_err,
+                        "Primary LLM complete_stream() failed with retryable error; falling back"
+                    );
+                    secondary.complete_stream(request).await
+                }
+                Err(primary_err) => Err(primary_err),
+            },
         }
     }
 
@@ -499,6 +672,15 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.health_check().await,
             Self::Cli(p) => p.health_check().await,
             Self::Custom(p) => p.health_check().await,
+            Self::Chain { primary, secondary } => {
+                // Healthy if EITHER side is healthy — the chain is usable as
+                // long as at least one provider can serve requests.
+                let primary_ok = primary.health_check().await.unwrap_or(false);
+                if primary_ok {
+                    return Ok(true);
+                }
+                secondary.health_check().await
+            }
         }
     }
 }
