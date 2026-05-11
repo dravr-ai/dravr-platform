@@ -12,6 +12,7 @@
 //! layer can depend on the services layer — not the other way around.
 
 use std::env;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -131,8 +132,8 @@ enum ProbeKind {
     Periodic,
 }
 
-impl std::fmt::Display for ProbeKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ProbeKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::Startup => write!(f, "startup"),
             Self::Periodic => write!(f, "periodic"),
@@ -200,58 +201,72 @@ fn log_probe_outcome(
     };
 
     if previous == now {
-        // Steady state — keep the volume low.
-        if now_healthy {
-            info!(provider, %kind, "LLM probe healthy");
-        } else {
-            warn!(
-                provider,
-                %kind,
-                error = error.unwrap_or(""),
-                "LLM probe still unhealthy"
-            );
-        }
-        return;
+        log_steady_state(provider, kind, now_healthy, error);
+    } else {
+        log_transition(provider, kind, previous, now_healthy, error);
     }
+}
 
-    // Transition — escalate appropriately.
-    match (previous, now_healthy) {
-        (LlmHealthStatus::Healthy, false) => {
-            error!(
-                provider,
-                %kind,
-                error = error.unwrap_or(""),
-                "LLM probe Healthy -> Unhealthy; chat traffic at risk"
-            );
-        }
-        (LlmHealthStatus::Unknown, false) if matches!(kind, ProbeKind::Periodic) => {
-            // Unknown -> Unhealthy on a *periodic* probe means the boot
-            // probe didn't complete or hasn't recorded yet — surface as
-            // error so the alert layer pages.
-            error!(
-                provider,
-                %kind,
-                error = error.unwrap_or(""),
-                "LLM probe Unknown -> Unhealthy; chat traffic at risk"
-            );
-        }
-        (_, false) => {
-            warn!(
-                provider,
-                %kind,
-                error = error.unwrap_or(""),
-                "LLM startup probe failed; relying on runtime fallback if configured"
-            );
-        }
-        (LlmHealthStatus::Unhealthy, true) => {
-            info!(
-                provider,
-                %kind,
-                "LLM probe Unhealthy -> Healthy; chat traffic recovered"
-            );
-        }
-        (_, true) => {
-            info!(provider, %kind, "LLM probe healthy");
-        }
+fn log_steady_state(provider: &str, kind: ProbeKind, now_healthy: bool, error: Option<&str>) {
+    if now_healthy {
+        info!(provider, %kind, "LLM probe healthy");
+    } else {
+        warn!(
+            provider,
+            %kind,
+            error = error.unwrap_or(""),
+            "LLM probe still unhealthy"
+        );
+    }
+}
+
+/// Escalate a status transition. The `Healthy -> Unhealthy` and
+/// `Unknown -> Unhealthy` (periodic only) paths emit `error!` so the
+/// tronc [`ErrorNotificationLayer`] auto-routes the line to Slack;
+/// recoveries log at `info!`.
+fn log_transition(
+    provider: &str,
+    kind: ProbeKind,
+    previous: LlmHealthStatus,
+    now_healthy: bool,
+    error: Option<&str>,
+) {
+    if now_healthy {
+        log_recovery_transition(provider, kind, previous);
+    } else {
+        log_failure_transition(provider, kind, previous, error.unwrap_or(""));
+    }
+}
+
+fn log_failure_transition(provider: &str, kind: ProbeKind, previous: LlmHealthStatus, error: &str) {
+    let pageable = matches!(previous, LlmHealthStatus::Healthy)
+        || (matches!(previous, LlmHealthStatus::Unknown) && matches!(kind, ProbeKind::Periodic));
+    if pageable {
+        error!(
+            provider,
+            %kind,
+            previous = %previous,
+            error,
+            "LLM probe transitioned to Unhealthy; chat traffic at risk"
+        );
+    } else {
+        warn!(
+            provider,
+            %kind,
+            error,
+            "LLM startup probe failed; relying on runtime fallback if configured"
+        );
+    }
+}
+
+fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthStatus) {
+    if matches!(previous, LlmHealthStatus::Unhealthy) {
+        info!(
+            provider,
+            %kind,
+            "LLM probe Unhealthy -> Healthy; chat traffic recovered"
+        );
+    } else {
+        info!(provider, %kind, "LLM probe healthy");
     }
 }

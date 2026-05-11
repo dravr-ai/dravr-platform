@@ -53,6 +53,7 @@ use tracing::{debug, error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
+use crate::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 use crate::middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "client-admin-api")]
 use crate::routes::admin::AdminApiContext;
@@ -1292,7 +1293,7 @@ impl MultiTenantMcpServer {
     ///   Cloud Run's startup probe at this path instead of `/health`.
     /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
     ///   for operator introspection (provider, error, timestamp).
-    fn create_axum_health_routes(llm_health: Arc<crate::health::LlmHealthState>) -> axum::Router {
+    fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> axum::Router {
         use axum::extract::State;
         use axum::http::StatusCode;
         use axum::response::IntoResponse;
@@ -1312,14 +1313,11 @@ impl MultiTenantMcpServer {
             }))
         }
 
-        async fn ready_handler(
-            State(state): State<Arc<crate::health::LlmHealthState>>,
-        ) -> impl IntoResponse {
+        async fn ready_handler(State(state): State<Arc<LlmHealthState>>) -> impl IntoResponse {
             let snapshot = state.snapshot().await;
             let code = match snapshot.status {
-                crate::health::LlmHealthStatus::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
-                crate::health::LlmHealthStatus::Healthy
-                | crate::health::LlmHealthStatus::Unknown => StatusCode::OK,
+                LlmHealthStatus::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
+                LlmHealthStatus::Healthy | LlmHealthStatus::Unknown => StatusCode::OK,
             };
             (
                 code,
@@ -1332,8 +1330,8 @@ impl MultiTenantMcpServer {
         }
 
         async fn llm_health_handler(
-            State(state): State<Arc<crate::health::LlmHealthState>>,
-        ) -> Json<crate::health::LlmHealthSnapshot> {
+            State(state): State<Arc<LlmHealthState>>,
+        ) -> Json<LlmHealthSnapshot> {
             Json(state.snapshot().await)
         }
 

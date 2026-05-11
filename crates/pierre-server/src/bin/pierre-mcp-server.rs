@@ -22,6 +22,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::providers::set_synthetic_database_pool;
 #[cfg(feature = "provider-sciotte")]
 use pierre_mcp_server::routes::auth::init_sciotte_limiter;
+use pierre_mcp_server::services::chat_provider_factory::spawn_llm_health_probe;
 use pierre_mcp_server::{
     cache::factory::Cache,
     config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig},
@@ -662,9 +663,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route
     // (Cloud Run startup probe is /health by default and stays unaffected).
-    pierre_mcp_server::services::chat_provider_factory::spawn_llm_health_probe(Arc::clone(
-        &resources.llm_health,
-    ));
+    spawn_llm_health_probe(Arc::clone(&resources.llm_health));
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)
     #[cfg(feature = "client-messaging")]
