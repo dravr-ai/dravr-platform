@@ -63,7 +63,7 @@ RUN apt-get update && apt-get upgrade -y \
 # Pinned version for reproducible builds; bump deliberately after validating model compatibility
 # (e.g. claude-opus-4.7 requires CLI >=1.0.30).
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm is not needed at runtime
-ARG COPILOT_CLI_VERSION=1.0.30
+ARG COPILOT_CLI_VERSION=1.0.44
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
