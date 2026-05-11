@@ -10,6 +10,7 @@
 //! for all members of a coaching group. Used by the group context injection
 //! system to give the AI coach data-driven group advice.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -736,7 +737,7 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
         .iter()
         .filter(|a| a.start_date() >= cutoff)
         .collect();
-    filtered.sort_by(|a, b| b.start_date().cmp(&a.start_date()));
+    filtered.sort_by_key(|a| Reverse(a.start_date()));
     filtered
         .into_iter()
         .take(RECENT_ACTIVITIES_LIMIT)

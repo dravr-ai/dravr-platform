@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -209,7 +210,7 @@ fn build_snapshot_from_activities(
     // LLM can answer sub-week questions ("Saturday vs Sunday") that the
     // weekly aggregates above don't expose.
     let mut recent_sorted: Vec<&&Activity> = current_week.iter().collect();
-    recent_sorted.sort_by(|a, b| b.start_date().cmp(&a.start_date()));
+    recent_sorted.sort_by_key(|a| Reverse(a.start_date()));
     let recent_activities: Vec<RosterActivity> = recent_sorted
         .into_iter()
         .take(12)
