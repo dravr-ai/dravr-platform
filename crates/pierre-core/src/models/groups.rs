@@ -275,8 +275,41 @@ pub struct MemberFitnessSnapshot {
     /// and stop attributing a quiet provider to "not synced" excuses.
     /// Keyed by provider slug (`strava`, `whoop`, `sciotte`, ...).
     pub last_activity_per_provider: HashMap<String, DateTime<Utc>>,
+    /// Compact list of recent activities (last 7 days, newest first).
+    /// Lets the LLM answer sub-week questions ("Saturday vs Sunday",
+    /// "longest ride this week") that aggregate fields alone cannot
+    /// support. Empty for members without peer_sharing_consent or
+    /// without activity data.
+    pub recent_activities: Vec<RosterActivity>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
+}
+
+/// Compact per-activity record shared across consenting group members.
+///
+/// Surfaced in the group context so the LLM can answer sub-week
+/// questions ("what did Philippe do this weekend?") that the weekly
+/// aggregates alone cannot support. Field set is deliberately minimal —
+/// no GPS, no streams, no per-second sensor data — to limit both token
+/// cost and the surface area of data shared between peers. Members
+/// who haven't opted in via `peer_sharing_consent` never appear here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RosterActivity {
+    /// Workout start time. Date-only sources (e.g. Strava-mirror scrapes)
+    /// render at midnight UTC of the workout day.
+    pub start: DateTime<Utc>,
+    /// Sport label as rendered for the LLM (e.g. `TrailRunning`, `Ride`,
+    /// `WHOOP run`). Mirrors the serialization of `Activity::sport_type`.
+    pub sport: String,
+    /// Optional kilometers when the source carries GPS distance.
+    /// `None` for HR/duration-only sources like WHOOP.
+    pub distance_km: Option<f64>,
+    /// Activity duration in minutes — always available.
+    pub duration_minutes: i64,
+    /// User-facing name when the provider supplies one
+    /// (e.g. `"🤭"`, `"Peanut butter 🤤"`). Empty when missing.
+    pub name: String,
 }
 
 /// Overtraining risk level for a member

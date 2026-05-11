@@ -191,8 +191,8 @@ fn test_messaging_prompt_forbids_group_data_fabrication() {
     let prompt = get_messaging_context_prompt();
 
     assert!(
-        prompt.contains("per-day"),
-        "Messaging prompt must remind the LLM the roster has only week totals (no per-day breakdown for other members)"
+        prompt.contains("Recent:"),
+        "Messaging prompt must reference the per-activity `Recent:` block so the LLM uses it for sub-week queries instead of refusing or inventing per-day numbers"
     );
 
     assert!(
@@ -208,6 +208,11 @@ fn test_messaging_prompt_forbids_group_data_fabrication() {
     assert!(
         prompt.contains("re-quote") || prompt.contains("Re-quote"),
         "Messaging prompt must instruct the LLM to re-quote the roster line instead of inventing new specifics when challenged"
+    );
+
+    assert!(
+        prompt.contains("weekend"),
+        "Messaging prompt must explicitly show how to handle per-weekend / per-day questions using the Recent: block"
     );
 }
 
