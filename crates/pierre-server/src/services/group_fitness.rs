@@ -353,52 +353,7 @@ fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64
     sorted.sort_by_key(Activity::start_date);
 
     let calculator = TrainingLoadCalculator::new();
-    // Per-activity TSS dump so we can see what each WHOOP/Strava activity
-    // contributed to CTL/ATL. None means the TSS estimator returned no
-    // value (no power/HR/distance/duration fields the fallbacks can use).
-    let mut total_tss = 0.0_f64;
-    let mut tss_some = 0_usize;
-    let mut tss_none = 0_usize;
-    for a in &sorted {
-        let tss = calculator
-            .calculate_tss(a, None, None, None, None, None)
-            .ok();
-        match tss {
-            Some(v) => {
-                total_tss += v;
-                tss_some += 1;
-                info!(
-                    activity_id = %a.id(),
-                    name = %a.name(),
-                    sport = ?a.sport_type(),
-                    start = %a.start_date(),
-                    duration_s = a.duration_seconds(),
-                    distance_m = ?a.distance_meters(),
-                    tss = v,
-                    "Snapshot TSS per-activity"
-                );
-            }
-            None => {
-                tss_none += 1;
-                info!(
-                    activity_id = %a.id(),
-                    name = %a.name(),
-                    sport = ?a.sport_type(),
-                    start = %a.start_date(),
-                    duration_s = a.duration_seconds(),
-                    distance_m = ?a.distance_meters(),
-                    "Snapshot TSS skipped — no estimator could produce a value"
-                );
-            }
-        }
-    }
-    info!(
-        total_activities = sorted.len(),
-        tss_included = tss_some,
-        tss_skipped = tss_none,
-        total_tss,
-        "Snapshot TSS aggregate"
-    );
+    log_per_activity_tss(&calculator, &sorted);
 
     match calculator.calculate_training_load(
         &sorted, None, // FTP
@@ -413,6 +368,52 @@ fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64
             (None, None, None)
         }
     }
+}
+
+/// Emit one log line per activity showing its computed TSS plus an
+/// aggregate summary. Diagnoses why an athlete with N workouts can land
+/// at unexpectedly low CTL/ATL (e.g. WHOOP entries with no distance/HR
+/// falling through to the duration-only fallback). Extracted from
+/// `compute_training_metrics` to keep that fn under the cognitive
+/// complexity budget.
+fn log_per_activity_tss(calculator: &TrainingLoadCalculator, sorted: &[Activity]) {
+    let mut total_tss = 0.0_f64;
+    let mut tss_some = 0_usize;
+    let mut tss_none = 0_usize;
+    for a in sorted {
+        if let Ok(v) = calculator.calculate_tss(a, None, None, None, None, None) {
+            total_tss += v;
+            tss_some += 1;
+            info!(
+                activity_id = %a.id(),
+                name = %a.name(),
+                sport = ?a.sport_type(),
+                start = %a.start_date(),
+                duration_s = a.duration_seconds(),
+                distance_m = ?a.distance_meters(),
+                tss = v,
+                "Snapshot TSS per-activity"
+            );
+        } else {
+            tss_none += 1;
+            info!(
+                activity_id = %a.id(),
+                name = %a.name(),
+                sport = ?a.sport_type(),
+                start = %a.start_date(),
+                duration_s = a.duration_seconds(),
+                distance_m = ?a.distance_meters(),
+                "Snapshot TSS skipped — no estimator could produce a value"
+            );
+        }
+    }
+    info!(
+        total_activities = sorted.len(),
+        tss_included = tss_some,
+        tss_skipped = tss_none,
+        total_tss,
+        "Snapshot TSS aggregate"
+    );
 }
 
 /// Compute weekly metrics from activities in the past 7 days.
