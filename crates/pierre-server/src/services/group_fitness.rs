@@ -37,6 +37,16 @@ const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
 /// Default distance tolerance (percentage) for duplicate detection
 const DEFAULT_DEDUP_DISTANCE_TOLERANCE_PCT: f64 = 10.0;
 
+/// Returns `true` when a timestamp's time-of-day component is exactly
+/// `00:00:00` UTC, indicating the provider only resolved the workout day
+/// (e.g. the Strava-mirror scraper). Used by the deduplicator to widen
+/// the comparison window from minute-precision to calendar-day precision
+/// for such pairs so they collapse against their precise-timestamped
+/// counterparts on the same day.
+fn is_date_only_timestamp(ts: DateTime<Utc>) -> bool {
+    ts.time() == chrono::NaiveTime::MIN
+}
+
 // ══════════════════════════════════════════════════════════════
 // Activity Deduplication
 // ══════════════════════════════════════════════════════════════
@@ -81,15 +91,18 @@ impl TimeWindowDeduplicator {
     }
 
     /// Check if two activities from different providers are likely the same workout.
+    ///
+    /// Two-mode time check:
+    /// - Strict `time_window_minutes` when both timestamps look precise
+    ///   (anything more than ~1 minute past midnight UTC).
+    /// - Calendar-date match when either side is anchored at midnight UTC.
+    ///   Scrape-based mirrors (e.g. the Strava-mirror sciotte provider)
+    ///   only resolve to the workout day, not its actual start time, so
+    ///   minute-window comparisons against a real Strava timestamp 12h
+    ///   later let cross-provider duplicates slip through and double-count.
     fn is_likely_duplicate(&self, a: &Activity, b: &Activity) -> bool {
         // Same provider can't produce cross-provider duplicates
         if a.provider() == b.provider() {
-            return false;
-        }
-
-        // Time proximity check
-        let time_diff = (a.start_date() - b.start_date()).num_minutes().abs();
-        if time_diff > self.time_window_minutes {
             return false;
         }
 
@@ -98,13 +111,28 @@ impl TimeWindowDeduplicator {
             return false;
         }
 
+        // Time proximity: prefer minute-window when both look precise, fall
+        // back to calendar-date match when at least one side is date-only.
+        let a_is_date_only = is_date_only_timestamp(a.start_date());
+        let b_is_date_only = is_date_only_timestamp(b.start_date());
+        if a_is_date_only || b_is_date_only {
+            if a.start_date().date_naive() != b.start_date().date_naive() {
+                return false;
+            }
+        } else {
+            let time_diff = (a.start_date() - b.start_date()).num_minutes().abs();
+            if time_diff > self.time_window_minutes {
+                return false;
+            }
+        }
+
         // Distance proximity (when both have distance data)
         match (a.distance_meters(), b.distance_meters()) {
             (Some(da), Some(db)) => {
                 let max = da.max(db);
                 max > 0.0 && (da - db).abs() / max * 100.0 < self.distance_tolerance_pct
             }
-            // Both missing distance — trust the time+sport match
+            // Both missing distance — trust the date+sport match
             _ => true,
         }
     }
@@ -145,11 +173,14 @@ impl ActivityDeduplicator for TimeWindowDeduplicator {
                 if !keep[j] {
                     continue;
                 }
-                // Early exit: if time gap exceeds window, no further matches possible
-                let time_diff = (activities[j].start_date() - activities[i].start_date())
-                    .num_minutes()
-                    .abs();
-                if time_diff > self.time_window_minutes {
+                // Early exit: once activities[j] falls on a strictly later
+                // calendar day than activities[i], no further pair on this
+                // outer index can be a same-workout duplicate. Date-bucketed
+                // rather than minute-bucketed so scrape-mirror providers
+                // (sciotte: date-only timestamps) still pair against the
+                // matching Strava workout 12+ hours later in the same day.
+                if activities[j].start_date().date_naive() > activities[i].start_date().date_naive()
+                {
                     break;
                 }
                 if self.is_likely_duplicate(&activities[i], &activities[j]) {
