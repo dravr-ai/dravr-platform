@@ -103,6 +103,15 @@ impl LlmProviderType {
     /// Environment variable for fallback wait time in seconds
     pub const FALLBACK_WAIT_SECS_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_WAIT_SECS";
 
+    /// Environment variable for opting into per-request runtime fallback.
+    ///
+    /// Distinct from [`Self::FALLBACK_ENABLED_ENV_VAR`], which only governs
+    /// boot-time selection: with `RUNTIME_FALLBACK_ENV_VAR=true`, the
+    /// `ChatProvider` keeps both primary and fallback initialized and
+    /// retries individual requests against the fallback on retryable
+    /// upstream errors (auth, 5xx, transient network).
+    pub const RUNTIME_FALLBACK_ENV_VAR: &'static str = "PIERRE_LLM_RUNTIME_FALLBACK";
+
     /// Default wait time before attempting fallback (10 seconds, matches Gemini retry)
     pub const DEFAULT_FALLBACK_WAIT_SECS: u64 = 10;
 
@@ -225,6 +234,18 @@ impl LlmProviderType {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(Self::DEFAULT_FALLBACK_WAIT_SECS)
+    }
+
+    /// Check if per-request runtime fallback is enabled.
+    ///
+    /// Reads [`Self::RUNTIME_FALLBACK_ENV_VAR`]. When `true`, [`ChatProvider::from_env`]
+    /// builds both the primary and the fallback provider eagerly and keeps them
+    /// available so individual chat requests can retry against the fallback on
+    /// auth/transient errors.
+    #[must_use]
+    pub fn is_runtime_fallback_enabled() -> bool {
+        env::var(Self::RUNTIME_FALLBACK_ENV_VAR)
+            .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
     }
 }
 
