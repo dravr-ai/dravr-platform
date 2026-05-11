@@ -335,6 +335,12 @@ pub struct ServerContext {
     /// is wired — production binaries override this from a `dravr-*`
     /// vendor crate.
     pub billing_provider: Arc<dyn BillingProvider>,
+    /// Shared LLM startup-probe state — populated by a background task
+    /// spawned shortly after the context is built, and read by the
+    /// `/ready` and `/health/llm` Axum handlers. Boot defaults to
+    /// `LlmHealthStatus::Unknown` so the readiness gate stays open
+    /// during the probe's first round-trip.
+    pub llm_health: Arc<crate::health::LlmHealthState>,
 }
 
 /// Run a contremaitre full-sync against the freshly-built registries,
@@ -760,6 +766,7 @@ impl ServerContext {
             // compile and run without a vendor crate. Production binaries
             // override via ServerContextBuilder::with_billing_provider.
             billing_provider: Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>,
+            llm_health: Arc::new(crate::health::LlmHealthState::new()),
         }
     }
 

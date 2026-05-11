@@ -1030,7 +1030,7 @@ impl MultiTenantMcpServer {
         // HEALTH ROUTES - Always enabled
         // ═══════════════════════════════════════════════════════════════
 
-        let health_routes = Self::create_axum_health_routes();
+        let health_routes = Self::create_axum_health_routes(Arc::clone(&resources.llm_health));
         let app = Router::new().merge(health_routes);
 
         // ═══════════════════════════════════════════════════════════════
@@ -1277,8 +1277,25 @@ impl MultiTenantMcpServer {
         ))
     }
 
-    /// Create health check routes for Axum
-    fn create_axum_health_routes() -> axum::Router {
+    /// Create health check routes for Axum.
+    ///
+    /// Three endpoints:
+    ///
+    /// * `/health` — cheap liveness probe (always 200 when the process is
+    ///   up). This is what the Docker `HEALTHCHECK` and Cloud Run's
+    ///   default startup probe hit; it must stay free of dependency
+    ///   round-trips so a slow LLM never restarts a healthy server.
+    /// * `/ready` — readiness probe gated on the LLM startup probe.
+    ///   Returns 200 while the probe is in flight (status `Unknown`) or
+    ///   has succeeded, and 503 once the probe has reported `Unhealthy`.
+    ///   Operators who want a hard gate on LLM availability can point
+    ///   Cloud Run's startup probe at this path instead of `/health`.
+    /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
+    ///   for operator introspection (provider, error, timestamp).
+    fn create_axum_health_routes(llm_health: Arc<crate::health::LlmHealthState>) -> axum::Router {
+        use axum::extract::State;
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse;
         use axum::{routing::get, Json, Router};
 
         async fn health_handler() -> Json<serde_json::Value> {
@@ -1295,9 +1312,37 @@ impl MultiTenantMcpServer {
             }))
         }
 
+        async fn ready_handler(
+            State(state): State<Arc<crate::health::LlmHealthState>>,
+        ) -> impl IntoResponse {
+            let snapshot = state.snapshot().await;
+            let code = match snapshot.status {
+                crate::health::LlmHealthStatus::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
+                crate::health::LlmHealthStatus::Healthy
+                | crate::health::LlmHealthStatus::Unknown => StatusCode::OK,
+            };
+            (
+                code,
+                Json(serde_json::json!({
+                    "status": snapshot.status.to_string(),
+                    "service": PIERRE_MCP_SERVER,
+                    "llm": snapshot,
+                })),
+            )
+        }
+
+        async fn llm_health_handler(
+            State(state): State<Arc<crate::health::LlmHealthState>>,
+        ) -> Json<crate::health::LlmHealthSnapshot> {
+            Json(state.snapshot().await)
+        }
+
         Router::new()
             .route("/health", get(health_handler))
             .route("/health/plugins", get(plugins_health_handler))
+            .route("/ready", get(ready_handler))
+            .route("/health/llm", get(llm_health_handler))
+            .with_state(llm_health)
     }
 
     /// Create security headers layer for Axum

@@ -212,6 +212,11 @@ fn validate_required_environment() -> Result<()> {
         explicitly_configured,
     ));
 
+    // Pre-flight Copilot token format check — diagnoses today's outage
+    // pattern (wrong token type rotated into Secret Manager) at boot
+    // instead of as a 5xx on every chat call.
+    validate_copilot_token_format(llm_provider, explicitly_configured)?;
+
     let mut missing_required = Vec::new();
     let mut missing_optional = Vec::new();
 
@@ -329,6 +334,87 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             },
         ],
     }
+}
+
+/// Validate `COPILOT_GITHUB_TOKEN` format when a Copilot CLI runner is the
+/// active LLM provider.
+///
+/// Copilot CLI (`@github/copilot-linux-x64`) accepts three token types
+/// (per `copilot login --help`):
+///
+///   1. Fine-grained PATs (v2) with the "Copilot Requests" permission —
+///      `github_pat_…` prefix. This is what production uses today.
+///   2. OAuth tokens from the GitHub Copilot CLI app — `ghu_…` prefix.
+///   3. OAuth tokens from the GitHub CLI (`gh`) app — `gho_…` prefix.
+///
+/// Classic personal access tokens (`ghp_…`) and gh refresh tokens
+/// (`ghr_…`) are not supported and cause runtime
+/// `Authentication required` errors on every chat call.
+///
+/// This pre-check fails fast at boot with a specific diagnostic so a
+/// bad rotation surfaces as "container did not start" instead of a 5xx
+/// on every user message. Only enforced when:
+///
+///   * `PIERRE_LLM_PROVIDER` is explicitly set to a Copilot variant
+///     (`required == true` path in [`validate_environment`]).
+///   * `COPILOT_GITHUB_TOKEN` is present (callers may rely on
+///     `~/.config/github-copilot/` credentials instead — in that case
+///     the env var is empty and we let the CLI handle auth).
+fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> AppResult<()> {
+    if !required {
+        return Ok(());
+    }
+    if !matches!(
+        provider,
+        LlmProviderType::Copilot | LlmProviderType::CopilotHeadless
+    ) {
+        return Ok(());
+    }
+    let Some(token) = env::var("COPILOT_GITHUB_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+    else {
+        // Empty env var is OK — Copilot CLI falls back to the on-disk
+        // credential store. We can't validate that store here.
+        info!(
+            provider = %provider,
+            "COPILOT_GITHUB_TOKEN not set; Copilot CLI will use on-disk credentials"
+        );
+        return Ok(());
+    };
+
+    let prefix_kind = if token.starts_with("github_pat_") {
+        "fine_grained_pat"
+    } else if token.starts_with("ghu_") {
+        "copilot_oauth"
+    } else if token.starts_with("gho_") {
+        "gh_cli_oauth"
+    } else if token.starts_with("ghp_") {
+        "classic_pat_REJECTED"
+    } else if token.starts_with("ghr_") {
+        "gh_refresh_token_REJECTED"
+    } else {
+        "unknown_REJECTED"
+    };
+
+    info!(
+        provider = %provider,
+        prefix_kind,
+        token_len = token.len(),
+        "COPILOT_GITHUB_TOKEN prefix detected"
+    );
+
+    if prefix_kind.ends_with("_REJECTED") {
+        return Err(AppError::config(format!(
+            "COPILOT_GITHUB_TOKEN has unsupported prefix ({prefix_kind}); Copilot CLI accepts \
+             github_pat_v2 fine-grained PATs (with Copilot Requests permission), gh_ OAuth \
+             tokens, or ghu_ Copilot OAuth tokens. Classic ghp_ PATs and ghr_ refresh tokens \
+             are rejected by Copilot's API and will fail every chat call. Generate a new \
+             fine-grained PAT at https://github.com/settings/personal-access-tokens/new with \
+             Account permissions → Copilot Chat: Read."
+        )));
+    }
+    Ok(())
 }
 
 /// Validate OAuth provider credentials at startup
@@ -571,6 +657,14 @@ async fn create_server(
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
 fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
+
+    // Spawn LLM startup health probe — populates resources.llm_health so
+    // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
+    // forget; failures only surface via the dedicated readiness route
+    // (Cloud Run startup probe is /health by default and stays unaffected).
+    pierre_mcp_server::services::chat_provider_factory::spawn_llm_health_probe(Arc::clone(
+        &resources.llm_health,
+    ));
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)
     #[cfg(feature = "client-messaging")]
