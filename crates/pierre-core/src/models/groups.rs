@@ -278,7 +278,7 @@ pub struct MemberFitnessSnapshot {
     /// Compact list of recent activities (last 7 days, newest first).
     /// Lets the LLM answer sub-week questions ("Saturday vs Sunday",
     /// "longest ride this week") that aggregate fields alone cannot
-    /// support. Empty for members without peer_sharing_consent or
+    /// support. Empty for members without `peer_sharing_consent` or
     /// without activity data.
     pub recent_activities: Vec<RosterActivity>,
     /// When this snapshot was computed
