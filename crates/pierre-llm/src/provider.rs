@@ -57,9 +57,9 @@ pub enum ChatProvider {
     /// behavior) is preserved separately by `PIERRE_LLM_FALLBACK_ENABLED`.
     Chain {
         /// Provider tried first for every request.
-        primary: Box<ChatProvider>,
+        primary: Box<Self>,
         /// Provider tried when `primary` returns a retryable error.
-        secondary: Box<ChatProvider>,
+        secondary: Box<Self>,
     },
 }
 
