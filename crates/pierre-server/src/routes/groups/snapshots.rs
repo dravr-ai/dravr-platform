@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot, OvertrainingRiskLevel};
+use pierre_core::models::groups::{
+    GroupMember, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
+};
 use pierre_groups::service::{HIGH_FATIGUE_TSB_THRESHOLD, OVERREACHING_TSB_THRESHOLD};
 use pierre_intelligence::TrainingLoadCalculator;
 use pierre_providers::core::ActivityQueryParams;
@@ -203,6 +205,23 @@ fn build_snapshot_from_activities(
             .or_insert(start);
     }
 
+    // Recent-activity list (last 7 days, newest first, capped at 12) so the
+    // LLM can answer sub-week questions ("Saturday vs Sunday") that the
+    // weekly aggregates above don't expose.
+    let mut recent_sorted: Vec<&&Activity> = current_week.iter().collect();
+    recent_sorted.sort_by(|a, b| b.start_date().cmp(&a.start_date()));
+    let recent_activities: Vec<RosterActivity> = recent_sorted
+        .into_iter()
+        .take(12)
+        .map(|a| RosterActivity {
+            start: a.start_date(),
+            sport: format!("{:?}", a.sport_type()),
+            distance_km: a.distance_meters().map(|m| m / 1000.0),
+            duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
+            name: a.name().to_owned(),
+        })
+        .collect();
+
     // Days since last activity
     let days_since_last = activities
         .iter()
@@ -246,6 +265,7 @@ fn build_snapshot_from_activities(
         overtraining_risk,
         days_since_last_activity: days_since_last,
         last_activity_per_provider,
+        recent_activities,
         computed_at: now,
     }
 }
@@ -271,6 +291,7 @@ fn default_snapshot(
         overtraining_risk: OvertrainingRiskLevel::Low,
         days_since_last_activity: None,
         last_activity_per_provider: HashMap::new(),
+        recent_activities: Vec::new(),
         computed_at: now,
     }
 }

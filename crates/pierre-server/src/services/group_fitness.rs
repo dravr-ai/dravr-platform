@@ -17,7 +17,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
-use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
+use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::{Activity, Tenant, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info};
@@ -36,6 +36,16 @@ const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
 
 /// Default distance tolerance (percentage) for duplicate detection
 const DEFAULT_DEDUP_DISTANCE_TOLERANCE_PCT: f64 = 10.0;
+
+/// Lookback (days) for the `recent_activities` roster list rendered into
+/// the group context. One week is what coaches ask about ("this week",
+/// "the weekend", "yesterday"); longer windows blow the token budget.
+const RECENT_ACTIVITIES_LOOKBACK_DAYS: i64 = 7;
+
+/// Cap on the number of `recent_activities` rendered per member.
+/// Protects the prompt budget against athletes who log many short
+/// sessions (WHOOP can emit 5+ entries on a hard day).
+const RECENT_ACTIVITIES_LIMIT: usize = 12;
 
 /// Returns `true` when a timestamp's time-of-day component is exactly
 /// `00:00:00` UTC, indicating the provider only resolved the workout day
@@ -692,6 +702,7 @@ fn build_snapshot_from_activities(
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
+    let recent_activities = compute_recent_activities(activities, now);
 
     MemberFitnessSnapshot {
         user_id,
@@ -708,8 +719,35 @@ fn build_snapshot_from_activities(
         overtraining_risk,
         days_since_last_activity: days_since_last,
         last_activity_per_provider,
+        recent_activities,
         computed_at: now,
     }
+}
+
+/// Build the compact per-activity list rendered into the group context.
+///
+/// Returns at most `RECENT_ACTIVITIES_LIMIT` activities from the past
+/// `RECENT_ACTIVITIES_LOOKBACK_DAYS` days, newest first. The cap is
+/// applied after the time filter so a single heavy week doesn't push
+/// older context into the prompt.
+fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec<RosterActivity> {
+    let cutoff = now - Duration::days(RECENT_ACTIVITIES_LOOKBACK_DAYS);
+    let mut filtered: Vec<&Activity> = activities
+        .iter()
+        .filter(|a| a.start_date() >= cutoff)
+        .collect();
+    filtered.sort_by(|a, b| b.start_date().cmp(&a.start_date()));
+    filtered
+        .into_iter()
+        .take(RECENT_ACTIVITIES_LIMIT)
+        .map(|a| RosterActivity {
+            start: a.start_date(),
+            sport: format!("{:?}", a.sport_type()),
+            distance_km: a.distance_meters().map(|m| m / 1000.0),
+            duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
+            name: a.name().to_owned(),
+        })
+        .collect()
 }
 
 /// Group activities by provider and keep the most-recent `start_date` per provider.
@@ -756,6 +794,7 @@ fn empty_snapshot(
         overtraining_risk: OvertrainingRiskLevel::Low,
         days_since_last_activity: None,
         last_activity_per_provider: HashMap::new(),
+        recent_activities: Vec::new(),
         computed_at,
     }
 }

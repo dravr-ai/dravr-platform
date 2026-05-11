@@ -55,6 +55,16 @@ fn format_weekly_duration_hours(weekly_duration_seconds: i64) -> String {
     format!("{hours:.1}")
 }
 
+/// Format per-activity duration (minutes) as a one-decimal hour string.
+/// Mirrors the precision of the weekly aggregate so a short walk still
+/// renders as `0.1h` rather than collapsing to `0`.
+fn format_recent_duration_hours(duration_minutes: i64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    // duration_minutes is the minutes of a single activity; far below f64 precision limits
+    let hours = duration_minutes.max(0) as f64 / 60.0;
+    format!("{hours:.1}")
+}
+
 /// Strategy for compressing member fitness data into LLM-consumable summaries.
 ///
 /// Implementations vary in detail level and token cost per member.
@@ -207,6 +217,30 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         }
         if let Some(vdot) = snapshot.vdot {
             let _ = writeln!(text, "  VDOT: {vdot:.1}");
+        }
+        // Per-activity rows from the last 7 days so the LLM can answer
+        // sub-week questions ("Saturday vs Sunday", "longest ride this
+        // week") without inventing per-day numbers. Newest-first.
+        if !snapshot.recent_activities.is_empty() {
+            text.push_str("  Recent:\n");
+            for act in &snapshot.recent_activities {
+                let date = act.start.format("%Y-%m-%d %a").to_string();
+                let dur_h = format_recent_duration_hours(act.duration_minutes);
+                let dist = match act.distance_km {
+                    Some(km) if km > 0.0 => format!(" {km:.1}km"),
+                    _ => String::new(),
+                };
+                let name_seg = if act.name.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", act.name)
+                };
+                let _ = writeln!(
+                    text,
+                    "    {date} {sport} {dur_h}h{dist}{name_seg}",
+                    sport = act.sport,
+                );
+            }
         }
         if !flags.is_empty() {
             let flag_strs: Vec<&str> = flags
