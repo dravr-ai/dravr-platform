@@ -98,6 +98,9 @@ pub mod pricing_loader;
 #[cfg(feature = "client-messaging")]
 pub mod channel_error_reply;
 
+/// Account-status authorization gate shared by HTTP middleware and messaging ingress.
+pub mod user_status_gate;
+
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;

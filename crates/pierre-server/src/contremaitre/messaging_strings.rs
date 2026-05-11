@@ -160,6 +160,21 @@ pub const KEY_LINK_OTP_PROMPT: &str = "messaging.link.otp_prompt";
 pub const KEY_LINK_SESSION_EXPIRED: &str = "messaging.link.session_expired";
 /// Key: account linked successfully, flow complete.
 pub const KEY_LINK_SUCCESS: &str = "messaging.link.success";
+/// Key: linked or messaging account is awaiting admin approval.
+///
+/// Surfaced by [`super::super::services::user_status_gate`] when an inbound
+/// message — or the final step of an OTP/deep-link channel-linking flow —
+/// resolves to a user whose [`pierre_core::models::UserStatus`] is
+/// [`pierre_core::models::UserStatus::Pending`]. The channel link is still
+/// created (so once an admin flips status to `Active`, the next message just
+/// works) but Dravr returns this template instead of dispatching to the LLM.
+pub const KEY_ACCOUNT_PENDING: &str = "messaging.account.pending";
+/// Key: linked or messaging account is suspended.
+///
+/// Counterpart to [`KEY_ACCOUNT_PENDING`] for users whose
+/// [`pierre_core::models::UserStatus`] is
+/// [`pierre_core::models::UserStatus::Suspended`].
+pub const KEY_ACCOUNT_SUSPENDED: &str = "messaging.account.suspended";
 
 /// Key: a connected fitness provider needs to be (re)authenticated.
 ///
@@ -365,6 +380,9 @@ pub(crate) const FR_LINK_OTP_PROMPT: &str =
 pub(crate) const FR_LINK_SESSION_EXPIRED: &str =
     "Ta session de liaison a expiré. Envoie un message pour recommencer.";
 pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu peux discuter avec Dravr depuis ce canal.\n\nTape « logout » à tout moment pour te déconnecter.";
+pub(crate) const FR_ACCOUNT_PENDING: &str = "Ton compte est lié à ce canal, mais il est en attente d'approbation par un administrateur. Tu pourras discuter avec Dravr dès qu'il sera activé — on te préviendra ici.";
+pub(crate) const FR_ACCOUNT_SUSPENDED: &str =
+    "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès.";
 
 pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 20 minutes) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
 
@@ -501,6 +519,9 @@ pub(crate) const EN_LINK_OTP_PROMPT: &str =
 pub(crate) const EN_LINK_SESSION_EXPIRED: &str =
     "Your linking session has expired. Send a message to start again.";
 pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfully! You can now chat with Dravr through this channel.\n\nType \"logout\" anytime to disconnect.";
+pub(crate) const EN_ACCOUNT_PENDING: &str = "Your account is linked to this channel, but it's still waiting for admin approval. You'll be able to chat with Dravr as soon as it's activated — you'll get a heads-up here.";
+pub(crate) const EN_ACCOUNT_SUSPENDED: &str =
+    "Your Dravr account is suspended. Contact support to restore access.";
 
 pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 20 minutes):\n\n{1}\n\nOnce reconnected, ask me again.";
 
@@ -628,6 +649,9 @@ pub(crate) const ES_LINK_OTP_PROMPT: &str =
 pub(crate) const ES_LINK_SESSION_EXPIRED: &str =
     "Tu sesión de vinculación ha expirado. Envía un mensaje para empezar de nuevo.";
 pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctamente! Ya puedes hablar con Dravr desde este canal.\n\nEscribe «logout» en cualquier momento para desconectar.";
+pub(crate) const ES_ACCOUNT_PENDING: &str = "Tu cuenta está vinculada a este canal, pero aún espera la aprobación de un administrador. Podrás hablar con Dravr en cuanto se active — te avisaremos por aquí.";
+pub(crate) const ES_ACCOUNT_SUSPENDED: &str =
+    "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso.";
 
 pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 20 minutos):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
 
@@ -755,6 +779,9 @@ pub(crate) const DE_LINK_OTP_PROMPT: &str = "Tippe den 6-stelligen Code, den wir
 pub(crate) const DE_LINK_SESSION_EXPIRED: &str =
     "Deine Verknüpfungssitzung ist abgelaufen. Schreib eine Nachricht, um neu zu beginnen.";
 pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du kannst über diesen Kanal mit Dravr chatten.\n\nTippe jederzeit „logout\", um dich abzumelden.";
+pub(crate) const DE_ACCOUNT_PENDING: &str = "Dein Konto ist mit diesem Kanal verknüpft, wartet aber noch auf die Freigabe durch einen Admin. Sobald es aktiviert ist, kannst du mit Dravr chatten — du wirst hier benachrichtigt.";
+pub(crate) const DE_ACCOUNT_SUSPENDED: &str =
+    "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen.";
 
 pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 20 Minuten gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
 
@@ -884,6 +911,9 @@ pub(crate) const PT_LINK_OTP_PROMPT: &str =
 pub(crate) const PT_LINK_SESSION_EXPIRED: &str =
     "A tua sessão de ligação expirou. Envia uma mensagem para começar de novo.";
 pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! Já podes falar com o Dravr através deste canal.\n\nEscreve «logout» a qualquer momento para desligar.";
+pub(crate) const PT_ACCOUNT_PENDING: &str = "A tua conta está ligada a este canal, mas ainda aguarda aprovação de um administrador. Vais poder falar com o Dravr assim que for ativada — avisamos-te por aqui.";
+pub(crate) const PT_ACCOUNT_SUSPENDED: &str =
+    "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso.";
 
 pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 20 minutos):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
 
@@ -999,6 +1029,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "fr", FR_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "fr", FR_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "fr", FR_LINK_SUCCESS),
+    (KEY_ACCOUNT_PENDING, "fr", FR_ACCOUNT_PENDING),
+    (KEY_ACCOUNT_SUSPENDED, "fr", FR_ACCOUNT_SUSPENDED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "fr", FR_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "fr", FR_STATUS_PROVIDERS_NONE),
@@ -1092,6 +1124,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "en", EN_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "en", EN_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "en", EN_LINK_SUCCESS),
+    (KEY_ACCOUNT_PENDING, "en", EN_ACCOUNT_PENDING),
+    (KEY_ACCOUNT_SUSPENDED, "en", EN_ACCOUNT_SUSPENDED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "en", EN_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "en", EN_STATUS_PROVIDERS_NONE),
@@ -1185,6 +1219,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "es", ES_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "es", ES_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "es", ES_LINK_SUCCESS),
+    (KEY_ACCOUNT_PENDING, "es", ES_ACCOUNT_PENDING),
+    (KEY_ACCOUNT_SUSPENDED, "es", ES_ACCOUNT_SUSPENDED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "es", ES_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "es", ES_STATUS_PROVIDERS_NONE),
@@ -1278,6 +1314,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "de", DE_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "de", DE_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "de", DE_LINK_SUCCESS),
+    (KEY_ACCOUNT_PENDING, "de", DE_ACCOUNT_PENDING),
+    (KEY_ACCOUNT_SUSPENDED, "de", DE_ACCOUNT_SUSPENDED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "de", DE_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "de", DE_STATUS_PROVIDERS_NONE),
@@ -1371,6 +1409,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "pt", PT_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "pt", PT_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "pt", PT_LINK_SUCCESS),
+    (KEY_ACCOUNT_PENDING, "pt", PT_ACCOUNT_PENDING),
+    (KEY_ACCOUNT_SUSPENDED, "pt", PT_ACCOUNT_SUSPENDED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "pt", PT_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "pt", PT_STATUS_PROVIDERS_NONE),
