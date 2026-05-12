@@ -18,7 +18,7 @@
 //!   function.
 //!
 //! `tenant_id` and `user_id` are universal span fields per ADR-014 — the
-//! NotifyLayer extracts them at runtime from the enclosing handler span,
+//! `NotifyLayer` extracts them at runtime from the enclosing handler span,
 //! which may live in a different file than the emit site, so the
 //! same-file `#[instrument]` check this test does is too narrow to police
 //! them. The catalogue still lists them as required so operators know
@@ -151,9 +151,8 @@ fn notify_call_sites_match_catalogue() {
 }
 
 fn walk_src(root: &Path, out: &mut Vec<NotifyCall>) {
-    let entries = match fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -227,12 +226,12 @@ fn look_back_macro_open(lines: &[&str], idx: usize) -> usize {
 
 fn look_ahead_macro_close(lines: &[&str], idx: usize) -> usize {
     let hi = (idx + 60).min(lines.len() - 1);
-    for k in idx..=hi {
+    for (offset, line) in lines.iter().enumerate().skip(idx).take(hi - idx + 1) {
         // Crude but reliable: an `info!(...)` ends with `);` or `)?;`
         // or `)` followed by a comment, typically on its own line.
-        let trimmed = lines[k].trim_end();
-        if trimmed.ends_with(");") || trimmed.ends_with(")") {
-            return k;
+        let trimmed = line.trim_end();
+        if trimmed.ends_with(");") || trimmed.ends_with(')') {
+            return offset;
         }
     }
     hi
@@ -359,11 +358,7 @@ fn push_field_key(piece: &str, out: &mut HashSet<String>) {
     if piece.is_empty() {
         return;
     }
-    let key = if let Some(eq) = piece.find('=') {
-        piece[..eq].trim()
-    } else {
-        piece
-    };
+    let key = piece.find('=').map_or(piece, |eq| piece[..eq].trim());
     let key = key.trim_start_matches('%').trim_start_matches('?').trim();
     if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         out.insert(key.to_owned());

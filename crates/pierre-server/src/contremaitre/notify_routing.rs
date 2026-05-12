@@ -36,10 +36,11 @@ use serde::Deserialize;
 
 use crate::errors::{AppError, AppResult};
 
-/// Process-wide [`ContremaitreRoutingProvider`] shared by the tracing
-/// [`NotifyLayer`](dravr_tronc::notify::NotifyLayer) (installed at
-/// logging-init time) and the contremaitre sync engine (which calls
-/// [`ContremaitreRoutingProvider::reload`] on every tick).
+/// Process-wide [`ContremaitreRoutingProvider`].
+///
+/// Shared by the tracing [`NotifyLayer`](dravr_tronc::notify::NotifyLayer)
+/// (installed at logging-init time) and the contremaitre sync engine
+/// (which calls [`ContremaitreRoutingProvider::reload`] on every tick).
 ///
 /// The layer is wired into the subscriber before `ServerContext::new`
 /// builds the rest of the registries, so a `ServerResources` field cannot
@@ -418,7 +419,7 @@ fn merge_rule(defaults: &RoutingRule, override_entry: Option<&EventOverride>) ->
     let mut merged = defaults.clone();
     if let Some(over) = override_entry {
         if let Some(channel) = &over.channel {
-            merged.channel = channel.clone();
+            merged.channel.clone_from(channel);
         }
         if let Some(enabled) = over.enabled {
             merged.enabled = enabled;
@@ -427,13 +428,13 @@ fn merge_rule(defaults: &RoutingRule, override_entry: Option<&EventOverride>) ->
             merged.sample_rate = sample_rate;
         }
         if over.enabled_envs.is_some() {
-            merged.enabled_envs = over.enabled_envs.clone();
+            merged.enabled_envs.clone_from(&over.enabled_envs);
         }
         if over.dedup.is_some() {
-            merged.dedup = over.dedup.clone();
+            merged.dedup.clone_from(&over.dedup);
         }
         if over.batch.is_some() {
-            merged.batch = over.batch.clone();
+            merged.batch.clone_from(&over.batch);
         }
     }
     merged

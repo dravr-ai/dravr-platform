@@ -12,6 +12,8 @@
 
 mod snapshots;
 
+use tracing::{field, info, Span};
+
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -519,9 +521,9 @@ impl GroupRoutes {
         skip(resources, headers, body),
         fields(
             route = "groups_create",
-            user_id = tracing::field::Empty,
-            tenant_id = tracing::field::Empty,
-            group_id = tracing::field::Empty,
+            user_id = field::Empty,
+            tenant_id = field::Empty,
+            group_id = field::Empty,
         )
     )]
     async fn handle_create_group(
@@ -534,9 +536,9 @@ impl GroupRoutes {
 
         // Record IDs on the span so the NotifyLayer can attribute the
         // group.created event without re-passing tenant/user fields.
-        let span = tracing::Span::current();
-        span.record("user_id", tracing::field::display(&auth.user_id));
-        span.record("tenant_id", tracing::field::display(&tenant_id));
+        let span = Span::current();
+        span.record("user_id", field::display(&auth.user_id));
+        span.record("tenant_id", field::display(&tenant_id));
 
         // Check group creation permission:
         // 1. Tenant admins/owners always allowed
@@ -595,8 +597,8 @@ impl GroupRoutes {
         // notify: a new coaching group exists. group_id is the freshly
         // minted Uuid from `created`; record on the span so future child
         // spans inherit it.
-        tracing::Span::current().record("group_id", tracing::field::display(&created.id));
-        tracing::info!(
+        Span::current().record("group_id", field::display(&created.id));
+        info!(
             target: "notify",
             event = "group.created",
             group_id = %created.id,
@@ -1016,9 +1018,9 @@ impl GroupRoutes {
         skip(resources, headers, body),
         fields(
             route = "groups_join",
-            user_id = tracing::field::Empty,
-            tenant_id = tracing::field::Empty,
-            group_id = tracing::field::Empty,
+            user_id = field::Empty,
+            tenant_id = field::Empty,
+            group_id = field::Empty,
         )
     )]
     async fn handle_join_by_invite_code(
@@ -1027,7 +1029,7 @@ impl GroupRoutes {
         Json(body): Json<JoinGroupRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        tracing::Span::current().record("user_id", tracing::field::display(&auth.user_id));
+        Span::current().record("user_id", field::display(&auth.user_id));
         // Caller's tenant is not used — the invite's tenant (group's tenant) is used instead
 
         if body.invite_code.trim().is_empty() {
@@ -1121,10 +1123,10 @@ impl GroupRoutes {
         // notify: user joined a group. The invite's tenant carries the
         // group's tenant — record both so the Slack ping reflects the
         // group context, not the caller's home tenant.
-        let span = tracing::Span::current();
-        span.record("tenant_id", tracing::field::display(&group_tenant_id));
-        span.record("group_id", tracing::field::display(&invite.group_id));
-        tracing::info!(
+        let span = Span::current();
+        span.record("tenant_id", field::display(&group_tenant_id));
+        span.record("group_id", field::display(&invite.group_id));
+        info!(
             target: "notify",
             event = "group.joined",
             group_id = %invite.group_id,

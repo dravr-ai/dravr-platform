@@ -6,6 +6,8 @@
 
 use std::collections::HashSet;
 
+use tracing::{field, info, Span};
+
 use crate::{
     coaches::{parse_coach_content, to_markdown},
     errors::AppError,
@@ -607,8 +609,8 @@ pub(super) async fn handle_toggle_favorite(
     fields(
         route = "coach_record_usage",
         coach_id = %id,
-        user_id = tracing::field::Empty,
-        tenant_id = tracing::field::Empty,
+        user_id = field::Empty,
+        tenant_id = field::Empty,
     )
 )]
 pub(super) async fn handle_record_usage(
@@ -621,9 +623,9 @@ pub(super) async fn handle_record_usage(
 
     // Record IDs on the span so the NotifyLayer can attribute the
     // coach.selected event to this user/tenant without re-passing them.
-    let span = tracing::Span::current();
-    span.record("user_id", tracing::field::display(&auth.user_id));
-    span.record("tenant_id", tracing::field::display(&tenant_id));
+    let span = Span::current();
+    span.record("user_id", field::display(&auth.user_id));
+    span.record("tenant_id", field::display(&tenant_id));
 
     let manager = super::get_coaches_manager(&resources);
     let success = manager.record_usage(&id, auth.user_id, tenant_id).await?;
@@ -634,7 +636,7 @@ pub(super) async fn handle_record_usage(
 
     // notify: user picked this coach for a conversation. `id` is the
     // coach slug from the URL — that's what the routing rule keys on.
-    tracing::info!(
+    info!(
         target: "notify",
         event = "coach.selected",
         coach_slug = %id,
