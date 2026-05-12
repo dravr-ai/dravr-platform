@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pierre_llm::config::LlmProviderType;
-use pierre_llm::ChatProvider;
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tokio::time::interval;
 use tracing::{error, info, warn};
 
@@ -166,10 +166,19 @@ async fn run_one_probe(provider_name: &str, health_state: &LlmHealthState, kind:
         }
     };
     match provider.health_check().await {
-        Ok(true) => {
-            let previous = health_state.record_healthy(provider_name.to_owned()).await;
-            log_probe_outcome(provider_name, kind, previous, true, None);
-        }
+        Ok(true) => match roundtrip_probe(&provider).await {
+            Ok(()) => {
+                let previous = health_state.record_healthy(provider_name.to_owned()).await;
+                log_probe_outcome(provider_name, kind, previous, true, None);
+            }
+            Err(e) => {
+                let msg = format!("roundtrip probe failed: {e}");
+                let previous = health_state
+                    .record_unhealthy(provider_name.to_owned(), msg.clone())
+                    .await;
+                log_probe_outcome(provider_name, kind, previous, false, Some(&msg));
+            }
+        },
         Ok(false) => {
             let msg = "provider reported unhealthy";
             let previous = health_state
@@ -185,6 +194,24 @@ async fn run_one_probe(provider_name: &str, health_state: &LlmHealthState, kind:
             log_probe_outcome(provider_name, kind, previous, false, Some(&msg));
         }
     }
+}
+
+/// Cheapest possible end-to-end check that the configured LLM provider is
+/// actually able to serve a request right now. Sends a one-token "ping"
+/// prompt and accepts ANY non-error response as proof of life.
+///
+/// The base [`ChatProvider::health_check`] only verifies provider-specific
+/// readiness (binary present, API key shape, etc.). For Copilot CLI in
+/// particular that probe stays green even when the session token has
+/// silently expired against `api.github.com`, so the first real chat
+/// breaks for users. This roundtrip catches that class of failure before
+/// it reaches a user-facing turn, which lets `/ready` flip to 503 and
+/// gives the runtime fallback chain a chance to log a transition.
+async fn roundtrip_probe(provider: &ChatProvider) -> Result<(), AppError> {
+    let request = ChatRequest::new(vec![ChatMessage::user("ping".to_owned())])
+        .with_temperature(0.0)
+        .with_max_tokens(1);
+    provider.complete(&request).await.map(|_| ())
 }
 
 fn log_probe_outcome(

@@ -37,6 +37,7 @@
 - [OAuth2 Server](oauth2-server.md)
 - [OAuth Client](oauth-client.md)
 - [LLM Providers](llm-providers.md)
+- [Provider Quirks & Footguns](provider-quirks.md)
 - [Messaging Gateway](messaging-gateway.md)
 - [Admin Tool Management](admin-tool-management.md)
 - [Conversation-Turn Observability](conversation-turn-observability.md)
