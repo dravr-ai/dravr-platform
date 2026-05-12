@@ -16,7 +16,7 @@
 //!
 //! ## Supported Models
 //!
-//! - `gemini-3-flash-preview` (default): Latest flash model with improved capabilities
+//! - `gemini-3.1-flash-lite` (default): GA flash-lite model
 //! - `gemini-2.5-flash`: Fast model with improved capabilities
 //! - `gemini-2.0-flash`: Stable multimodal model
 //! - `gemini-1.5-pro`: Advanced reasoning capabilities
@@ -86,7 +86,7 @@ const GEMINI_MAX_RETRY_DELAY_MS_ENV: &str = "GEMINI_MAX_RETRY_DELAY_MS";
 
 /// Available Gemini models
 const AVAILABLE_MODELS: &[&str] = &[
-    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-1.5-pro",
@@ -126,7 +126,7 @@ struct GeminiRequest {
 struct GeminiContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<String>,
-    /// Content parts - may be empty for thinking-only responses from models like gemini-3-flash-preview
+    /// Content parts - may be empty for thinking-only responses from models like gemini-3.1-flash-lite
     #[serde(default)]
     parts: Vec<ContentPart>,
 }
@@ -625,7 +625,7 @@ impl GeminiProvider {
             .and_then(|c| c.first())
             .and_then(|c| c.content.as_ref());
 
-        // Handle empty or missing content - can happen with thinking models like gemini-3-flash-preview
+        // Handle empty or missing content - can happen with thinking models like gemini-3.1-flash-lite
         let Some(content) = content else {
             // Check if this is a blocked response
             let finish_reason = response

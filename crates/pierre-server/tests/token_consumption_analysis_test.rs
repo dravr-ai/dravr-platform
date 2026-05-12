@@ -325,9 +325,9 @@ mod axis2_prompt_sizes {
             let total_billed: usize = (1..=turns).map(|i| system_tokens + i * per_turn).sum();
             let total_output = turns * assistant_tokens_per_turn;
 
-            let cost_3flash = calculate_cost(
+            let cost_31lite = calculate_cost(
                 "gemini",
-                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite",
                 total_billed as i64,
                 total_output as i64,
             );
@@ -338,7 +338,7 @@ mod axis2_prompt_sizes {
                 total_output as i64,
             );
 
-            println!("{turns:<8} {total_billed:>14} {total_output:>14} {cost_3flash:>15.6} {cost_25flash:>15.6}");
+            println!("{turns:<8} {total_billed:>14} {total_output:>14} {cost_31lite:>15.6} {cost_25flash:>15.6}");
         }
 
         // Sanity floor: the static compiled-in prompt lost ~800 tokens of
@@ -415,9 +415,9 @@ mod axis2_cost_projections {
                 }
             }
 
-            let cost_3flash = calculate_cost(
+            let cost_31lite = calculate_cost(
                 "gemini",
-                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite",
                 total_input as i64,
                 total_output as i64,
             );
@@ -435,13 +435,13 @@ mod axis2_cost_projections {
                 profile.turns_per_chat,
                 total_input,
                 total_output,
-                cost_3flash,
+                cost_31lite,
                 cost_25flash,
             );
 
             assert!(
-                cost_3flash > 0.0,
-                "{} profile gemini-3-flash cost should be > 0",
+                cost_31lite > 0.0,
+                "{} profile gemini-3.1-flash-lite cost should be > 0",
                 profile.name
             );
         }
@@ -454,19 +454,19 @@ mod axis2_cost_projections {
 
         let insight_cost = calculate_cost(
             "gemini",
-            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
             insight_tokens as i64,
             insight_output as i64,
         );
         let coach_cost = calculate_cost(
             "gemini",
-            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
             coach_tokens as i64,
             coach_output as i64,
         );
 
         println!();
-        println!("Single operation costs (gemini-3-flash):");
+        println!("Single operation costs (gemini-3.1-flash-lite):");
         println!("  Insight generation: {insight_tokens} input tokens + {insight_output} output → ${insight_cost:.6}");
         println!("  Coach generation:   {coach_tokens} input tokens + {coach_output} output → ${coach_cost:.6}");
     }
@@ -481,7 +481,7 @@ mod axis2_cost_projections {
         let redundant_system_tokens = system_tokens * (system_prompt_sends - 1);
         let system_waste_cost = calculate_cost(
             "gemini",
-            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
             redundant_system_tokens as i64,
             0,
         );
@@ -491,7 +491,7 @@ mod axis2_cost_projections {
         let redundant_activity_tokens = activity_data_tokens * (activity_fetches - 1);
         let activity_waste_cost = calculate_cost(
             "gemini",
-            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
             redundant_activity_tokens as i64,
             0,
         );
