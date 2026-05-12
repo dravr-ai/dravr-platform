@@ -7,6 +7,7 @@
 use crate::config::environment::RateLimitConfig;
 use crate::constants::key_prefixes;
 use crate::errors::{AppError, AppResult};
+use crate::models::TenantId;
 use crate::providers::errors::ProviderError;
 use crate::services::user_status_gate::enforce_user_status;
 use crate::utils::errors::auth_error;
@@ -17,7 +18,7 @@ use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_auth::security::cookies::get_cookie_value;
-// Trait methods dispatched through repos.api_keys / repos.tenants / repos.usage / repos.users
+// Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
 use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 use tracing::field::Empty;
@@ -283,6 +284,134 @@ impl McpAuthMiddleware {
             auth_method: AuthMethod::ApiKey {
                 key_id: db_key.id,
                 tier: format!("{:?}", db_key.tier).to_lowercase(),
+            },
+            rate_limit,
+            active_tenant_id,
+        })
+    }
+
+    /// Authenticate an inbound messaging webhook turn via the channel link.
+    ///
+    /// Messaging counterpart to [`Self::authenticate_jwt_token`] — same shape
+    /// (`AuthResult`), same gates (user existence, status, rate limit, active
+    /// tenant), same single source of truth. `services::messaging_ingress`
+    /// calls this for every inbound `Telegram` / `WhatsApp` / `Discord` /
+    /// `Slack` / `Messenger` message so the chat pipeline, command
+    /// dispatcher, and tool execution layer downstream cannot distinguish
+    /// messaging callers from web/mobile callers.
+    ///
+    /// `tenant_id` is the bot's tenant (resolved from the channel config at
+    /// the webhook boundary); `active_tenant_id` in the returned
+    /// [`AuthResult`] is the user's own first-membership tenant so tool
+    /// execution (`OAuth`, activities) stays inside the user's data scope
+    /// even when the bot lives in a different tenant.
+    ///
+    /// # Errors
+    ///
+    /// - [`AppError::auth_invalid`] — channel link missing or malformed
+    ///   (sender not linked, or DB row corrupted).
+    /// - [`AppError::not_found`] — link references a deleted user.
+    /// - [`AppError::account_pending`] / [`AppError::account_suspended`] —
+    ///   linked user is not active (callers map this to the localized
+    ///   `KEY_ACCOUNT_PENDING` / `KEY_ACCOUNT_SUSPENDED` reply).
+    /// - [`AppError::external_service`] — rate limit exceeded.
+    /// - [`AppError::database`] — DB lookup failures.
+    pub async fn authenticate_channel(
+        &self,
+        tenant_id: TenantId,
+        channel: &str,
+        channel_user_id: &str,
+    ) -> AppResult<AuthResult> {
+        let link = self
+            .repos
+            .messaging
+            .get_channel_link(tenant_id, channel, channel_user_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::auth_invalid(format!(
+                    "No channel link for {channel}:{channel_user_id} under tenant {tenant_id}"
+                ))
+            })?;
+
+        let user_id_str = link["user_id"]
+            .as_str()
+            .ok_or_else(|| AppError::internal("Channel link missing user_id"))?;
+        let user_id = parse_uuid(user_id_str).map_err(|_| {
+            AppError::internal(format!("Channel link user_id not a UUID: {user_id_str}"))
+        })?;
+
+        // SECURITY: Global lookup — channel-link validation, no tenant context yet.
+        let user = self
+            .repos
+            .users
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+
+        // Single source of truth for the approval policy — same call as the
+        // JWT path so an admin flipping Pending → Active takes effect on every
+        // transport simultaneously.
+        enforce_user_status(user.user_status).inspect_err(|e| {
+            warn!(
+                user_id = %user_id,
+                status = ?user.user_status,
+                channel = %channel,
+                error = %e,
+                "Channel access denied by user-status gate"
+            );
+        })?;
+
+        // Resolve the user's own tenant for tool execution (OAuth, activities).
+        // Webhook tenant is the bot's tenant; the user may belong to a
+        // different one. Falling back to the bot's tenant keeps the request
+        // routable when the user has zero memberships (defensive — the OTP
+        // link flow already rejects users with empty membership lists).
+        let active_tenant_id = self
+            .repos
+            .tenants
+            .list_for_user(user_id)
+            .await
+            .map_err(|e| {
+                AppError::database(format!(
+                    "Failed to resolve tenant for messaging user {user_id}: {e}"
+                ))
+            })?
+            .first()
+            .map_or_else(|| Some(tenant_id.as_uuid()), |t| Some(t.id.as_uuid()));
+
+        // Rate limit on the user-tier policy (JWT calculator — channel links
+        // are long-lived user credentials, same authority as a session token).
+        let current_usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let rate_limit = self
+            .rate_limit_calculator
+            .calculate_jwt_rate_limit(&user, current_usage);
+
+        if rate_limit.is_rate_limited {
+            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
+                let now = chrono::Utc::now().timestamp();
+                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
+            });
+            return Err(AppError::external_service(
+                "Messaging Channel",
+                ProviderError::RateLimitExceeded {
+                    provider: "Messaging Channel".to_owned(),
+                    retry_after_secs: retry_after,
+                    limit_type: format!(
+                        "Rate limit reached on channel {channel}: {}/{} requests",
+                        current_usage,
+                        rate_limit.limit.unwrap_or(0)
+                    ),
+                }
+                .to_string(),
+            ));
+        }
+
+        Ok(AuthResult {
+            user_id,
+            auth_method: AuthMethod::ChannelLink {
+                channel: channel.to_owned(),
+                channel_user_id: channel_user_id.to_owned(),
+                tier: format!("{:?}", user.tier).to_lowercase(),
             },
             rate_limit,
             active_tenant_id,

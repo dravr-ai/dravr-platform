@@ -45,6 +45,9 @@ pub enum AuthMethod {
     OAuth2,
     /// MCP client registration token
     McpClient,
+    /// Messaging channel link (`Telegram`, `WhatsApp`, `Discord`, `Slack`,
+    /// `Messenger`) authenticated via [`pierre_auth::auth::AuthMethod::ChannelLink`].
+    ChannelLink,
 }
 
 impl AuthMethod {
@@ -56,6 +59,7 @@ impl AuthMethod {
             Self::ApiKey => "api_key",
             Self::OAuth2 => "oauth2",
             Self::McpClient => "mcp_client",
+            Self::ChannelLink => "channel_link",
         }
     }
 }

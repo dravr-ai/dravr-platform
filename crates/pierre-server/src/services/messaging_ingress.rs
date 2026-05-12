@@ -10,7 +10,7 @@ use pierre_core::models::messaging::{
     CardAction, ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
-use pierre_core::models::{ConversationTurnId, TenantId, User, UserStatus};
+use pierre_core::models::{ConversationTurnId, TenantId, User};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::backends::{
@@ -46,7 +46,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
     KEY_THINKING_PLACEHOLDER,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::analytics::{analytics, hash_id};
@@ -60,7 +60,9 @@ use crate::services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 use crate::services::usage_counter::UsageCounterService;
-use crate::services::user_status_gate::{enforce_user_status, messaging_key_for_status};
+use crate::services::user_status_gate::messaging_key_for_status;
+use pierre_auth::auth::AuthResult;
+use pierre_core::errors::ErrorCode;
 
 /// Outcome of persisting a single inbound message
 pub(crate) enum PersistOutcome {
@@ -125,14 +127,24 @@ pub(crate) struct PendingDispatch {
     pub(crate) resources: Arc<ServerContext>,
     /// Channel adapter for outbound send
     pub(crate) adapter: Arc<dyn MessagingChannel>,
-    /// Resolved session info
+    /// Authenticated principal for the inbound turn.
+    ///
+    /// Produced by
+    /// [`crate::middleware::auth::McpAuthMiddleware::authenticate_channel`] at
+    /// the top of `persist_single_message` — same shape and semantics as the
+    /// `AuthResult` the JWT middleware produces for HTTP callers. Carries the
+    /// user id, rate-limit state, and the user's own `active_tenant_id` so
+    /// downstream stages don't re-derive any of this from the channel link.
+    auth_result: AuthResult,
+    /// Resolved session info (session-row identity for `messaging_sessions`).
     session: ResolvedSession,
     /// Channel config tenant — used for conversation/message persistence (the
     /// conversation was created under this tenant).
     channel_tenant_id: TenantId,
     /// User's own tenant — used for tool execution (OAuth, activities, etc.).
-    /// May differ from `channel_tenant_id` when the user belongs to a different
-    /// tenant than the bot that owns the webhook.
+    /// Mirrors `auth_result.active_tenant_id` — kept as a typed field so
+    /// consumers reading `dispatch.user_tenant_id` don't unwrap the optional
+    /// every time.
     user_tenant_id: TenantId,
     /// Channel type enum
     channel_type: ChannelType,
@@ -254,35 +266,59 @@ async fn execute_link_code(
     Ok(user_id)
 }
 
-/// Translate the account-status policy into a localized messaging reply.
+/// Build the reply body for the moment a fresh channel link gets created.
 ///
-/// Returns `None` for active accounts (caller proceeds normally) and
-/// `Some(translated_template)` for pending / suspended accounts so the caller
-/// can short-circuit the linking confirmation or inbound chat dispatch with a
-/// transport-appropriate message. The check funnels through
-/// [`crate::services::user_status_gate::enforce_user_status`], the same policy
-/// the JWT middleware enforces for the HTTP API.
-fn account_status_reply(
+/// Calls the unified channel-authentication path (same call every inbound
+/// message after this will hit) and translates the outcome into a link-time
+/// reply:
+/// - `Ok(_)` → [`KEY_LINK_SUCCESS`] (locale resolved from the auth result).
+/// - `AccountPending` / `AccountSuspended` → translated denial copy.
+/// - Any other auth error → falls back to [`KEY_LINK_SUCCESS`] (the link did
+///   persist, the transient auth-side error doesn't justify scaring the user
+///   off; the next inbound message will retry the gate).
+async fn link_time_reply(
     resources: &ServerContext,
-    status: UserStatus,
-    locale: &str,
-) -> Option<String> {
-    let err = enforce_user_status(status).err()?;
-    let key = messaging_key_for_status(err.code)?;
-    Some(resources.messaging_strings_registry.get(key, locale))
-}
-
-/// Pick the locale to render a link-time reply in.
-///
-/// At link time the channel-link row may not exist yet (deep-link path) or may
-/// have been created with no override (OTP path), so [`resolve_messaging_locale`]
-/// would just fall back to the user profile anyway. Reading `user.locale`
-/// directly avoids an unnecessary DB round-trip in the hot post-link reply path.
-fn user_locale_or_default(user: &User) -> String {
-    if user.locale.trim().is_empty() {
-        DEFAULT_LOCALE.to_owned()
-    } else {
-        user.locale.clone()
+    tenant_id: TenantId,
+    channel: &str,
+    sender_id: &str,
+) -> String {
+    let reg = &resources.messaging_strings_registry;
+    match resources
+        .auth_middleware
+        .authenticate_channel(tenant_id, channel, sender_id)
+        .await
+    {
+        Ok(auth_result) => {
+            let locale = resolve_messaging_locale(
+                resources,
+                tenant_id,
+                auth_result.user_id,
+                channel,
+                sender_id,
+            )
+            .await;
+            reg.get(KEY_LINK_SUCCESS, &locale)
+        }
+        Err(e) => {
+            if let Some(key) = messaging_key_for_status(e.code) {
+                let locale = resources
+                    .repos
+                    .messaging
+                    .get_channel_link_locale(tenant_id, channel, sender_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .filter(|l| !l.trim().is_empty())
+                    .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
+                reg.get(key, &locale)
+            } else {
+                // Operator-category failure (DB blip, etc.). Log and fall
+                // back to the link-success template — the link is real, the
+                // next inbound message hits the gate again.
+                warn!(error = %e, channel = %channel, "Link-time auth check failed; using success template");
+                reg.get(KEY_LINK_SUCCESS, DEFAULT_LOCALE)
+            }
+        }
     }
 }
 
@@ -308,22 +344,10 @@ async fn consume_and_link(
             analytics().alias(&hashed_channel_id, &hashed_user);
             analytics().track_linking_completed(channel, &hashed_tenant, &hashed_user, "deep_link");
 
-            // Surface the account-status policy at link time so a Pending /
-            // Suspended user sees "waiting for approval" rather than the
-            // unconditional success copy. The channel link itself is still
-            // created so once admin flips status to Active no re-link is
-            // required.
-            if let Ok(uuid) = Uuid::parse_str(&user_id) {
-                if let Ok(Some(user)) = resources.repos.users.get_global(uuid).await {
-                    let locale = user_locale_or_default(&user);
-                    if let Some(reply) = account_status_reply(resources, user.user_status, &locale)
-                    {
-                        return reply;
-                    }
-                }
-            }
-
-            reg.get(KEY_LINK_SUCCESS, DEFAULT_LOCALE)
+            // Run the unified channel-auth path on the freshly-minted link so
+            // the immediate reply reflects approval state exactly as every
+            // subsequent inbound message will.
+            link_time_reply(resources, tenant_id, channel, sender_id).await
         }
         Err(err) => {
             let (key, detail) = match &err {
@@ -472,42 +496,31 @@ async fn forge_fresh_session_conversation(
     Ok(new_id)
 }
 
-/// Resolve a messaging session for a linked channel user.
+/// Resolve a messaging session for an already-authenticated channel user.
 ///
-/// Looks up the channel link to find the Pierre user, then looks up or creates
-/// a session. Returns `None` if the sender has no channel link (unlinked user).
+/// Caller has just produced an [`AuthResult`] via
+/// [`crate::middleware::auth::McpAuthMiddleware::authenticate_channel`]; this
+/// helper handles only the session-row side (resume an existing
+/// `messaging_sessions` row scoped to the chat, or open a fresh one). The
+/// `linked_user_id` argument is the auth result's `user_id` rendered as a
+/// string so it flows into the existing session-row plumbing without
+/// changing every downstream signature.
 ///
 /// `is_direct_message == false` triggers the channel-group binding pass: the
 /// chat is mapped to (or auto-creates) a `coaching_groups` row, and the
 /// resulting `group_id` is attached to the conversation so the prompt-assembly
 /// stage injects group context (member roster, peer training data subject to
 /// per-member consent).
-async fn resolve_linked_session(
+async fn resolve_session_for_user(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
+    linked_user_id: &str,
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
-) -> Result<Option<ResolvedSession>, AppError> {
+) -> Result<ResolvedSession, AppError> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
-
-    // Channel link is the source of truth for "is this sender currently bound
-    // to a Pierre user". `logout_channel_sender` deletes only the link and
-    // retains messaging_sessions/messages for support and audit, so an
-    // orphaned session can outlive its link. Checking the link first prevents
-    // post-logout messages from leaking into the previously linked user's
-    // chat history.
-    let channel_link = db
-        .get_channel_link(tenant_id, channel_type, sender_id)
-        .await?;
-    let Some(link) = channel_link else {
-        return Ok(None);
-    };
-    let linked_user_id = link["user_id"]
-        .as_str()
-        .ok_or_else(|| AppError::internal("Channel link missing user_id"))?
-        .to_owned();
 
     // Existing session, scoped to this specific chat. A user with a
     // Telegram DM AND a Telegram group chat gets two sessions — one per
@@ -520,20 +533,19 @@ async fn resolve_linked_session(
         return resume_existing_session(
             resources,
             session,
-            &linked_user_id,
+            linked_user_id,
             tenant_id,
             channel_type,
             chat_ref,
             is_direct_message,
         )
-        .await
-        .map(Some);
+        .await;
     }
 
     // No existing session — open a fresh one for the linked user.
     open_new_session(
         resources,
-        &linked_user_id,
+        linked_user_id,
         tenant_id,
         channel_type,
         sender_id,
@@ -541,7 +553,6 @@ async fn resolve_linked_session(
         is_direct_message,
     )
     .await
-    .map(Some)
 }
 
 /// Resume the per-chat session row returned by
@@ -1478,18 +1489,18 @@ async fn handle_otp_verification_step(
     analytics().alias(&hashed_channel_id, &hashed_user);
     analytics().track_linking_completed(params.channel, &hashed_tenant, &hashed_user, "otp");
 
-    // Run the account-status gate at link time so the post-OTP reply already
-    // reflects approval state. Pending / Suspended users get the localized
-    // "waiting for approval" copy; the channel link persists so they don't
-    // re-OTP after activation.
-    let locale = user_locale_or_default(&user);
-    let body =
-        account_status_reply(params.resources, user.user_status, &locale).unwrap_or_else(|| {
-            params
-                .resources
-                .messaging_strings_registry
-                .get(KEY_LINK_SUCCESS, &locale)
-        });
+    // Run the unified channel-auth path so the post-OTP reply matches what
+    // the next inbound message will produce. Pending / Suspended users see
+    // the translated denial copy at link time; everyone else sees the
+    // localized link-success template.
+    let body = link_time_reply(
+        params.resources,
+        params.tenant_id,
+        params.channel,
+        params.sender_id,
+    )
+    .await;
+    let _ = user; // user was loaded for analytics + link creation only
 
     otp_reply(params.channel_type, params.sender_id, body)
 }
@@ -1638,6 +1649,7 @@ async fn try_handle_slash_command(
     resources: &Arc<ServerContext>,
     channel: &str,
     channel_type: ChannelType,
+    auth_result: &AuthResult,
     session: &ResolvedSession,
     text: &str,
     sender_id: &str,
@@ -1646,16 +1658,17 @@ async fn try_handle_slash_command(
     is_direct_message: bool,
 ) -> Option<OutgoingMessage> {
     use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
-    use pierre_core::uuid_utils::parse_uuid;
 
     // Fast path: not a command. Avoids any auth/tenant lookups.
     if !text.trim().starts_with('/') {
         return None;
     }
 
-    let user_uuid = parse_uuid(&session.user_id).ok()?;
-    let fallback_tenant = TenantId::from_uuid(user_uuid);
-    let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
+    let user_uuid = auth_result.user_id;
+    // Tenant comes straight from AuthResult — same path as the JWT middleware.
+    let user_tenant = auth_result
+        .active_tenant_id
+        .map_or_else(|| TenantId::from_uuid(user_uuid), TenantId::from_uuid);
     let locale =
         resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
     let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
@@ -1827,30 +1840,11 @@ async fn persist_single_message(
     )
     .await?;
 
-    let Some(session) = session else {
+    let Some((auth_result, session)) = session else {
         return Ok(PersistOutcome::HandledNotStored);
     };
-
-    // Authorize the linked user — Pending / Suspended accounts must not reach
-    // slash commands, message storage, or LLM dispatch. Same policy enforced
-    // by the JWT middleware on the HTTP API (see services::user_status_gate),
-    // surfaced as a translated channel reply through the strings registry
-    // instead of an HTTP error envelope.
-    if let Some(reply) = check_account_status_gate(AccountStatusGateInputs {
-        resources,
-        tenant_id,
-        channel,
-        channel_type,
-        session: &session,
-        sender_id: &message.sender_id,
-        conversation_id: message.conversation_id.as_deref(),
-        thread_id: thread_id.clone(),
-    })
-    .await
-    {
-        send_channel_response(db, tenant_id, channel, adapter, reply).await;
-        return Ok(PersistOutcome::HandledNotStored);
-    }
+    // The unified auth path (authenticate_channel) already gated user status
+    // and rate limit; everything below this point is the dispatch hot path.
 
     // Check for slash commands before storing or dispatching to LLM.
     // Commands are handled immediately and not stored in conversation history.
@@ -1859,6 +1853,7 @@ async fn persist_single_message(
             resources,
             channel,
             channel_type,
+            &auth_result,
             &session,
             &text,
             &message.sender_id,
@@ -1887,11 +1882,13 @@ async fn persist_single_message(
     );
     analytics().track_intent(channel, &hashed_tenant, &hashed_user, "normal_chat");
 
-    // Resolve the user's own tenant for tool execution (OAuth, activities, etc.).
-    // The webhook tenant is the bot's tenant (channel config), but the user may
-    // belong to a different tenant. Tool execution must use the user's tenant so
-    // that OAuth connections and data queries match.
-    let user_tenant_id = resolve_user_tenant(resources, &session.user_id, tenant_id).await;
+    // The user's tenant for tool execution comes straight from AuthResult —
+    // McpAuthMiddleware::authenticate_channel already resolved it (first
+    // tenant membership, falling back to the webhook tenant), the same way
+    // the JWT path's `active_tenant_id` flows. No second lookup.
+    let user_tenant_id = auth_result
+        .active_tenant_id
+        .map_or(tenant_id, TenantId::from_uuid);
 
     // Resolve the user's preferred locale once per dispatch so every
     // downstream stage (guardrails, verification, empty-reply) speaks the
@@ -1925,6 +1922,7 @@ async fn persist_single_message(
                 PendingDispatch {
                     resources: Arc::clone(resources),
                     adapter: Arc::clone(adapter),
+                    auth_result,
                     session,
                     channel_tenant_id: tenant_id,
                     user_tenant_id,
@@ -2026,10 +2024,17 @@ async fn send_unlinked_user_prompt(
     send_channel_response(db, tenant_id, channel, adapter, prompt).await;
 }
 
-/// Resolve a linked session or send an authentication prompt for unlinked users
+/// Authenticate the inbound sender, then resolve (or open) their session.
 ///
-/// Returns `Ok(Some(session))` for linked users, `Ok(None)` for unlinked users
-/// (after sending them a prompt), or `Err(())` on session resolution failure.
+/// Single entry point for inbound message authorization — calls
+/// [`crate::middleware::auth::McpAuthMiddleware::authenticate_channel`] to
+/// produce an [`AuthResult`] identical in shape to the web/mobile JWT path,
+/// then delegates session-row management to [`resolve_session_for_user`].
+///
+/// Returns `Ok(Some((auth_result, session)))` for authorized linked users,
+/// `Ok(None)` after surfacing the right deny/prompt reply (no link, pending
+/// approval, suspended, rate-limited), or `Err(())` on operator-category
+/// failure that warrants dropping the message and paging on-call.
 async fn resolve_or_prompt(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -2038,48 +2043,202 @@ async fn resolve_or_prompt(
     channel_type: ChannelType,
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
-) -> Result<Option<ResolvedSession>, ()> {
+) -> Result<Option<(AuthResult, ResolvedSession)>, ()> {
+    let auth_outcome = resources
+        .auth_middleware
+        .authenticate_channel(tenant_id, channel, &message.sender_id)
+        .await;
+    let Some(auth_result) = handle_channel_auth_outcome(ChannelAuthOutcomeInputs {
+        resources,
+        db,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+        outcome: auth_outcome,
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+
     let chat_ref = ChannelChatRef {
         chat_id: message.conversation_id.as_deref(),
         chat_title: message.chat_title.as_deref(),
     };
-    match resolve_linked_session(
+    let linked_user_id = auth_result.user_id.to_string();
+    match resolve_session_for_user(
         resources,
         tenant_id,
         channel,
         &message.sender_id,
+        &linked_user_id,
         chat_ref,
         message.is_direct_message,
     )
     .await
     {
-        Ok(Some(session)) => Ok(Some(session)),
-        Ok(None) => {
-            send_unlinked_user_prompt(
-                resources,
-                db,
-                tenant_id,
-                channel,
-                channel_type,
-                adapter,
-                message,
-            )
-            .await;
-            Ok(None)
-        }
+        Ok(session) => Ok(Some((auth_result, session))),
         Err(e) => {
-            // Error-level: the user sent a message and got no reply — this is a
-            // production incident, not a warning. Triggers the dravr-tronc
-            // Slack notifier so operators see the outage within seconds.
             error!(
                 error = %e,
-                sender_id = %message.sender_id,
+                user_id = %auth_result.user_id,
                 channel = %channel_type,
                 "Failed to resolve messaging session, dropping message"
             );
             Err(())
         }
     }
+}
+
+/// Inputs for [`handle_channel_auth_outcome`].
+struct ChannelAuthOutcomeInputs<'a> {
+    resources: &'a ServerContext,
+    db: &'a dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel: &'a str,
+    channel_type: ChannelType,
+    adapter: &'a Arc<dyn MessagingChannel>,
+    message: &'a IncomingMessage,
+    outcome: AppResult<AuthResult>,
+}
+
+/// Branch on the channel-authentication outcome, surfacing the right reply
+/// for each terminal state and returning the [`AuthResult`] only on success.
+///
+/// Extracted from [`resolve_or_prompt`] to keep the caller's cognitive
+/// complexity under the strict-clippy threshold while making the policy
+/// table explicit: unlinked → prompt, denied → translated reply, error →
+/// drop the message and let on-call see the structured error.
+async fn handle_channel_auth_outcome(
+    inputs: ChannelAuthOutcomeInputs<'_>,
+) -> Result<Option<AuthResult>, ()> {
+    match inputs.outcome {
+        Ok(r) => Ok(Some(r)),
+        Err(e) if e.code == ErrorCode::AuthInvalid => {
+            debug!(
+                sender_id = %inputs.message.sender_id,
+                channel = %inputs.channel_type,
+                "Sender not linked, prompting"
+            );
+            send_unlinked_user_prompt(
+                inputs.resources,
+                inputs.db,
+                inputs.tenant_id,
+                inputs.channel,
+                inputs.channel_type,
+                inputs.adapter,
+                inputs.message,
+            )
+            .await;
+            Ok(None)
+        }
+        Err(e)
+            if matches!(
+                e.code,
+                ErrorCode::AccountPending
+                    | ErrorCode::AccountSuspended
+                    | ErrorCode::RateLimitExceeded
+            ) =>
+        {
+            let reply = build_auth_denial_reply(AuthDenialReplyInputs {
+                resources: inputs.resources,
+                tenant_id: inputs.tenant_id,
+                channel: inputs.channel,
+                channel_type: inputs.channel_type,
+                sender_id: &inputs.message.sender_id,
+                conversation_id: inputs.message.conversation_id.as_deref(),
+                thread_id: extract_thread_id(&inputs.message.metadata),
+                err: &e,
+            })
+            .await;
+            send_channel_response(
+                inputs.db,
+                inputs.tenant_id,
+                inputs.channel,
+                inputs.adapter,
+                reply,
+            )
+            .await;
+            Ok(None)
+        }
+        Err(e) => {
+            // Operator-category failure — drop the message, let dravr-tronc
+            // page on-call via the ERROR subscriber.
+            error!(
+                error = %e,
+                sender_id = %inputs.message.sender_id,
+                channel = %inputs.channel_type,
+                "Channel authentication failed, dropping message"
+            );
+            Err(())
+        }
+    }
+}
+
+/// Inputs for [`build_auth_denial_reply`].
+///
+/// Bundled into a struct to keep the function signature under the cognitive-
+/// complexity / argument-count thresholds while still carrying every piece of
+/// inbound-message metadata required to emit a localized reply on the right
+/// thread / conversation.
+struct AuthDenialReplyInputs<'a> {
+    resources: &'a ServerContext,
+    tenant_id: TenantId,
+    channel: &'a str,
+    channel_type: ChannelType,
+    sender_id: &'a str,
+    conversation_id: Option<&'a str>,
+    thread_id: Option<String>,
+    err: &'a AppError,
+}
+
+/// Build a localized "denied" reply for the authentication outcomes that need
+/// to surface user-facing text (`Pending`, `Suspended`, `RateLimitExceeded`).
+///
+/// Falls back to the generic-error envelope via `ChannelErrorReply` when the
+/// error code has no dedicated messaging-strings key. Rate-limit currently
+/// flows through the generic envelope intentionally — the retry-after
+/// metadata isn't user-actionable on a chat surface, and the `dravr-tronc`
+/// notifier already sees the structured error for operator follow-up.
+async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingMessage {
+    let body = if let Some(key) = messaging_key_for_status(inputs.err.code) {
+        // Pending / Suspended → translated copy. Locale resolution reads the
+        // channel-link override first, then falls back to DEFAULT_LOCALE.
+        let locale = inputs
+            .resources
+            .repos
+            .messaging
+            .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
+            .await
+            .ok()
+            .flatten()
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
+        inputs
+            .resources
+            .messaging_strings_registry
+            .get(key, &locale)
+    } else {
+        // Rate-limit or other denial — generic envelope keeps the correlation
+        // id available to operators without leaking quota internals.
+        inputs
+            .err
+            .to_channel_reply(inputs.resources, DEFAULT_LOCALE, "channel_auth")
+            .0
+    };
+
+    let mut message = OutgoingMessage {
+        channel_type: inputs.channel_type,
+        recipient_id: inputs.sender_id.to_owned(),
+        content: MessageContent::Text { body },
+        turn_id: CanotTurnId::new(),
+        reply_to: None,
+        thread_id: inputs.thread_id,
+    };
+    apply_conversation_recipient(&mut message, inputs.conversation_id);
+    message
 }
 
 /// Store a single inbound message in the database
@@ -2135,37 +2294,6 @@ async fn store_inbound_message(
     }
 }
 
-/// Resolve the user's own tenant for tool execution.
-///
-/// The webhook tenant is the bot's channel config tenant. The user may belong to
-/// a different tenant. This looks up the user's first tenant membership and uses
-/// that for tool execution (OAuth, activities), falling back to the webhook tenant.
-async fn resolve_user_tenant(
-    resources: &ServerContext,
-    user_id: &str,
-    fallback_tenant_id: TenantId,
-) -> TenantId {
-    let Ok(user_uuid) = user_id.parse::<Uuid>() else {
-        return fallback_tenant_id;
-    };
-    let db: &dyn TenantRepository = resources.repos.tenants.as_ref();
-    match db.list_for_user(user_uuid).await {
-        Ok(tenants) if !tenants.is_empty() => {
-            let resolved = tenants[0].id;
-            if resolved != fallback_tenant_id {
-                info!(
-                    user_id = %user_id,
-                    user_tenant = %resolved,
-                    channel_tenant = %fallback_tenant_id,
-                    "Using user's own tenant for tool execution (differs from channel tenant)"
-                );
-            }
-            resolved
-        }
-        _ => fallback_tenant_id,
-    }
-}
-
 /// Resolve the user-facing locale for a messaging turn.
 ///
 /// Walks the documented fallback chain:
@@ -2205,97 +2333,6 @@ pub async fn resolve_messaging_locale(
     }
 
     DEFAULT_LOCALE.to_owned()
-}
-
-/// Inputs for [`check_account_status_gate`].
-///
-/// Bundled into a struct to keep the gate's signature small enough to stay
-/// under the cognitive-complexity threshold while still carrying the inbound-
-/// message metadata required to emit a localized reply on the same thread /
-/// conversation.
-struct AccountStatusGateInputs<'a> {
-    resources: &'a ServerContext,
-    tenant_id: TenantId,
-    channel: &'a str,
-    channel_type: ChannelType,
-    session: &'a ResolvedSession,
-    sender_id: &'a str,
-    conversation_id: Option<&'a str>,
-    thread_id: Option<String>,
-}
-
-/// Resolve the linked [`User`] for the active gate evaluation.
-///
-/// Returns `None` and logs at error level on any failure path (invalid UUID,
-/// orphan `channel_link` row, DB unavailable) — failing open here matches
-/// [`resolve_messaging_locale`] so a transient lookup miss doesn't cement
-/// itself as a permanent denial.
-async fn load_gate_user(resources: &ServerContext, user_id: &str) -> Option<(Uuid, User)> {
-    let user_uuid = Uuid::parse_str(user_id)
-        .inspect_err(|e| {
-            error!(error = %e, user_id = %user_id, "Account-status gate skipped: invalid user_id");
-        })
-        .ok()?;
-
-    match resources.repos.users.get_global(user_uuid).await {
-        Ok(Some(user)) => Some((user_uuid, user)),
-        Ok(None) => {
-            error!(user_id = %user_uuid, "Account-status gate skipped: linked user not found");
-            None
-        }
-        Err(e) => {
-            error!(error = %e, user_id = %user_uuid, "Account-status gate skipped: user lookup failed");
-            None
-        }
-    }
-}
-
-/// Authorize the linked-user account status before any chat dispatch.
-///
-/// Mirrors the gate at [`crate::middleware::auth`] for inbound messaging
-/// traffic. Returns `Some(OutgoingMessage)` carrying a localized "pending
-/// approval" / "account suspended" reply when the session resolves to a
-/// non-active user, and `None` for active users (caller proceeds with slash
-/// commands and LLM dispatch).
-///
-/// On user-lookup failure (orphan `channel_link`, parse error, DB unavailable),
-/// returns `None` and logs at error level — failing open here matches the
-/// existing [`resolve_messaging_locale`] behavior, since the gate fires on the
-/// next inbound message once the underlying issue clears.
-async fn check_account_status_gate(inputs: AccountStatusGateInputs<'_>) -> Option<OutgoingMessage> {
-    let (user_uuid, user) = load_gate_user(inputs.resources, &inputs.session.user_id).await?;
-
-    if user.user_status == UserStatus::Active {
-        return None;
-    }
-
-    let locale = resolve_messaging_locale(
-        inputs.resources,
-        inputs.tenant_id,
-        user_uuid,
-        inputs.channel,
-        inputs.sender_id,
-    )
-    .await;
-    let body = account_status_reply(inputs.resources, user.user_status, &locale)?;
-
-    warn!(
-        user_id = %user_uuid,
-        status = ?user.user_status,
-        channel = %inputs.channel,
-        "Messaging access denied by user-status gate"
-    );
-
-    let mut message = OutgoingMessage {
-        channel_type: inputs.channel_type,
-        recipient_id: inputs.sender_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: inputs.thread_id,
-    };
-    apply_conversation_recipient(&mut message, inputs.conversation_id);
-    Some(message)
 }
 
 /// Detect the turn's *content* locale from the raw user text.
@@ -2440,7 +2477,11 @@ async fn setup_messaging_agui(
     dispatch: &PendingDispatch,
     channel_config: &ChannelConfig,
 ) -> Option<MessagingAgUiWiring> {
-    let user_id = Uuid::parse_str(&dispatch.session.user_id).ok()?;
+    // Use the authoritative user id from AuthResult — same source as every
+    // other request-scoped principal in the codebase. session.user_id is
+    // kept on the session row for audit/identity continuity across re-binds
+    // but the dispatch's authenticated principal is AuthResult.
+    let user_id = dispatch.auth_result.user_id;
     let run_id = Uuid::new_v4().to_string();
     let owner = RunOwner::new(user_id, dispatch.user_tenant_id);
     let scope = dispatch
