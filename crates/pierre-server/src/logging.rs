@@ -21,13 +21,18 @@ pub use tenant::{
 use gcp::GcpFormatter;
 
 use crate::constants::service_names;
+#[cfg(feature = "contremaitre")]
+use crate::contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use crate::errors::AppResult;
 use dravr_tronc::notifications::{
-    EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient,
+    EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient, SlackConfig,
 };
+#[cfg(feature = "contremaitre")]
+use dravr_tronc::notify::NotifyLayer;
 use serde_json::json;
 use std::env;
 use std::io;
+use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{
     filter::{filter_fn, FilterFn},
@@ -281,6 +286,13 @@ impl LoggingConfig {
         let error_layer =
             Self::build_error_notification_layer(&self.service_name, &self.environment);
 
+        // Build optional NotifyLayer for `target: "notify"` business events.
+        // Returns `None` when SLACK_BOT_TOKEN is unset (local dev), which
+        // makes the layer a no-op via Option<Layer> passthrough — the
+        // events still land in Cloud Logging through the formatter layer.
+        #[cfg(feature = "contremaitre")]
+        let notify_layer = Self::build_notify_layer(&self.environment);
+
         // Per-layer filter that suppresses chromiumoxide's expected
         // post-close WS-reset error events during the short teardown
         // window sciotte advertises. Built fresh per sink so both the
@@ -304,10 +316,12 @@ impl LoggingConfig {
                     .json()
                     .with_filter(chromiumoxide_teardown_filter());
 
-                registry
+                let r = registry
                     .with(json_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
-                    .init();
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                #[cfg(feature = "contremaitre")]
+                let r = r.with(notify_layer);
+                r.init();
             }
             LogFormat::Pretty => {
                 let pretty_layer = fmt::layer()
@@ -324,10 +338,12 @@ impl LoggingConfig {
                     })
                     .with_filter(chromiumoxide_teardown_filter());
 
-                registry
+                let r = registry
                     .with(pretty_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
-                    .init();
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                #[cfg(feature = "contremaitre")]
+                let r = r.with(notify_layer);
+                r.init();
             }
             LogFormat::Compact => {
                 let compact_layer = fmt::layer()
@@ -341,10 +357,12 @@ impl LoggingConfig {
                     .with_span_events(FmtSpan::NONE)
                     .with_filter(chromiumoxide_teardown_filter());
 
-                registry
+                let r = registry
                     .with(compact_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
-                    .init();
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                #[cfg(feature = "contremaitre")]
+                let r = r.with(notify_layer);
+                r.init();
             }
             LogFormat::Gcp => {
                 let gcp_layer = fmt::layer()
@@ -357,10 +375,12 @@ impl LoggingConfig {
                     ))
                     .with_filter(chromiumoxide_teardown_filter());
 
-                registry
+                let r = registry
                     .with(gcp_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()))
-                    .init();
+                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                #[cfg(feature = "contremaitre")]
+                let r = r.with(notify_layer);
+                r.init();
             }
         }
 
@@ -433,6 +453,57 @@ impl LoggingConfig {
         );
 
         Some(ErrorNotificationLayer::new(config, slack, email))
+    }
+
+    /// Build the `NotifyLayer` for `target: "notify"` business events.
+    ///
+    /// Returns `Some(layer)` when `SLACK_BOT_TOKEN` is set so the layer
+    /// can actually post to Slack. Otherwise returns `None` — every
+    /// notify-target event still lands in Cloud Logging via the
+    /// formatter layer, but the Slack ping path is skipped. The routing
+    /// rules come from the process-wide
+    /// [`NOTIFY_ROUTING_PROVIDER`] which the contremaitre sync engine
+    /// hot-reloads from `config/notify-routing.yaml`.
+    ///
+    /// `SLACK_ERROR_CHANNEL` is used as a placeholder default channel
+    /// for the underlying `SlackClient` — `NotifyLayer` overrides it
+    /// per event using the routing rule's `channel` field, so the
+    /// placeholder is only relevant when the routing provider has no
+    /// rule for the emitted event (in which case the layer drops the
+    /// event entirely per its `default_rule = None` configuration).
+    #[cfg(feature = "contremaitre")]
+    fn build_notify_layer(environment: &str) -> Option<NotifyLayer<ContremaitreRoutingProvider>> {
+        let bot_token = env::var("SLACK_BOT_TOKEN").ok().filter(|s| !s.is_empty())?;
+        // Placeholder channel — `NotifyLayer` reads the per-event channel
+        // from the routing rule on every dispatch, so this string is only
+        // used to construct the `SlackClient` and never appears in a real
+        // notify-event Slack post.
+        let error_channel = env::var("SLACK_ERROR_CHANNEL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "#dravr-events".to_owned());
+        let signing_secret = env::var("SLACK_SIGNING_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
+
+        let slack_config = SlackConfig {
+            bot_token,
+            error_channel,
+            signing_secret,
+        };
+        let slack_client = Arc::new(SlackClient::new(&slack_config));
+        let provider = Arc::clone(&NOTIFY_ROUTING_PROVIDER);
+
+        info!(
+            environment = environment,
+            "NotifyLayer enabled: target=notify business events route via contremaitre"
+        );
+
+        Some(NotifyLayer::new(
+            slack_client,
+            provider,
+            environment.to_owned(),
+        ))
     }
 
     /// Create GCP optimized logging configuration

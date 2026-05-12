@@ -222,6 +222,14 @@ impl OAuthService {
     ///
     /// # Errors
     /// Returns error if OAuth state is invalid/expired/reused or callback processing fails
+    #[tracing::instrument(
+        skip(self, code, state),
+        fields(
+            provider = %provider,
+            user_id = tracing::field::Empty,
+            tenant_id = tracing::field::Empty,
+        )
+    )]
     pub async fn handle_callback(
         &self,
         code: &str,
@@ -247,6 +255,12 @@ impl OAuthService {
         // Get user and tenant from database
         let (user, tenant_id) = self.get_user_and_tenant(user_id, provider).await?;
 
+        // Record IDs on the current span so the NotifyLayer can attribute the
+        // provider.connected event without re-passing tenant/user fields.
+        let span = tracing::Span::current();
+        span.record("user_id", tracing::field::display(&user_id));
+        span.record("tenant_id", tracing::field::display(&tenant_id));
+
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available
         let token = self
@@ -265,6 +279,15 @@ impl OAuthService {
         let expires_at = self
             .finalize_oauth_connection(user_id, tenant_id, provider, &user.email, &token)
             .await?;
+
+        // notify: provider successfully linked. Fires after token persist +
+        // notifications dispatch so a Slack ping only goes out for a usable link.
+        info!(
+            target: "notify",
+            event = "provider.connected",
+            provider = %provider,
+            "user connected fitness provider"
+        );
 
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),

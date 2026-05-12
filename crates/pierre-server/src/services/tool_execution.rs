@@ -159,6 +159,15 @@ pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 /// # Errors
 ///
 /// Returns error if the LLM call or tool execution fails.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        tenant_id = %params.tenant_id,
+        user_id = %params.user_id,
+        provider = %params.provider.name(),
+        model = %params.model,
+    )
+)]
 pub async fn run_api_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -182,6 +191,16 @@ pub async fn run_api_tool_loop(
         };
 
         log_iteration_start(iteration, params, llm_messages.len());
+
+        // notify: LLM call about to start. Per-iteration so tool-loop
+        // breadth is observable from Slack (paired with the completion
+        // event right after the await returns).
+        info!(
+            target: "notify",
+            event = "embacle.call_started",
+            model = %params.model,
+            "LLM call dispatching"
+        );
 
         let call_start = Instant::now();
         let cached_slot = Arc::new(AtomicU32::new(0));
@@ -215,6 +234,16 @@ pub async fn run_api_tool_loop(
                     call_seq,
                     tools_in_response,
                 );
+                // notify: LLM call succeeded — latency lands on the Slack
+                // ping so a regression in tail latency surfaces in chat.
+                info!(
+                    target: "notify",
+                    event = "embacle.call_completed",
+                    model = %params.model,
+                    latency_ms = latency_ms,
+                    ok = true,
+                    "LLM call completed"
+                );
                 r
             }
             Err(e) => {
@@ -228,6 +257,16 @@ pub async fn run_api_tool_loop(
                     false,
                     call_seq,
                     Vec::new(),
+                );
+                // notify: LLM call failed — ok=false so the routing rule
+                // can amplify failures even when sample_rate hides successes.
+                info!(
+                    target: "notify",
+                    event = "embacle.call_completed",
+                    model = %params.model,
+                    latency_ms = latency_ms,
+                    ok = false,
+                    "LLM call failed"
                 );
                 return Err(e);
             }
@@ -361,6 +400,15 @@ const CLI_MAX_TOOL_ITERATIONS: usize = 5;
 /// # Errors
 ///
 /// Returns error if the LLM call or tool execution fails.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        tenant_id = %params.tenant_id,
+        user_id = %params.user_id,
+        provider = %params.provider.name(),
+        model = %params.model,
+    )
+)]
 pub async fn run_cli_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -383,6 +431,16 @@ pub async fn run_cli_tool_loop(
                 None => req,
             }
         };
+
+        // notify: CLI/embacle provider call about to start. Same event as
+        // the API loop so routing can hide both behind one rule.
+        info!(
+            target: "notify",
+            event = "embacle.call_started",
+            model = %params.model,
+            "LLM call dispatching"
+        );
+
         let call_start = Instant::now();
         let cached_slot = Arc::new(AtomicU32::new(0));
         let slot_for_scope = cached_slot.clone();
@@ -393,7 +451,18 @@ pub async fn run_cli_tool_loop(
         let cached_tokens = i64::from(cached_slot.load(Ordering::SeqCst));
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
-            Ok(r) => r,
+            Ok(r) => {
+                // notify: CLI call succeeded.
+                info!(
+                    target: "notify",
+                    event = "embacle.call_completed",
+                    model = %params.model,
+                    latency_ms = latency_ms,
+                    ok = true,
+                    "LLM call completed"
+                );
+                r
+            }
             Err(e) => {
                 emit_call_record(
                     params.call_recorder.as_ref(),
@@ -405,6 +474,15 @@ pub async fn run_cli_tool_loop(
                     false,
                     call_seq,
                     Vec::new(),
+                );
+                // notify: CLI call failed.
+                info!(
+                    target: "notify",
+                    event = "embacle.call_completed",
+                    model = %params.model,
+                    latency_ms = latency_ms,
+                    ok = false,
+                    "LLM call failed"
                 );
                 return Err(e);
             }

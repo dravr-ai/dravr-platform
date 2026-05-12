@@ -719,6 +719,14 @@ impl LlmProvider for ChatProvider {
                         error = %primary_err,
                         "Primary LLM complete() failed with retryable error; falling back"
                     );
+                    info!(
+                        target: "notify",
+                        event = "embacle.fallback_triggered",
+                        from_provider = primary.name(),
+                        to_provider = secondary.name(),
+                        reason = ?primary_err.code,
+                        "Runtime LLM fallback engaged on complete()"
+                    );
                     secondary.complete(request).await
                 }
                 Err(primary_err) => Err(primary_err),
@@ -741,6 +749,14 @@ impl LlmProvider for ChatProvider {
                         secondary = secondary.name(),
                         error = %primary_err,
                         "Primary LLM complete_stream() failed with retryable error; falling back"
+                    );
+                    info!(
+                        target: "notify",
+                        event = "embacle.fallback_triggered",
+                        from_provider = primary.name(),
+                        to_provider = secondary.name(),
+                        reason = ?primary_err.code,
+                        "Runtime LLM fallback engaged on complete_stream()"
                     );
                     secondary.complete_stream(request).await
                 }

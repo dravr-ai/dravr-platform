@@ -165,7 +165,40 @@ impl McpTool for GetActivitiesTool {
         Some(read_only_annotations())
     }
 
+    #[tracing::instrument(
+        skip(self, args, context),
+        fields(
+            tool = "get_activities",
+            user_id = %context.user_id,
+            tenant_id = tracing::field::Empty,
+            provider = tracing::field::Empty,
+        )
+    )]
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        // Provider arg is optional — when omitted the universal handler
+        // falls back to the user's configured default, so log "default"
+        // rather than emit an empty field.
+        let provider = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let span = tracing::Span::current();
+        span.record("provider", tracing::field::display(&provider));
+        if let Some(tenant_id) = context.tenant_id {
+            span.record("tenant_id", tracing::field::display(&tenant_id));
+        }
+
+        // notify: chat-triggered fetch of activities from a fitness provider.
+        // The LLM invoking this tool counts as user_initiated — the user
+        // asked the question that prompted the tool call.
+        tracing::info!(
+            target: "notify",
+            event = "provider.fetch_started",
+            provider = %provider,
+            trigger = "user_initiated",
+            "fetching activities from provider"
+        );
+
         delegate_to_handler(
             context,
             args,

@@ -754,6 +754,7 @@ pub(super) async fn handle_user_stats(
         grant_type = %request.grant_type,
         username = %request.username,
         user_id = Empty,
+        tenant_id = Empty,
         success = Empty,
     )
 )]
@@ -803,6 +804,20 @@ pub(super) async fn handle_oauth2_token(
                 .csrf_manager
                 .generate_token(user_id)
                 .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
+
+            // notify: record tenant/user on the current span so the NotifyLayer can
+            // attribute the user.login event without the call site re-passing IDs.
+            // tenant_id is optional on UserInfo; only record when present so the
+            // routing layer sees an empty field rather than a literal "None".
+            Span::current().record("user_id", tracing::field::display(&user_id));
+            if let Some(tenant_id) = response.user.tenant_id.as_deref() {
+                Span::current().record("tenant_id", tracing::field::display(&tenant_id));
+            }
+            info!(
+                target: "notify",
+                event = "user.login",
+                "user authenticated"
+            );
 
             let oauth2_response = OAuth2TokenResponse {
                 access_token: jwt_token.clone(),
