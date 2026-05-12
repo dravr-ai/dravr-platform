@@ -100,6 +100,19 @@ impl LlmProviderType {
     /// Environment variable for fallback model selection
     pub const FALLBACK_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_MODEL";
 
+    /// Environment variable for the fallback PROVIDER's model — applied only
+    /// to the runtime fallback chain's secondary provider. Distinct from
+    /// [`Self::FALLBACK_MODEL_ENV_VAR`], which is the intra-provider degraded
+    /// model used inside a single provider (e.g. Gemini Pro → Flash).
+    ///
+    /// Needed because providers can use different naming conventions for the
+    /// same upstream model: GitHub Copilot exposes Anthropic models as
+    /// `claude-opus-4.7` (dot), while the direct Anthropic Claude Code CLI
+    /// expects `claude-opus-4-7` (dash) or the short alias `opus`. Without
+    /// this override the secondary inherits `PIERRE_LLM_MODEL` from the
+    /// primary and Anthropic returns 404 on every fallback call.
+    pub const FALLBACK_PROVIDER_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_PROVIDER_MODEL";
+
     /// Environment variable for fallback wait time in seconds
     pub const FALLBACK_WAIT_SECS_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_WAIT_SECS";
 
@@ -221,6 +234,18 @@ impl LlmProviderType {
     #[must_use]
     pub fn fallback_model_from_env() -> Option<String> {
         env::var(Self::FALLBACK_MODEL_ENV_VAR)
+            .ok()
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Get the fallback provider's model from environment.
+    ///
+    /// Reads `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` — returns None if not set.
+    /// When set, the runtime fallback chain passes this model to the
+    /// secondary instead of the primary's `PIERRE_LLM_MODEL`.
+    #[must_use]
+    pub fn fallback_provider_model_from_env() -> Option<String> {
+        env::var(Self::FALLBACK_PROVIDER_MODEL_ENV_VAR)
             .ok()
             .filter(|s| !s.is_empty())
     }
