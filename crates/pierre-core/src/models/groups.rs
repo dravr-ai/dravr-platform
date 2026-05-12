@@ -310,6 +310,16 @@ pub struct RosterActivity {
     /// User-facing name when the provider supplies one
     /// (e.g. `"🤭"`, `"Peanut butter 🤤"`). Empty when missing.
     pub name: String,
+    /// Optional city name when the provider supplies it (Strava, Garmin).
+    /// `None` for HR-only / treadmill / non-GPS sources. Surfaced so the LLM
+    /// can answer "endroit entre vous deux" questions without fabricating.
+    pub city: Option<String>,
+    /// Optional starting latitude when the source carries GPS. Paired with
+    /// `start_longitude`. `None` for HR-only sources. Lets the LLM do
+    /// midpoint / distance math when both members have coordinates.
+    pub start_latitude: Option<f64>,
+    /// Optional starting longitude. See [`Self::start_latitude`].
+    pub start_longitude: Option<f64>,
 }
 
 /// Overtraining risk level for a member
