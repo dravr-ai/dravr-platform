@@ -234,6 +234,25 @@ impl McpAuthMiddleware {
         // Validate key status
         self.api_key_manager.is_key_valid(&db_key)?;
 
+        // SECURITY: Enforce account-status policy on the API-key path.
+        // A Pending or Suspended user's API key must not authenticate, same as
+        // their JWT cookie / channel link cannot. Single source of truth lives
+        // in services::user_status_gate.
+        let user = self
+            .repos
+            .users
+            .get_global(db_key.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User {} for API key", db_key.user_id)))?;
+        enforce_user_status(user.user_status).inspect_err(|e| {
+            warn!(
+                user_id = %db_key.user_id,
+                status = ?user.user_status,
+                error = %e,
+                "API key access denied by user-status gate"
+            );
+        })?;
+
         // Get current usage for rate limiting
         let current_usage = self.repos.usage.get_api_key_current(&db_key.id).await?;
         let rate_limit = self

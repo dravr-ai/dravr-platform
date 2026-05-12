@@ -33,7 +33,9 @@ mod messaging_user_status_gate_tests {
     use serde_json::json;
     use sha2::Sha256;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::task::spawn_blocking;
+    use tokio::time::sleep;
     use uuid::Uuid;
 
     // ════════════════════════════════════════════════════════════════
@@ -310,6 +312,90 @@ mod messaging_user_status_gate_tests {
             .await
             .expect_err("pending user should be denied at the auth boundary");
         assert_eq!(err.code, ErrorCode::AccountPending);
+    }
+
+    /// Symmetric `Suspended` test. Same policy as Pending, different code.
+    /// Asserts the auth boundary handles every non-Active variant uniformly.
+    #[tokio::test]
+    async fn authenticate_channel_returns_account_suspended_for_suspended_user() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "suspended_auth@example.com",
+            "SuspendedAuth123!",
+            UserStatus::Suspended,
+        )
+        .await;
+
+        let sender_id = "15550008003";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        let err = resources
+            .auth_middleware
+            .authenticate_channel(tenant_id, "whatsapp", sender_id)
+            .await
+            .expect_err("suspended user should be denied at the auth boundary");
+        assert_eq!(err.code, ErrorCode::AccountSuspended);
+    }
+
+    /// `update_last_active` mirrors the JWT/MCP tool-handler behavior: every
+    /// authenticated channel turn refreshes the user's last-active timestamp
+    /// so admin "last seen" views show messaging-only users as live. The
+    /// dispatch path is best-effort (logs warning, doesn't fail) but the
+    /// success path must call it.
+    #[tokio::test]
+    async fn channel_auth_refreshes_last_active_for_active_user() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "last_active_chat@example.com",
+            "LastActive123!",
+            UserStatus::Active,
+        )
+        .await;
+
+        let wa_secret = "wa_last_active_secret";
+        setup_whatsapp_config(db, tenant_id, wa_secret).await;
+
+        let sender_id = "15550008004";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        let before = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .last_active;
+
+        // `users.last_active` is stored via SQL `CURRENT_TIMESTAMP` (second
+        // precision) while `User::new` records `Utc::now()` (microsecond
+        // precision). Sleep past the next-second boundary so the truncated
+        // post-update timestamp can be strictly greater than the
+        // creation-time timestamp.
+        sleep(Duration::from_millis(1_100)).await;
+
+        let payload = whatsapp_text_payload(sender_id, "wamid.last_active_001", "ping");
+        let status = send_whatsapp_webhook(&resources, wa_secret, &payload).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let after = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .last_active;
+        assert!(
+            after > before,
+            "last_active must advance after a channel turn (before={before:?}, after={after:?})"
+        );
     }
 
     // ════════════════════════════════════════════════════════════════
