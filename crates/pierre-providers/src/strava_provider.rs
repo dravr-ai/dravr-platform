@@ -837,9 +837,22 @@ impl FitnessProvider for StravaProvider {
             .unwrap_or(api_provider_limits::strava::DEFAULT_ACTIVITIES_PER_PAGE);
         let start_offset = params.offset.unwrap_or(0);
 
+        // Strava's `/athlete/activities` returns activities ASCENDING
+        // (oldest first) when only `after` is supplied, but DESCENDING
+        // (newest first) when both `before` and `after` are supplied —
+        // or when neither is supplied. Callers semantically want
+        // newest-first ordering with `after` as a lower bound, so we
+        // backstop a missing `before` with the current time. Without
+        // this, an active athlete's freshest activities fall off the
+        // end of page 1 and never reach downstream consumers
+        // (snapshot, recent-activity rendering, training-load calc).
+        let effective_before = params
+            .before
+            .or_else(|| Some(chrono::Utc::now().timestamp()));
+
         info!(
-            "Starting get_activities - requested_limit: {}, offset: {}, before: {:?}, after: {:?}",
-            requested_limit, start_offset, params.before, params.after
+            "Starting get_activities - requested_limit: {}, offset: {}, before: {:?} (effective: {:?}), after: {:?}",
+            requested_limit, start_offset, params.before, effective_before, params.after
         );
 
         // If request is within single page limit, use single page fetch
@@ -848,7 +861,7 @@ impl FitnessProvider for StravaProvider {
                 .get_activities_single_page_with_time(
                     requested_limit,
                     start_offset,
-                    params.before,
+                    effective_before,
                     params.after,
                 )
                 .await;
@@ -858,7 +871,7 @@ impl FitnessProvider for StravaProvider {
         self.get_activities_multi_page_with_time(
             requested_limit,
             start_offset,
-            params.before,
+            effective_before,
             params.after,
         )
         .await
