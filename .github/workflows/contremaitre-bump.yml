@@ -28,9 +28,13 @@ jobs:
       - name: Checkout dravr-platform main
         uses: actions/checkout@v6
         with:
-          submodules: recursive
-          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
           fetch-depth: 0
+
+      - name: Configure auth for private submodule fetch
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Update submodule to latest main
         id: bump
