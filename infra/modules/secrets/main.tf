@@ -262,6 +262,31 @@ resource "google_secret_manager_secret_version" "copilot_github_token_placeholde
   }
 }
 
+# Long-lived OAuth token for Claude Code CLI, generated via `claude setup-token`
+# against a Pro/Max/Team/Enterprise subscription. One-year expiry; rotate
+# annually. Consumed by embacle's claude_code runner when
+# PIERRE_LLM_FALLBACK_PROVIDER=claude_code activates the runtime fallback
+# chain on retryable Copilot failures.
+resource "google_secret_manager_secret" "claude_code_oauth_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-claude-code-oauth-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "claude_code_oauth_token_placeholder" {
+  secret      = google_secret_manager_secret.claude_code_oauth_token.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "posthog_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-posthog-api-key"

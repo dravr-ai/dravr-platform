@@ -1,0 +1,275 @@
+# ABOUTME: Daily probe that runs claude-code against the dev OAuth token to catch auth/entitlement drift
+# ABOUTME: Opens a tracking issue when the probe fails so operators rotate the token before users hit it
+name: "Monitor: Claude Code Auth Probe"
+
+on:
+  schedule:
+    # Every day at 05:45 UTC (15 min after Copilot probe to isolate signals)
+    - cron: '45 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: claude-health-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  probe-claude-auth:
+    name: Probe Claude Code Auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Read pinned Claude Code CLI version from Dockerfile
+        id: pinned
+        run: |
+          DOCKERFILE=docker/images/server/Dockerfile
+          PINNED=$(grep -E '^ARG CLAUDE_CODE_CLI_VERSION=' "$DOCKERFILE" | head -1 | cut -d= -f2)
+          if [ -z "$PINNED" ]; then
+            echo "ERROR: CLAUDE_CODE_CLI_VERSION ARG not found in $DOCKERFILE" >&2
+            exit 1
+          fi
+          echo "version=$PINNED" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Install Claude Code CLI (pinned)
+        env:
+          PINNED: ${{ steps.pinned.outputs.version }}
+        run: |
+          # Mirror the Dockerfile install: the npm package ships a binary named
+          # `claude`; symlink confirms the probe command matches what runs
+          # inside the Cloud Run container.
+          npm install -g "@anthropic-ai/claude-code@${PINNED}"
+          NPM_PREFIX="$(npm prefix -g)"
+          sudo ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude
+          claude --version
+
+      - name: Fetch token from Secret Manager
+        id: token
+        run: |
+          TOKEN=$(gcloud secrets versions access latest \
+            --secret=dravr-mcp-server-claude-code-oauth-token \
+            --project="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}")
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: Secret Manager returned an empty token" >&2
+            exit 1
+          fi
+          # Mask in logs, export for subsequent step
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Probe Claude backend
+        id: probe
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          # Fresh HOME so no cached interactive auth state interferes
+          PROBE_HOME=$(mktemp -d)
+          OUTPUT_FILE=$(mktemp)
+
+          # Pin the probe to the primary model so we detect entitlement drift
+          # on the specific SKU Pierre falls back to, not the Claude CLI default.
+          PROBE_MODEL="opus"
+
+          # Run a trivial prompt; success means auth + entitlement + network all OK.
+          # --output-format json gives a parseable result for failure detection.
+          set +e
+          HOME="$PROBE_HOME" timeout 120 claude -p "Reply with exactly one word: pong" \
+            --model "$PROBE_MODEL" --output-format json \
+            > "$OUTPUT_FILE" 2>&1
+          EXIT_CODE=$?
+          set -e
+
+          OUTPUT=$(cat "$OUTPUT_FILE")
+
+          # Detect known failure signatures that appear in output even when exit==0
+          FAILED=false
+          if [ $EXIT_CODE -ne 0 ]; then
+            FAILED=true
+            REASON="claude exited non-zero (exit=$EXIT_CODE)"
+          elif echo "$OUTPUT" | grep -qiE '"is_error"[[:space:]]*:[[:space:]]*true'; then
+            FAILED=true
+            REASON="Claude JSON response carried is_error=true — token revoked, subscription expired, or upstream rejected"
+          elif echo "$OUTPUT" | grep -qiE 'invalid.*token|unauthorized|please.*log.*in'; then
+            FAILED=true
+            REASON="Claude emitted an auth-failure string — token lost subscription entitlement"
+          fi
+
+          # Redact any token-shaped strings from output before writing to $GITHUB_OUTPUT
+          # (defense in depth; ::add-mask:: already masks in step logs)
+          REDACTED=$(echo "$OUTPUT" | sed -E 's/sk-ant-[A-Za-z0-9_-]{20,}/sk-ant-REDACTED/g')
+
+          {
+            echo "failed=$FAILED"
+            echo "exit_code=$EXIT_CODE"
+            echo "reason=${REASON:-OK}"
+            echo "model=$PROBE_MODEL"
+            echo 'output<<ENDOFOUTPUT'
+            echo "$REDACTED"
+            echo 'ENDOFOUTPUT'
+          } >> "$GITHUB_OUTPUT"
+
+          rm -f "$OUTPUT_FILE"
+
+          if [ "$FAILED" = "true" ]; then
+            echo "Probe FAILED: $REASON"
+            exit 0  # do not fail the job — we want the issue-creation step to run
+          fi
+          echo "Probe OK (exit=$EXIT_CODE, ${#OUTPUT} bytes of output)"
+
+      - name: Open or update tracking issue on probe failure
+        if: steps.probe.outputs.failed == 'true'
+        uses: actions/github-script@v9
+        env:
+          PROBE_REASON: ${{ steps.probe.outputs.reason }}
+          PROBE_EXIT_CODE: ${{ steps.probe.outputs.exit_code }}
+          PROBE_MODEL: ${{ steps.probe.outputs.model }}
+          PROBE_OUTPUT: ${{ steps.probe.outputs.output }}
+        with:
+          script: |
+            const title = 'Claude Code auth probe failing — rotate dev OAuth token';
+            const label = 'incident';
+            const today = new Date().toISOString().split('T')[0];
+            const reason = process.env.PROBE_REASON;
+            const exitCode = process.env.PROBE_EXIT_CODE;
+            const output = process.env.PROBE_OUTPUT;
+
+            const body = [
+              `# Claude Code auth probe failed — ${today}`,
+              ``,
+              `_Generated by [Monitor: Claude Code Auth Probe](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})_`,
+              ``,
+              `## Signal`,
+              ``,
+              `- **Reason**: ${reason}`,
+              `- **Exit code**: \`${exitCode}\``,
+              `- **Model probed**: \`${process.env.PROBE_MODEL}\``,
+              `- **Secret**: \`dravr-mcp-server-claude-code-oauth-token\` (latest version)`,
+              ``,
+              `## Probe output (token-redacted)`,
+              ``,
+              '```',
+              output.length > 3000 ? output.slice(0, 3000) + '\n...[truncated]' : output,
+              '```',
+              ``,
+              `## Rotation runbook`,
+              ``,
+              `1. Generate a new one-year OAuth token locally against the Pro/Max subscription:`,
+              `   \`\`\`bash`,
+              `   claude setup-token`,
+              `   \`\`\``,
+              `   Copy the printed token (it is not persisted to disk).`,
+              `2. Rotate into Secret Manager:`,
+              `   \`\`\`bash`,
+              `   printf '%s' "<new_token>" | gcloud secrets versions add \\`,
+              `     dravr-mcp-server-claude-code-oauth-token \\`,
+              `     --project=<dev-project> --data-file=-`,
+              `   \`\`\``,
+              `3. Force a new Cloud Run revision so the service picks up the secret:`,
+              `   \`\`\`bash`,
+              `   gcloud run services update dravr-mcp-server-api \\`,
+              `     --region=northamerica-northeast1 --project=<dev-project> \\`,
+              `     --update-labels=claude-token-rotated=$(date +%s)`,
+              `   \`\`\``,
+              `4. Re-run this workflow via \`workflow_dispatch\` to confirm the probe is green.`,
+              ``,
+              `_This issue auto-updates each day. It closes when the next probe succeeds._`,
+            ].join('\n');
+
+            // Ensure label exists
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+              });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+                color: 'b60205',
+                description: 'Production incident or outage',
+              });
+            }
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(i => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.info(`Updated existing issue #${existing.number}`);
+            } else {
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: [label],
+              });
+              core.info(`Created issue #${issue.number}`);
+            }
+
+      - name: Close tracking issue on probe success
+        if: steps.probe.outputs.failed != 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const title = 'Claude Code auth probe failing — rotate dev OAuth token';
+            const label = 'incident';
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(i => i.title === title);
+            if (!existing) {
+              core.info('No open probe-failure issue to close');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body: 'Claude Code auth probe succeeded. Auto-closing.',
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              state: 'closed',
+              state_reason: 'completed',
+            });
+            core.info(`Closed issue #${existing.number}`);
