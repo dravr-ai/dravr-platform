@@ -41,6 +41,9 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
 
@@ -77,6 +80,9 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -103,6 +109,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
@@ -134,6 +143,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0

@@ -73,6 +73,9 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
         with:

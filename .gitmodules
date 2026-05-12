@@ -1,3 +1,6 @@
 [submodule ".build"]
 	path = .build
 	url = https://github.com/dravr-ai/dravr-build-config
+[submodule "vendor/contremaitre"]
+	path = vendor/contremaitre
+	url = https://github.com/dravr-ai/dravr-contremaitre
