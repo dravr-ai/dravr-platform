@@ -220,6 +220,9 @@ fn build_snapshot_from_activities(
             distance_km: a.distance_meters().map(|m| m / 1000.0),
             duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
             name: a.name().to_owned(),
+            city: a.city().map(str::to_owned),
+            start_latitude: a.start_latitude(),
+            start_longitude: a.start_longitude(),
         })
         .collect();
 
