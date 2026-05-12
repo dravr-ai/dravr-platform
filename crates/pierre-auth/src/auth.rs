@@ -199,6 +199,25 @@ pub enum AuthMethod {
         /// `API` key tier
         tier: String,
     },
+    /// Messaging channel link authentication
+    ///
+    /// Used when a webhook (`Telegram`, `WhatsApp`, `Discord`, `Slack`,
+    /// `Messenger`) resolves an inbound message to a Pierre user via the
+    /// `channel_link` row written at OTP/deep-link verification time. The
+    /// presence of a valid link plus an active `UserStatus` constitutes the
+    /// credential — same authority as a `JwtToken`, surfaced through the
+    /// same [`AuthResult`] so the chat pipeline, command dispatcher, and
+    /// tool execution layer cannot distinguish messaging from `HTTP` callers.
+    ChannelLink {
+        /// Channel identifier (`telegram`, `whatsapp`, `discord`, …).
+        channel: String,
+        /// Channel-side sender id (`Telegram` chat id, `WhatsApp` phone, …).
+        channel_user_id: String,
+        /// User tier for rate limiting (mirrors the `JWT` variant's field
+        /// so [`crate::rate_limiting::UnifiedRateLimitCalculator`] can apply
+        /// the user-tier policy uniformly).
+        tier: String,
+    },
 }
 
 impl AuthMethod {
@@ -208,6 +227,7 @@ impl AuthMethod {
         match self {
             Self::JwtToken { .. } => "JWT Token",
             Self::ApiKey { .. } => "API Key",
+            Self::ChannelLink { .. } => "Channel Link",
         }
     }
 
@@ -220,6 +240,15 @@ impl AuthMethod {
             }
             Self::ApiKey { key_id, tier } => {
                 format!("API Key (tier: {tier}, id: {key_id})")
+            }
+            Self::ChannelLink {
+                channel,
+                channel_user_id,
+                tier,
+            } => {
+                format!(
+                    "Channel Link (channel: {channel}, sender: {channel_user_id}, tier: {tier})"
+                )
             }
         }
     }

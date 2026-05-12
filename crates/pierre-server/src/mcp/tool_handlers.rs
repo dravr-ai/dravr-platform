@@ -810,6 +810,7 @@ impl ToolHandlers {
         let auth_method = match &ctx.auth_result.auth_method {
             AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
             AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
+            AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
         };
 
         let mut tool_ctx = ToolExecutionContext::new(

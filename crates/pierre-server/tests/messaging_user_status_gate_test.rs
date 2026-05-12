@@ -208,6 +208,111 @@ mod messaging_user_status_gate_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // Unified path: McpAuthMiddleware::authenticate_channel returns an
+    // AuthResult identical in shape to the JWT path
+    // ════════════════════════════════════════════════════════════════
+
+    /// The cutover assertion: messaging now walks the same `McpAuthMiddleware`
+    /// entry point as web/mobile. An active linked user produces an
+    /// [`AuthResult`] with `AuthMethod::ChannelLink` carrying the channel
+    /// and sender id, plus a resolved `active_tenant_id` and a rate-limit
+    /// computed from the user's tier — exactly like `authenticate_jwt_token`.
+    #[tokio::test]
+    async fn authenticate_channel_returns_channel_link_auth_result_for_active_user() {
+        use pierre_auth::auth::AuthMethod;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "channel_auth@example.com",
+            "ChannelAuth123!",
+            UserStatus::Active,
+        )
+        .await;
+
+        let sender_id = "15550008001";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        let auth_result = resources
+            .auth_middleware
+            .authenticate_channel(tenant_id, "whatsapp", sender_id)
+            .await
+            .expect("active linked user should authenticate");
+
+        assert_eq!(auth_result.user_id, user_id);
+        match &auth_result.auth_method {
+            AuthMethod::ChannelLink {
+                channel,
+                channel_user_id,
+                tier,
+            } => {
+                assert_eq!(channel, "whatsapp");
+                assert_eq!(channel_user_id, sender_id);
+                assert!(!tier.is_empty(), "tier must be populated for rate limiting");
+            }
+            other => panic!("expected AuthMethod::ChannelLink, got {other:?}"),
+        }
+        assert!(
+            auth_result.active_tenant_id.is_some(),
+            "active_tenant_id must be resolved on the messaging path same as JWT path"
+        );
+        assert!(
+            !auth_result.rate_limit.is_rate_limited,
+            "fresh user should not be rate-limited"
+        );
+    }
+
+    /// Unlinked sender → `AppError::auth_invalid` with `ErrorCode::AuthInvalid`,
+    /// which `resolve_or_prompt` interprets as "send the link prompt".
+    #[tokio::test]
+    async fn authenticate_channel_returns_auth_invalid_for_unlinked_sender() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (_, tenant_id) = create_user_with_status(
+            &resources,
+            "unlinked_owner@example.com",
+            "UnlinkedOwner123!",
+            UserStatus::Active,
+        )
+        .await;
+
+        let err = resources
+            .auth_middleware
+            .authenticate_channel(tenant_id, "whatsapp", "15550008999")
+            .await
+            .expect_err("no channel link should fail authentication");
+        assert_eq!(err.code, ErrorCode::AuthInvalid);
+    }
+
+    /// Pending user → `AppError::account_pending`. Same code returned by
+    /// the JWT middleware, so frontend/mobile and Telegram surface the same
+    /// policy from the same function.
+    #[tokio::test]
+    async fn authenticate_channel_returns_account_pending_for_pending_user() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "pending_auth@example.com",
+            "PendingAuth123!",
+            UserStatus::Pending,
+        )
+        .await;
+
+        let sender_id = "15550008002";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        let err = resources
+            .auth_middleware
+            .authenticate_channel(tenant_id, "whatsapp", sender_id)
+            .await
+            .expect_err("pending user should be denied at the auth boundary");
+        assert_eq!(err.code, ErrorCode::AccountPending);
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // Helper-level: enforce_user_status + messaging_key_for_status
     // ════════════════════════════════════════════════════════════════
 

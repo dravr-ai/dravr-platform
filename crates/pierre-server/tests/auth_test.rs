@@ -726,7 +726,7 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
             AuthMethod::JwtToken { tier: tier_str } => {
                 assert_eq!(tier_str, format!("{tier:?}").to_lowercase());
             }
-            AuthMethod::ApiKey { .. } => panic!("Expected JwtToken auth method"),
+            other => panic!("Expected JwtToken auth method, got {other:?}"),
         }
     }
 }
