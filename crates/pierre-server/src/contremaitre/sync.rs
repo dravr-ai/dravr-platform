@@ -14,6 +14,7 @@ use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
 use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
 use super::messaging_strings::MessagingStringsRegistry;
+use super::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use super::registry::PromptRegistry;
 use super::store::{PromptStore, StoredFile};
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
@@ -339,6 +340,8 @@ pub async fn full_sync(
         sync_persona_contracts(persona_contract_registry, store, &manifest.config).await;
     let strings_result =
         sync_all_messaging_strings(messaging_strings_registry, store, &manifest.strings.0).await?;
+    let notify_routing_result =
+        sync_notify_routing(&NOTIFY_ROUTING_PROVIDER, store, &manifest.config).await;
 
     let result = SyncResult {
         synced: system_result.synced
@@ -348,7 +351,8 @@ pub async fn full_sync(
             + evidence_result.synced
             + cageux_result.synced
             + contracts_result.synced
-            + strings_result.synced,
+            + strings_result.synced
+            + notify_routing_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + persona_result.skipped
@@ -356,7 +360,8 @@ pub async fn full_sync(
             + evidence_result.skipped
             + cageux_result.skipped
             + contracts_result.skipped
-            + strings_result.skipped,
+            + strings_result.skipped
+            + notify_routing_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + persona_result.failed
@@ -364,7 +369,8 @@ pub async fn full_sync(
             + evidence_result.failed
             + cageux_result.failed
             + contracts_result.failed
-            + strings_result.failed,
+            + strings_result.failed
+            + notify_routing_result.failed,
     };
 
     info!(
@@ -377,6 +383,7 @@ pub async fn full_sync(
         cageux_synced = cageux_result.synced,
         persona_contracts_synced = contracts_result.synced,
         strings_synced = strings_result.synced,
+        notify_routing_synced = notify_routing_result.synced,
         "Contremaitre full sync complete"
     );
 
@@ -602,6 +609,14 @@ pub async fn selective_sync(
     )
     .await?;
 
+    let notify_routing_result = sync_changed_notify_routing(
+        &NOTIFY_ROUTING_PROVIDER,
+        store,
+        &manifest.config,
+        &changed_set,
+    )
+    .await;
+
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
@@ -610,7 +625,8 @@ pub async fn selective_sync(
             + evidence_result.synced
             + cageux_result.synced
             + contracts_result.synced
-            + strings_result.synced,
+            + strings_result.synced
+            + notify_routing_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + persona_result.skipped
@@ -618,7 +634,8 @@ pub async fn selective_sync(
             + evidence_result.skipped
             + cageux_result.skipped
             + contracts_result.skipped
-            + strings_result.skipped,
+            + strings_result.skipped
+            + notify_routing_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + persona_result.failed
@@ -626,7 +643,8 @@ pub async fn selective_sync(
             + evidence_result.failed
             + cageux_result.failed
             + contracts_result.failed
-            + strings_result.failed,
+            + strings_result.failed
+            + notify_routing_result.failed,
     };
 
     info!(
@@ -635,6 +653,7 @@ pub async fn selective_sync(
         failed = result.failed,
         personas_synced = persona_result.synced,
         persona_contracts_synced = contracts_result.synced,
+        notify_routing_synced = notify_routing_result.synced,
         "Contremaitre selective sync complete"
     );
 
@@ -1165,6 +1184,136 @@ async fn fetch_and_apply_persona_contracts(
                 path = %entry.path,
                 error = %e,
                 "failed to download persona_contracts overlay"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+// =============================================================================
+// Notify-routing sync (per-event Slack rules for the dravr-tronc NotifyLayer)
+// =============================================================================
+
+/// Sync the per-event Slack routing rules from the manifest's
+/// `config.notify-routing` entry (full-sync path).
+///
+/// Mirrors [`sync_cageux_config`] and [`sync_persona_contracts`]: skips
+/// when the routing provider's current SHA matches the manifest entry,
+/// propagates network / parse failures as [`SyncOutcome::Failed`] so the
+/// previous snapshot remains live. The `RoutingProvider` instance is the
+/// process-wide [`NOTIFY_ROUTING_PROVIDER`] also held by the tracing
+/// `NotifyLayer` installed in [`crate::logging`].
+async fn sync_notify_routing(
+    provider: &ContremaitreRoutingProvider,
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.notify_routing.as_ref() else {
+        debug!("No notify-routing entry in manifest, NotifyLayer falls back to defaults");
+        return result;
+    };
+
+    if provider.current_sha256().as_deref() == Some(&entry.sha256) {
+        debug!("notify-routing overlay unchanged, skipping");
+        result.skipped += 1;
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_notify_routing(provider, store, entry).await,
+    );
+    result
+}
+
+/// Sync the notify-routing overlay if its path appears in `changed_set`
+/// (selective / webhook sync path).
+async fn sync_changed_notify_routing(
+    provider: &ContremaitreRoutingProvider,
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+    changed_set: &HashSet<&str>,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.notify_routing.as_ref() else {
+        return result;
+    };
+
+    if !changed_set.contains(entry.path.as_str()) {
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_notify_routing(provider, store, entry).await,
+    );
+    result
+}
+
+/// Apply a downloaded notify-routing YAML to the [`ContremaitreRoutingProvider`],
+/// logging the outcome. A parse failure leaves the previous routing table
+/// live so a bad push to contremaitre cannot silently disable every event.
+fn apply_notify_routing_overlay(
+    provider: &ContremaitreRoutingProvider,
+    entry: &ManifestEntry,
+    file: &StoredFile,
+) -> SyncOutcome {
+    let actual_sha = compute_sha256(file.content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for notify-routing, using downloaded content"
+        );
+    }
+    match provider.reload_with_sha(&file.content, actual_sha.clone()) {
+        Ok(()) => {
+            info!(
+                path = %entry.path,
+                sha256 = actual_sha,
+                "synced notify-routing overlay"
+            );
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to apply notify-routing overlay — keeping previous snapshot"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Download the notify-routing YAML and install it via
+/// [`ContremaitreRoutingProvider::reload_with_sha`], which parses the
+/// document and atomically swaps the routing table. On any failure
+/// (network, parse, validation) the previous routing table stays live and
+/// `NotifyLayer` keeps using its last good rules.
+async fn fetch_and_apply_notify_routing(
+    provider: &ContremaitreRoutingProvider,
+    store: &dyn PromptStore,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match store.read_file(&entry.path).await {
+        Ok(file) => apply_notify_routing_overlay(provider, entry, &file),
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to download notify-routing overlay"
             );
             SyncOutcome::Failed
         }

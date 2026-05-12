@@ -369,6 +369,8 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
         turn_id = %input.turn_id,
         channel = profile.channel.as_str(),
         conversation_id = %input.conversation_id,
+        tenant_id = %input.conversation_tenant_id,
+        user_id = %input.user_id,
     )
 )]
 pub async fn run(
@@ -387,6 +389,17 @@ pub async fn run(
             ))
             .await;
     }
+
+    // notify: a user has just hit the chat pipeline with a question.
+    // Persona is resolved here (cheap DB lookup) so the Slack ping can
+    // attribute the question to the user's active coaching style.
+    let persona = stages::prompt_assembly::resolve_user_persona(resources, &input.user_id).await;
+    info!(
+        target: "notify",
+        event = "chat.question_asked",
+        persona = persona.as_str(),
+        "user asked a question"
+    );
 
     let outcome = run_turn(resources, input, profile, hooks).await;
 

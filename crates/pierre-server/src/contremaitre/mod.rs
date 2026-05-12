@@ -42,6 +42,8 @@ pub mod github;
 pub mod manifest;
 /// Hot-reloadable user-facing messaging strings (channel replies, errors)
 pub mod messaging_strings;
+/// Hot-reloadable per-event Slack routing rules for `dravr-tronc::notify`
+pub mod notify_routing;
 /// In-memory prompt registry with compiled-in fallback
 pub mod registry;
 /// Read-only [`store::PromptStore`] trait + GCS / GitHub backends

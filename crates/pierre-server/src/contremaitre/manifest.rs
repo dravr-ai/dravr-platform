@@ -118,6 +118,21 @@ pub struct ManifestConfig {
     /// boots with an empty contract registry and the stage no-ops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_contracts: Option<ManifestEntry>,
+    /// Per-event Slack routing rules consumed by the `NotifyLayer` via
+    /// [`super::notify_routing::ContremaitreRoutingProvider`]. Hot-reloads
+    /// on every contremaitre sync tick so muting a noisy event or
+    /// rerouting a channel is a YAML edit in dravr-contremaitre — no
+    /// platform redeploy. Absent from the manifest = the routing provider
+    /// stays empty and `NotifyLayer` falls back to its compiled-in
+    /// defaults (drop unknown events). The JSON key on disk is
+    /// `notify-routing` (kebab-case) to match the manifest writer; serde
+    /// rewrites it to the snake_case Rust field at deserialize time.
+    #[serde(
+        rename = "notify-routing",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub notify_routing: Option<ManifestEntry>,
 }
 
 /// A single prompt entry in the manifest.

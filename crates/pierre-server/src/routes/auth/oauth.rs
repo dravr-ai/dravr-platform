@@ -638,6 +638,15 @@ pub(super) async fn handle_disconnect_provider_rest(
 ///
 /// Starts a background sync and returns immediately with status.
 /// Optionally blocks if `?wait=true` query parameter is provided.
+#[tracing::instrument(
+    skip(resources, headers, params),
+    fields(
+        route = "provider_sync",
+        provider = %provider,
+        user_id = Empty,
+        tenant_id = Empty,
+    )
+)]
 pub(super) async fn handle_sync_provider(
     State(resources): State<Arc<ServerContext>>,
     Path(provider): Path<String>,
@@ -655,11 +664,26 @@ pub(super) async fn handle_sync_provider(
         .ok_or_else(|| AppError::auth_invalid("Tenant context required for sync"))?;
     let wait = params.get("wait").is_some_and(|v| v == "true");
 
+    // Record IDs on the span so the NotifyLayer can attribute the
+    // provider.fetch_started event without re-passing fields.
+    let span = tracing::Span::current();
+    span.record("user_id", tracing::field::display(&user_id));
+    span.record("tenant_id", tracing::field::display(&tenant_id));
+
     info!(
         user_id = %user_id,
         provider = %provider,
         wait = %wait,
         "REST-triggered provider sync"
+    );
+
+    // notify: explicit REST sync is unambiguously user_initiated.
+    info!(
+        target: "notify",
+        event = "provider.fetch_started",
+        provider = %provider,
+        trigger = "user_initiated",
+        "user-triggered provider sync starting"
     );
 
     let refresh_service = RefreshService::new(
