@@ -294,13 +294,25 @@ module "backend" {
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI).
       # Primary = claude-opus-4.7 (high-reasoning Opus variant, not the -fast SKU).
-      # Fallback = claude-sonnet-4.6 in case Opus is unavailable or rate-limited.
+      # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
+      # (intra-provider model fallback, same Copilot session).
+      # Runtime fallback chain = cross-provider failover to Gemini when Copilot
+      # itself returns a retryable error (auth, 5xx, transient). Built by
+      # ChatProvider::Chain in crates/pierre-llm/src/provider.rs and gated on
+      # PIERRE_LLM_RUNTIME_FALLBACK=true. Without this, a Copilot session token
+      # refresh failure (e.g. transient GitHub rate-limit during the
+      # api.github.com/copilot_internal token exchange) surfaces as a
+      # user-facing "Dravr temporairement indisponible" instead of seamlessly
+      # serving the reply from Gemini. Wired live 2026-05-12 after that
+      # exact failure mode took down chat for ~10 min.
       # Entitlement verified 2026-04-16 against the dev PAT; health probe
       # (copilot-health-probe.yml) exercises this model daily.
-      PIERRE_LLM_PROVIDER       = "copilot_headless"
-      PIERRE_LLM_MODEL          = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL  = "claude-opus-4.7"
-      PIERRE_LLM_FALLBACK_MODEL = "claude-sonnet-4.6"
+      PIERRE_LLM_PROVIDER          = "copilot_headless"
+      PIERRE_LLM_MODEL             = "claude-opus-4.7"
+      PIERRE_LLM_DEFAULT_MODEL     = "claude-opus-4.7"
+      PIERRE_LLM_FALLBACK_MODEL    = "claude-sonnet-4.6"
+      PIERRE_LLM_RUNTIME_FALLBACK  = "true"
+      PIERRE_LLM_FALLBACK_PROVIDER = "gemini"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
