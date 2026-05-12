@@ -22,6 +22,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tracing::{field, info, Span};
 
 use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -170,8 +171,8 @@ impl McpTool for GetActivitiesTool {
         fields(
             tool = "get_activities",
             user_id = %context.user_id,
-            tenant_id = tracing::field::Empty,
-            provider = tracing::field::Empty,
+            tenant_id = field::Empty,
+            provider = field::Empty,
         )
     )]
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -182,16 +183,16 @@ impl McpTool for GetActivitiesTool {
             .get("provider")
             .and_then(Value::as_str)
             .unwrap_or("default");
-        let span = tracing::Span::current();
-        span.record("provider", tracing::field::display(&provider));
+        let span = Span::current();
+        span.record("provider", field::display(&provider));
         if let Some(tenant_id) = context.tenant_id {
-            span.record("tenant_id", tracing::field::display(&tenant_id));
+            span.record("tenant_id", field::display(&tenant_id));
         }
 
         // notify: chat-triggered fetch of activities from a fitness provider.
         // The LLM invoking this tool counts as user_initiated — the user
         // asked the question that prompted the tool call.
-        tracing::info!(
+        info!(
             target: "notify",
             event = "provider.fetch_started",
             provider = %provider,

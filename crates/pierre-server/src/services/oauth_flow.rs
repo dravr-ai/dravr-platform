@@ -13,7 +13,7 @@ use std::{
 
 use chrono::Utc;
 use serde_json::{json, Value as JsonValue};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
 use crate::{
@@ -226,8 +226,8 @@ impl OAuthService {
         skip(self, code, state),
         fields(
             provider = %provider,
-            user_id = tracing::field::Empty,
-            tenant_id = tracing::field::Empty,
+            user_id = field::Empty,
+            tenant_id = field::Empty,
         )
     )]
     pub async fn handle_callback(
@@ -257,9 +257,9 @@ impl OAuthService {
 
         // Record IDs on the current span so the NotifyLayer can attribute the
         // provider.connected event without re-passing tenant/user fields.
-        let span = tracing::Span::current();
-        span.record("user_id", tracing::field::display(&user_id));
-        span.record("tenant_id", tracing::field::display(&tenant_id));
+        let span = Span::current();
+        span.record("user_id", field::display(&user_id));
+        span.record("tenant_id", field::display(&tenant_id));
 
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available

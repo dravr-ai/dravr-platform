@@ -126,7 +126,7 @@ pub struct ManifestConfig {
     /// stays empty and `NotifyLayer` falls back to its compiled-in
     /// defaults (drop unknown events). The JSON key on disk is
     /// `notify-routing` (kebab-case) to match the manifest writer; serde
-    /// rewrites it to the snake_case Rust field at deserialize time.
+    /// rewrites it to the `snake_case` Rust field at deserialize time.
     #[serde(
         rename = "notify-routing",
         default,

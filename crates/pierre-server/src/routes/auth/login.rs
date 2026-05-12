@@ -14,7 +14,7 @@ use axum::{
 };
 use serde_json::json;
 use tokio::task;
-use tracing::{error, field::Empty, info, warn, Span};
+use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::{
     admin::AdminAuthService,
@@ -809,9 +809,9 @@ pub(super) async fn handle_oauth2_token(
             // attribute the user.login event without the call site re-passing IDs.
             // tenant_id is optional on UserInfo; only record when present so the
             // routing layer sees an empty field rather than a literal "None".
-            Span::current().record("user_id", tracing::field::display(&user_id));
+            Span::current().record("user_id", field::display(&user_id));
             if let Some(tenant_id) = response.user.tenant_id.as_deref() {
-                Span::current().record("tenant_id", tracing::field::display(&tenant_id));
+                Span::current().record("tenant_id", field::display(&tenant_id));
             }
             info!(
                 target: "notify",

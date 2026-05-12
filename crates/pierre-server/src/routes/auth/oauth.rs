@@ -13,7 +13,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use tracing::{error, field::Empty, info, warn};
+use tracing::{error, field, field::Empty, info, warn, Span};
 use urlencoding::encode;
 
 use crate::{
@@ -666,9 +666,9 @@ pub(super) async fn handle_sync_provider(
 
     // Record IDs on the span so the NotifyLayer can attribute the
     // provider.fetch_started event without re-passing fields.
-    let span = tracing::Span::current();
-    span.record("user_id", tracing::field::display(&user_id));
-    span.record("tenant_id", tracing::field::display(&tenant_id));
+    let span = Span::current();
+    span.record("user_id", field::display(&user_id));
+    span.record("tenant_id", field::display(&tenant_id));
 
     info!(
         user_id = %user_id,
