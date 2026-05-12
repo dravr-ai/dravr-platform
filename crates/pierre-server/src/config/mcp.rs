@@ -141,7 +141,7 @@ impl AppBehaviorConfig {
             max_activities_fetch: env_var_or("MAX_ACTIVITIES_FETCH", "100").parse().map_err(
                 |e| AppError::invalid_input(format!("Invalid MAX_ACTIVITIES_FETCH value: {e}")),
             )?,
-            default_activities_limit: env_var_or("DEFAULT_ACTIVITIES_LIMIT", "20")
+            default_activities_limit: env_var_or("DEFAULT_ACTIVITIES_LIMIT", "60")
                 .parse()
                 .map_err(|e| {
                     AppError::invalid_input(format!("Invalid DEFAULT_ACTIVITIES_LIMIT value: {e}"))

@@ -77,8 +77,17 @@ pub mod routes {
 
 /// Default limits
 pub mod limits {
-    /// Default activities fetch limit
-    pub const DEFAULT_ACTIVITIES_LIMIT: usize = 20;
+    /// Default activities fetch limit.
+    ///
+    /// Sized for the group-coaching snapshot pipeline: CTL is a 42-day EMA
+    /// and the `recent_activities` roster block needs the last 7 days of
+    /// activity for every consenting peer. A limit of 20 starved both
+    /// (athletes with 1+ activity/day only had ~20 days of training-load
+    /// history feeding the EMA, and the newest activities were dropped
+    /// when Strava returned ASC under `after`-only). 60 gives ~2 months
+    /// of history at one activity/day — well past the 42-day CTL window —
+    /// without exceeding Strava's per-page limit (100).
+    pub const DEFAULT_ACTIVITIES_LIMIT: usize = 60;
     /// Maximum activities that can be fetched in one request
     pub const MAX_ACTIVITIES_FETCH: usize = 100;
     /// Minutes per hour
