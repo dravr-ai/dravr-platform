@@ -2104,6 +2104,27 @@ struct ChannelAuthOutcomeInputs<'a> {
     outcome: AppResult<AuthResult>,
 }
 
+/// Refresh `users.last_active` after a successful channel authentication.
+///
+/// Mirrors the JWT/MCP tool-handler behavior so admin "last seen" views and
+/// activity reports treat messaging-only users as live. Best-effort: a
+/// failure here is logged but does not block dispatch — activity tracking is
+/// observability, not correctness.
+async fn refresh_channel_last_active(
+    resources: &ServerContext,
+    user_id: Uuid,
+    channel_type: ChannelType,
+) {
+    if let Err(e) = resources.repos.users.update_last_active(user_id).await {
+        warn!(
+            user_id = %user_id,
+            channel = %channel_type,
+            error = %e,
+            "Failed to update last_active on channel auth (activity tracking impacted)"
+        );
+    }
+}
+
 /// Branch on the channel-authentication outcome, surfacing the right reply
 /// for each terminal state and returning the [`AuthResult`] only on success.
 ///
@@ -2115,7 +2136,10 @@ async fn handle_channel_auth_outcome(
     inputs: ChannelAuthOutcomeInputs<'_>,
 ) -> Result<Option<AuthResult>, ()> {
     match inputs.outcome {
-        Ok(r) => Ok(Some(r)),
+        Ok(r) => {
+            refresh_channel_last_active(inputs.resources, r.user_id, inputs.channel_type).await;
+            Ok(Some(r))
+        }
         Err(e) if e.code == ErrorCode::AuthInvalid => {
             debug!(
                 sender_id = %inputs.message.sender_id,
