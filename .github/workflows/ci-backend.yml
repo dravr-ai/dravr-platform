@@ -61,6 +61,9 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
       - name: Detect file changes
         uses: dorny/paths-filter@v4
         id: filter
@@ -91,6 +94,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Install Rust (rustfmt only, no compilation needed)
         uses: dtolnay/rust-toolchain@1.94.0
@@ -125,6 +131,9 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
         with:
@@ -145,6 +154,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
@@ -184,6 +196,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
@@ -231,6 +246,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
@@ -326,6 +344,9 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup

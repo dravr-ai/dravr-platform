@@ -1,0 +1,64 @@
+# ABOUTME: Auto-bump vendor/contremaitre submodule when dravr-contremaitre main moves
+# ABOUTME: Triggered by repository_dispatch from contremaitre on push + hourly safety net
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: "Contremaitre: Bump Submodule"
+
+on:
+  repository_dispatch:
+    types: [contremaitre-updated]
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: contremaitre-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump vendor/contremaitre to latest main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dravr-platform main
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          fetch-depth: 0
+
+      - name: Update submodule to latest main
+        id: bump
+        run: |
+          cd vendor/contremaitre
+          OLD_SHA=$(git rev-parse HEAD)
+          git fetch origin main
+          git checkout origin/main
+          NEW_SHA=$(git rev-parse HEAD)
+          cd ../..
+          echo "old_sha=${OLD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${OLD_SHA}" = "${NEW_SHA}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push bump
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          SHORT_NEW=$(echo "${{ steps.bump.outputs.new_sha }}" | cut -c1-8)
+          git add vendor/contremaitre
+          git commit -m "chore(contremaitre): bump submodule to ${SHORT_NEW}"
+          git push origin main
+
+      - name: Report no-op
+        if: steps.bump.outputs.changed == 'false'
+        run: echo "Submodule already at latest main (${{ steps.bump.outputs.new_sha }}) — nothing to bump"
