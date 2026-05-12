@@ -78,7 +78,6 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
-    && ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude \
     && copilot --version \
     && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
