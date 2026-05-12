@@ -38,6 +38,22 @@ const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
 /// Default distance tolerance (percentage) for duplicate detection
 const DEFAULT_DEDUP_DISTANCE_TOLERANCE_PCT: f64 = 10.0;
 
+/// Minimum fraction of the shorter activity's duration that must overlap
+/// with the longer one for the cross-sport dedup path to collapse them.
+///
+/// Wrist-based trackers (WHOOP, Apple Watch) frequently misclassify
+/// activities — a long bike ride shows up as a `Run` because the wrist
+/// moves enough to trigger the wrong heuristic. The GPS provider
+/// (Strava) reports the same physical session as `Ride`. Same-sport
+/// dedup rejects this pair because of the sport mismatch, so both rows
+/// survive and double-count toward weekly volume and the `Recent:`
+/// block. The cross-sport check below relaxes the sport requirement
+/// when the two activities' time windows overlap substantially (≥60%
+/// of the shorter session), interpreting that overlap as strong
+/// evidence of the same physical workout regardless of the declared
+/// sport label.
+const CROSS_SPORT_OVERLAP_FRACTION: f64 = 0.6;
+
 /// Lookback (days) for the `recent_activities` roster list rendered into
 /// the group context. One week is what coaches ask about ("this week",
 /// "the weekend", "yesterday"); longer windows blow the token budget.
@@ -56,6 +72,25 @@ const RECENT_ACTIVITIES_LIMIT: usize = 12;
 /// counterparts on the same day.
 fn is_date_only_timestamp(ts: DateTime<Utc>) -> bool {
     ts.time() == chrono::NaiveTime::MIN
+}
+
+/// Compute the wall-clock overlap in seconds between two activities, using
+/// each one's start time and reported duration. Returns `None` when either
+/// duration is unrepresentable as `i64` (effectively never under realistic
+/// activity lengths) or when the intervals don't overlap.
+fn time_overlap_seconds(a: &Activity, b: &Activity) -> Option<u64> {
+    let a_dur_secs = i64::try_from(a.duration_seconds()).ok()?;
+    let b_dur_secs = i64::try_from(b.duration_seconds()).ok()?;
+    let a_end = a.start_date() + Duration::seconds(a_dur_secs);
+    let b_end = b.start_date() + Duration::seconds(b_dur_secs);
+    let overlap_start = a.start_date().max(b.start_date());
+    let overlap_end = a_end.min(b_end);
+    let overlap = (overlap_end - overlap_start).num_seconds();
+    if overlap > 0 {
+        u64::try_from(overlap).ok()
+    } else {
+        None
+    }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -117,11 +152,17 @@ impl TimeWindowDeduplicator {
             return false;
         }
 
-        // Sport type must match
-        if a.sport_type() != b.sport_type() {
-            return false;
+        if a.sport_type() == b.sport_type() {
+            self.is_same_sport_duplicate(a, b)
+        } else {
+            Self::is_cross_sport_duplicate(a, b)
         }
+    }
 
+    /// Same-sport cross-provider dedup: time proximity + distance similarity.
+    /// Distance check is skipped when either source lacks GPS data, in which
+    /// case the date+sport match alone is sufficient.
+    fn is_same_sport_duplicate(&self, a: &Activity, b: &Activity) -> bool {
         // Time proximity: prefer minute-window when both look precise, fall
         // back to calendar-date match when at least one side is date-only.
         let a_is_date_only = is_date_only_timestamp(a.start_date());
@@ -146,6 +187,42 @@ impl TimeWindowDeduplicator {
             // Both missing distance — trust the date+sport match
             _ => true,
         }
+    }
+
+    /// Cross-sport cross-provider dedup: time-overlap fraction only.
+    ///
+    /// Distance and sport-label are intentionally ignored — the wrist-tracker
+    /// (WHOOP, Apple Watch) doesn't have GPS for the GPS provider's sport
+    /// (cycling on a watch reports as `Run`; the same workout shows up as
+    /// `Ride` on Strava with full distance). When both sessions overlap in
+    /// wall-clock time by at least `CROSS_SPORT_OVERLAP_FRACTION` of the
+    /// shorter one's duration, they are the same physical workout from
+    /// different sources. `pick_best` then keeps the GPS row.
+    ///
+    /// Conservative: returns false when either side is anchored at midnight
+    /// UTC (date-only timestamps from scrape-mirror providers like sciotte),
+    /// since the overlap math is unreliable without a real start time.
+    /// Returns false when either side has zero duration.
+    fn is_cross_sport_duplicate(a: &Activity, b: &Activity) -> bool {
+        if is_date_only_timestamp(a.start_date()) || is_date_only_timestamp(b.start_date()) {
+            return false;
+        }
+        let a_dur = a.duration_seconds();
+        let b_dur = b.duration_seconds();
+        if a_dur == 0 || b_dur == 0 {
+            return false;
+        }
+        let Some(overlap_secs) = time_overlap_seconds(a, b) else {
+            return false;
+        };
+        let shorter_secs = a_dur.min(b_dur);
+        if shorter_secs == 0 {
+            return false;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        // bounded by single-activity duration; far below f64 limits
+        let overlap_fraction = overlap_secs as f64 / shorter_secs as f64;
+        overlap_fraction >= CROSS_SPORT_OVERLAP_FRACTION
     }
 
     /// Pick the better version of two duplicate activities.
