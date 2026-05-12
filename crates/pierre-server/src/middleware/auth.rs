@@ -488,6 +488,15 @@ impl McpAuthMiddleware {
             return Err(auth_error("JWT token rate limit exceeded"));
         }
 
+        // Record JWT usage so the *next* request sees an accurate
+        // `get_jwt_current_usage` and the rate-limit gate actually fires.
+        // Without this write the counter stays at zero across all users and
+        // every transport that goes through the JWT calculator (HTTP cookie,
+        // Bearer header, `MCP`, and — via `authenticate_channel` — every
+        // messaging webhook). Same posture as
+        // `services::messaging_ingress::record_channel_usage`.
+        record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
+
         Ok(AuthResult {
             user_id,
             auth_method: AuthMethod::JwtToken {
@@ -518,5 +527,54 @@ impl McpAuthMiddleware {
     #[must_use]
     pub const fn auth_manager(&self) -> &AuthManager {
         &self.auth_manager
+    }
+}
+
+/// Record a `JwtUsage` row for a successful JWT/cookie authentication.
+///
+/// [`UnifiedRateLimitCalculator::calculate_jwt_rate_limit`] reads
+/// `repos.usage.get_jwt_current_usage`; without a paired write the counter
+/// stays at zero and the rate-limit gate never fires across any transport
+/// that uses this calculator (HTTP cookie, Bearer header, `MCP`, and — via
+/// [`McpAuthMiddleware::authenticate_channel`] — every messaging webhook).
+///
+/// `endpoint` is rendered like `http:jwt` / `messaging:telegram` so admin
+/// usage reports can disaggregate by transport. `status_code = 200`
+/// reflects the auth result, not the eventual handler outcome — the rate-
+/// limit policy intentionally counts all authenticated requests, including
+/// those that go on to fail downstream.
+///
+/// Best-effort: a write failure is logged but does not block the request.
+/// The symmetry partner on the messaging side is
+/// `services::messaging_ingress::record_channel_usage`.
+pub(crate) async fn record_jwt_usage_for_request(
+    repos: &RepositoryRegistry,
+    user_id: uuid::Uuid,
+    endpoint: &str,
+    method: &str,
+) {
+    use pierre_core::models::usage::JwtUsage;
+
+    let usage = JwtUsage {
+        id: None,
+        user_id,
+        timestamp: chrono::Utc::now(),
+        endpoint: endpoint.to_owned(),
+        method: method.to_owned(),
+        status_code: 200,
+        response_time_ms: None,
+        request_size_bytes: None,
+        response_size_bytes: None,
+        ip_address: None,
+        user_agent: None,
+    };
+
+    if let Err(e) = repos.usage.record_jwt_usage(&usage).await {
+        warn!(
+            user_id = %user_id,
+            endpoint = %endpoint,
+            error = %e,
+            "Failed to record jwt_usage (rate limiting counter impacted)"
+        );
     }
 }

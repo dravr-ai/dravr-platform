@@ -48,6 +48,7 @@ use crate::contremaitre::messaging_strings::{
 };
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
+use crate::middleware::auth::record_jwt_usage_for_request;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::analytics::{analytics, hash_id};
 use crate::services::channel_error_reply::ChannelErrorReply;
@@ -2125,6 +2126,19 @@ async fn refresh_channel_last_active(
     }
 }
 
+/// Record a `JwtUsage` row for a successful channel-authenticated turn.
+///
+/// Delegates to [`crate::middleware::auth::record_jwt_usage_for_request`] so
+/// the JWT (`HTTP` cookie / Bearer / `MCP`) path and the channel-link path
+/// share **one** write site for the rate-limit counter — no symmetry gap
+/// between transports. The endpoint label is rendered as
+/// `messaging:<channel>` (e.g. `messaging:telegram`) so admin usage reports
+/// can disaggregate by transport.
+async fn record_channel_usage(resources: &ServerContext, user_id: Uuid, channel: &str) {
+    let endpoint = format!("messaging:{channel}");
+    record_jwt_usage_for_request(&resources.repos, user_id, &endpoint, "WEBHOOK").await;
+}
+
 /// Branch on the channel-authentication outcome, surfacing the right reply
 /// for each terminal state and returning the [`AuthResult`] only on success.
 ///
@@ -2138,6 +2152,7 @@ async fn handle_channel_auth_outcome(
     match inputs.outcome {
         Ok(r) => {
             refresh_channel_last_active(inputs.resources, r.user_id, inputs.channel_type).await;
+            record_channel_usage(inputs.resources, r.user_id, inputs.channel).await;
             Ok(Some(r))
         }
         Err(e) if e.code == ErrorCode::AuthInvalid => {

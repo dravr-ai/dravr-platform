@@ -340,6 +340,55 @@ mod messaging_user_status_gate_tests {
         assert_eq!(err.code, ErrorCode::AccountSuspended);
     }
 
+    /// Channel turns must increment the **same** `jwt_usage` counter the
+    /// JWT path increments, so `UnifiedRateLimitCalculator::calculate_jwt_rate_limit`
+    /// has fresh numbers for both transports. Pre-Phase-3-followup the
+    /// counter stayed at zero for every user because nothing in
+    /// pierre-server called `record_jwt_usage`. Asserts that after a
+    /// channel-authenticated turn, `get_jwt_current_usage` reflects the
+    /// write — same invariant a future JWT-side test should assert.
+    #[tokio::test]
+    async fn channel_auth_increments_jwt_usage_counter() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "channel_usage@example.com",
+            "ChannelUsage123!",
+            UserStatus::Active,
+        )
+        .await;
+
+        let wa_secret = "wa_channel_usage_secret";
+        setup_whatsapp_config(db, tenant_id, wa_secret).await;
+
+        let sender_id = "15550008005";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        let before = resources
+            .repos
+            .usage
+            .get_jwt_current_usage(user_id)
+            .await
+            .unwrap();
+
+        let payload = whatsapp_text_payload(sender_id, "wamid.usage_001", "ping");
+        let status = send_whatsapp_webhook(&resources, wa_secret, &payload).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let after = resources
+            .repos
+            .usage
+            .get_jwt_current_usage(user_id)
+            .await
+            .unwrap();
+        assert!(
+            after > before,
+            "channel turn must increment jwt_usage counter (before={before}, after={after})"
+        );
+    }
+
     /// `update_last_active` mirrors the JWT/MCP tool-handler behavior: every
     /// authenticated channel turn refreshes the user's last-active timestamp
     /// so admin "last seen" views show messaging-only users as live. The
