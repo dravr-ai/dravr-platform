@@ -217,25 +217,28 @@ fn test_messaging_prompt_forbids_group_data_fabrication() {
 }
 
 // =============================================================================
-// Issue #2: Activity fetch limit — single env var governs all paths
-// ACTIVITY_FETCH_LIMIT defaults to 100, governs both the direct
-// analyze_training_load tool and group-coaching snapshot fetches.
+// Issue #2: Activity fetch limit — single constant governs all paths.
+// `DEFAULT_ACTIVITIES_LIMIT` feeds both the direct `analyze_training_load`
+// tool and the group-coaching snapshot pipeline. The floor must cover the
+// 42-day CTL EMA window for athletes who log roughly one activity per day;
+// at one workout/day, 42 days requires ~42 entries — 60 leaves margin.
 // =============================================================================
 
 #[test]
 fn test_activity_fetch_limit_default() {
-    let default_limit: usize = env::var("ACTIVITY_FETCH_LIMIT")
+    use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
+
+    // Honor an explicit env override when present (dev overrides), otherwise
+    // assert directly on the compiled-in default so this test catches drift
+    // between the constant and the CTL window requirement.
+    let configured_limit: usize = env::var("ACTIVITY_FETCH_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100);
+        .unwrap_or(DEFAULT_ACTIVITIES_LIMIT);
 
-    assert_eq!(
-        default_limit, 100,
-        "Default activity fetch limit should be 100"
-    );
     assert!(
-        default_limit >= 60,
-        "Activity fetch limit must cover at least 60 days of daily activity for CTL (42-day EMA)"
+        configured_limit >= 60,
+        "Activity fetch limit must cover at least 60 days of daily activity for CTL (42-day EMA); got {configured_limit}"
     );
 }
 
