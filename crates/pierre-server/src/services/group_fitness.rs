@@ -733,12 +733,14 @@ fn build_snapshot_from_activities(
 /// older context into the prompt.
 fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec<RosterActivity> {
     let cutoff = now - Duration::days(RECENT_ACTIVITIES_LOOKBACK_DAYS);
+    let total_input = activities.len();
     let mut filtered: Vec<&Activity> = activities
         .iter()
         .filter(|a| a.start_date() >= cutoff)
         .collect();
+    let after_filter = filtered.len();
     filtered.sort_by_key(|a| Reverse(a.start_date()));
-    filtered
+    let result: Vec<RosterActivity> = filtered
         .into_iter()
         .take(RECENT_ACTIVITIES_LIMIT)
         .map(|a| RosterActivity {
@@ -748,7 +750,15 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
             duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
             name: a.name().to_owned(),
         })
-        .collect()
+        .collect();
+    info!(
+        total_input,
+        after_filter,
+        emitted = result.len(),
+        cutoff = %cutoff,
+        "Snapshot: recent_activities computed"
+    );
+    result
 }
 
 /// Group activities by provider and keep the most-recent `start_date` per provider.
