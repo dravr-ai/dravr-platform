@@ -53,7 +53,9 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive vendor/contremaitre
 
       - name: Run lockbud deadlock detection
         run: |
