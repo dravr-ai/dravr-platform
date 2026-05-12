@@ -296,23 +296,28 @@ module "backend" {
       # Primary = claude-opus-4.7 (high-reasoning Opus variant, not the -fast SKU).
       # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
       # (intra-provider model fallback, same Copilot session).
-      # Runtime fallback chain = cross-provider failover to Gemini when Copilot
-      # itself returns a retryable error (auth, 5xx, transient). Built by
-      # ChatProvider::Chain in crates/pierre-llm/src/provider.rs and gated on
+      # Runtime fallback chain = cross-provider failover to Claude Code (direct
+      # Anthropic subscription) when Copilot itself returns a retryable error
+      # (auth, 5xx, transient, throttle). Built by ChatProvider::Chain in
+      # crates/pierre-llm/src/provider.rs and gated on
       # PIERRE_LLM_RUNTIME_FALLBACK=true. Without this, a Copilot session token
       # refresh failure (e.g. transient GitHub rate-limit during the
       # api.github.com/copilot_internal token exchange) surfaces as a
       # user-facing "Dravr temporairement indisponible" instead of seamlessly
-      # serving the reply from Gemini. Wired live 2026-05-12 after that
-      # exact failure mode took down chat for ~10 min.
-      # Entitlement verified 2026-04-16 against the dev PAT; health probe
-      # (copilot-health-probe.yml) exercises this model daily.
+      # serving the reply from Claude. Switched from Gemini to claude_code on
+      # 2026-05-12: same upstream model family as the Copilot primary (Claude
+      # Opus/Sonnet), so degraded-mode answer quality stays consistent instead
+      # of dropping to a different vendor's model on every blip. Auth is a
+      # long-lived OAuth token from `claude setup-token` stored in Secret
+      # Manager as dravr-mcp-server-claude-code-oauth-token.
+      # Entitlement verified 2026-04-16 against the dev PAT (Copilot side);
+      # Claude token verified by claude-health-probe.yml.
       PIERRE_LLM_PROVIDER          = "copilot_headless"
       PIERRE_LLM_MODEL             = "claude-opus-4.7"
       PIERRE_LLM_DEFAULT_MODEL     = "claude-opus-4.7"
       PIERRE_LLM_FALLBACK_MODEL    = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK  = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER = "gemini"
+      PIERRE_LLM_FALLBACK_PROVIDER = "claude_code"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
@@ -384,6 +389,7 @@ module "backend" {
     USDA_API_KEY                 = module.secrets.secret_ids["usda_api_key"]
     GEMINI_API_KEY               = module.secrets.secret_ids["gemini_api_key"]
     COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
+    CLAUDE_CODE_OAUTH_TOKEN      = module.secrets.secret_ids["claude_code_oauth_token"]
     OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
     RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
     POSTHOG_API_KEY              = module.secrets.secret_ids["posthog_api_key"]

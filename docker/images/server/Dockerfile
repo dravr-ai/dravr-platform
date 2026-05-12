@@ -44,7 +44,7 @@ RUN ls -la target/release/pierre-mcp-server target/release/pierre-cli
 FROM --platform=linux/amd64 debian:trixie-slim
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
-# nodejs + npm: needed for copilot CLI (copilot_headless LLM provider via embacle)
+# nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
 # chromium + libs: required by dravr-sciotte (headless Chrome scraping via chromiumoxide)
 RUN apt-get update && apt-get upgrade -y \
@@ -59,15 +59,28 @@ RUN apt-get update && apt-get upgrade -y \
     chromium \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
-# Pinned version for reproducible builds; bump deliberately after validating model compatibility
-# (e.g. claude-opus-4.7 requires CLI >=1.0.30).
-# After install: remove npm and its transitive deps (node-tar CVEs) since npm is not needed at runtime
+# Install GitHub Copilot CLI and Anthropic Claude Code CLI in one layer so the
+# npm strip below covers both. Pinned versions for reproducible builds; bump
+# deliberately after validating model compatibility (e.g. claude-opus-4.7
+# requires Copilot CLI >=1.0.30; CLAUDE_CODE_OAUTH_TOKEN auth requires
+# claude-code >=2.x).
+#
+# - copilot_headless LLM provider (primary): GitHub Copilot CLI in ACP mode
+# - claude_code LLM provider (runtime fallback): Anthropic Claude Code CLI
+#   authenticated via CLAUDE_CODE_OAUTH_TOKEN (one-year subscription token from
+#   `claude setup-token`, see PIERRE_LLM_FALLBACK_PROVIDER in dev/main.tf).
+#
+# After install: remove npm and its transitive deps (node-tar CVEs) since npm
+# is not needed at runtime.
 ARG COPILOT_CLI_VERSION=1.0.44
+ARG CLAUDE_CODE_CLI_VERSION=2.1.139
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
+    && ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude \
     && copilot --version \
+    && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
 
 # Create app user and directories
