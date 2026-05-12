@@ -13,7 +13,9 @@
     clippy::float_cmp
 )]
 
+use pierre_llm::config::LlmProviderType;
 use pierre_llm::{ChatMessage, LlmCapabilities, LlmProviderRegistry, MessageRole};
+use std::env;
 
 #[test]
 fn message_role_serializes_to_lowercase_strings() {
@@ -61,4 +63,42 @@ fn provider_registry_returns_none_for_unknown_lookup() {
         registry.get("nonexistent-provider").is_none(),
         "empty registry must return None for any provider name"
     );
+}
+
+#[test]
+fn fallback_provider_model_env_var_roundtrip() {
+    // Both assertions live in the same test to avoid env-var races between
+    // parallel test runs — this var is unique to the runtime fallback chain
+    // (see ChatProvider::create_fallback_provider) and nothing else touches it.
+    let key = LlmProviderType::FALLBACK_PROVIDER_MODEL_ENV_VAR;
+
+    // This env var is unique to the runtime fallback chain and owned by
+    // these three assertions; no other test touches it. All three live in
+    // one #[test] fn to avoid race conditions across cargo's parallel
+    // test runner.
+
+    // Unset → None
+    env::remove_var(key);
+    assert!(
+        LlmProviderType::fallback_provider_model_from_env().is_none(),
+        "unset env var must yield None"
+    );
+
+    // Set → Some(value)
+    env::set_var(key, "claude-opus-4-7");
+    assert_eq!(
+        LlmProviderType::fallback_provider_model_from_env(),
+        Some("claude-opus-4-7".to_owned()),
+        "env var must round-trip through fallback_provider_model_from_env"
+    );
+
+    // Empty string → None (so an accidental empty override doesn't
+    // clobber the primary's model)
+    env::set_var(key, "");
+    assert!(
+        LlmProviderType::fallback_provider_model_from_env().is_none(),
+        "empty env var must yield None, not Some(\"\")"
+    );
+
+    env::remove_var(key);
 }

@@ -139,6 +139,31 @@ impl CliLlmProvider {
         Self::build_cli(runner_type, config)
     }
 
+    /// Create a provider for a specific CLI runner type, resolving the binary
+    /// via the standard `embacle` discovery and applying an optional explicit
+    /// model override.
+    ///
+    /// Bypasses `PIERRE_LLM_PROVIDER` env-var dispatch in [`Self::from_env`]
+    /// — needed when the caller already knows the runner type (e.g. the
+    /// runtime fallback chain in [`crate::provider::ChatProvider`] builds
+    /// the secondary from `PIERRE_LLM_FALLBACK_PROVIDER`, not the primary
+    /// `PIERRE_LLM_PROVIDER`).
+    ///
+    /// When `model_override` is `Some`, the value wins over `PIERRE_LLM_MODEL`
+    /// for this runner. Use it to give the fallback secondary a different
+    /// model name than the primary (see `PIERRE_LLM_FALLBACK_PROVIDER_MODEL`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the binary cannot be resolved for `runner_type`.
+    pub fn from_runner_type_with_model(
+        runner_type: CliRunnerType,
+        model_override: Option<&str>,
+    ) -> Result<Self, AppError> {
+        let config = build_runner_config_with_model(runner_type, model_override)?;
+        Ok(Self::build_cli(runner_type, config))
+    }
+
     /// Build a CLI subprocess runner
     fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
         let binary_path = config.binary_path.clone();
@@ -389,30 +414,49 @@ fn spawn_readiness_check(
 /// Resolves the binary path via `CLI_LLM_BINARY` env var override or `which`
 /// discovery, then applies `CLI_LLM_*` overrides for model, timeout, and args.
 fn build_runner_config(runner_type: CliRunnerType) -> Result<RunnerConfig, AppError> {
+    build_runner_config_with_model(runner_type, None)
+}
+
+/// Like [`build_runner_config`] but uses an explicit model instead of
+/// reading `PIERRE_LLM_MODEL`. Used to construct the secondary in a runtime
+/// fallback chain when its model differs from the primary's (e.g. Copilot
+/// `claude-opus-4.7` primary → Anthropic CLI `claude-opus-4-7` secondary).
+fn build_runner_config_with_model(
+    runner_type: CliRunnerType,
+    model_override: Option<&str>,
+) -> Result<RunnerConfig, AppError> {
     let binary_override = env::var("CLI_LLM_BINARY").ok();
     let binary_path =
         embacle::resolve_binary(runner_type.binary_name(), binary_override.as_deref())?;
 
     let mut config = RunnerConfig::new(binary_path);
-    config = apply_env_overrides(config);
+    config = apply_env_overrides(config, model_override);
     Ok(config)
 }
 
 /// Merge `CLI_LLM_*` environment overrides into a discovered `RunnerConfig`
 fn merge_env_overrides(config: RunnerConfig) -> RunnerConfig {
-    apply_env_overrides(config)
+    apply_env_overrides(config, None)
 }
 
 /// Apply environment variable overrides to a `RunnerConfig`
 ///
-/// `PIERRE_LLM_MODEL` is the unified model override (highest priority).
-/// `CLI_LLM_MODEL` is the runner-specific fallback.
-fn apply_env_overrides(mut config: RunnerConfig) -> RunnerConfig {
-    let model_override = env::var("PIERRE_LLM_MODEL")
-        .or_else(|_| env::var("CLI_LLM_MODEL"))
-        .ok()
-        .filter(|m| !m.is_empty());
-    if let Some(model) = model_override {
+/// Model resolution order (highest priority first):
+///   1. `model_override` argument (used by the runtime fallback chain to
+///      give the secondary a different model than the primary)
+///   2. `PIERRE_LLM_MODEL`
+///   3. `CLI_LLM_MODEL`
+fn apply_env_overrides(mut config: RunnerConfig, model_override: Option<&str>) -> RunnerConfig {
+    let model = model_override
+        .filter(|m| !m.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            env::var("PIERRE_LLM_MODEL")
+                .or_else(|_| env::var("CLI_LLM_MODEL"))
+                .ok()
+                .filter(|m| !m.is_empty())
+        });
+    if let Some(model) = model {
         config = config.with_model(model);
     }
 

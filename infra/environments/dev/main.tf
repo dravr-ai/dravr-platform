@@ -310,14 +310,20 @@ module "backend" {
       # of dropping to a different vendor's model on every blip. Auth is a
       # long-lived OAuth token from `claude setup-token` stored in Secret
       # Manager as dravr-mcp-server-claude-code-oauth-token.
+      # PIERRE_LLM_FALLBACK_PROVIDER_MODEL = claude-opus-4-7 (Anthropic format
+      # with dashes) is REQUIRED — the chain passes this to the secondary
+      # because Copilot's `claude-opus-4.7` (with a dot) is rejected by the
+      # direct Anthropic API with HTTP 404. Without the override the fallback
+      # activates but every secondary call errors immediately.
       # Entitlement verified 2026-04-16 against the dev PAT (Copilot side);
       # Claude token verified by claude-health-probe.yml.
-      PIERRE_LLM_PROVIDER          = "copilot_headless"
-      PIERRE_LLM_MODEL             = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL     = "claude-opus-4.7"
-      PIERRE_LLM_FALLBACK_MODEL    = "claude-sonnet-4.6"
-      PIERRE_LLM_RUNTIME_FALLBACK  = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER = "claude_code"
+      PIERRE_LLM_PROVIDER                = "copilot_headless"
+      PIERRE_LLM_MODEL                   = "claude-opus-4.7"
+      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.7"
+      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
+      PIERRE_LLM_RUNTIME_FALLBACK        = "true"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "claude_code"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-opus-4-7"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
