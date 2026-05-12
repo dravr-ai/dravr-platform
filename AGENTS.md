@@ -18,35 +18,10 @@ Using npm/yarn for project dependencies will corrupt the project by creating con
 
 **Exception**: `npm install -g` is allowed for installing global CLI tools (e.g., `npm install -g @github/copilot`) that are not project dependencies.
 
-### Commands
-| Task | Command |
-|------|---------|
-| Install dependencies | `bun install` |
-| Add a package | `bun add <package>` |
-| Add dev dependency | `bun add -d <package>` |
-| Run scripts | `bun run <script>` |
-| Run tests | `bun run test` |
-
-**IMPORTANT: `bun test` vs `bun run test`**
-- `bun test` = Bun's native test runner (searches for `.test.ts` files with bun-style tests)
-- `bun run test` = Runs the `test` script from package.json (vitest for frontend, jest for mobile)
-- **Always use `bun run test`** for frontend/ and frontend-mobile/ directories
-
 ### Enforcement
 - All `package.json` files have a `preinstall` script that rejects npm/yarn
 - `.gitignore` blocks `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml`
 - CI workflows use `bun install --frozen-lockfile`
-
-### If You See Corruption
-If you accidentally ran npm and see both `bun.lock` and `package-lock.json`:
-```bash
-# Remove npm artifacts
-rm -rf node_modules package-lock.json
-rm -rf */node_modules */package-lock.json
-
-# Reinstall with bun
-bun install
-```
 
 ## Git Workflow: NO Pull Requests
 
