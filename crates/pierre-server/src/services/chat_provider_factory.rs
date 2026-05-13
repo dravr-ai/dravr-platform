@@ -16,10 +16,11 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::Arc;
 use std::time::Duration;
 
+use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD};
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::errors::AppError;
 use crate::health::{LlmHealthState, LlmHealthStatus};
@@ -117,13 +118,129 @@ pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
             return;
         }
 
+        // Boot-time GitHub rate-limit probe so CHAIN_GUARD has a value
+        // before any chat request lands; without this, the very first
+        // call would fail-open even when GitHub's budget is already
+        // exhausted.
+        run_github_rate_limit_probe().await;
+
         let mut ticker = interval(Duration::from_secs(interval_secs));
         ticker.tick().await; // consume the immediate first tick
         loop {
             ticker.tick().await;
             run_one_probe(&provider_name, &health_state, ProbeKind::Periodic).await;
+            run_github_rate_limit_probe().await;
         }
     });
+}
+
+/// Probe GitHub's `/rate_limit` endpoint with the PAT we use for
+/// Copilot session-token exchange. The endpoint itself does NOT count
+/// against the core rate budget — it's intentionally free so callers
+/// can self-throttle.
+///
+/// Pushes the latest `core.remaining` / `core.reset` into
+/// [`pierre_llm::chain_guard::CHAIN_GUARD`] so the runtime fallback
+/// chain can short-circuit to the secondary when the budget is too low
+/// for Copilot's next session refresh to succeed. Emits notify events
+/// in `#dravr-signal` on threshold transitions so operators see the
+/// degradation before users do.
+///
+/// Fail-open: any network/parse/auth issue logs at `warn!` and leaves
+/// `CHAIN_GUARD` in whatever state the previous probe left it (or
+/// `RATE_LIMIT_UNKNOWN` if no probe has succeeded yet).
+async fn run_github_rate_limit_probe() {
+    let token = match env::var("GITHUB_PERSONAL_ACCESS_TOKEN") {
+        Ok(t) if !t.is_empty() => t,
+        _ => {
+            debug!("GITHUB_PERSONAL_ACCESS_TOKEN unset; skipping rate-limit probe");
+            return;
+        }
+    };
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "Failed to build reqwest client for GitHub rate-limit probe");
+            return;
+        }
+    };
+
+    let response = match client
+        .get("https://api.github.com/rate_limit")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "dravr-platform-probe")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "GitHub rate-limit probe HTTP request failed");
+            return;
+        }
+    };
+
+    if !response.status().is_success() {
+        warn!(
+            status = %response.status(),
+            "GitHub rate-limit probe returned non-2xx; leaving CHAIN_GUARD unchanged"
+        );
+        return;
+    }
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(error = %e, "GitHub rate-limit probe response was not valid JSON");
+            return;
+        }
+    };
+
+    let remaining = body["resources"]["core"]["remaining"]
+        .as_u64()
+        .unwrap_or(u64::MAX);
+    let reset_at = body["resources"]["core"]["reset"].as_u64().unwrap_or(0);
+
+    let transition = CHAIN_GUARD.record_github_rate_limit(remaining, reset_at);
+
+    match transition {
+        RateLimitTransition::EnteredLow => {
+            warn!(
+                remaining,
+                reset_at,
+                "GitHub rate-limit headroom dropped below threshold; \
+                 Chain will skip primary until recovered"
+            );
+            info!(
+                target: "notify",
+                event = "llm.rate_limit_low",
+                remaining = remaining,
+                reset_at = reset_at,
+                "GitHub rate-limit budget low; chain skipping primary preemptively"
+            );
+        }
+        RateLimitTransition::ExitedLow => {
+            info!(
+                remaining,
+                reset_at,
+                "GitHub rate-limit headroom recovered above threshold"
+            );
+            info!(
+                target: "notify",
+                event = "llm.rate_limit_recovered",
+                remaining = remaining,
+                "GitHub rate-limit budget recovered; chain primary re-enabled"
+            );
+        }
+        RateLimitTransition::StillLow | RateLimitTransition::StillOk => {
+            debug!(remaining, reset_at, "GitHub rate-limit probe steady state");
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -29,6 +29,9 @@ pub use pierre_core::llm::{
     LlmProviderRegistry, MessageRole, StreamChunk, TokenUsage,
 };
 
+/// Process-wide guard state for ChatProvider::Chain preemptive fallback
+/// (GitHub rate-limit headroom + circuit breaker on primary).
+pub mod chain_guard;
 /// Embacle-based LLM provider facade wrapping CLI subprocess and SDK runners
 mod cli_llm_provider;
 /// LLM configuration types (provider selection, model settings)
