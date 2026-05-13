@@ -296,34 +296,28 @@ module "backend" {
       # Primary = claude-opus-4.7 (high-reasoning Opus variant, not the -fast SKU).
       # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
       # (intra-provider model fallback, same Copilot session).
-      # Runtime fallback chain = cross-provider failover to Claude Code (direct
-      # Anthropic subscription) when Copilot itself returns a retryable error
+      # Runtime fallback chain = cross-provider failover to Gemini (Google free
+      # tier via GEMINI_API_KEY) when Copilot itself returns a retryable error
       # (auth, 5xx, transient, throttle). Built by ChatProvider::Chain in
       # crates/pierre-llm/src/provider.rs and gated on
       # PIERRE_LLM_RUNTIME_FALLBACK=true. Without this, a Copilot session token
       # refresh failure (e.g. transient GitHub rate-limit during the
-      # api.github.com/copilot_internal token exchange) surfaces as a
-      # user-facing "Dravr temporairement indisponible" instead of seamlessly
-      # serving the reply from Claude. Switched from Gemini to claude_code on
-      # 2026-05-12: same upstream model family as the Copilot primary (Claude
-      # Opus/Sonnet), so degraded-mode answer quality stays consistent instead
-      # of dropping to a different vendor's model on every blip. Auth is a
-      # long-lived OAuth token from `claude setup-token` stored in Secret
-      # Manager as dravr-mcp-server-claude-code-oauth-token.
-      # PIERRE_LLM_FALLBACK_PROVIDER_MODEL = claude-opus-4-7 (Anthropic format
-      # with dashes) is REQUIRED — the chain passes this to the secondary
-      # because Copilot's `claude-opus-4.7` (with a dot) is rejected by the
-      # direct Anthropic API with HTTP 404. Without the override the fallback
-      # activates but every secondary call errors immediately.
-      # Entitlement verified 2026-04-16 against the dev PAT (Copilot side);
-      # Claude token verified by claude-health-probe.yml.
+      # api.github.com/copilot_internal token exchange) would surface as a
+      # user-facing "Dravr temporairement indisponible". Switched off claude_code
+      # on 2026-05-13: the direct Anthropic subscription burned through Opus
+      # credits during every Copilot blip with no spend cap — Gemini's free tier
+      # gives bounded cost ($0 within quota) and is good enough for degraded
+      # service. Provider health transitions still fire `llm.provider_unhealthy`
+      # notify events for operator awareness, and the chat route returns 503
+      # with retry-after when LlmHealthState reports Unhealthy.
+      # Entitlement verified 2026-04-16 against the dev PAT (Copilot side).
       PIERRE_LLM_PROVIDER                = "copilot_headless"
       PIERRE_LLM_MODEL                   = "claude-opus-4.7"
       PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.7"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "claude_code"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-opus-4-7"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-3.1-flash-lite"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"

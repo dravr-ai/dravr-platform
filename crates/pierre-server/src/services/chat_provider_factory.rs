@@ -276,6 +276,17 @@ fn log_failure_transition(provider: &str, kind: ProbeKind, previous: LlmHealthSt
             error,
             "LLM probe transitioned to Unhealthy; chat traffic at risk"
         );
+        // Operationally distinct from the all-errors firehose: route the
+        // transition through NotifyLayer so it lands in #dravr-signal with
+        // a stable event name + structured fields. See ADR-014.
+        info!(
+            target: "notify",
+            event = "llm.provider_unhealthy",
+            provider = provider,
+            previous_state = %previous,
+            error = error,
+            "LLM probe transitioned to Unhealthy"
+        );
     } else {
         warn!(
             provider,
@@ -292,6 +303,15 @@ fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthS
             provider,
             %kind,
             "LLM probe Unhealthy -> Healthy; chat traffic recovered"
+        );
+        // Pair with llm.provider_unhealthy so operators can close the
+        // incident loop in #dravr-signal without reading logs.
+        info!(
+            target: "notify",
+            event = "llm.provider_recovered",
+            provider = provider,
+            previous_state = %previous,
+            "LLM probe transitioned back to Healthy"
         );
     } else {
         info!(provider, %kind, "LLM probe healthy");

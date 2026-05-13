@@ -236,11 +236,13 @@ async fn run_recovery_and_post_process(
 
 use crate::config::LlmProviderType;
 use crate::errors::AppResult;
+use crate::health::LlmHealthStatus;
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
 use crate::services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use crate::services::prompt_leak;
 use crate::services::tool_execution::{self as chat_tool_loop};
+use pierre_core::errors::{AppError, ErrorCode};
 
 use stages::followups::{ensure_coach_session_attached, finalize_session_state};
 use stages::persistence::{
@@ -430,6 +432,31 @@ pub async fn run(
         persona = persona.as_str(),
         "user asked a question"
     );
+
+    // Industry-standard graceful degradation: when the in-process LLM
+    // probe (services::chat_provider_factory) has flipped the shared
+    // LlmHealthState to Unhealthy, fail the turn fast with a 503 instead
+    // of letting the user hang on a multi-minute provider timeout. The
+    // runtime fallback chain handles per-call transient errors; this
+    // precheck handles the "primary is sustained-broken" state the
+    // probe has already classified. Maps to 503 Service Unavailable via
+    // ErrorCode::ResourceUnavailable.
+    let snapshot = resources.llm_health.snapshot().await;
+    if matches!(snapshot.status, LlmHealthStatus::Unhealthy) {
+        let provider = snapshot.provider.unwrap_or_else(|| "llm".to_owned());
+        let last_error = snapshot.error.unwrap_or_else(|| "unknown".to_owned());
+        warn!(
+            provider = %provider,
+            last_error = %last_error,
+            "LLM probe is Unhealthy — failing chat turn fast with 503"
+        );
+        return Err(AppError::new(
+            ErrorCode::ResourceUnavailable,
+            format!(
+                "Our AI provider ({provider}) is temporarily unavailable. We've been notified — please try again in a minute or two."
+            ),
+        ));
+    }
 
     let outcome = run_turn(resources, input, profile, hooks).await;
 
