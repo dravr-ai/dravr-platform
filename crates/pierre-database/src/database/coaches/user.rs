@@ -621,10 +621,13 @@ impl CoachesManager {
     ) -> AppResult<bool> {
         let now = Utc::now().to_rfc3339();
 
-        // Verify the coach exists and belongs to the user/tenant
+        // Verify the coach is reachable to the caller. System coaches (is_system = 1)
+        // are pinned to the seed tenant but exposed to every tenant via the catalog,
+        // so we accept them unconditionally — otherwise any non-seed-tenant user
+        // chatting with a builtin coach silently skips usage tracking.
         let exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)
             ",
         )
         .bind(coach_id)
@@ -804,10 +807,12 @@ impl CoachesManager {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>> {
-        // Verify the coach exists
+        // Same reasoning as record_usage / toggle_favorite: accept system coaches
+        // unconditionally so non-seed-tenant users can pick a builtin coach as
+        // their active default.
         let coach_exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)
             ",
         )
         .bind(coach_id)
@@ -848,8 +853,29 @@ impl CoachesManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to activate coach: {e}")))?;
 
-        // Return the activated coach
-        self.get(coach_id, user_id, tenant_id).await
+        // Return the activated coach. We use a relaxed lookup that accepts
+        // system coaches (whose user_id is the seed user, not the caller) —
+        // self.get() requires user_id = caller and tenant_id = caller, which
+        // would silently turn a successful activation into Ok(None) for any
+        // builtin coach picked from a non-seed tenant.
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, title, description, system_prompt,
+                   category, tags, sample_prompts, token_count,
+                   created_at, updated_at, is_system, visibility, prerequisites,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
+            FROM coaches
+            WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)
+            ",
+        )
+        .bind(coach_id)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get activated coach: {e}")))?;
+
+        row.map(|r| row_to_coach(&r)).transpose()
     }
 
     /// Deactivate the currently active coach for a user

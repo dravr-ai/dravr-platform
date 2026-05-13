@@ -28,6 +28,24 @@ function humanizeKind(kind: string): string {
   return KIND_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
+// Largest-remainder (Hamilton) apportionment so percentages always sum to 100.
+// Naive Math.round on each row independently can drift to 99% or 101%.
+export function distributePercentages(counts: number[], total: number): number[] {
+  if (total <= 0 || counts.length === 0) {
+    return counts.map(() => 0);
+  }
+  const exact = counts.map((c) => (c / total) * 100);
+  const floors = exact.map((x) => Math.floor(x));
+  const remainders = exact.map((x, i) => ({ idx: i, frac: x - floors[i] }));
+  let leftover = 100 - floors.reduce((a, b) => a + b, 0);
+  remainders.sort((a, b) => b.frac - a.frac);
+  const result = [...floors];
+  for (let i = 0; i < remainders.length && leftover > 0; i++, leftover--) {
+    result[remainders[i].idx] += 1;
+  }
+  return result;
+}
+
 function formatTimestamp(iso: string | null): string {
   if (!iso) {
     return 'No facts yet';
@@ -120,11 +138,16 @@ export default function MemoryExtractionMonitorTab() {
 
   const kindRows = useMemo(() => {
     if (!metrics) {
-      return [] as { kind: string; count: number }[];
+      return [] as { kind: string; count: number; pct: number }[];
     }
-    return Object.entries(metrics.facts_by_kind)
+    const sorted = Object.entries(metrics.facts_by_kind)
       .map(([kind, count]) => ({ kind, count }))
       .sort((a, b) => b.count - a.count);
+    const pcts = distributePercentages(
+      sorted.map((r) => r.count),
+      metrics.total_facts,
+    );
+    return sorted.map((row, i) => ({ ...row, pct: pcts[i] }));
   }, [metrics]);
 
   if (!tenantId) {
@@ -255,10 +278,7 @@ export default function MemoryExtractionMonitorTab() {
             ) : (
               <ul className="divide-y divide-gray-200 dark:divide-gray-700">
                 {kindRows.map((row) => {
-                  const pct =
-                    metrics.total_facts === 0
-                      ? 0
-                      : Math.round((row.count / metrics.total_facts) * 100);
+                  const pct = row.pct;
                   return (
                     <li key={row.kind} className="flex items-center gap-4 px-6 py-3">
                       <div className="w-32 text-sm font-medium text-gray-900 dark:text-gray-100">

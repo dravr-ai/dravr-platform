@@ -171,7 +171,8 @@ export default function HarnessConfigTab() {
             label="Window tokens"
             help="Target context window for the active LLM."
             value={draft.compaction.window_tokens}
-            min={1}
+            min={1024}
+            max={2_000_000}
             step={1024}
             onChange={(v) =>
               setDraft({
@@ -213,6 +214,7 @@ export default function HarnessConfigTab() {
             help="How many oldest turns to compact when warn fires."
             value={draft.compaction.summarize_oldest_n}
             min={0}
+            max={100}
             step={1}
             onChange={(v) =>
               setDraft({
@@ -226,6 +228,7 @@ export default function HarnessConfigTab() {
             help="How many oldest turns to drop under emergency."
             value={draft.compaction.sliding_drop_n}
             min={0}
+            max={100}
             step={1}
             onChange={(v) =>
               setDraft({
@@ -247,6 +250,7 @@ export default function HarnessConfigTab() {
             help="Coach replies longer than this are rewritten as a length-cap fallback. Use 0 to disable."
             value={draft.guardrails.max_response_chars}
             min={0}
+            max={1_000_000}
             step={500}
             onChange={(v) =>
               setDraft({

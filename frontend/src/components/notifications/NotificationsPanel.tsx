@@ -114,7 +114,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             <Bell className="w-5 h-5 text-on-surface" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-on-surface">Notifications</h1>
+            <h2 className="text-lg font-semibold text-on-surface">Notifications</h2>
             <p className="text-xs text-on-surface-variant">
               {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
               {total > 0 && ` · ${total} total`}

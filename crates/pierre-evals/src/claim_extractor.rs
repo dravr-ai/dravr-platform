@@ -77,6 +77,7 @@ pub async fn extract_with_llm(
     Ok(response
         .claims
         .into_iter()
+        .filter(|raw| word_count(&raw.text) >= MIN_CLAIM_WORDS)
         .filter_map(|raw| {
             ClaimCategory::parse(&raw.category).map(|category| ExtractedClaim {
                 text: raw.text,
@@ -86,17 +87,29 @@ pub async fn extract_with_llm(
         .collect())
 }
 
+/// Minimum word count for a sentence to be treated as a verifiable claim.
+/// Fragments shorter than this — "Yes, but with restraint." (4 words),
+/// "Hydrate well." (2) — are rhetorical glue, not factual claims, and
+/// the verifier was over-flagging them as `unsupported` (audit,
+/// 2026-05-07). Threshold of 5 keeps short factual claims like "Your
+/// `VO2max` is around 58." in scope while still dropping the patterns
+/// the audit flagged.
+const MIN_CLAIM_WORDS: usize = 5;
+
 /// Pure-Rust heuristic extraction for use without an LLM.
 ///
 /// Splits the reply on sentence boundaries and assigns the best-matching
 /// category based on keyword counts. Claims that score zero on every
-/// category are dropped.
+/// category, or that fall under [`MIN_CLAIM_WORDS`], are dropped.
 #[must_use]
 pub fn extract_heuristic(coach_reply: &str) -> Vec<ExtractedClaim> {
     let mut out = Vec::new();
     for sentence in split_sentences(coach_reply) {
         let trimmed = sentence.trim();
         if trimmed.is_empty() {
+            continue;
+        }
+        if word_count(trimmed) < MIN_CLAIM_WORDS {
             continue;
         }
         if let Some(category) = classify_heuristic(trimmed) {
@@ -107,6 +120,10 @@ pub fn extract_heuristic(coach_reply: &str) -> Vec<ExtractedClaim> {
         }
     }
     out
+}
+
+fn word_count(s: &str) -> usize {
+    s.split_whitespace().filter(|w| !w.is_empty()).count()
 }
 
 fn split_sentences(text: &str) -> Vec<String> {

@@ -953,12 +953,18 @@ impl CoachesRepository for Database {
         tenant_id: TenantId,
     ) -> AppResult<bool> {
         let now = Utc::now().to_rfc3339();
-        let exists = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2")
-            .bind(coach_id)
-            .bind(tenant_id)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
+        // System coaches (is_system = 1) are pinned to the seed tenant but
+        // exposed to every tenant via the catalog, so accept them
+        // unconditionally — otherwise non-seed-tenant users silently skip
+        // usage tracking when chatting with a builtin coach.
+        let exists = sqlx::query(
+            "SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)",
+        )
+        .bind(coach_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
         if exists.is_none() {
             return Ok(false);
         }
@@ -977,12 +983,16 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>> {
-        let coach_exists = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2")
-            .bind(coach_id)
-            .bind(tenant_id)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
+        // Same reasoning as record_usage: accept system coaches so favorites
+        // toggle for non-seed-tenant users on builtin coaches.
+        let coach_exists = sqlx::query(
+            "SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)",
+        )
+        .bind(coach_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
         if coach_exists.is_none() {
             return Ok(None);
         }
@@ -1140,12 +1150,17 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>> {
-        let coach_exists = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2")
-            .bind(coach_id)
-            .bind(tenant_id)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
+        // Same reasoning as record_usage / toggle_favorite: accept system coaches
+        // unconditionally so non-seed-tenant users can pick a builtin coach as
+        // their active default.
+        let coach_exists = sqlx::query(
+            "SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)",
+        )
+        .bind(coach_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
         if coach_exists.is_none() {
             return Ok(None);
         }

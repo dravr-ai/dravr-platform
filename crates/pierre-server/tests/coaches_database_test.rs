@@ -1381,6 +1381,96 @@ async fn test_record_usage() {
     assert_eq!(item.use_count, 2);
 }
 
+// Regression for the 2026-05-07 admin audit: every system coach was stuck at
+// "0 uses" because record_usage strictly required the caller's tenant to match
+// the coach's pinned tenant. System coaches live in the seed tenant but are
+// exposed to every tenant via the catalog, so chatting with one from any other
+// tenant silently skipped the use_count bump. The fix accepts is_system = TRUE
+// unconditionally; this test pins that behaviour.
+#[tokio::test]
+async fn test_record_usage_for_system_coach_from_other_tenant() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateSystemCoachRequest {
+        title: "Cross-tenant System Coach".to_owned(),
+        description: None,
+        system_prompt: "Prompt".to_owned(),
+        category: CoachCategory::Custom,
+        tags: vec![],
+        visibility: CoachVisibility::Tenant,
+        sample_prompts: vec![],
+    };
+    let coach = manager
+        .create_system_coach(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+    assert!(coach.is_system);
+    assert_eq!(coach.tenant_id, test_tenant().to_string());
+
+    // A user from a *different* tenant chats with this system coach. Before the
+    // fix, record_usage returned Ok(false) and coach_assignments stayed empty.
+    let recorded = manager
+        .record_usage(&coach.id.to_string(), other_user_id(), other_tenant())
+        .await
+        .unwrap();
+    assert!(
+        recorded,
+        "system coaches must accept use_count bumps from non-pinning tenants"
+    );
+
+    // Bumping a second time confirms the assignment row was created and the
+    // counter increments rather than being recreated.
+    manager
+        .record_usage(&coach.id.to_string(), other_user_id(), other_tenant())
+        .await
+        .unwrap();
+
+    let filter = ListCoachesFilter::default();
+    let items = manager
+        .list(other_user_id(), other_tenant(), &filter)
+        .await
+        .unwrap();
+    // System coach must surface in cross-tenant listing.
+    let item = items.iter().find(|i| i.coach.id == coach.id).unwrap();
+    assert_eq!(item.use_count, 2);
+    assert!(item.last_used_at.is_some());
+}
+
+// Companion regression for activate_coach: non-seed-tenant users must be able
+// to set a system coach as their active default. Audit (2026-05-07) traced the
+// same tenant-strict select pattern across record_usage, toggle_favorite, and
+// activate_coach — fixing only one would leave silent failures elsewhere.
+#[tokio::test]
+async fn test_activate_system_coach_from_other_tenant() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateSystemCoachRequest {
+        title: "Activate-me Cross-tenant System Coach".to_owned(),
+        description: None,
+        system_prompt: "Prompt".to_owned(),
+        category: CoachCategory::Custom,
+        tags: vec![],
+        visibility: CoachVisibility::Tenant,
+        sample_prompts: vec![],
+    };
+    let coach = manager
+        .create_system_coach(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    let activated = manager
+        .activate_coach(&coach.id.to_string(), other_user_id(), other_tenant())
+        .await
+        .unwrap();
+    assert!(
+        activated.is_some(),
+        "system coaches must accept activation from non-pinning tenants"
+    );
+    assert_eq!(activated.unwrap().id, coach.id);
+}
+
 // ============================================================================
 // Search Tests
 // ============================================================================

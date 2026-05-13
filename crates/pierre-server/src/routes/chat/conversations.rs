@@ -19,6 +19,7 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
 use crate::services::chat_orchestration;
 use pierre_core::errors::ErrorCode;
+use pierre_core::models::TenantId;
 
 use super::common::{authenticate, get_tenant_id};
 use super::dto::{
@@ -43,6 +44,36 @@ async fn verify_group_membership(
             ErrorCode::PermissionDenied,
             "Cannot attach conversation to a group you don't belong to",
         )),
+    }
+}
+
+/// Best-effort `coach_assignments.use_count++` for REST-created conversations.
+/// Logs and swallows errors so a transient DB hiccup doesn't fail the user-
+/// visible conversation create. An `Ok(false)` from `record_usage` means the
+/// caller passed a `coach_id` they cannot see (system coaches are accepted
+/// unconditionally now, so this should be rare); we still log it.
+async fn record_coach_usage_best_effort(
+    resources: &ServerContext,
+    coach_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
+    match resources
+        .coaches_manager()
+        .record_usage(coach_id, user_id, tenant_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                coach_id,
+                %tenant_id,
+                "skipping coach usage bump — coach not visible to caller's tenant"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(coach_id, error = %e, "failed to record coach usage");
+        }
     }
 }
 
@@ -100,6 +131,14 @@ pub async fn create_conversation(
         request.group_id.as_deref(),
     )
     .await?;
+
+    // Bump the per-coach use_count + last_used_at when a conversation is
+    // opened with a coach attached. Audit (2026-05-07) showed every coach
+    // stuck at "0 uses" because nothing on the chat path called
+    // record_usage even though the field is shown in the Coaches UI.
+    if let Some(coach_id) = request.coach_id.as_deref() {
+        record_coach_usage_best_effort(&resources, coach_id, auth.user_id, tenant_id).await;
+    }
 
     let conv = result.conversation;
     let response = ConversationResponse {

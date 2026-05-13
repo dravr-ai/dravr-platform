@@ -341,4 +341,7 @@ pub struct LlmUsageDailyRow {
     pub completion_tokens: i64,
     /// Number of calls for this day
     pub calls: i64,
+    /// Mean execution time in milliseconds across calls for this day.
+    /// Zero when no rows recorded `execution_time_ms`.
+    pub avg_execution_time_ms: f64,
 }

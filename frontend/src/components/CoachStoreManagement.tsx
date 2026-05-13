@@ -63,6 +63,15 @@ export default function CoachStoreManagement() {
     staleTime: 30_000,
   });
 
+  // Total system coaches (includes unpublished/draft) — published_count alone
+  // misled admins into thinking the Coach Store and Coaches pages disagreed.
+  const { data: systemCoaches } = useQuery({
+    queryKey: QUERY_KEYS.adminCoaches.system(),
+    queryFn: () => adminApi.getSystemCoaches(),
+    staleTime: 30_000,
+  });
+  const totalCoaches = systemCoaches?.coaches?.length;
+
   const formatNumber = (num: number | undefined) => {
     if (num === undefined) return '—';
     return num.toLocaleString();
@@ -129,11 +138,20 @@ export default function CoachStoreManagement() {
           <div className="text-2xl font-bold text-on-surface">
             {statsLoading ? (
               <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
+            ) : totalCoaches !== undefined && totalCoaches !== stats?.published_count ? (
+              <span title={`${totalCoaches - (stats?.published_count ?? 0)} unpublished`}>
+                {formatNumber(stats?.published_count)}
+                <span className="text-sm font-normal text-on-surface-variant"> / {totalCoaches}</span>
+              </span>
             ) : (
               formatNumber(stats?.published_count)
             )}
           </div>
-          <div className="text-sm text-on-surface-variant">Published Coaches</div>
+          <div className="text-sm text-on-surface-variant">
+            {totalCoaches !== undefined && totalCoaches !== stats?.published_count
+              ? 'Published / Total Coaches'
+              : 'Published Coaches'}
+          </div>
         </button>
 
         {/* Total Installs */}

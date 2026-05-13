@@ -132,8 +132,10 @@ test.describe('Engagement Tab - User Engagement Tiers', () => {
     await loginAndNavigateToEngagement(page);
 
     await expect(page.getByText('Weekly Active')).toBeVisible();
-    // 1 user active within last 7 days (but not last 24h)
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Weekly Active' }).getByText('1')).toBeVisible();
+    // Audit (2026-05-07): DAU/WAU/MAU are cumulative (DAU subset of WAU subset
+    // of MAU), so WAU counts every user active within the last 7 days — both
+    // the two sub-24h users and the user 3 days ago — totalling 3.
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Weekly Active' }).getByText('3')).toBeVisible();
   });
 
   test('displays Monthly Active stat card', async ({ page }) => {

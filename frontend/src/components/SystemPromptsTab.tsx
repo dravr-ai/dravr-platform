@@ -139,8 +139,13 @@ export default function SystemPromptsTab() {
                 {status.repo && (
                   <span className="text-xs text-pierre-text-secondary">{status.repo}</span>
                 )}
-                <span className="text-xs">
-                  {status.contremaitre_count} synced / {status.compiled_in_count} compiled-in
+                <span
+                  className="text-xs"
+                  title="contremaitre_count counts both system prompts AND per-coach prompts; the list below shows system prompts only"
+                >
+                  {status.system_prompt_count} system / {status.coach_prompt_count} coach (
+                  {status.contremaitre_count} from contremaitre, {status.compiled_in_count}{' '}
+                  compiled-in)
                 </span>
               </div>
             )}
@@ -168,8 +173,14 @@ export default function SystemPromptsTab() {
         <Card variant="dark" className="p-0 lg:col-span-1">
           <div className="p-4 border-b border-pierre-border">
             <h4 className="text-sm font-medium text-pierre-text-secondary">
-              {prompts.length} Prompt{prompts.length !== 1 ? 's' : ''}
+              {prompts.length} System Prompt{prompts.length !== 1 ? 's' : ''}
             </h4>
+            {status && status.coach_prompt_count > 0 && (
+              <p className="mt-1 text-xs text-pierre-text-secondary/70">
+                {status.coach_prompt_count} per-coach prompt
+                {status.coach_prompt_count === 1 ? '' : 's'} live in the Coaches tab.
+              </p>
+            )}
           </div>
           {isLoading ? (
             <div className="flex justify-center py-8">
