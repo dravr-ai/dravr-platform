@@ -38,21 +38,25 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Threshold below which the GitHub core API budget is considered "low"
-/// and the Chain preemptively routes to the secondary. Pierre's Copilot
-/// session token exchange spends 1 call per refresh (~every few
-/// minutes), plus the periodic probe spends 1, plus any tool the LLM
-/// invokes that hits api.github.com. 200 leaves enough headroom for a
-/// handful of refresh cycles before the limit window resets.
+/// GitHub core budget threshold for preemptive fallback.
+///
+/// Below this remaining count, Chain routes directly to the secondary.
+/// Pierre's Copilot session token exchange spends 1 call per refresh
+/// (~every few minutes), plus the periodic probe spends 1, plus any
+/// tool the LLM invokes that hits api.github.com. 200 leaves enough
+/// headroom for a handful of refresh cycles before the limit window
+/// resets.
 pub const GITHUB_BUDGET_THRESHOLD: u64 = 200;
 
-/// Consecutive auth-shaped failures from the primary before opening the
-/// circuit. 3 is the standard Hystrix/resilience4j default — high
-/// enough to absorb a single transient blip without flipping, low
-/// enough that a stuck-broken primary doesn't waste many requests.
+/// Consecutive primary failures before the circuit opens.
+///
+/// 3 is the standard Hystrix/resilience4j default — high enough to
+/// absorb a single transient blip without flipping, low enough that a
+/// stuck-broken primary doesn't waste many requests.
 pub const CIRCUIT_FAILURE_THRESHOLD: usize = 3;
 
-/// How long the circuit stays open after the failure threshold trips.
+/// Open-state cooldown for the chain circuit breaker.
+///
 /// 60s strikes a balance: long enough to outlast typical Copilot rate
 /// windows (which reset every minute), short enough that we re-probe
 /// primary often when it's only briefly degraded.
@@ -63,15 +67,18 @@ pub const CIRCUIT_COOLDOWN_SECS: u64 = 60;
 /// no GitHub API quota can legitimately be this high.
 const RATE_LIMIT_UNKNOWN: u64 = u64::MAX;
 
-/// Process-wide [`ChainGuard`] shared by the GitHub rate-limit probe
-/// (pierre-server) and the `ChatProvider::Chain` request path
-/// (pierre-llm). LazyLock for zero-config plumbing — first access on
-/// either side initialises the same instance.
+/// Process-wide [`ChainGuard`] instance.
+///
+/// Shared by the GitHub rate-limit probe (pierre-server) and the
+/// `ChatProvider::Chain` request path (pierre-llm). [`LazyLock`] for
+/// zero-config plumbing — first access on either side initialises
+/// the same instance.
 pub static CHAIN_GUARD: LazyLock<ChainGuard> = LazyLock::new(ChainGuard::new);
 
-/// Outcome of recording a GitHub rate-limit probe result. Callers
-/// (the probe in pierre-server) compare the previous and current
-/// budget tiers to decide whether to emit
+/// Outcome of recording a GitHub rate-limit probe result.
+///
+/// Callers (the probe in pierre-server) compare the previous and
+/// current budget tiers to decide whether to emit
 /// `llm.rate_limit_low` / `llm.rate_limit_recovered` notify events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RateLimitTransition {
