@@ -609,7 +609,6 @@ pub(super) async fn handle_toggle_favorite(
     skip(resources, auth),
     fields(
         route = "coach_record_usage",
-        coach_id = %id,
         user_id = field::Empty,
         tenant_id = field::Empty,
     )
