@@ -8,10 +8,12 @@ WHERE cv.conversation_id = cc.id
   AND cv.coach_id IS NULL
   AND cc.coach_id IS NOT NULL;
 
+-- claim_verdicts.user_id is VARCHAR(255) storing UUID strings; users.id is
+-- UUID. PG refuses the implicit comparison, so cast the UUID side to text.
 UPDATE claim_verdicts cv
 SET coach_id = u.default_coach_id
 FROM users u
-WHERE cv.user_id = u.id
+WHERE cv.user_id = u.id::text
   AND cv.coach_id IS NULL
   AND u.default_coach_id IS NOT NULL;
 
