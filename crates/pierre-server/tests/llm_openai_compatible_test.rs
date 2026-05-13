@@ -376,8 +376,8 @@ async fn test_openai_compatible_health_check() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete() {
-    require_local_llm!();
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
+    require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
@@ -393,9 +393,9 @@ async fn test_openai_compatible_complete() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete_with_tools() {
-    require_local_llm!();
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, FunctionDeclaration, Tool};
     use serde_json::json;
+    require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:14b-instruct");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
@@ -434,9 +434,9 @@ async fn test_openai_compatible_complete_with_tools() {
 
 #[tokio::test]
 async fn test_openai_compatible_streaming() {
-    require_local_llm!();
     use futures_util::StreamExt;
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
+    require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
