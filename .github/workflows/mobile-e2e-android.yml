@@ -190,7 +190,7 @@ jobs:
           RUST_LOG: "warn"
 
       - name: Checkout dravr-contremaitre for coach seed source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: dravr-ai/dravr-contremaitre
           token: ${{ secrets.DRAVR_CONTREMAITRE_WRITE_TOKEN }}
