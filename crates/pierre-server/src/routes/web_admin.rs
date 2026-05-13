@@ -585,7 +585,7 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let result = admin_ops::approve_user(
-            &resources,
+            &resources.data(),
             auth.user_id,
             auth.active_tenant_id,
             user_uuid,
@@ -627,7 +627,7 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let result = admin_ops::suspend_user(
-            &resources,
+            &resources.data(),
             auth.user_id,
             user_uuid,
             request.reason.as_deref(),
@@ -678,7 +678,7 @@ impl WebAdminRoutes {
 
         // Only super-admins can create super-admin tokens
         if request.is_super_admin.unwrap_or(false) {
-            admin_ops::require_super_admin(auth.user_id, &resources).await?;
+            admin_ops::require_super_admin(auth.user_id, &resources.data()).await?;
         }
 
         info!(
@@ -819,7 +819,7 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let result = admin_ops::generate_password_reset_token(
-            &resources,
+            &resources.data(),
             auth.user_id,
             auth.active_tenant_id,
             user_uuid,
@@ -854,7 +854,7 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let limits = admin_ops::compute_user_rate_limits(
-            &resources,
+            &resources.data(),
             auth.user_id,
             auth.active_tenant_id,
             user_uuid,
@@ -904,7 +904,7 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let activity = admin_ops::compute_user_activity(
-            &resources,
+            &resources.data(),
             auth.user_id,
             auth.active_tenant_id,
             user_uuid,
@@ -935,7 +935,11 @@ impl WebAdminRoutes {
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
-        let settings = admin_ops::get_auto_approval_settings(&resources).await?;
+        let settings = admin_ops::get_auto_approval_settings(
+            &resources.data(),
+            &resources.config.app_behavior,
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -972,7 +976,7 @@ impl WebAdminRoutes {
             "Setting auto-approval"
         );
 
-        admin_ops::set_auto_approval(&resources, enabled).await?;
+        admin_ops::set_auto_approval(&resources.data(), enabled).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1005,7 +1009,7 @@ impl WebAdminRoutes {
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
-        let config = admin_ops::get_social_insights_config(&resources).await?;
+        let config = admin_ops::get_social_insights_config(&resources.data()).await?;
 
         Ok((
             StatusCode::OK,
@@ -1031,7 +1035,7 @@ impl WebAdminRoutes {
             "Updating social insights configuration"
         );
 
-        admin_ops::set_social_insights_config(&resources, &config).await?;
+        admin_ops::set_social_insights_config(&resources.data(), &config).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1061,7 +1065,7 @@ impl WebAdminRoutes {
             "Resetting social insights configuration to defaults"
         );
 
-        let default_config = admin_ops::reset_social_insights_config(&resources).await?;
+        let default_config = admin_ops::reset_social_insights_config(&resources.data()).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1163,7 +1167,7 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources.data(), auth.user_id, tenant_id).await?;
 
         let tools = resources
             .tool_selection
@@ -1189,7 +1193,7 @@ impl WebAdminRoutes {
         Json(request): Json<SetToolOverrideRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources.data(), auth.user_id, tenant_id).await?;
 
         info!(
             "Setting tool override: tenant={}, tool={}, enabled={}, by={}",
@@ -1231,7 +1235,7 @@ impl WebAdminRoutes {
         Path((tenant_id, tool_name)): Path<(TenantId, String)>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources.data(), auth.user_id, tenant_id).await?;
 
         info!(
             "Removing tool override: tenant={}, tool={}, by={}",
@@ -1266,7 +1270,7 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources.data(), auth.user_id, tenant_id).await?;
 
         let summary = resources
             .tool_selection
@@ -1297,7 +1301,7 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
-        let activity = admin_ops::fetch_recent_activity(&resources).await?;
+        let activity = admin_ops::fetch_recent_activity(&resources.data()).await?;
 
         Ok((
             StatusCode::OK,
@@ -1332,7 +1336,8 @@ impl WebAdminRoutes {
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        let result = admin_ops::promote_user_to_admin(&resources, auth.user_id, user_uuid).await?;
+        let result =
+            admin_ops::promote_user_to_admin(&resources.data(), auth.user_id, user_uuid).await?;
 
         Ok((
             StatusCode::OK,
@@ -1367,7 +1372,8 @@ impl WebAdminRoutes {
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        let result = admin_ops::demote_user_from_admin(&resources, auth.user_id, user_uuid).await?;
+        let result =
+            admin_ops::demote_user_from_admin(&resources.data(), auth.user_id, user_uuid).await?;
 
         Ok((
             StatusCode::OK,
@@ -1397,7 +1403,7 @@ impl WebAdminRoutes {
             "Web admin listing all admin users"
         );
 
-        let admins = admin_ops::list_all_admins(&resources, auth.user_id).await?;
+        let admins = admin_ops::list_all_admins(&resources.data(), auth.user_id).await?;
 
         let entries: Vec<AdminListEntry> = admins
             .into_iter()

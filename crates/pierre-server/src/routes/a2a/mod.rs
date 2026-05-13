@@ -16,17 +16,16 @@ use crate::{
     a2a::{agent_card::AgentCard, client::ClientRegistrationRequest},
     errors::AppError,
     mcp::resources::ServerContext,
-    middleware::extract_auth_from_headers,
+    middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get},
     Json, Router,
 };
 use chrono::Utc;
-use pierre_auth::auth::AuthResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::task;
@@ -143,14 +142,6 @@ impl A2ARoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
-    }
-
     /// Handle A2A status (public endpoint)
     async fn handle_status() -> Json<serde_json::Value> {
         // Yield to scheduler for cooperative multitasking
@@ -172,9 +163,9 @@ impl A2ARoutes {
     /// List all A2A clients for authenticated user
     async fn handle_list_clients(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         let clients = resources.repos.a2a.list_clients(&user_id).await?;
@@ -202,10 +193,10 @@ impl A2ARoutes {
     /// Create a new A2A client
     async fn handle_create_client(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<CreateA2AClientRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         info!(
             user_id = %auth.user_id,
@@ -252,10 +243,10 @@ impl A2ARoutes {
     /// Get a specific A2A client
     async fn handle_get_client(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         let client = resources
@@ -290,10 +281,10 @@ impl A2ARoutes {
     /// Delete (deactivate) an A2A client
     async fn handle_delete_client(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         // Verify ownership
@@ -324,10 +315,10 @@ impl A2ARoutes {
     /// Get A2A client usage statistics
     async fn handle_client_usage(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         // Verify ownership
@@ -365,10 +356,10 @@ impl A2ARoutes {
     /// Get A2A client rate limit status
     async fn handle_client_rate_limit(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(client_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         // Verify ownership and get client
@@ -410,9 +401,9 @@ impl A2ARoutes {
     /// Handle A2A dashboard overview
     async fn handle_dashboard_overview(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
 
         let clients = resources.repos.a2a.list_clients(&user_id).await?;
@@ -432,12 +423,9 @@ impl A2ARoutes {
     }
 
     /// Handle A2A dashboard analytics
-    async fn handle_dashboard_analytics(
-        State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
-    ) -> Result<Response, AppError> {
-        Self::authenticate(&headers, &resources).await?;
-
+    async fn handle_dashboard_analytics(_: AuthenticatedUser) -> Result<Response, AppError> {
+        // Yield to scheduler for cooperative multitasking
+        task::yield_now().await;
         Ok((
             StatusCode::OK,
             Json(serde_json::json!({

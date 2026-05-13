@@ -15,15 +15,15 @@ use crate::{
     },
     errors::AppError,
     mcp::resources::ServerContext,
+    middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, put},
     Json, Router,
 };
-use pierre_auth::auth::AuthResult;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -53,31 +53,13 @@ impl FitnessConfigurationRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        let auth_header = headers
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| AppError::auth_invalid("Missing authorization header"))?;
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(auth_header))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
     /// Handle get fitness configuration
     async fn handle_get_config(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<ConfigurationQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-
+        let auth = auth.into_inner();
         let service = FitnessService::new(resources);
         let response = service
             .get_configuration(&auth, params.get_name_or_default())
@@ -89,11 +71,10 @@ impl FitnessConfigurationRoutes {
     /// Handle save fitness configuration
     async fn handle_save_config(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<SaveFitnessConfigRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-
+        let auth = auth.into_inner();
         let service = FitnessService::new(resources);
         let response = service.save_user_configuration(&auth, request).await?;
 
@@ -103,11 +84,10 @@ impl FitnessConfigurationRoutes {
     /// Handle delete fitness configuration
     async fn handle_delete_config(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<ConfigurationQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-
+        let auth = auth.into_inner();
         let service = FitnessService::new(resources);
         service
             .delete_user_configuration(&auth, params.get_name_or_default())

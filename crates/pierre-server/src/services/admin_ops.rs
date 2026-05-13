@@ -4,10 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::config::environment::AppBehaviorConfig;
 use crate::config::social::SocialInsightsConfig;
+use crate::context::DataContext;
 use crate::errors::{AppError, ErrorCode};
 use crate::llm::pricing::calculate_cost;
-use crate::mcp::resources::ServerContext;
 use crate::models::UserStatus;
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
@@ -15,7 +16,6 @@ use pierre_core::models::TenantId;
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use serde::Serialize;
-use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -136,13 +136,13 @@ pub(crate) struct AutoApprovalSettings {
 /// to their `active_tenant_id` from JWT claims (returns `Some(tenant_id)`).
 /// Returns an error if a non-super-admin has no active tenant in their session.
 pub(crate) async fn get_admin_tenant_scope(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
 ) -> Result<Option<TenantId>, AppError> {
     // SECURITY: Global lookup — resolving admin's own tenant scope
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(admin_user_id)
         .await
@@ -165,13 +165,13 @@ pub(crate) async fn get_admin_tenant_scope(
 /// Super-admin users can access any tenant. Regular admins are restricted
 /// to tenants they belong to via the `tenant_users` junction table.
 pub(crate) async fn verify_admin_tenant_access(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     target_tenant_id: TenantId,
 ) -> Result<(), AppError> {
     // SECURITY: Global lookup — verifying admin's own tenant access
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(admin_user_id)
         .await
@@ -184,8 +184,8 @@ pub(crate) async fn verify_admin_tenant_access(
     }
 
     // Regular admins must belong to the target tenant
-    let admin_tenants = resources
-        .repos
+    let admin_tenants = data
+        .repos()
         .tenants
         .list_for_user(admin_user_id)
         .await
@@ -242,15 +242,14 @@ pub(crate) async fn create_default_mcp_token_for_user(
 /// Uses `active_tenant_id` from the admin's JWT claims to determine the target tenant.
 /// If the admin has no active tenant in their session, the assignment is skipped.
 pub(crate) async fn assign_user_to_admin_tenant(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
 ) -> Result<(), AppError> {
     if let Some(tid) = active_tenant_id {
         let tenant_id = TenantId::from(tid);
         // Update user's tenant_id in users table (kept in sync with tenant_users junction)
-        resources
-            .repos
+        data.repos()
             .users
             .update_tenant_id(target_user_id, tenant_id)
             .await
@@ -268,13 +267,10 @@ pub(crate) async fn assign_user_to_admin_tenant(
 }
 
 /// Verify the authenticated user has super-admin privileges.
-pub(crate) async fn require_super_admin(
-    user_id: Uuid,
-    resources: &Arc<ServerContext>,
-) -> Result<(), AppError> {
+pub(crate) async fn require_super_admin(user_id: Uuid, data: &DataContext) -> Result<(), AppError> {
     // SECURITY: Global lookup — checking admin's own super-admin role
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(user_id)
         .await
@@ -304,15 +300,15 @@ pub(crate) async fn require_super_admin(
 /// Returns an error describing the failure if the user is already active or the
 /// database operation fails.
 pub(crate) async fn approve_user(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<ApproveUserResult, AppError> {
     // Admin operations use global lookup (users may not have tenant_users entries)
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(target_user_id)
         .await
@@ -330,8 +326,8 @@ pub(crate) async fn approve_user(
     }
 
     // Use the admin user's UUID as the approver for proper audit trail
-    let updated_user = resources
-        .repos
+    let updated_user = data
+        .repos()
         .users
         .update_status(target_user_id, UserStatus::Active, Some(admin_user_id))
         .await
@@ -341,11 +337,10 @@ pub(crate) async fn approve_user(
         })?;
 
     // Assign approved user to admin's tenant for multi-tenant isolation
-    assign_user_to_admin_tenant(resources, active_tenant_id, target_user_id).await?;
+    assign_user_to_admin_tenant(data, active_tenant_id, target_user_id).await?;
 
     // Auto-create a default MCP token for the newly approved user
-    create_default_mcp_token_for_user(resources.repos.user_mcp_tokens.as_ref(), target_user_id)
-        .await;
+    create_default_mcp_token_for_user(data.repos().user_mcp_tokens.as_ref(), target_user_id).await;
 
     let reason_text = reason.unwrap_or("No reason provided");
     info!(
@@ -364,14 +359,14 @@ pub(crate) async fn approve_user(
 ///
 /// Returns an error if the user is already suspended or the database operation fails.
 pub(crate) async fn suspend_user(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<SuspendUserResult, AppError> {
     // Admin operations use global lookup (users may not have tenant_users entries)
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(target_user_id)
         .await
@@ -389,8 +384,8 @@ pub(crate) async fn suspend_user(
     }
 
     // Use the admin user's UUID for audit trail (Note: approved_by is used for both approve/suspend)
-    let updated_user = resources
-        .repos
+    let updated_user = data
+        .repos()
         .users
         .update_status(target_user_id, UserStatus::Suspended, Some(admin_user_id))
         .await
@@ -451,15 +446,15 @@ pub(crate) struct AdminUserSummary {
 /// Returns an error if the caller is not super-admin, the target user is not found,
 /// or the target is already an admin.
 pub(crate) async fn promote_user_to_admin(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
-    require_super_admin(admin_user_id, resources).await?;
+    require_super_admin(admin_user_id, data).await?;
 
     // SECURITY: Global lookup — super-admins promote across tenants
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(target_user_id)
         .await
@@ -470,8 +465,8 @@ pub(crate) async fn promote_user_to_admin(
         return Err(AppError::invalid_input("User is already an admin"));
     }
 
-    let updated = resources
-        .repos
+    let updated = data
+        .repos()
         .users
         .set_admin_status(target_user_id, true)
         .await
@@ -498,18 +493,18 @@ pub(crate) async fn promote_user_to_admin(
 /// at the repository layer to prevent accidental privilege loss. Self-demotion is rejected
 /// to avoid locking the caller out of admin actions.
 pub(crate) async fn demote_user_from_admin(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
-    require_super_admin(admin_user_id, resources).await?;
+    require_super_admin(admin_user_id, data).await?;
 
     if admin_user_id == target_user_id {
         return Err(AppError::invalid_input("Cannot demote yourself"));
     }
 
-    let user = resources
-        .repos
+    let user = data
+        .repos()
         .users
         .get_global(target_user_id)
         .await
@@ -520,8 +515,8 @@ pub(crate) async fn demote_user_from_admin(
         return Err(AppError::invalid_input("User is not an admin"));
     }
 
-    let updated = resources
-        .repos
+    let updated = data
+        .repos()
         .users
         .set_admin_status(target_user_id, false)
         .await
@@ -547,13 +542,13 @@ pub(crate) async fn demote_user_from_admin(
 /// Only super-admins can view the full admin roster. Returns admins (and super-admins)
 /// ordered by email ascending.
 pub(crate) async fn list_all_admins(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
 ) -> Result<Vec<AdminUserSummary>, AppError> {
-    require_super_admin(admin_user_id, resources).await?;
+    require_super_admin(admin_user_id, data).await?;
 
-    let admins = resources
-        .repos
+    let admins = data
+        .repos()
         .users
         .list_admins()
         .await
@@ -581,7 +576,7 @@ pub(crate) async fn list_all_admins(
 /// The raw token is returned to be delivered to the user. Only the SHA-256 hash
 /// is stored in the database. The token expires after 1 hour.
 pub(crate) async fn generate_password_reset_token(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -591,11 +586,11 @@ pub(crate) async fn generate_password_reset_token(
     use sha2::{Digest, Sha256};
 
     // Tenant-scoped lookup: admin can only reset passwords for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(resources, admin_user_id, active_tenant_id).await?;
+    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
     let user = if let Some(tid) = admin_tenant {
-        resources.repos.users.get(target_user_id, tid).await
+        data.repos().users.get(target_user_id, tid).await
     } else {
-        resources.repos.users.get_global(target_user_id).await
+        data.repos().users.get_global(target_user_id).await
     }
     .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
     .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -611,8 +606,7 @@ pub(crate) async fn generate_password_reset_token(
     let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
 
     let admin_id_str = admin_user_id.to_string();
-    resources
-        .repos
+    data.repos()
         .password_reset
         .store_token(target_user_id, &token_hash, &admin_id_str)
         .await
@@ -640,7 +634,7 @@ pub(crate) async fn generate_password_reset_token(
 /// Calculates daily and monthly usage, limits, remaining quota, and reset times
 /// based on the user's tier.
 pub(crate) async fn compute_user_rate_limits(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -652,18 +646,18 @@ pub(crate) async fn compute_user_rate_limits(
     );
 
     // Tenant-scoped lookup: admin can only view metrics for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(resources, admin_user_id, active_tenant_id).await?;
+    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
     let user = if let Some(tid) = admin_tenant {
-        resources.repos.users.get(target_user_id, tid).await
+        data.repos().users.get(target_user_id, tid).await
     } else {
-        resources.repos.users.get_global(target_user_id).await
+        data.repos().users.get_global(target_user_id).await
     }
     .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
     .ok_or_else(|| AppError::not_found("User not found"))?;
 
     // Get current monthly usage
-    let monthly_used = resources
-        .repos
+    let monthly_used = data
+        .repos()
         .usage
         .get_jwt_current_usage(target_user_id)
         .await
@@ -675,8 +669,8 @@ pub(crate) async fn compute_user_rate_limits(
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
-    let daily_used = resources
-        .repos
+    let daily_used = data
+        .repos()
         .usage
         .get_top_tools_analysis(target_user_id, today_start, now)
         .await
@@ -720,7 +714,7 @@ pub(crate) async fn compute_user_rate_limits(
 
 /// Aggregate tool usage activity for a specific user over a given time period.
 pub(crate) async fn compute_user_activity(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     admin_user_id: Uuid,
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
@@ -733,11 +727,11 @@ pub(crate) async fn compute_user_activity(
     );
 
     // Tenant-scoped lookup: admin can only view activity for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(resources, admin_user_id, active_tenant_id).await?;
+    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
     if let Some(tid) = admin_tenant {
-        resources.repos.users.get(target_user_id, tid).await
+        data.repos().users.get(target_user_id, tid).await
     } else {
-        resources.repos.users.get_global(target_user_id).await
+        data.repos().users.get_global(target_user_id).await
     }
     .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
     .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -748,8 +742,8 @@ pub(crate) async fn compute_user_activity(
     let start_time = now - Duration::days(days);
 
     // Get top tools usage
-    let top_tools_raw = resources
-        .repos
+    let top_tools_raw = data
+        .repos()
         .usage
         .get_top_tools_analysis(target_user_id, start_time, now)
         .await
@@ -791,14 +785,15 @@ pub(crate) async fn compute_user_activity(
 ///
 /// Precedence: env var (if set) > database > default.
 pub(crate) async fn get_auto_approval_settings(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
+    app_behavior: &AppBehaviorConfig,
 ) -> Result<AutoApprovalSettings, AppError> {
-    let enabled = if resources.config.app_behavior.auto_approve_users_from_env {
-        resources.config.app_behavior.auto_approve_users
+    let enabled = if app_behavior.auto_approve_users_from_env {
+        app_behavior.auto_approve_users
     } else {
-        match resources.database.is_auto_approval_enabled().await {
+        match data.database().is_auto_approval_enabled().await {
             Ok(Some(db_setting)) => db_setting,
-            Ok(None) => resources.config.app_behavior.auto_approve_users,
+            Ok(None) => app_behavior.auto_approve_users,
             Err(e) => {
                 error!(error = %e, "Failed to get auto-approval setting");
                 return Err(AppError::internal(format!(
@@ -810,17 +805,13 @@ pub(crate) async fn get_auto_approval_settings(
 
     Ok(AutoApprovalSettings {
         enabled,
-        auto_approve_domains: resources.config.app_behavior.auto_approve_domains.clone(),
+        auto_approve_domains: app_behavior.auto_approve_domains.clone(),
     })
 }
 
 /// Persist a new auto-approval setting to the database.
-pub(crate) async fn set_auto_approval(
-    resources: &Arc<ServerContext>,
-    enabled: bool,
-) -> Result<(), AppError> {
-    resources
-        .database
+pub(crate) async fn set_auto_approval(data: &DataContext, enabled: bool) -> Result<(), AppError> {
+    data.database()
         .set_auto_approval_enabled(enabled)
         .await
         .map_err(|e| {
@@ -835,10 +826,9 @@ pub(crate) async fn set_auto_approval(
 
 /// Retrieve the current social insights configuration.
 pub(crate) async fn get_social_insights_config(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
 ) -> Result<SocialInsightsConfig, AppError> {
-    resources
-        .database
+    data.database()
         .get_social_insights_config()
         .await
         .map_err(|e| {
@@ -850,11 +840,10 @@ pub(crate) async fn get_social_insights_config(
 
 /// Persist updated social insights configuration.
 pub(crate) async fn set_social_insights_config(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     config: &SocialInsightsConfig,
 ) -> Result<(), AppError> {
-    resources
-        .database
+    data.database()
         .set_social_insights_config(config)
         .await
         .map_err(|e| {
@@ -865,10 +854,9 @@ pub(crate) async fn set_social_insights_config(
 
 /// Reset social insights configuration to defaults.
 pub(crate) async fn reset_social_insights_config(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
 ) -> Result<SocialInsightsConfig, AppError> {
-    resources
-        .database
+    data.database()
         .delete_social_insights_config()
         .await
         .map_err(|e| {
@@ -887,7 +875,7 @@ pub(crate) async fn reset_social_insights_config(
 ///
 /// Resolves user emails for conversations and estimates costs using the LLM pricing model.
 pub(crate) async fn fetch_recent_activity(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
 ) -> Result<RecentActivityResult, AppError> {
     // Limit for recent items
     let recent_limit: i64 = 20;
@@ -906,20 +894,17 @@ pub(crate) async fn fetch_recent_activity(
 
     // Fetch all data concurrently
     let (recent_llm, recent_convos, llm_calls_today, active_convos, llm_totals) = tokio::join!(
-        resources
-            .repos
+        data.repos()
             .llm_usage
             .get_recent_llm_calls_admin(recent_limit),
-        resources
-            .repos
+        data.repos()
             .chat
             .get_recent_conversations_admin(recent_limit),
-        resources.repos.llm_usage.count_llm_calls_since(&today_str),
-        resources
-            .repos
+        data.repos().llm_usage.count_llm_calls_since(&today_str),
+        data.repos()
             .chat
             .count_active_conversations_since(&fifteen_min_ago),
-        resources.repos.llm_usage.sum_llm_usage_since(&today_str),
+        data.repos().llm_usage.sum_llm_usage_since(&today_str),
     );
 
     // Resolve results, defaulting to empty/zero on error
@@ -952,8 +937,7 @@ pub(crate) async fn fetch_recent_activity(
     for convo in &recent_convos {
         // Resolve user email for display (non-critical, use empty on failure)
         let user_email = if let Ok(user_uuid) = convo.user_id.parse::<Uuid>() {
-            resources
-                .repos
+            data.repos()
                 .users
                 .get_global(user_uuid)
                 .await

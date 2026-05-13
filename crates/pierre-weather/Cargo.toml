@@ -1,0 +1,17 @@
+# ABOUTME: Weather provider + cache facade for Pierre fitness platform
+# ABOUTME: Re-exports from dravr-meteo standalone weather library
+
+[package]
+name = "pierre-weather"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Weather provider and cache facade for Pierre training-context enrichment"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.1.0" }
+
+[lints]
+workspace = true

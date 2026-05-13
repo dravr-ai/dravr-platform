@@ -24,6 +24,7 @@ use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info};
 use uuid::Uuid;
 
+use crate::context::DataContext;
 use crate::intelligence::TrainingLoadCalculator;
 use crate::mcp::resources::ServerContext;
 use crate::protocols::universal::AuthService;
@@ -449,8 +450,8 @@ pub async fn fetch_member_snapshots(
 ///
 /// Returns the user's display name if set, email prefix if not, or "Unknown"
 /// if the user cannot be fetched.
-async fn fetch_user_display_name(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
-    match resources.repos.users.get_global(user_id).await {
+async fn fetch_user_display_name(data: &DataContext, user_id: Uuid) -> String {
+    match data.repos().users.get_global(user_id).await {
         Ok(Some(user)) => user
             .display_name
             .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Unknown").to_owned()),
@@ -588,12 +589,11 @@ fn compute_weekly_metrics(
 ///
 /// Returns provider names in connection order, or empty vec if none connected.
 async fn get_connected_providers(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<String> {
-    resources
-        .repos
+    data.repos()
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
         .await
@@ -644,12 +644,8 @@ async fn try_fetch_from_provider(
 /// requester's tenant, and even then only when exactly one alternative exists,
 /// which removes the order-dependent ambiguity that previously caused
 /// cross-tenant reads for members belonging to multiple tenants.
-async fn resolve_member_tenant(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    fallback: TenantId,
-) -> TenantId {
-    match resources.repos.tenants.list_for_user(user_id).await {
+async fn resolve_member_tenant(data: &DataContext, user_id: Uuid, fallback: TenantId) -> TenantId {
+    match data.repos().tenants.list_for_user(user_id).await {
         Ok(tenants) => pick_member_tenant_id(user_id, fallback, &tenants),
         Err(e) => {
             info!(
@@ -711,9 +707,10 @@ async fn fetch_single_member_snapshot(
     fallback_tenant_id: TenantId,
 ) -> MemberFitnessSnapshot {
     let now = Utc::now();
-    let display_name = fetch_user_display_name(resources, user_id).await;
+    let data = resources.data();
+    let display_name = fetch_user_display_name(&data, user_id).await;
 
-    let tenant_id = resolve_member_tenant(resources, user_id, fallback_tenant_id).await;
+    let tenant_id = resolve_member_tenant(&data, user_id, fallback_tenant_id).await;
 
     let activities = fetch_member_activities(resources, user_id, tenant_id).await;
     // Emit one log line per fetched activity so an operator can verify
@@ -750,7 +747,7 @@ async fn fetch_member_activities(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<Activity> {
-    let providers = get_connected_providers(resources, user_id, tenant_id).await;
+    let providers = get_connected_providers(&resources.data(), user_id, tenant_id).await;
     if providers.is_empty() {
         info!(
             user_id = %user_id,

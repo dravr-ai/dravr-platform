@@ -237,7 +237,6 @@ async fn create_and_link_tenant(
 }
 
 /// Handle user approval workflow
-#[allow(clippy::too_many_lines)]
 pub(super) async fn handle_approve_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,

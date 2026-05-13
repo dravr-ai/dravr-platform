@@ -75,7 +75,6 @@ async fn test_password_validation() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_register_user() {
     common::init_server_config();
     let temp_dir = TempDir::new().unwrap();
@@ -263,7 +262,6 @@ async fn test_register_user() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_register_duplicate_user() {
     common::init_server_config();
     let temp_dir = TempDir::new().unwrap();

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -32,7 +32,7 @@ use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 
 use crate::{
     errors::AppError, llm::pricing::calculate_cost, mcp::resources::ServerContext,
-    models::TenantId, routes::usage::UsageRoutes,
+    middleware::AuthenticatedUser, models::TenantId, routes::usage::UsageRoutes,
 };
 use pierre_database::database::llm_usage::LlmUsageGroupBy;
 
@@ -206,10 +206,10 @@ impl LlmConsumptionRoutes {
     /// GET /api/usage/llm-consumption — user-scoped consumption analytics
     async fn get_user_consumption(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
-        let auth = UsageRoutes::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = UsageRoutes::get_tenant_id(auth.user_id, &resources).await?;
         let tenant_id_str = tenant_id.to_string();
 
@@ -238,11 +238,11 @@ impl LlmConsumptionRoutes {
     /// GET /admin/usage/llm-consumption — admin-scoped consumption analytics
     async fn get_admin_consumption(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
         // Authenticate as admin (must have valid admin credentials)
-        let auth = UsageRoutes::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_tenant_id = UsageRoutes::get_tenant_id(auth.user_id, &resources).await?;
 
         // Verify the calling user has admin privileges by checking their role
@@ -312,10 +312,10 @@ impl LlmConsumptionRoutes {
     /// future per-turn dashboards — never end users.
     async fn get_conversation_turn(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(turn_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = UsageRoutes::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let caller_tenant_id = UsageRoutes::get_tenant_id(auth.user_id, &resources).await?;
 
         let role = resources

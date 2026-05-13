@@ -5,11 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::{
-    errors::AppError, mcp::resources::ServerContext, services::recipes as recipes_service,
+    errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser,
+    services::recipes as recipes_service,
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -23,11 +24,11 @@ use super::types::{
 /// Handle GET /api/coaches/:id/versions - List version history
 pub(super) async fn handle_list_versions(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Query(query): Query<ListVersionsQuery>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -50,10 +51,10 @@ pub(super) async fn handle_list_versions(
 /// Handle GET /api/coaches/:id/versions/:version - Get a specific version
 pub(super) async fn handle_get_version(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path((id, version)): Path<(String, i32)>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -69,10 +70,10 @@ pub(super) async fn handle_get_version(
 /// Handle POST /api/coaches/:id/versions/:version/revert - Revert to a version
 pub(super) async fn handle_revert_version(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path((id, version)): Path<(String, i32)>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -94,10 +95,10 @@ pub(super) async fn handle_revert_version(
 /// Handle GET /api/coaches/:id/versions/:v1/diff/:v2 - Compare two versions
 pub(super) async fn handle_diff_versions(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path((id, v1, v2)): Path<(String, i32, i32)>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);

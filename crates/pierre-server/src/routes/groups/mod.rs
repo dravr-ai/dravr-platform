@@ -16,7 +16,7 @@ use tracing::{field, info, Span};
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
@@ -31,7 +31,7 @@ use uuid::Uuid;
 use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerContext,
-    middleware::extract_auth_from_headers,
+    middleware::AuthenticatedUser,
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::{
@@ -371,14 +371,6 @@ impl GroupRoutes {
     // Helpers
     // ========================================================================
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
-    }
-
     /// Extract tenant ID from auth claims
     fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
         auth.active_tenant_id
@@ -518,7 +510,7 @@ impl GroupRoutes {
 
     /// POST /api/groups — Create a new coaching group
     #[tracing::instrument(
-        skip(resources, headers, body),
+        skip(resources, auth, body),
         fields(
             route = "groups_create",
             user_id = field::Empty,
@@ -528,10 +520,10 @@ impl GroupRoutes {
     )]
     async fn handle_create_group(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<CreateGroupRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Record IDs on the span so the NotifyLayer can attribute the
@@ -612,9 +604,9 @@ impl GroupRoutes {
     /// GET /api/groups/permissions — Check if the current user can create groups
     async fn handle_get_permissions(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Check tenant role — admins/owners always allowed
@@ -652,9 +644,9 @@ impl GroupRoutes {
     /// GET /api/groups — List groups the current user belongs to
     async fn handle_list_my_groups(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let groups = resources
             .repos
@@ -674,10 +666,10 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id` — Get a single group by ID
     async fn handle_get_group(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
@@ -697,11 +689,11 @@ impl GroupRoutes {
     /// PUT `/api/groups/:group_id` — Update group settings (admin/owner only)
     async fn handle_update_group(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
         Json(body): Json<UpdateGroupRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
@@ -721,10 +713,10 @@ impl GroupRoutes {
     /// DELETE `/api/groups/:group_id` — Soft-delete a group (owner only)
     async fn handle_delete_group(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Only owner can delete
@@ -750,10 +742,10 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id/members` — List group members
     async fn handle_list_members(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
@@ -775,10 +767,10 @@ impl GroupRoutes {
     /// DELETE `/api/groups/:group_id/members/:user_id` — Remove a member (admin/owner only)
     async fn handle_remove_member(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path((group_id, target_user_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
@@ -817,11 +809,11 @@ impl GroupRoutes {
     /// PUT `/api/groups/:group_id/members/:user_id/role` — Update member role (admin/owner only)
     async fn handle_update_role(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path((group_id, target_user_id)): Path<(String, String)>,
         Json(body): Json<UpdateRoleBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let caller_member = Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
@@ -870,11 +862,11 @@ impl GroupRoutes {
     /// PUT `/api/groups/:group_id/members/me/consent` — Update own peer sharing consent
     async fn handle_update_peer_consent(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
         Json(body): Json<UpdatePeerConsentBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
@@ -908,11 +900,11 @@ impl GroupRoutes {
     /// POST `/api/groups/:group_id/invites` — Create an invite code (admin/owner only)
     async fn handle_create_invite(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
         Json(body): Json<CreateInviteBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
@@ -967,10 +959,10 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id/invites` — List invites for a group (admin/owner only)
     async fn handle_list_invites(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
@@ -992,10 +984,10 @@ impl GroupRoutes {
     /// DELETE `/api/groups/:group_id/invites/:invite_id` — Deactivate an invite (admin/owner only)
     async fn handle_deactivate_invite(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path((group_id, invite_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
@@ -1015,7 +1007,7 @@ impl GroupRoutes {
 
     /// POST /api/groups/join — Join a group using an invite code
     #[tracing::instrument(
-        skip(resources, headers, body),
+        skip(resources, auth, body),
         fields(
             route = "groups_join",
             user_id = field::Empty,
@@ -1025,10 +1017,10 @@ impl GroupRoutes {
     )]
     async fn handle_join_by_invite_code(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<JoinGroupRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         Span::current().record("user_id", field::display(&auth.user_id));
         // Caller's tenant is not used — the invite's tenant (group's tenant) is used instead
 
@@ -1140,10 +1132,10 @@ impl GroupRoutes {
     /// POST `/api/groups/:group_id/leave` — Leave a group
     async fn handle_leave_group(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
 
@@ -1185,11 +1177,11 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id/stats` — Get aggregate stats for a group
     async fn handle_get_stats(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
@@ -1212,11 +1204,11 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id/report` — Get weekly report for a group
     async fn handle_get_weekly_report(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for reports
@@ -1246,10 +1238,10 @@ impl GroupRoutes {
     /// GET `/api/groups/:group_id/health` — Get health flags for group members
     async fn handle_get_health_flags(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for health flags

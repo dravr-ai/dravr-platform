@@ -37,10 +37,10 @@ use crate::protocols::universal::auth_service::AuthService;
 use crate::protocols::universal::handlers;
 use crate::providers::core::FitnessProvider;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
-use dravr_meteo::WeatherQuery;
+use pierre_weather::WeatherQuery;
 
 /// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
 fn analytics_annotations() -> ToolAnnotations {
@@ -141,7 +141,7 @@ impl McpTool for AnalyzeTrainingLoadTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "analyze_training_load",
@@ -206,7 +206,7 @@ impl McpTool for DetectPatternsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "detect_patterns",
@@ -271,7 +271,7 @@ impl McpTool for CalculateFitnessScoreTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "calculate_fitness_score",
@@ -411,7 +411,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
             .await
         {
             Ok(sample) => sample,
-            Err(dravr_meteo::WeatherError::Disabled) => {
+            Err(pierre_weather::WeatherError::Disabled) => {
                 return Ok(ToolResult::ok(json!({
                     "activity_id": activity_id,
                     "activity_name": activity.name(),
@@ -521,7 +521,7 @@ impl McpTool for AnalyzeActivityTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "analyze_activity",
@@ -588,7 +588,7 @@ impl McpTool for GetActivityIntelligenceTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_activity_intelligence",
@@ -673,7 +673,7 @@ impl McpTool for CalculateMetricsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "calculate_metrics",
@@ -750,7 +750,7 @@ impl McpTool for AnalyzePerformanceTrendsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "analyze_performance_trends",
@@ -836,7 +836,7 @@ impl McpTool for CompareActivitiesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "compare_activities",
@@ -902,7 +902,7 @@ impl McpTool for GenerateRecommendationsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "generate_recommendations",
@@ -968,7 +968,7 @@ impl McpTool for PredictPerformanceTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "predict_performance",

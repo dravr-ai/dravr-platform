@@ -18,6 +18,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use crate::context::DataContext;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 
@@ -62,7 +63,7 @@ async fn process_gateway_messages(
             sender_name = ?message.sender_name,
             "Discord Gateway: received message"
         );
-        let Some((tenant_id, adapter)) = resolve_channel_config(&resources).await else {
+        let Some((tenant_id, adapter)) = resolve_channel_config(&resources.data()).await else {
             continue;
         };
         dispatch_message(&resources, tenant_id, adapter, message).await;
@@ -72,9 +73,9 @@ async fn process_gateway_messages(
 
 /// Load the Discord channel config from DB and construct an adapter
 async fn resolve_channel_config(
-    resources: &ServerContext,
+    data: &DataContext,
 ) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = data.repos().messaging.as_ref();
     let configs = db.get_configs_by_channel_type("discord").await.ok()?;
     let config = configs.first()?;
     let tenant_id = parse_tenant_id(config)?;

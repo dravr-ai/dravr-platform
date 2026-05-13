@@ -26,6 +26,7 @@ use dravr_sciotte::ActivityScraper;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 #[cfg(feature = "provider-sciotte")]
 use pierre_providers::sciotte_limiter::{LimiterError, SciotteLimiter, ScrapePermit};
+use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -146,20 +147,6 @@ fn default_target() -> String {
     "strava".to_owned()
 }
 
-/// Create a sciotte scraper configured for the target platform
-#[cfg(feature = "provider-sciotte")]
-fn create_scraper_for_target(target: &str) -> CachedScraper<ChromeScraper> {
-    use dravr_sciotte::config::{CacheConfig, ScraperConfig};
-    use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
-
-    let provider_config = match target {
-        "garmin" => SciotteProviderConfig::garmin_default(),
-        _ => SciotteProviderConfig::strava_default(),
-    };
-    let scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
-    CachedScraper::new(scraper, &CacheConfig::default())
-}
-
 /// Build an HTTP 503 response with a `Retry-After` header from a
 /// [`LimiterError`]. Used by every Sciotte login handler when the
 /// backpressure queue is saturated.
@@ -213,14 +200,6 @@ fn spawn_pending_watchdog(limiter: &Arc<SciotteLimiter>) -> JoinHandle<()> {
         }
         count
     })
-}
-
-/// Get the Pierre provider name for the target
-fn provider_name_for_target(target: &str) -> &'static str {
-    match target {
-        "garmin" => "sciotte_garmin",
-        _ => "sciotte",
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -662,7 +641,7 @@ async fn try_reuse_existing_session(
 
     // `is_authenticated` is a cheap cookie-state probe on the scraper; it
     // never launches Chrome and never holds a backpressure permit.
-    let probe = create_scraper_for_target(target);
+    let probe = SciotteTarget::from_target_param(target).build_scraper();
     if probe.is_authenticated(&session).await {
         info!(
             %user_id,
@@ -699,7 +678,7 @@ pub(super) async fn handle_sciotte_login(
     }
 
     let target = &request.target;
-    let provider = provider_name_for_target(target);
+    let provider = SciotteTarget::from_target_param(target).provider_name();
 
     // Per-user dedup: if this user already has a Sciotte login flow parked
     // (OTP / 2FA continuation), a concurrent login would clobber the parked
@@ -732,7 +711,7 @@ pub(super) async fn handle_sciotte_login(
 
     info!(user_id = %user_id, target = %target, "Starting sciotte credential login");
 
-    let cached = create_scraper_for_target(target);
+    let cached = SciotteTarget::from_target_param(target).build_scraper();
 
     let result = match cached
         .credential_login(&request.email, &request.password, &request.method)

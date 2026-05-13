@@ -45,7 +45,6 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Test setup for SDK integration tests
 // Long function: Defines complete test environment setup including database, auth, config, and test data
-#[allow(clippy::too_many_lines)]
 async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthService, TenantId)> {
     // Initialize server config for tests
     common::init_server_config();

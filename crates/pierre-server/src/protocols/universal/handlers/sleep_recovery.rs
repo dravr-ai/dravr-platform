@@ -361,7 +361,6 @@ pub async fn select_sleep_provider(
 /// Returns `ProtocolError` if sleep data is missing or invalid
 #[must_use]
 // Long function: Protocol handler with async data fetching, HRV analysis, response formatting
-#[allow(clippy::too_many_lines)]
 pub fn handle_analyze_sleep_quality(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -525,7 +524,6 @@ pub fn handle_analyze_sleep_quality(
 /// Returns `ProtocolError` if required data is missing or calculation fails
 #[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-#[allow(clippy::too_many_lines)]
 pub fn handle_calculate_recovery_score(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -868,7 +866,6 @@ pub fn handle_calculate_recovery_score(
 /// Returns `ProtocolError` if required data is missing or analysis fails
 #[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-#[allow(clippy::too_many_lines)]
 pub fn handle_suggest_rest_day(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -1173,7 +1170,6 @@ pub fn handle_suggest_rest_day(
 /// Returns `ProtocolError` if data is insufficient or analysis fails
 #[must_use]
 // Long function: Protocol handler inherently long due to trend calculation, statistics aggregation, response formatting
-#[allow(clippy::too_many_lines)]
 pub fn handle_track_sleep_trends(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -1426,7 +1422,6 @@ pub fn handle_track_sleep_trends(
 /// Returns `ProtocolError` if required parameters are missing
 #[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-#[allow(clippy::too_many_lines)]
 pub fn handle_optimize_sleep_schedule(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

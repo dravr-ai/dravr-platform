@@ -66,7 +66,6 @@ async fn test_complete_multitenant_workflow() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 async fn create_test_executor() -> Result<UniversalToolExecutor> {
     // Initialize HTTP clients before any other setup
     common::init_test_http_clients();

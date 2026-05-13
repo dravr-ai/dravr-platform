@@ -54,7 +54,6 @@ fn create_test_auth_result(user_id: Uuid) -> AuthResult {
     }
 }
 
-#[allow(clippy::too_many_lines)] // Long function: Complex test setup with full configuration
 async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
     // Initialize server config for tests
     common::init_server_config();

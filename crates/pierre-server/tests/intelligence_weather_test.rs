@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use dravr_meteo::WeatherSample;
 use pierre_mcp_server::intelligence::weather::{analyze_weather_impact, WeatherDifficulty};
+use pierre_weather::WeatherSample;
 
 #[test]
 fn test_analyze_weather_impact_cold() {

@@ -351,7 +351,6 @@ fn test_vllm_capabilities_include_json_mode() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires running Ollama server"]
 async fn test_openai_compatible_health_check() {
     use pierre_mcp_server::llm::LlmProvider;
 
@@ -364,7 +363,6 @@ async fn test_openai_compatible_health_check() {
 }
 
 #[tokio::test]
-#[ignore = "Requires running Ollama server with model pulled"]
 async fn test_openai_compatible_complete() {
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
 
@@ -381,7 +379,6 @@ async fn test_openai_compatible_complete() {
 }
 
 #[tokio::test]
-#[ignore = "Requires running Ollama server with model pulled"]
 async fn test_openai_compatible_complete_with_tools() {
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, FunctionDeclaration, Tool};
     use serde_json::json;
@@ -422,7 +419,6 @@ async fn test_openai_compatible_complete_with_tools() {
 }
 
 #[tokio::test]
-#[ignore = "Requires running Ollama server with model pulled"]
 async fn test_openai_compatible_streaming() {
     use futures_util::StreamExt;
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};

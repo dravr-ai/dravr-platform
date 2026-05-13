@@ -27,6 +27,7 @@ use tracing::{debug, info, warn};
 
 type SlackWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+use crate::context::DataContext;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 
@@ -327,7 +328,7 @@ async fn process_socket_messages(
             channel_message_id = %message.channel_message_id,
             "Slack Socket Mode: received message"
         );
-        let Some((tenant_id, adapter)) = resolve_slack_config(&resources).await else {
+        let Some((tenant_id, adapter)) = resolve_slack_config(&resources.data()).await else {
             continue;
         };
         dispatch_message(&resources, tenant_id, adapter, message).await;
@@ -341,10 +342,8 @@ async fn process_socket_messages(
 /// because outbound posts need the Slack bot token, not the signing secret.
 /// We still pull the `tenant_id` from the row so the ingress layer can scope
 /// tenant-owned conversation state.
-async fn resolve_slack_config(
-    resources: &ServerContext,
-) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+async fn resolve_slack_config(data: &DataContext) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
+    let db: &dyn MessagingRepository = data.repos().messaging.as_ref();
     let configs = db.get_configs_by_channel_type("slack").await.ok()?;
     let config = configs.first()?;
     let tenant_id_str = config.get("tenant_id").and_then(|v| v.as_str())?;

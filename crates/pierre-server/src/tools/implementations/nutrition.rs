@@ -24,9 +24,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // CalculateDailyNutritionTool
@@ -119,7 +119,7 @@ impl McpTool for CalculateDailyNutritionTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "calculate_daily_nutrition",
@@ -188,7 +188,7 @@ impl McpTool for GetNutrientTimingTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_nutrient_timing",
@@ -253,7 +253,7 @@ impl McpTool for SearchFoodTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "search_food", handlers::handle_search_food).await
+        dispatch_handler(context, args, "search_food", handlers::handle_search_food).await
     }
 }
 
@@ -296,7 +296,7 @@ impl McpTool for GetFoodDetailsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_food_details",
@@ -370,7 +370,7 @@ impl McpTool for AnalyzeMealNutritionTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "analyze_meal_nutrition",

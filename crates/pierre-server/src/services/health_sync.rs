@@ -9,23 +9,23 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use dravr_enforme::error::{EnformeError, EnformeResult};
-use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
-use dravr_enforme::models::cursor::SyncCursor;
-use dravr_enforme::models::deletion::DeletionPolicy;
-use dravr_enforme::providers::build_provider_registry;
-use dravr_enforme::traits::connection_store::UserConnectionStore;
-use dravr_enforme::traits::credential_store::CredentialStore;
-use dravr_enforme::traits::cursor_store::SyncCursorStore;
-use dravr_enforme::traits::data_source_store::DataSourceStore;
-use dravr_enforme::traits::health_store::HealthStore;
-use dravr_enforme::traits::recovery_store::RecoveryStore;
-use dravr_enforme::traits::sleep_store::SleepStore;
-use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_equilibre_sync::SyncStatus;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::RepositoryRegistry;
+use pierre_enforme::error::{EnformeError, EnformeResult};
+use pierre_enforme::models::connection::{ConnectedUser, ProviderCredentials};
+use pierre_enforme::models::cursor::SyncCursor;
+use pierre_enforme::models::deletion::DeletionPolicy;
+use pierre_enforme::providers::build_provider_registry;
+use pierre_enforme::traits::connection_store::UserConnectionStore;
+use pierre_enforme::traits::credential_store::CredentialStore;
+use pierre_enforme::traits::cursor_store::SyncCursorStore;
+use pierre_enforme::traits::data_source_store::DataSourceStore;
+use pierre_enforme::traits::health_store::HealthStore;
+use pierre_enforme::traits::recovery_store::RecoveryStore;
+use pierre_enforme::traits::sleep_store::SleepStore;
+use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use uuid::Uuid;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -52,9 +52,9 @@ impl PierreSyncStorage {
     ///
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     #[must_use]
-    pub fn into_orchestrator(self) -> Arc<dravr_enforme::SyncOrchestrator> {
+    pub fn into_orchestrator(self) -> Arc<pierre_enforme::SyncOrchestrator> {
         let storage: Arc<Self> = Arc::new(self);
-        let deps = Arc::new(dravr_enforme::SyncDeps {
+        let deps = Arc::new(pierre_enforme::SyncDeps {
             sleep: storage.clone(),
             recovery: storage.clone(),
             health: storage.clone(),
@@ -65,10 +65,10 @@ impl PierreSyncStorage {
             connections: storage,
         });
 
-        let config = dravr_enforme::SyncConfig::from_env();
+        let config = pierre_enforme::SyncConfig::from_env();
         let providers = build_provider_registry();
 
-        Arc::new(dravr_enforme::SyncOrchestrator::new(
+        Arc::new(pierre_enforme::SyncOrchestrator::new(
             deps, providers, config,
         ))
     }

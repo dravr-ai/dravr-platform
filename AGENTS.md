@@ -141,7 +141,7 @@ When a service is configured in `.mcp.json`, **always use its MCP tools first** 
 The backend is a Cargo workspace with 14 crates under `crates/`. Leaf crates are independent, reusable modules — none depend on `pierre_mcp_server`. Tool extensibility lives in `pierre-server`'s `tools::ToolRegistry` (implement `McpTool` and register in `register_builtin_tools`).
 
 ### Test Location
-All integration tests live in `crates/pierre-server/tests/` (234 files). Doc tests compile per-crate. No `#[cfg(test)]` in `src/` — tests are external only.
+All integration tests live in `crates/pierre-server/tests/` (325 files). Doc tests compile per-crate. No `#[cfg(test)]` in `src/` — tests are external only.
 
 ## Development Guides
 
@@ -453,15 +453,15 @@ The script only touches tiers whose files actually changed on the branch:
 **Full-workspace clippy and the full 13-minute test suite run in CI with 4-shard parallelism. Do not run them locally — monitor CI after pushing instead.**
 
 ### Test Suite Timing Context
-- Full test suite: ~13 minutes (3,462 tests across 238 test binaries, 234 test files)
+- Full test suite: ~13 minutes across 325 test binaries
 - **DO NOT run `cargo test` without targeting** — use targeted tests during development
 
 ### Test Targeting Patterns
 
-**CRITICAL: Always use `--test <file>` to avoid compiling all 234 test files!**
+**CRITICAL: Always use `--test <file>` to avoid compiling all 325 test files!**
 
 ```bash
-# ❌ SLOW - Compiles ALL 234 test files looking for a match
+# ❌ SLOW - Compiles ALL 325 test files looking for a match
 cargo test test_browse_store_with_cursor_pagination
 
 # ✅ FAST - Only compiles the specific test file

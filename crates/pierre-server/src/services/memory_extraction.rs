@@ -28,7 +28,6 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::llm::ChatProvider;
-use crate::mcp::resources::ServerContext;
 use crate::services::chat_provider_factory::create_chat_provider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -281,7 +280,11 @@ pub struct SpawnedExtractionRequest {
 /// — extraction is best-effort and never blocks a turn. This is the
 /// canonical entry point used by the messaging dispatch path after a turn
 /// has been persisted.
-pub fn spawn_extract_for_turn(resources: Arc<ServerContext>, req: SpawnedExtractionRequest) {
+pub fn spawn_extract_for_turn(
+    memory_repo: Arc<dyn HarnessMemoryRepository>,
+    system_prompt: String,
+    req: SpawnedExtractionRequest,
+) {
     let permits = Arc::clone(&EXTRACTION_PERMITS);
     tokio::spawn(async move {
         // Bounded concurrency: drop the task silently if the semaphore has been
@@ -308,15 +311,7 @@ pub fn spawn_extract_for_turn(resources: Arc<ServerContext>, req: SpawnedExtract
             assistant_reply: &req.assistant_reply,
             source_msg_id: req.source_msg_id.as_deref(),
         };
-        let system_prompt = resources.memory_extraction_prompt();
-        match extract_and_persist(
-            resources.repos.memory.as_ref(),
-            &provider,
-            &system_prompt,
-            &request,
-        )
-        .await
-        {
+        match extract_and_persist(memory_repo.as_ref(), &provider, &system_prompt, &request).await {
             Ok(outcome) => debug!(
                 raw = outcome.raw_count,
                 persisted = outcome.persisted.len(),

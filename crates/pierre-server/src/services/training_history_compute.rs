@@ -15,6 +15,7 @@ use pierre_intelligence::training_history_compute::{
 use uuid::Uuid;
 
 use crate::config::environment::default_provider;
+use crate::context::DataContext;
 use crate::mcp::resources::ServerContext;
 use crate::routes::social::SocialRoutes;
 
@@ -116,7 +117,7 @@ pub async fn compute_default_window(
 ///
 /// Returns [`AppError`] from the repository when the read fails.
 pub async fn fetch_history_rows(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -125,8 +126,7 @@ pub async fn fetch_history_rows(
     if to < from {
         return Err(AppError::invalid_input("from > to"));
     }
-    resources
-        .repos
+    data.repos()
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
         .await

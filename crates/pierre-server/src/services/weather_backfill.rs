@@ -20,7 +20,7 @@
 //! mutate the provider's payload in place.
 //!
 //! Cache coherence is the responsibility of the wrapped provider
-//! (typically `dravr_meteo::CachedProvider` over the persistent
+//! (typically `pierre_weather::CachedProvider` over the persistent
 //! `weather_cache` table) — this module never decides cache TTL or
 //! buckets.
 
@@ -28,10 +28,10 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
-use dravr_meteo::{WeatherProvider, WeatherQuery};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use pierre_core::http_client::api_client;
 use pierre_core::models::Activity;
+use pierre_weather::{WeatherProvider, WeatherQuery};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 

@@ -56,7 +56,7 @@ provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
-health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync"]
+health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-strava", "dep:dravr-equilibre-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-synthetic", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
@@ -201,8 +201,8 @@ pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true 
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.14", optional = true }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.0", features = ["notifications"] }
-dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.1.0" }
-dravr-enforme = { version = "0.1.11", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.11", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
+pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
+pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", version = "0.2", optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }

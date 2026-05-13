@@ -10,6 +10,59 @@ use super::types::{
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
+/// Parameters for [`AdminConfigRepository::set_override`].
+///
+/// Bundled so the trait method doesn't carry a seven-arg positional
+/// signature; callers thread the same set of identifiers
+/// (category/key/value/`data_type`/admin/tenant/reason) for both `SQLite`
+/// and `PostgreSQL` backends.
+pub struct SetOverrideParams<'a> {
+    /// Top-level config category (e.g. `"usage_quotas"`).
+    pub category: &'a str,
+    /// Config key within `category`.
+    pub key: &'a str,
+    /// New value to persist.
+    pub value: &'a serde_json::Value,
+    /// Declared data type used for validation + downstream coercion.
+    pub data_type: ConfigDataType,
+    /// Admin user performing the change (audit attribution).
+    pub admin_user_id: &'a str,
+    /// Tenant scope; `None` records a system-wide override.
+    pub tenant_id: Option<&'a str>,
+    /// Free-form reason captured in the audit log.
+    pub reason: Option<&'a str>,
+}
+
+/// Parameters for [`AdminConfigRepository::log_change`].
+///
+/// Mirrors the audit-log row fields so the trait method body can decompose
+/// with `let LogChangeParams { ... } = params;` instead of an eleven-arg
+/// list.
+pub struct LogChangeParams<'a> {
+    /// Admin user performing the change.
+    pub admin_user_id: &'a str,
+    /// Admin email (operator-visible attribution).
+    pub admin_email: &'a str,
+    /// Top-level config category.
+    pub category: &'a str,
+    /// Config key within `category`.
+    pub key: &'a str,
+    /// Previous value, when one existed.
+    pub old_value: Option<&'a serde_json::Value>,
+    /// New value being recorded.
+    pub new_value: &'a serde_json::Value,
+    /// Declared data type used for validation + downstream coercion.
+    pub data_type: ConfigDataType,
+    /// Free-form reason captured in the audit log.
+    pub reason: Option<&'a str>,
+    /// Tenant scope, `None` for system-wide change.
+    pub tenant_id: Option<&'a str>,
+    /// Client IP captured at request time for forensic tracing.
+    pub ip_address: Option<&'a str>,
+    /// Client user-agent captured at request time.
+    pub user_agent: Option<&'a str>,
+}
+
 /// Database-agnostic repository for admin configuration operations
 ///
 /// Implemented by `AdminConfigManager` (`SQLite`) and `PostgresAdminConfigManager` (`PostgreSQL`).
@@ -35,17 +88,7 @@ pub trait AdminConfigRepository: Send + Sync {
     ) -> AppResult<Option<ConfigOverride>>;
 
     /// Set a configuration override
-    #[allow(clippy::too_many_arguments)]
-    async fn set_override(
-        &self,
-        category: &str,
-        key: &str,
-        value: &serde_json::Value,
-        data_type: ConfigDataType,
-        admin_user_id: &str,
-        tenant_id: Option<&str>,
-        reason: Option<&str>,
-    ) -> AppResult<ConfigOverride>;
+    async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride>;
 
     /// Delete a configuration override (reset to default)
     async fn delete_override(
@@ -63,21 +106,7 @@ pub trait AdminConfigRepository: Send + Sync {
     ) -> AppResult<usize>;
 
     /// Record a configuration change in the audit log
-    #[allow(clippy::too_many_arguments)]
-    async fn log_change(
-        &self,
-        admin_user_id: &str,
-        admin_email: &str,
-        category: &str,
-        key: &str,
-        old_value: Option<&serde_json::Value>,
-        new_value: &serde_json::Value,
-        data_type: ConfigDataType,
-        reason: Option<&str>,
-        tenant_id: Option<&str>,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
-    ) -> AppResult<String>;
+    async fn log_change(&self, params: LogChangeParams<'_>) -> AppResult<String>;
 
     /// Get audit log entries with filtering and pagination
     async fn get_audit_log(

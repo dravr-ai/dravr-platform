@@ -274,7 +274,6 @@ fn build_constraints_response(
 /// # Errors
 /// Returns `ProtocolError` if required parameters missing or USDA API fails
 #[must_use]
-#[allow(clippy::too_many_lines)] // Complex validation logic with USDA API calls
 pub fn handle_validate_recipe(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

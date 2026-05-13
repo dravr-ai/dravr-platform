@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use pierre_core::models::TenantId;
 use pierre_memory::FactKind;
 
+use crate::context::DataContext;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
@@ -92,9 +93,8 @@ pub struct ListFactsQuery {
 /// Resolve the user's active tenant the same way `routes::chat` does,
 /// without depending on the chat module so this handler can live entirely
 /// inside the services layer.
-async fn resolve_tenant_id(resources: &ServerContext, user_id: uuid::Uuid) -> TenantId {
-    resources
-        .repos
+async fn resolve_tenant_id(data: &DataContext, user_id: uuid::Uuid) -> TenantId {
+    data.repos()
         .tenants
         .list_for_user(user_id)
         .await
@@ -124,15 +124,16 @@ pub async fn get_facts_handler(
     Query(params): Query<ListFactsQuery>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id).await;
+    let data = resources.data();
+    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
     let limit = params
         .limit
         .unwrap_or(DEFAULT_LIST_LIMIT)
         .clamp(1, MAX_LIST_LIMIT);
     let kind = fact_kind_from_query(params.kind.as_deref());
 
-    let facts = resources
-        .repos
+    let facts = data
+        .repos()
         .memory
         .list_user_facts(
             tenant_id,
@@ -183,10 +184,11 @@ pub async fn forget_fact_handler(
     Path(fact_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id).await;
+    let data = resources.data();
+    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
 
-    let deleted = resources
-        .repos
+    let deleted = data
+        .repos()
         .memory
         .delete_user_fact(&fact_id, tenant_id, &auth.user_id.to_string())
         .await?;

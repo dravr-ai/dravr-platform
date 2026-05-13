@@ -25,9 +25,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // ListStretchingExercisesTool
@@ -108,7 +108,7 @@ impl McpTool for ListStretchingExercisesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "list_stretching_exercises",
@@ -157,7 +157,7 @@ impl McpTool for GetStretchingExerciseTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_stretching_exercise",
@@ -228,7 +228,7 @@ impl McpTool for SuggestStretchesForActivityTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "suggest_stretches_for_activity",
@@ -330,7 +330,7 @@ impl McpTool for ListYogaPosesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "list_yoga_poses",
@@ -379,7 +379,7 @@ impl McpTool for GetYogaPoseTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_yoga_pose",
@@ -461,7 +461,7 @@ impl McpTool for SuggestYogaSequenceTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "suggest_yoga_sequence",

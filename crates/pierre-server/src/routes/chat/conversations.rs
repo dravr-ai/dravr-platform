@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -17,11 +17,12 @@ use uuid::Uuid;
 
 use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
+use crate::middleware::AuthenticatedUser;
 use crate::services::chat_orchestration;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::TenantId;
 
-use super::common::{authenticate, get_tenant_id};
+use super::common::get_tenant_id;
 use super::dto::{
     ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
     CreateConversationRequest, ListConversationsQuery, MessageResponse, MessagesListResponse,
@@ -80,10 +81,10 @@ async fn record_coach_usage_best_effort(
 /// Create a new conversation.
 pub async fn create_conversation(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Json(request): Json<CreateConversationRequest>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
@@ -158,10 +159,10 @@ pub async fn create_conversation(
 /// List the caller's conversations, paginated via query params.
 pub async fn list_conversations(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(query): Query<ListConversationsQuery>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
 
     let conversations = resources
@@ -198,10 +199,10 @@ pub async fn list_conversations(
 /// Fetch a single conversation by id (scoped to the caller's tenant).
 pub async fn get_conversation(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
 
     let conv = resources
@@ -228,11 +229,11 @@ pub async fn get_conversation(
 /// Rename a conversation, returning the updated record.
 pub async fn update_conversation(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
     Json(request): Json<UpdateConversationRequest>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
 
     let updated = resources
@@ -275,10 +276,10 @@ pub async fn update_conversation(
 /// Hard-delete a conversation the caller owns.
 pub async fn delete_conversation(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
 
     let deleted = resources
@@ -297,10 +298,10 @@ pub async fn delete_conversation(
 /// List all messages in a conversation after verifying ownership.
 pub async fn get_messages(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
 
     // Verify user owns this conversation

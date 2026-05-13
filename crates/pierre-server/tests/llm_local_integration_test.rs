@@ -9,19 +9,10 @@
 
 //! # Local LLM Integration Tests
 //!
-//! These tests require a running local LLM server (Ollama recommended).
-//!
-//! ## Why Tests Are `#[ignore]`
-//!
-//! All tests in this file are marked `#[ignore]` because they require external
-//! infrastructure that CI environments cannot provide:
-//!
-//! - **Ollama/vLLM server**: Must be running locally with models downloaded
-//! - **GPU/CPU resources**: Large language models require significant compute
-//! - **Model availability**: Specific models must be pulled (9GB+ downloads)
-//!
-//! These are **development validation tests**, not CI tests. They verify that
-//! the local LLM integration works correctly when manually testing locally.
+//! These tests exercise the local LLM integration against a running Ollama (or
+//! vLLM) server. CI provisions Ollama on `localhost:11434`; on developer
+//! machines, run `ollama serve` and `ollama pull qwen2.5:14b-instruct` before
+//! executing the suite.
 //!
 //! ## Latency Test Thresholds
 //!
@@ -34,24 +25,10 @@
 //! | First token (streaming) | 2s | 8-10s |
 //! | Tool calling | 10s | 25-35s |
 //!
-//! **Latency test failures are expected** when running locally and do not
-//! indicate broken functionality. The functional tests (tool matching) are
-//! the important validation.
-//!
-//! ## Setup
-//!
-//! 1. Install Ollama: `brew install ollama` (macOS) or <https://ollama.ai/download>
-//! 2. Start server: `ollama serve`
-//! 3. Pull model: `ollama pull qwen2.5:14b-instruct`
-//!
 //! ## Running
 //!
 //! ```bash
-//! # Run all local LLM tests (requires server)
-//! cargo test --test llm_local_integration_test -- --ignored --nocapture
-//!
-//! # Run specific test
-//! cargo test --test llm_local_integration_test test_pierre_fitness_tools_with_local_llm -- --ignored --nocapture
+//! cargo test --test llm_local_integration_test -- --nocapture
 //! ```
 
 use pierre_mcp_server::llm::{
@@ -72,127 +49,125 @@ fn create_ollama_provider() -> OpenAiCompatibleProvider {
     OpenAiCompatibleProvider::new(config).expect("Provider should be created")
 }
 
+/// Build a single-function Tool wrapper used by the fitness tool catalog below.
+fn pierre_tool(name: &str, description: &str, parameters: serde_json::Value) -> Tool {
+    Tool {
+        function_declarations: vec![FunctionDeclaration {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            parameters: Some(parameters),
+        }],
+    }
+}
+
 /// Create Pierre fitness tool definitions for testing function calling
-#[allow(clippy::too_many_lines)]
 fn create_pierre_fitness_tools() -> Vec<Tool> {
     vec![
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "calculate_metrics".to_owned(),
-                description: "Calculate performance metrics from activity data including pace, power, heart rate zones".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "activity_type": {
-                            "type": "string",
-                            "enum": ["running", "cycling", "swimming"],
-                            "description": "Type of activity"
-                        },
-                        "distance_meters": {
-                            "type": "number",
-                            "description": "Total distance in meters"
-                        },
-                        "duration_seconds": {
-                            "type": "number",
-                            "description": "Total duration in seconds"
-                        }
+        pierre_tool(
+            "calculate_metrics",
+            "Calculate performance metrics from activity data including pace, power, heart rate zones",
+            json!({
+                "type": "object",
+                "properties": {
+                    "activity_type": {
+                        "type": "string",
+                        "enum": ["running", "cycling", "swimming"],
+                        "description": "Type of activity"
                     },
-                    "required": ["activity_type", "distance_meters", "duration_seconds"]
-                })),
-            }],
-        },
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "analyze_training_load".to_owned(),
-                description: "Analyze training load metrics including TSS, TRIMP, and fatigue levels".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "recent_activities": {
-                            "type": "integer",
-                            "description": "Number of recent activities to analyze"
-                        },
-                        "include_hr_zones": {
-                            "type": "boolean",
-                            "description": "Include heart rate zone analysis"
-                        }
+                    "distance_meters": {
+                        "type": "number",
+                        "description": "Total distance in meters"
                     },
-                    "required": ["recent_activities"]
-                })),
-            }],
-        },
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "calculate_fitness_score".to_owned(),
-                description: "Calculate overall fitness score based on recent training".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "period_days": {
-                            "type": "integer",
-                            "description": "Number of days to analyze (default: 30)"
-                        }
+                    "duration_seconds": {
+                        "type": "number",
+                        "description": "Total duration in seconds"
                     }
-                })),
-            }],
-        },
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "predict_performance".to_owned(),
-                description: "Predict race performance based on training data and VDOT".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "race_distance": {
-                            "type": "string",
-                            "enum": ["5k", "10k", "half_marathon", "marathon"],
-                            "description": "Target race distance"
-                        },
-                        "target_date": {
-                            "type": "string",
-                            "format": "date",
-                            "description": "Target race date (YYYY-MM-DD)"
-                        }
+                },
+                "required": ["activity_type", "distance_meters", "duration_seconds"]
+            }),
+        ),
+        pierre_tool(
+            "analyze_training_load",
+            "Analyze training load metrics including TSS, TRIMP, and fatigue levels",
+            json!({
+                "type": "object",
+                "properties": {
+                    "recent_activities": {
+                        "type": "integer",
+                        "description": "Number of recent activities to analyze"
                     },
-                    "required": ["race_distance"]
-                })),
-            }],
-        },
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "generate_recommendations".to_owned(),
-                description: "Generate personalized training recommendations".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "focus_area": {
-                            "type": "string",
-                            "enum": ["endurance", "speed", "recovery", "general"],
-                            "description": "Training focus area"
-                        }
+                    "include_hr_zones": {
+                        "type": "boolean",
+                        "description": "Include heart rate zone analysis"
                     }
-                })),
-            }],
-        },
-        Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: "calculate_recovery_score".to_owned(),
-                description: "Calculate recovery score based on sleep and activity data".to_owned(),
-                parameters: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "include_sleep": {
-                            "type": "boolean",
-                            "description": "Include sleep data in analysis"
-                        },
-                        "include_hrv": {
-                            "type": "boolean",
-                            "description": "Include HRV data if available"
-                        }
+                },
+                "required": ["recent_activities"]
+            }),
+        ),
+        pierre_tool(
+            "calculate_fitness_score",
+            "Calculate overall fitness score based on recent training",
+            json!({
+                "type": "object",
+                "properties": {
+                    "period_days": {
+                        "type": "integer",
+                        "description": "Number of days to analyze (default: 30)"
                     }
-                })),
-            }],
-        },
+                }
+            }),
+        ),
+        pierre_tool(
+            "predict_performance",
+            "Predict race performance based on training data and VDOT",
+            json!({
+                "type": "object",
+                "properties": {
+                    "race_distance": {
+                        "type": "string",
+                        "enum": ["5k", "10k", "half_marathon", "marathon"],
+                        "description": "Target race distance"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "Target race date (YYYY-MM-DD)"
+                    }
+                },
+                "required": ["race_distance"]
+            }),
+        ),
+        pierre_tool(
+            "generate_recommendations",
+            "Generate personalized training recommendations",
+            json!({
+                "type": "object",
+                "properties": {
+                    "focus_area": {
+                        "type": "string",
+                        "enum": ["endurance", "speed", "recovery", "general"],
+                        "description": "Training focus area"
+                    }
+                }
+            }),
+        ),
+        pierre_tool(
+            "calculate_recovery_score",
+            "Calculate recovery score based on sleep and activity data",
+            json!({
+                "type": "object",
+                "properties": {
+                    "include_sleep": {
+                        "type": "boolean",
+                        "description": "Include sleep data in analysis"
+                    },
+                    "include_hrv": {
+                        "type": "boolean",
+                        "description": "Include HRV data if available"
+                    }
+                }
+            }),
+        ),
     ]
 }
 
@@ -201,7 +176,6 @@ fn create_pierre_fitness_tools() -> Vec<Tool> {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires running Ollama server"]
 async fn test_ollama_server_health() {
     let provider = create_ollama_provider();
 
@@ -214,7 +188,6 @@ async fn test_ollama_server_health() {
 }
 
 #[tokio::test]
-#[ignore = "Requires running vLLM server"]
 async fn test_vllm_server_health() {
     let config = OpenAiCompatibleConfig::vllm("meta-llama/Llama-3.1-8B-Instruct");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
@@ -231,7 +204,6 @@ async fn test_vllm_server_health() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_pierre_fitness_tools_with_local_llm() {
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
@@ -320,7 +292,6 @@ async fn test_pierre_fitness_tools_with_local_llm() {
 }
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_pierre_complex_multi_tool_query() {
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
@@ -351,7 +322,6 @@ async fn test_pierre_complex_multi_tool_query() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_local_llm_latency_acceptable() {
     let provider = create_ollama_provider();
 
@@ -373,7 +343,6 @@ async fn test_local_llm_latency_acceptable() {
 }
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_local_llm_streaming_first_token_latency() {
     use futures_util::StreamExt;
 
@@ -416,7 +385,6 @@ async fn test_local_llm_streaming_first_token_latency() {
 }
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_local_llm_tool_calling_latency() {
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
@@ -452,7 +420,6 @@ async fn test_local_llm_tool_calling_latency() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires Ollama server (but not the model)"]
 async fn test_local_llm_missing_model_error() {
     let config = OpenAiCompatibleConfig::ollama("nonexistent-model:latest");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
@@ -497,7 +464,6 @@ async fn test_local_llm_server_not_running_error() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "Requires Ollama server with model pulled"]
 async fn test_local_llm_concurrent_requests() {
     let provider = create_ollama_provider();
     let provider = Arc::new(provider);

@@ -38,7 +38,9 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::Database as SqliteBackend;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::RepositoryRegistry;
-use pierre_evals::VerificationConfig;
+use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::evidence_retriever::EvidenceCorpus;
+use pierre_evals::{VerdictOutcome, VerificationConfig};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 
 use crate::errors::{AppError, AppResult};
@@ -165,7 +167,6 @@ struct AssistantMessageRow {
 ///
 /// Returns an error if the underlying database pool is unavailable,
 /// or if the `system_settings` cursor cannot be read / written.
-#[allow(clippy::cognitive_complexity)]
 pub async fn run_backfill(
     repos: &RepositoryRegistry,
     database: &Database,
@@ -201,75 +202,7 @@ pub async fn run_backfill(
     };
 
     for row in &rows {
-        stats.messages_scanned += 1;
-        stats.last_message_id = Some(row.message_id.clone());
-
-        let verdicts = super::claim_verification::verify_reply_with_config_and_corpus(
-            &row.content,
-            config,
-            corpus,
-        );
-        if verdicts.is_empty() {
-            if params.sleep_between > Duration::ZERO {
-                sleep(params.sleep_between).await;
-            }
-            continue;
-        }
-
-        let mut row_had_problem = false;
-        for (claim, outcome) in verdicts {
-            if matches!(
-                outcome.status,
-                ClaimStatus::Unsupported | ClaimStatus::Contradicted
-            ) {
-                row_had_problem = true;
-            }
-            stats.by_category.bump(claim.category);
-            match outcome.status {
-                ClaimStatus::Supported => stats.by_status.supported += 1,
-                ClaimStatus::Unsupported => stats.by_status.unsupported += 1,
-                ClaimStatus::Contradicted => stats.by_status.contradicted += 1,
-                ClaimStatus::Rhetorical => stats.by_status.rhetorical += 1,
-                ClaimStatus::Unverifiable => stats.by_status.unverifiable += 1,
-            }
-
-            if params.dry_run {
-                stats.verdicts_written += 1;
-                continue;
-            }
-
-            let insert = InsertClaimVerdictParams {
-                tenant_id: params.tenant_id,
-                user_id: &row.user_id,
-                coach_id: row.coach_id.as_deref(),
-                conversation_id: Some(&row.conversation_id),
-                message_id: Some(&row.message_id),
-                claim_text: &claim.text,
-                category: claim.category,
-                status: outcome.status,
-                evidence_strength: outcome.evidence_strength,
-                confidence: outcome.confidence,
-                layer_fired: outcome.layer_fired,
-                explanation: Some(&outcome.explanation),
-                evidence_refs: outcome.evidence_refs.as_deref(),
-            };
-            match repos.claim_verdicts.insert_claim_verdict(&insert).await {
-                Ok(_) => stats.verdicts_written += 1,
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        message_id = %row.message_id,
-                        "failed to persist backfill verdict"
-                    );
-                    stats.persistence_errors += 1;
-                }
-            }
-        }
-
-        if row_had_problem {
-            stats.messages_with_problems += 1;
-        }
-
+        process_message_row(repos, row, params, config, corpus, &mut stats).await;
         if params.sleep_between > Duration::ZERO {
             sleep(params.sleep_between).await;
         }
@@ -291,6 +224,103 @@ pub async fn run_backfill(
     );
 
     Ok(stats)
+}
+
+/// Verify a single assistant-message row against the corpus, persist the
+/// per-claim verdicts when not in dry-run, and accumulate counters into
+/// `stats`. Pulled out of [`run_backfill`] to keep cognitive complexity in
+/// check — the inner double loop (per-row + per-verdict) is the bulk of the
+/// work and folds the persistence branch in cleanly here.
+async fn process_message_row(
+    repos: &RepositoryRegistry,
+    row: &AssistantMessageRow,
+    params: &BackfillParams<'_>,
+    config: &VerificationConfig,
+    corpus: &EvidenceCorpus,
+    stats: &mut BackfillStats,
+) {
+    stats.messages_scanned += 1;
+    stats.last_message_id = Some(row.message_id.clone());
+
+    let verdicts = super::claim_verification::verify_reply_with_config_and_corpus(
+        &row.content,
+        config,
+        corpus,
+    );
+    if verdicts.is_empty() {
+        return;
+    }
+
+    let mut row_had_problem = false;
+    for (claim, outcome) in verdicts {
+        if matches!(
+            outcome.status,
+            ClaimStatus::Unsupported | ClaimStatus::Contradicted
+        ) {
+            row_had_problem = true;
+        }
+        stats.by_category.bump(claim.category);
+        accumulate_status(&mut stats.by_status, outcome.status);
+
+        if params.dry_run {
+            stats.verdicts_written += 1;
+            continue;
+        }
+
+        persist_verdict(repos, row, params.tenant_id, &claim, &outcome, stats).await;
+    }
+
+    if row_had_problem {
+        stats.messages_with_problems += 1;
+    }
+}
+
+/// Bump the matching counter on `by_status` for a single verdict outcome.
+fn accumulate_status(by_status: &mut BackfillStatusCounts, status: ClaimStatus) {
+    match status {
+        ClaimStatus::Supported => by_status.supported += 1,
+        ClaimStatus::Unsupported => by_status.unsupported += 1,
+        ClaimStatus::Contradicted => by_status.contradicted += 1,
+        ClaimStatus::Rhetorical => by_status.rhetorical += 1,
+        ClaimStatus::Unverifiable => by_status.unverifiable += 1,
+    }
+}
+
+/// Persist a single claim verdict, updating `stats` on success or failure.
+async fn persist_verdict(
+    repos: &RepositoryRegistry,
+    row: &AssistantMessageRow,
+    tenant_id: TenantId,
+    claim: &ExtractedClaim,
+    outcome: &VerdictOutcome,
+    stats: &mut BackfillStats,
+) {
+    let insert = InsertClaimVerdictParams {
+        tenant_id,
+        user_id: &row.user_id,
+        coach_id: row.coach_id.as_deref(),
+        conversation_id: Some(&row.conversation_id),
+        message_id: Some(&row.message_id),
+        claim_text: &claim.text,
+        category: claim.category,
+        status: outcome.status,
+        evidence_strength: outcome.evidence_strength,
+        confidence: outcome.confidence,
+        layer_fired: outcome.layer_fired,
+        explanation: Some(&outcome.explanation),
+        evidence_refs: outcome.evidence_refs.as_deref(),
+    };
+    match repos.claim_verdicts.insert_claim_verdict(&insert).await {
+        Ok(_) => stats.verdicts_written += 1,
+        Err(e) => {
+            warn!(
+                error = %e,
+                message_id = %row.message_id,
+                "failed to persist backfill verdict"
+            );
+            stats.persistence_errors += 1;
+        }
+    }
 }
 
 async fn fetch_assistant_messages(

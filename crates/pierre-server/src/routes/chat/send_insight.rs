@@ -36,25 +36,45 @@ use super::{
 /// run on the dedicated insight-generation prompt, skip coach context
 /// and tools entirely, and expect the LLM to emit structured JSON that
 /// is parsed out of the raw reply.
-#[allow(clippy::too_many_arguments)]
+/// Inputs for [`send_insight_message`]. Bundled so the call site doesn't need
+/// a seven-arg positional invocation — every caller threads the same resolved
+/// conversation/user/tenant identifiers + the request body.
+pub struct SendInsightInputs {
+    /// Shared server context
+    pub resources: Arc<ServerContext>,
+    /// Conversation identifier
+    pub conversation_id: String,
+    /// User identifier (stringified UUID)
+    pub user_id_str: String,
+    /// Tenant identifier
+    pub tenant_id: TenantId,
+    /// Tenant identifier (stringified UUID)
+    pub tenant_id_str: String,
+    /// Inbound request body
+    pub request: SendMessageRequest,
+    /// Usage-warning headers prepared upstream
+    pub usage_warning: UsageWarning,
+}
+
 #[tracing::instrument(
     skip_all,
     fields(
         channel = "web_insight",
-        conversation_id = %conversation_id,
-        user_id = %user_id_str,
-        content_len = request.content.len(),
+        conversation_id = %inputs.conversation_id,
+        user_id = %inputs.user_id_str,
+        content_len = inputs.request.content.len(),
     )
 )]
-pub async fn send_insight_message(
-    resources: Arc<ServerContext>,
-    conversation_id: String,
-    user_id_str: String,
-    tenant_id: TenantId,
-    tenant_id_str: String,
-    request: SendMessageRequest,
-    usage_warning: UsageWarning,
-) -> Result<Response, AppError> {
+pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response, AppError> {
+    let SendInsightInputs {
+        resources,
+        conversation_id,
+        user_id_str,
+        tenant_id,
+        tenant_id_str,
+        request,
+        usage_warning,
+    } = inputs;
     // Verify ownership and persist user message.
     let msg_result = persist_user_message(
         resources.repos.chat.as_ref(),

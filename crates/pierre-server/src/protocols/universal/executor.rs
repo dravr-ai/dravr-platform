@@ -171,7 +171,7 @@ impl UniversalExecutor {
     /// SSE subscription) — resolves to exactly one `McpTool::execute` body.
     /// There is no parallel fn-pointer registry anymore; tools that used
     /// to exist only as `handle_*` functions now have `McpTool` impls that
-    /// delegate to those handlers via `tools::universal_delegate`.
+    /// delegate to those handlers via `tools::dispatch`.
     ///
     /// # Errors
     /// Returns `ProtocolError::ToolNotFound` when the tool name does not
@@ -275,7 +275,7 @@ fn build_tool_execution_context(
 ///
 /// Preserves the success bit, the structured JSON payload, and the error
 /// text — identical to the inverse conversion in
-/// `tools::universal_delegate::delegate_to_handler` so protocol clients see
+/// `tools::dispatch::dispatch_handler` so protocol clients see
 /// the same shape regardless of which direction the dispatch came from.
 fn tool_result_to_universal_response(
     tool_name: &str,

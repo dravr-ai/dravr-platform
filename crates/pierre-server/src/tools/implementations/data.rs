@@ -28,9 +28,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for read-only data retrieval tools
 fn read_only_annotations() -> ToolAnnotations {
@@ -200,7 +200,7 @@ impl McpTool for GetActivitiesTool {
             "fetching activities from provider"
         );
 
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_activities",
@@ -269,7 +269,7 @@ impl McpTool for GetAthleteTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "get_athlete", handlers::handle_get_athlete).await
+        dispatch_handler(context, args, "get_athlete", handlers::handle_get_athlete).await
     }
 }
 
@@ -332,7 +332,7 @@ impl McpTool for GetStatsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "get_stats", handlers::handle_get_stats).await
+        dispatch_handler(context, args, "get_stats", handlers::handle_get_stats).await
     }
 }
 
@@ -413,7 +413,7 @@ impl McpTool for GetSleepSessionsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_sleep_sessions",
@@ -457,7 +457,7 @@ impl McpTool for GetRecoveryMetricsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_recovery_metrics",
@@ -501,7 +501,7 @@ impl McpTool for GetHealthSnapshotsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_health_snapshots",
@@ -557,7 +557,7 @@ impl McpTool for ListDataSourcesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "list_data_sources",

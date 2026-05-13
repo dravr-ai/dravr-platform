@@ -20,9 +20,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for tools that interact with external OAuth services
 fn open_world_annotations() -> ToolAnnotations {
@@ -112,7 +112,7 @@ impl McpTool for ConnectProviderTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "connect_provider",
@@ -170,7 +170,7 @@ impl McpTool for GetConnectionStatusTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_connection_status",
@@ -226,7 +226,7 @@ impl McpTool for DisconnectProviderTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "disconnect_provider",

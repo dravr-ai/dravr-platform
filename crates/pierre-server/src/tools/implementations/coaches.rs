@@ -30,9 +30,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for idempotent write operations (create, update)
 fn write_annotations() -> ToolAnnotations {
@@ -139,7 +139,7 @@ impl McpTool for ListCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "list_coaches", handlers::handle_list_coaches).await
+        dispatch_handler(ctx, args, "list_coaches", handlers::handle_list_coaches).await
     }
 }
 
@@ -238,7 +238,7 @@ impl McpTool for CreateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "create_coach", handlers::handle_create_coach).await
+        dispatch_handler(ctx, args, "create_coach", handlers::handle_create_coach).await
     }
 }
 
@@ -285,7 +285,7 @@ impl McpTool for GetCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "get_coach", handlers::handle_get_coach).await
+        dispatch_handler(ctx, args, "get_coach", handlers::handle_get_coach).await
     }
 }
 
@@ -377,7 +377,7 @@ impl McpTool for UpdateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "update_coach", handlers::handle_update_coach).await
+        dispatch_handler(ctx, args, "update_coach", handlers::handle_update_coach).await
     }
 }
 
@@ -424,7 +424,7 @@ impl McpTool for DeleteCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "delete_coach", handlers::handle_delete_coach).await
+        dispatch_handler(ctx, args, "delete_coach", handlers::handle_delete_coach).await
     }
 }
 
@@ -471,7 +471,7 @@ impl McpTool for ToggleCoachFavoriteTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "toggle_coach_favorite",
@@ -548,7 +548,7 @@ impl McpTool for SearchCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "search_coaches", handlers::handle_search_coaches).await
+        dispatch_handler(ctx, args, "search_coaches", handlers::handle_search_coaches).await
     }
 }
 
@@ -595,7 +595,7 @@ impl McpTool for ActivateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "activate_coach", handlers::handle_activate_coach).await
+        dispatch_handler(ctx, args, "activate_coach", handlers::handle_activate_coach).await
     }
 }
 
@@ -633,7 +633,7 @@ impl McpTool for DeactivateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "deactivate_coach",
@@ -677,7 +677,7 @@ impl McpTool for GetActiveCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "get_active_coach",
@@ -730,7 +730,7 @@ impl McpTool for HideCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "hide_coach", handlers::handle_hide_coach).await
+        dispatch_handler(ctx, args, "hide_coach", handlers::handle_hide_coach).await
     }
 }
 
@@ -777,7 +777,7 @@ impl McpTool for ShowCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(ctx, args, "show_coach", handlers::handle_show_coach).await
+        dispatch_handler(ctx, args, "show_coach", handlers::handle_show_coach).await
     }
 }
 
@@ -815,7 +815,7 @@ impl McpTool for ListHiddenCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "list_hidden_coaches",

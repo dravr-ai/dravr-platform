@@ -223,17 +223,17 @@ pub async fn run_api_tool_loop(
                     .as_ref()
                     .map(|fcs| fcs.iter().map(|c| c.name.clone()).collect())
                     .unwrap_or_default();
-                emit_call_record(
-                    params.call_recorder.as_ref(),
-                    params.provider.name(),
-                    params.model,
-                    r.usage.as_ref(),
+                emit_call_record(CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: params.provider.name(),
+                    model: params.model,
+                    usage: r.usage.as_ref(),
                     cached_tokens,
                     latency_ms,
-                    true,
-                    call_seq,
-                    tools_in_response,
-                );
+                    success: true,
+                    call_sequence: call_seq,
+                    tools_called: tools_in_response,
+                });
                 // notify: LLM call succeeded — latency lands on the Slack
                 // ping so a regression in tail latency surfaces in chat.
                 info!(
@@ -247,17 +247,17 @@ pub async fn run_api_tool_loop(
                 r
             }
             Err(e) => {
-                emit_call_record(
-                    params.call_recorder.as_ref(),
-                    params.provider.name(),
-                    params.model,
-                    None,
-                    0,
+                emit_call_record(CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: params.provider.name(),
+                    model: params.model,
+                    usage: None,
+                    cached_tokens: 0,
                     latency_ms,
-                    false,
-                    call_seq,
-                    Vec::new(),
-                );
+                    success: false,
+                    call_sequence: call_seq,
+                    tools_called: Vec::new(),
+                });
                 // notify: LLM call failed — ok=false so the routing rule
                 // can amplify failures even when sample_rate hides successes.
                 info!(
@@ -464,17 +464,17 @@ pub async fn run_cli_tool_loop(
                 r
             }
             Err(e) => {
-                emit_call_record(
-                    params.call_recorder.as_ref(),
-                    params.provider.name(),
-                    params.model,
-                    None,
-                    0,
+                emit_call_record(CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: params.provider.name(),
+                    model: params.model,
+                    usage: None,
+                    cached_tokens: 0,
                     latency_ms,
-                    false,
-                    call_seq,
-                    Vec::new(),
-                );
+                    success: false,
+                    call_sequence: call_seq,
+                    tools_called: Vec::new(),
+                });
                 // notify: CLI call failed.
                 info!(
                     target: "notify",
@@ -506,17 +506,19 @@ pub async fn run_cli_tool_loop(
             .unwrap_or_default()
             .to_owned();
         emit_call_record_with_text(
-            params.call_recorder.as_ref(),
-            params.provider.name(),
-            params.model,
-            response.usage.as_ref(),
-            cached_tokens,
-            latency_ms,
-            true,
-            call_seq,
+            CallRecordInputs {
+                recorder: params.call_recorder.as_ref(),
+                provider: params.provider.name(),
+                model: params.model,
+                usage: response.usage.as_ref(),
+                cached_tokens,
+                latency_ms,
+                success: true,
+                call_sequence: call_seq,
+                tools_called: tools_in_response,
+            },
             Some(&last_user_prompt),
             Some(&response.content),
-            tools_in_response,
         );
 
         if embacle_calls.is_empty() {
@@ -689,19 +691,45 @@ fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResp
 /// [`pierre_core::llm::ExtendedTokenUsage`] and forwarded it through
 /// the caller. `call_sequence` is the 1-based turn-local position of
 /// the call (1, 2, 3, ...).
-#[allow(clippy::too_many_arguments)]
-fn emit_call_record(
-    recorder: Option<&Arc<dyn LlmCallRecorder>>,
-    provider: &str,
-    model: &str,
-    usage: Option<&TokenUsage>,
+/// Shared parameters for the [`emit_call_record`] / [`emit_call_record_with_text`]
+/// pair. Bundles every field a recorder needs to capture a single LLM call so
+/// the call sites don't carry a nine/eleven-arg positional signature.
+struct CallRecordInputs<'a> {
+    /// Optional recorder; `None` short-circuits the call (no row written).
+    recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+    /// Provider name (e.g. `"groq"`, `"gemini"`).
+    provider: &'a str,
+    /// Model identifier as reported by the provider.
+    model: &'a str,
+    /// Token-usage payload reported by the provider; `None` when the provider
+    /// emits no usage and the caller will fall back to text-based estimation.
+    usage: Option<&'a TokenUsage>,
+    /// Cached prompt-token count surfaced by providers that report it.
     cached_tokens: i64,
+    /// End-to-end call latency in milliseconds.
     latency_ms: i64,
+    /// `true` when the call completed without a provider-side error.
     success: bool,
+    /// 1-based turn-local position of the call.
     call_sequence: Option<i64>,
+    /// Tool function names invoked during the call.
     tools_called: Vec<String>,
+}
+
+fn emit_call_record(inputs: CallRecordInputs<'_>) {
+    emit_call_record_with_text(inputs, None, None);
+}
+
+/// Variant of [`emit_call_record`] that estimates token counts from
+/// character-based prompt/completion text when the provider returns
+/// no usage, so CLI runners (Claude Code, Copilot, Cursor, etc.) produce
+/// non-zero usage rows instead of silently dropping.
+fn emit_call_record_with_text(
+    inputs: CallRecordInputs<'_>,
+    prompt_text: Option<&str>,
+    completion_text: Option<&str>,
 ) {
-    emit_call_record_with_text(
+    let CallRecordInputs {
         recorder,
         provider,
         model,
@@ -710,30 +738,8 @@ fn emit_call_record(
         latency_ms,
         success,
         call_sequence,
-        None,
-        None,
         tools_called,
-    );
-}
-
-/// Variant of [`emit_call_record`] that estimates token counts from
-/// character-based prompt/completion text when the provider returns
-/// no usage, so CLI runners (Claude Code, Copilot, Cursor, etc.) produce
-/// non-zero usage rows instead of silently dropping.
-#[allow(clippy::too_many_arguments)]
-fn emit_call_record_with_text(
-    recorder: Option<&Arc<dyn LlmCallRecorder>>,
-    provider: &str,
-    model: &str,
-    usage: Option<&TokenUsage>,
-    cached_tokens: i64,
-    latency_ms: i64,
-    success: bool,
-    call_sequence: Option<i64>,
-    prompt_text: Option<&str>,
-    completion_text: Option<&str>,
-    tools_called: Vec<String>,
-) {
+    } = inputs;
     let Some(recorder) = recorder else {
         return;
     };
@@ -1182,32 +1188,34 @@ async fn run_headless_tool_loop(
             let tools_in_response: Vec<String> =
                 r.tool_calls.iter().map(|tc| tc.title.clone()).collect();
             emit_call_record_with_text(
-                params.call_recorder.as_ref(),
-                params.provider.name(),
-                params.model,
-                r.usage.as_ref(),
-                0,
-                latency_ms,
-                true,
-                Some(1),
+                CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: params.provider.name(),
+                    model: params.model,
+                    usage: r.usage.as_ref(),
+                    cached_tokens: 0,
+                    latency_ms,
+                    success: true,
+                    call_sequence: Some(1),
+                    tools_called: tools_in_response,
+                },
                 Some(&last_user_prompt),
                 Some(&r.content),
-                tools_in_response,
             );
             r
         }
         Err(e) => {
-            emit_call_record(
-                params.call_recorder.as_ref(),
-                params.provider.name(),
-                params.model,
-                None,
-                0,
+            emit_call_record(CallRecordInputs {
+                recorder: params.call_recorder.as_ref(),
+                provider: params.provider.name(),
+                model: params.model,
+                usage: None,
+                cached_tokens: 0,
                 latency_ms,
-                false,
-                Some(1),
-                Vec::new(),
-            );
+                success: false,
+                call_sequence: Some(1),
+                tools_called: Vec::new(),
+            });
             return Err(e);
         }
     };

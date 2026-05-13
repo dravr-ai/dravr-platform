@@ -16,9 +16,8 @@
 //! after the turn completes and distills new facts from the completed
 //! exchange.
 
-use std::sync::Arc;
+use pierre_database::repositories::HarnessMemoryRepository;
 
-use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::memory_recall::{build_user_memory_context, RecallRequest};
 
@@ -28,7 +27,7 @@ use crate::services::memory_recall::{build_user_memory_context, RecallRequest};
 /// memories both pass through silently — recall is a best-effort
 /// enhancement, not a hard dependency of the dispatch path.
 pub async fn inject_memory_recall(
-    resources: &Arc<ServerContext>,
+    memory_repo: &dyn HarnessMemoryRepository,
     tenant_id: TenantId,
     user_id: &str,
     coach_id: Option<&str>,
@@ -41,7 +40,7 @@ pub async fn inject_memory_recall(
         limit: None,
         token_budget: None,
     };
-    match build_user_memory_context(resources.repos.memory.as_ref(), &request).await {
+    match build_user_memory_context(memory_repo, &request).await {
         Ok(Some(ctx)) => format!("{base_prompt}{}", ctx.block),
         Ok(None) => base_prompt,
         Err(e) => {

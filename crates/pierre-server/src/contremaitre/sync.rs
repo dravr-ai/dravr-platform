@@ -313,17 +313,43 @@ async fn sync_all_coaching_personas(
 ///
 /// # Errors
 ///
-/// Returns an error if manifest fetch or file operations fail.
-#[allow(clippy::too_many_arguments)]
+/// Read-only registries pushed into a Contremaitre sync. Bundled so the
+/// `full_sync` / `selective_sync` entry points don't carry a 7+-arg
+/// positional signature — both consumers thread the same six registries
+/// and only differ in the trailing `&dyn PromptStore` (and optional path
+/// filter for the selective variant).
+pub struct ContremaitreRegistries<'a> {
+    /// Prompt template registry
+    pub registry: &'a PromptRegistry,
+    /// Tool description registry
+    pub tool_desc_registry: &'a ToolDescriptionRegistry,
+    /// Evidence corpus registry
+    pub evidence_registry: &'a EvidenceRegistry,
+    /// Cageux intelligence-config registry
+    pub cageux_config_registry: &'a CageuxConfigRegistry,
+    /// Messaging string-table registry
+    pub messaging_strings_registry: &'a MessagingStringsRegistry,
+    /// Persona contract registry
+    pub persona_contract_registry: &'a PersonaContractRegistry,
+}
+
+/// Run a full contremaitre sync — fetch manifest, download prompts, hydrate registries.
+///
+/// # Errors
+///
+/// Returns [`ContremaitreError`] if manifest fetch or file operations fail.
 pub async fn full_sync(
-    registry: &PromptRegistry,
-    tool_desc_registry: &ToolDescriptionRegistry,
-    evidence_registry: &EvidenceRegistry,
-    cageux_config_registry: &CageuxConfigRegistry,
-    messaging_strings_registry: &MessagingStringsRegistry,
-    persona_contract_registry: &PersonaContractRegistry,
+    registries: ContremaitreRegistries<'_>,
     store: &dyn PromptStore,
 ) -> Result<SyncResult, ContremaitreError> {
+    let ContremaitreRegistries {
+        registry,
+        tool_desc_registry,
+        evidence_registry,
+        cageux_config_registry,
+        messaging_strings_registry,
+        persona_contract_registry,
+    } = registries;
     info!("Starting contremaitre full sync");
 
     let manifest = store.read_manifest().await?;
@@ -546,17 +572,19 @@ async fn sync_changed_coaching_personas(
 /// # Errors
 ///
 /// Returns an error if manifest fetch or file operations fail.
-#[allow(clippy::too_many_arguments)]
 pub async fn selective_sync(
-    registry: &PromptRegistry,
-    tool_desc_registry: &ToolDescriptionRegistry,
-    evidence_registry: &EvidenceRegistry,
-    cageux_config_registry: &CageuxConfigRegistry,
-    messaging_strings_registry: &MessagingStringsRegistry,
-    persona_contract_registry: &PersonaContractRegistry,
+    registries: ContremaitreRegistries<'_>,
     store: &dyn PromptStore,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
+    let ContremaitreRegistries {
+        registry,
+        tool_desc_registry,
+        evidence_registry,
+        cageux_config_registry,
+        messaging_strings_registry,
+        persona_contract_registry,
+    } = registries;
     info!(
         changed_count = changed_paths.len(),
         "Starting contremaitre selective sync"

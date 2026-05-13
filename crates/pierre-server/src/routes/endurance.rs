@@ -306,13 +306,13 @@ async fn get_history(
         )));
     }
 
-    let mut rows = fetch_history_rows(&resources, tenant_id, user_id, from, to).await?;
+    let mut rows = fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await?;
     if rows.is_empty() {
         // Cold start: no rows persisted yet for this user. Trigger an
         // on-demand compute for the same window so the next call hits
         // the persisted rollup.
         let _ = compute_and_persist_history(&resources, tenant_id, user_id, from, to).await?;
-        rows = fetch_history_rows(&resources, tenant_id, user_id, from, to).await?;
+        rows = fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await?;
     }
     Ok(Json(HistoryResponse {
         from,

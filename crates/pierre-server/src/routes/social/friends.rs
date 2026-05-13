@@ -6,7 +6,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerContext,
+    middleware::AuthenticatedUser,
     models::{FriendConnection, FriendStatus},
     services::social_insights,
 };
@@ -224,10 +225,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/friends - List friends
     pub(crate) async fn handle_list_friends(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<ListFriendsQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let limit = query.limit.unwrap_or(50).clamp(1, 100);
@@ -292,10 +293,10 @@ impl SocialRoutes {
     /// Handle POST /api/social/friends - Send friend request
     pub(crate) async fn handle_send_request(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<SendFriendRequestBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let receiver_id = Uuid::parse_str(&body.receiver_id)
@@ -329,9 +330,9 @@ impl SocialRoutes {
     /// Handle GET /api/social/friends/pending - Get pending requests
     pub(crate) async fn handle_pending_requests(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let pending = social.get_pending_friend_requests(auth.user_id).await?;
@@ -400,10 +401,10 @@ impl SocialRoutes {
     /// Handle POST /api/social/friends/:id/accept - Accept friend request
     pub(crate) async fn handle_accept_request(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let connection_id = Uuid::parse_str(&id)
@@ -463,10 +464,10 @@ impl SocialRoutes {
     /// Handle POST /api/social/friends/:id/decline - Decline friend request
     pub(crate) async fn handle_decline_request(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let connection_id = Uuid::parse_str(&id)
@@ -502,10 +503,10 @@ impl SocialRoutes {
     /// Handle DELETE /api/social/friends/:id - Remove friend
     pub(crate) async fn handle_unfriend(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let connection_id = Uuid::parse_str(&id)
@@ -534,10 +535,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/users/search - Search for users
     pub(crate) async fn handle_search_users(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<SearchUsersQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         // Safe cast: limit is clamped to [1, 50] which fits in u32

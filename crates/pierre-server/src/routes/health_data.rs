@@ -11,12 +11,12 @@
 //! All handlers require valid JWT authentication.
 
 use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
+    errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser,
     models::TenantId,
 };
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -52,14 +52,6 @@ impl HealthDataRoutes {
             )
             .route("/health-data/sources", get(Self::handle_list_data_sources))
             .with_state(resources)
-    }
-
-    /// Extract and authenticate user from authorization header
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
     }
 
     /// Get tenant ID for an authenticated user
@@ -99,10 +91,10 @@ impl HealthDataRoutes {
     /// Handle GET /health-data/sleep - query stored sleep sessions
     async fn handle_get_sleep(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth);
         let (start, end) = Self::parse_date_range(&params)?;
 
@@ -118,10 +110,10 @@ impl HealthDataRoutes {
     /// Handle GET /health-data/recovery - query stored recovery metrics
     async fn handle_get_recovery(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth);
         let (start, end) = Self::parse_date_range(&params)?;
 
@@ -137,10 +129,10 @@ impl HealthDataRoutes {
     /// Handle GET /health-data/snapshots - query stored health snapshots
     async fn handle_get_health_snapshots(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth);
         let (start, end) = Self::parse_date_range(&params)?;
 
@@ -156,9 +148,9 @@ impl HealthDataRoutes {
     /// Handle GET /health-data/sources - list connected data sources
     async fn handle_list_data_sources(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth);
 
         let sources = resources

@@ -11,7 +11,7 @@ use std::env;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -38,6 +38,7 @@ use crate::{
     },
     llm::{ChatMessage, ChatRequest, LlmProvider},
     mcp::resources::ServerContext,
+    middleware::AuthenticatedUser,
     models::{
         Activity, AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility,
         SharedInsight, TenantId, TrainingPhase,
@@ -493,10 +494,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/insights - List user's shared insights
     pub(crate) async fn handle_list_insights(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<ListInsightsQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_type = query
@@ -538,10 +539,10 @@ impl SocialRoutes {
     /// Handle POST /api/social/insights - Share a new insight
     pub(crate) async fn handle_share_insight(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<ShareInsightBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_type = InsightType::from_str(&body.insight_type)?;
@@ -630,10 +631,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/insights/:id - Get a specific insight
     pub(crate) async fn handle_get_insight(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -665,10 +666,10 @@ impl SocialRoutes {
     /// Handle DELETE /api/social/insights/:id - Delete an insight
     pub(crate) async fn handle_delete_insight(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -704,10 +705,10 @@ impl SocialRoutes {
     /// can be fetched (e.g., no OAuth token connected), returns an empty list.
     pub(crate) async fn handle_get_suggestions(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<SuggestionsQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Use provider from query or fall back to environment default
         let provider_name = query.provider.unwrap_or_else(default_provider);
@@ -760,10 +761,10 @@ impl SocialRoutes {
     /// Handle POST /api/social/insights/from-activity - Share coach-mediated insight
     pub(crate) async fn handle_share_from_activity(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<ShareFromActivityBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         // Generate activity_id for chat-based insights that don't have one
@@ -863,12 +864,9 @@ impl SocialRoutes {
     /// without any preamble or explanatory text.
     pub(crate) async fn handle_generate_insight(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        _: AuthenticatedUser,
         Json(body): Json<GenerateInsightBody>,
     ) -> Result<Response, AppError> {
-        // Authenticate user
-        Self::authenticate(&headers, &resources).await?;
-
         // Validate input
         if body.content.trim().is_empty() {
             return Err(AppError::invalid_input("Content cannot be empty"));
@@ -1174,11 +1172,11 @@ impl SocialRoutes {
     /// Handle GET /api/social/insights/:id/reactions - List reactions
     pub(crate) async fn handle_list_reactions(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
     ) -> Result<Response, AppError> {
         // Authenticate user (must be logged in to view reactions)
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -1215,11 +1213,11 @@ impl SocialRoutes {
     /// Handle POST /api/social/insights/:id/reactions - Add reaction
     pub(crate) async fn handle_add_reaction(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
         Json(body): Json<ReactToInsightBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -1282,10 +1280,10 @@ impl SocialRoutes {
     /// Handle DELETE /api/social/insights/:id/reactions/:type - Remove reaction
     pub(crate) async fn handle_remove_reaction(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path((id, reaction_type_str)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -1308,11 +1306,11 @@ impl SocialRoutes {
     /// Handle POST /api/social/insights/:id/adapt - Adapt an insight
     pub(crate) async fn handle_adapt_insight(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
         Json(body): Json<AdaptInsightBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let insight_id =
@@ -1358,10 +1356,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/adapted - List user's adapted insights
     pub(crate) async fn handle_list_adapted(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<ListAdaptedQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let limit = query.limit.unwrap_or(50).clamp(1, 100);
@@ -1395,11 +1393,11 @@ impl SocialRoutes {
     /// Handle PUT /api/social/adapted/:id/helpful - Update helpful status
     pub(crate) async fn handle_update_helpful(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(id): Path<String>,
         Json(body): Json<UpdateHelpfulBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let adapted_id = Uuid::parse_str(&id)

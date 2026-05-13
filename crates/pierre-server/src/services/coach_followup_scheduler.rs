@@ -41,8 +41,6 @@ use pierre_memory::CoachFollowup;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
-use crate::mcp::resources::ServerContext;
-
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
     models::NotificationCategory as CommNotifCategory, DispatchRequest, NotificationService,
@@ -300,10 +298,12 @@ pub async fn run_loop<R>(
 /// for the server's lifetime; aborting it requires capturing the
 /// returned `JoinHandle`, which we currently discard since the scheduler
 /// is best-effort and a server restart re-arms it.
-pub fn start_followup_scheduler(resources: &Arc<ServerContext>) {
-    let repo = Arc::clone(&resources.repos.memory);
-    #[cfg(feature = "client-notifications")]
-    let notification_service = resources.notification_service.clone();
+pub fn start_followup_scheduler(
+    repo: Arc<dyn HarnessMemoryRepository>,
+    #[cfg(feature = "client-notifications")] notification_service: Option<
+        Arc<pierre_notifications::NotificationService>,
+    >,
+) {
     tokio::spawn(async move {
         run_loop(
             repo,

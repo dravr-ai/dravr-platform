@@ -21,9 +21,11 @@ use std::sync::Arc;
 use pierre_database::database::MessageRecord;
 use uuid::Uuid;
 
+use crate::context::DataContext;
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
 use crate::models::ConnectionType;
+use crate::tools::ToolRegistry;
 
 #[cfg(feature = "tools-groups")]
 use crate::errors::AppResult;
@@ -119,10 +121,10 @@ pub fn build_llm_messages(
 /// runtime (e.g. synthetic providers excluded from production builds).
 /// Returns an empty string when the user has no registered connections —
 /// callers append this unconditionally.
-pub async fn build_provider_context(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
+pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String {
     // Get all provider connections (cross-tenant view, single source of truth)
-    let Ok(connections) = resources
-        .repos
+    let Ok(connections) = data
+        .repos()
         .provider_connections
         .get_for_user(user_id, None)
         .await
@@ -134,7 +136,7 @@ pub async fn build_provider_context(resources: &Arc<ServerContext>, user_id: Uui
     // (e.g., synthetic providers excluded from production builds)
     let connections: Vec<_> = connections
         .into_iter()
-        .filter(|c| resources.provider_registry.is_supported(&c.provider))
+        .filter(|c| data.provider_registry().is_supported(&c.provider))
         .collect();
 
     if connections.is_empty() {
@@ -168,8 +170,8 @@ pub async fn build_provider_context(resources: &Arc<ServerContext>, user_id: Uui
 /// stopped reflecting reality. Each user-visible tool gets one line:
 /// `` - `name`: description ``. Admin-only tools are excluded.
 #[must_use]
-pub fn build_tools_section(resources: &Arc<ServerContext>) -> String {
-    let schemas = resources.tool_registry.user_visible_schemas();
+pub fn build_tools_section(tool_registry: &Arc<ToolRegistry>) -> String {
+    let schemas = tool_registry.user_visible_schemas();
 
     let mut out = String::with_capacity(2_048);
     out.push_str("## Available Tools\n\n");

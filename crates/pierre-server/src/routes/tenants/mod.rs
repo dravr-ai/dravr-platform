@@ -16,15 +16,17 @@
 /// Service layer for multi-tenant management operations
 pub mod service;
 
-use crate::{errors::AppError, mcp::resources::ServerContext, models::TenantId};
+use crate::{
+    errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser,
+    models::TenantId,
+};
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use pierre_auth::auth::AuthResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -89,31 +91,13 @@ impl TenantRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        let auth_header = headers
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| AppError::auth_invalid("Missing authorization header"))?;
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(auth_header))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
     /// Handle tenant creation
     async fn handle_create_tenant(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<service::CreateTenantRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-
+        let auth = auth.into_inner();
         let response = service::create_tenant(request, auth, resources.repos.clone()).await?;
 
         Ok((StatusCode::CREATED, Json(response)).into_response())
@@ -122,10 +106,9 @@ impl TenantRoutes {
     /// Handle listing tenants
     async fn handle_list_tenants(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-
+        let auth = auth.into_inner();
         let response = service::list_tenants(auth, resources.repos.clone()).await?;
 
         Ok((StatusCode::OK, Json(response)).into_response())
@@ -137,10 +120,10 @@ impl TenantRoutes {
     /// with the `active_tenant_id` claim set to the specified tenant.
     async fn handle_switch_tenant(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<SwitchTenantRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         info!(
             user_id = %auth.user_id,
@@ -219,12 +202,12 @@ impl TenantRoutes {
     /// in each tenant and which one is currently active.
     async fn handle_list_my_tenants(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Get the current active tenant from JWT claims (if any)
-        let active_tenant_id = Self::extract_active_tenant_from_header(&headers, &resources);
+        let active_tenant_id = auth.active_tenant_id.map(TenantId::from);
 
         // Get all tenants the user belongs to
         let tenants = resources
@@ -267,24 +250,5 @@ impl TenantRoutes {
             }),
         )
             .into_response())
-    }
-
-    /// Extract active tenant ID from Authorization header JWT claims
-    fn extract_active_tenant_from_header(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Option<TenantId> {
-        let auth_header = headers.get("authorization")?.to_str().ok()?;
-        let token = auth_header.strip_prefix("Bearer ")?;
-
-        let claims = resources
-            .auth_manager
-            .validate_token(token, &resources.jwks_manager)
-            .ok()?;
-
-        claims
-            .active_tenant_id
-            .as_deref()
-            .and_then(|tid| tid.parse().ok())
     }
 }

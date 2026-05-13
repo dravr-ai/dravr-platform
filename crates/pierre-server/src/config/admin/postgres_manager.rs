@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::repository::AdminConfigRepository;
+use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
 use super::types::{
     AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
 };
@@ -192,17 +192,16 @@ impl AdminConfigRepository for PostgresAdminConfigManager {
         AdminConfigRepository::get_override(self, category, key, None).await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn set_override(
-        &self,
-        category: &str,
-        key: &str,
-        value: &serde_json::Value,
-        data_type: ConfigDataType,
-        admin_user_id: &str,
-        tenant_id: Option<&str>,
-        reason: Option<&str>,
-    ) -> AppResult<ConfigOverride> {
+    async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {
+        let SetOverrideParams {
+            category,
+            key,
+            value,
+            data_type,
+            admin_user_id,
+            tenant_id,
+            reason,
+        } = params;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let value_str = serde_json::to_string(value)?;
@@ -331,21 +330,20 @@ impl AdminConfigRepository for PostgresAdminConfigManager {
         Ok(result.rows_affected() as usize)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn log_change(
-        &self,
-        admin_user_id: &str,
-        admin_email: &str,
-        category: &str,
-        key: &str,
-        old_value: Option<&serde_json::Value>,
-        new_value: &serde_json::Value,
-        data_type: ConfigDataType,
-        reason: Option<&str>,
-        tenant_id: Option<&str>,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
-    ) -> AppResult<String> {
+    async fn log_change(&self, params: LogChangeParams<'_>) -> AppResult<String> {
+        let LogChangeParams {
+            admin_user_id,
+            admin_email,
+            category,
+            key,
+            old_value,
+            new_value,
+            data_type,
+            reason,
+            tenant_id,
+            ip_address,
+            user_agent,
+        } = params;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let old_value_str = old_value.map(|v| serde_json::to_string(v).unwrap_or_default());

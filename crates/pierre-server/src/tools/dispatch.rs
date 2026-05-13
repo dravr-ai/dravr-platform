@@ -1,20 +1,19 @@
-// ABOUTME: Inverse of protocols::universal::handlers::mcp_bridge — lets McpTool::execute delegate to a UniversalExecutor handler fn
-// ABOUTME: Collapses dispatch drift between MCP protocol and chat-pipeline tool loops to a single execution path
+// ABOUTME: Bridges McpTool::execute onto the protocols::universal::handlers handler body for one tool
+// ABOUTME: Single canonical conversion between ToolExecutionContext + Value args and UniversalRequest/Response
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Delegate an [`McpTool::execute`] body to a `UniversalExecutor` handler.
+//! Dispatch an [`McpTool::execute`] call onto a `UniversalExecutor` handler fn.
 //!
-//! Used during the tool-registry unification: one `McpTool` impl per tool,
-//! dispatched through the same registry from both MCP protocol and chat
-//! pipeline paths. Handler bodies still live under
-//! `protocols::universal::handlers::`, and this helper bridges the
-//! canonical `McpTool` impl onto them so exactly one body executes per tool
-//! regardless of which protocol dispatched it.
+//! Every tool — regardless of which protocol (MCP, A2A, chat pipeline) raised
+//! the call — converges on one [`McpTool`] impl per tool. Handler bodies live
+//! under [`crate::protocols::universal::handlers`]; this module owns the
+//! single conversion shape (`ToolExecutionContext` + `Value` → `UniversalRequest`,
+//! and `Result<UniversalResponse, ProtocolError>` → [`ToolResult`]) so each
+//! tool impl is a thin schema definition plus one call to [`dispatch_handler`].
 //!
-//! Retired once handler inlining completes (Stage 5 of the unification) —
-//! the helper and every call site can then be removed.
+//! [`McpTool`]: crate::tools::McpTool
 
 use std::future::Future;
 use std::pin::Pin;
@@ -38,7 +37,7 @@ pub type HandlerFn = for<'a> fn(
     Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + 'a>,
 >;
 
-/// Delegate the body of an `McpTool::execute(args, ctx)` call to a
+/// Dispatch the body of an `McpTool::execute(args, ctx)` call to a
 /// `UniversalExecutor` handler.
 ///
 /// Builds a [`UniversalRequest`] from the tool-execution context, spins up a
@@ -52,7 +51,9 @@ pub type HandlerFn = for<'a> fn(
 /// Returns `AppError::auth_invalid` when the context is missing a tenant
 /// (handlers require it) and `AppError::external_service` when the handler
 /// returns a `ProtocolError`.
-pub async fn delegate_to_handler(
+///
+/// [`ServerContext`]: crate::mcp::resources::ServerContext
+pub async fn dispatch_handler(
     ctx: &ToolExecutionContext,
     args: Value,
     tool_name: &'static str,
