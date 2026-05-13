@@ -269,32 +269,40 @@ fn log_failure_transition(provider: &str, kind: ProbeKind, previous: LlmHealthSt
     let pageable = matches!(previous, LlmHealthStatus::Healthy)
         || (matches!(previous, LlmHealthStatus::Unknown) && matches!(kind, ProbeKind::Periodic));
     if pageable {
-        error!(
-            provider,
-            %kind,
-            previous = %previous,
-            error,
-            "LLM probe transitioned to Unhealthy; chat traffic at risk"
-        );
-        // Operationally distinct from the all-errors firehose: route the
-        // transition through NotifyLayer so it lands in #dravr-signal with
-        // a stable event name + structured fields. See ADR-014.
-        info!(
-            target: "notify",
-            event = "llm.provider_unhealthy",
-            provider = provider,
-            previous_state = %previous,
-            error = error,
-            "LLM probe transitioned to Unhealthy"
-        );
+        log_pageable_failure(provider, kind, previous, error);
     } else {
-        warn!(
-            provider,
-            %kind,
-            error,
-            "LLM startup probe failed; relying on runtime fallback if configured"
-        );
+        log_startup_failure(provider, kind, error);
     }
+}
+
+fn log_pageable_failure(provider: &str, kind: ProbeKind, previous: LlmHealthStatus, error: &str) {
+    error!(
+        provider,
+        %kind,
+        previous = %previous,
+        error,
+        "LLM probe transitioned to Unhealthy; chat traffic at risk"
+    );
+    // Operationally distinct from the all-errors firehose: route the
+    // transition through NotifyLayer so it lands in #dravr-signal with
+    // a stable event name + structured fields. See ADR-014.
+    info!(
+        target: "notify",
+        event = "llm.provider_unhealthy",
+        provider = provider,
+        previous_state = %previous,
+        error = error,
+        "LLM probe transitioned to Unhealthy"
+    );
+}
+
+fn log_startup_failure(provider: &str, kind: ProbeKind, error: &str) {
+    warn!(
+        provider,
+        %kind,
+        error,
+        "LLM startup probe failed; relying on runtime fallback if configured"
+    );
 }
 
 fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthStatus) {
