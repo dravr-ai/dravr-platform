@@ -36,8 +36,28 @@ use pierre_mcp_server::llm::{
     OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
 use serde_json::json;
+use std::env;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Returns true when the test should actually run (CI provisions Ollama and
+/// sets `RUN_LOCAL_LLM_TESTS=1`). On developer machines this defaults to false
+/// so the live-LLM tests skip silently instead of hanging on a missing local
+/// server. Pattern mirrors `weather_backfill_test::RUN_NETWORK_TESTS`.
+fn local_llm_tests_enabled() -> bool {
+    env::var("RUN_LOCAL_LLM_TESTS").is_ok()
+}
+
+macro_rules! require_local_llm {
+    () => {
+        if !local_llm_tests_enabled() {
+            eprintln!(
+                "skipping: set RUN_LOCAL_LLM_TESTS=1 (and run `ollama serve`) to enable local LLM integration tests"
+            );
+            return;
+        }
+    };
+}
 
 // =============================================================================
 // Helper Functions
@@ -177,6 +197,7 @@ fn create_pierre_fitness_tools() -> Vec<Tool> {
 
 #[tokio::test]
 async fn test_ollama_server_health() {
+    require_local_llm!();
     let provider = create_ollama_provider();
 
     let result = provider.health_check().await;
@@ -189,6 +210,7 @@ async fn test_ollama_server_health() {
 
 #[tokio::test]
 async fn test_vllm_server_health() {
+    require_local_llm!();
     let config = OpenAiCompatibleConfig::vllm("meta-llama/Llama-3.1-8B-Instruct");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
 
@@ -205,6 +227,7 @@ async fn test_vllm_server_health() {
 
 #[tokio::test]
 async fn test_pierre_fitness_tools_with_local_llm() {
+    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -293,6 +316,7 @@ async fn test_pierre_fitness_tools_with_local_llm() {
 
 #[tokio::test]
 async fn test_pierre_complex_multi_tool_query() {
+    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -323,6 +347,7 @@ async fn test_pierre_complex_multi_tool_query() {
 
 #[tokio::test]
 async fn test_local_llm_latency_acceptable() {
+    require_local_llm!();
     let provider = create_ollama_provider();
 
     let simple_request =
@@ -344,6 +369,7 @@ async fn test_local_llm_latency_acceptable() {
 
 #[tokio::test]
 async fn test_local_llm_streaming_first_token_latency() {
+    require_local_llm!();
     use futures_util::StreamExt;
 
     let provider = create_ollama_provider();
@@ -386,6 +412,7 @@ async fn test_local_llm_streaming_first_token_latency() {
 
 #[tokio::test]
 async fn test_local_llm_tool_calling_latency() {
+    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -421,6 +448,7 @@ async fn test_local_llm_tool_calling_latency() {
 
 #[tokio::test]
 async fn test_local_llm_missing_model_error() {
+    require_local_llm!();
     let config = OpenAiCompatibleConfig::ollama("nonexistent-model:latest");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
 
@@ -465,6 +493,7 @@ async fn test_local_llm_server_not_running_error() {
 
 #[tokio::test]
 async fn test_local_llm_concurrent_requests() {
+    require_local_llm!();
     let provider = create_ollama_provider();
     let provider = Arc::new(provider);
 
