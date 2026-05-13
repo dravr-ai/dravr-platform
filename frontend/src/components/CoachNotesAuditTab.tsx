@@ -222,7 +222,7 @@ export default function CoachNotesAuditTab() {
             <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
               Coach personas write notes about a user via the
               <code className="mx-1 rounded bg-gray-100 px-1 dark:bg-gray-800">
-                memory.write_note
+                coach_note_add
               </code>
               tool. Nothing listed means no notes have been authored in this tenant yet.
             </p>

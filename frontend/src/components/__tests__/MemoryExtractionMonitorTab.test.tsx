@@ -7,7 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import MemoryExtractionMonitorTab from '../MemoryExtractionMonitorTab';
+import MemoryExtractionMonitorTab, {
+  distributePercentages,
+} from '../MemoryExtractionMonitorTab';
 import type { MemoryWorkerMetricsResponse, UserFactMetrics } from '../../services/api/admin';
 
 vi.mock('../../services/api/admin', async () => ({
@@ -129,5 +131,25 @@ describe('MemoryExtractionMonitorTab', () => {
     expect(screen.getByText(/Physiology/)).toBeInTheDocument();
     expect(screen.getByText(/Injuries/)).toBeInTheDocument();
     expect(screen.getByText(/Goals/)).toBeInTheDocument();
+  });
+});
+
+describe('distributePercentages (audit 2026-05-07: 35+24+24+18=101% bug)', () => {
+  it('sums to 100 for the audit data point (6,4,4,3 of 17)', () => {
+    expect(distributePercentages([6, 4, 4, 3], 17).reduce((a, b) => a + b, 0)).toBe(100);
+  });
+
+  it('sums to 100 across many randomized inputs', () => {
+    for (let i = 0; i < 50; i++) {
+      const counts = Array.from({ length: 5 }, () => Math.floor(Math.random() * 50) + 1);
+      const total = counts.reduce((a, b) => a + b, 0);
+      const sum = distributePercentages(counts, total).reduce((a, b) => a + b, 0);
+      expect(sum).toBe(100);
+    }
+  });
+
+  it('returns all zeros for empty input', () => {
+    expect(distributePercentages([], 0)).toEqual([]);
+    expect(distributePercentages([0, 0], 0)).toEqual([0, 0]);
   });
 });

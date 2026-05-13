@@ -58,7 +58,12 @@ export default function GroupCard({ group, onClick }: GroupCardProps) {
           </div>
 
           {group.description && (
-            <p className="text-sm text-on-surface-variant mb-3 line-clamp-2">{group.description}</p>
+            <p
+              className="text-sm text-on-surface-variant mb-3 line-clamp-2 break-words"
+              title={group.description}
+            >
+              {group.description}
+            </p>
           )}
 
           <div className="flex items-center gap-4 text-sm text-outline">

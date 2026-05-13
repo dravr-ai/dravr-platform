@@ -482,19 +482,68 @@ async fn forge_fresh_session_conversation(
         "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
     let title = format!("Messaging: {channel_type}");
+    // Bind the user's default coach so verdicts/grades/myth-busting attribute
+    // correctly. When the user has no default, leave it null and the
+    // downstream attribution panels will simply skip the row.
+    let coach_id = resolve_default_coach_id(resources, user_id).await;
     let conversation = chat_orchestration::create_conversation(
         resources.repos.chat.as_ref(),
         user_id,
         tenant_id,
         &title,
         None,
-        None,
+        coach_id.as_deref(),
         None,
     )
     .await?;
+    if let Some(coach_id_str) = coach_id.as_deref() {
+        record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
+    }
     let new_id = conversation.conversation.id.clone();
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
+}
+
+/// Best-effort `coach_assignments.use_count++` for messaging-channel
+/// conversations. Logs and swallows errors so transient DB issues don't
+/// break the user-visible turn.
+async fn record_coach_usage(
+    resources: &ServerContext,
+    coach_id: &str,
+    user_id_str: &str,
+    tenant_id: TenantId,
+) {
+    let Ok(user_id) = Uuid::parse_str(user_id_str) else {
+        return;
+    };
+    match resources
+        .coaches_manager()
+        .record_usage(coach_id, user_id, tenant_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(
+                coach_id,
+                %tenant_id,
+                "skipping coach usage bump from messaging path — coach not visible to caller's tenant"
+            );
+        }
+        Err(e) => {
+            warn!(coach_id, error = %e, "failed to record coach usage from messaging path");
+        }
+    }
+}
+
+/// Resolve the user's default coach for messaging-channel conversations so
+/// claim verdicts, coach grades, and myth-busting can attribute the
+/// generated content to a coach. Returns `None` when the user has no
+/// default coach or the lookup fails — callers must not panic on the
+/// missing attribution.
+async fn resolve_default_coach_id(resources: &ServerContext, user_id_str: &str) -> Option<String> {
+    let parsed = Uuid::parse_str(user_id_str).ok()?;
+    let user = resources.repos.users.get_global(parsed).await.ok()??;
+    user.default_coach_id
 }
 
 /// Resolve a messaging session for an already-authenticated channel user.
@@ -661,16 +710,20 @@ async fn open_new_session(
     .await;
 
     let title = format!("Messaging: {channel_type}");
+    let coach_id = resolve_default_coach_id(resources, &user_id).await;
     let conversation = chat_orchestration::create_conversation(
         resources.repos.chat.as_ref(),
         &user_id,
         tenant_id,
         &title,
         None,
-        None,
+        coach_id.as_deref(),
         group_id_opt.as_deref(),
     )
     .await?;
+    if let Some(coach_id_str) = coach_id.as_deref() {
+        record_coach_usage(resources, coach_id_str, &user_id, tenant_id).await;
+    }
 
     let conversation_id = conversation.conversation.id.clone();
     let session_id = Uuid::new_v4().to_string();

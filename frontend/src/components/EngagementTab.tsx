@@ -58,6 +58,10 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
   const now = Date.now();
   const dayMs = 86_400_000;
 
+  // Cumulative buckets: DAU ⊆ WAU ⊆ MAU. Mutually exclusive bins
+  // (the prior implementation) produced impossible values like
+  // DAU=2 > WAU=1 > MAU=0 because each user could only land in one
+  // bucket — readers expect industry-standard cumulative counters.
   let dailyActive = 0;
   let weeklyActive = 0;
   let monthlyActive = 0;
@@ -67,15 +71,10 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
     const lastActive = user.last_active ? new Date(user.last_active).getTime() : 0;
     const daysSinceActive = (now - lastActive) / dayMs;
 
-    if (daysSinceActive <= 1) {
-      dailyActive++;
-    } else if (daysSinceActive <= 7) {
-      weeklyActive++;
-    } else if (daysSinceActive <= 30) {
-      monthlyActive++;
-    } else {
-      dormant++;
-    }
+    if (daysSinceActive <= 1) dailyActive++;
+    if (daysSinceActive <= 7) weeklyActive++;
+    if (daysSinceActive <= 30) monthlyActive++;
+    if (daysSinceActive > 30) dormant++;
   }
 
   // Build coach leaderboard sorted by token_count (proxy for usage)
@@ -158,7 +157,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">#</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Coach</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">Tokens Used</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider" title="Coach system-prompt size (chars), proxy for setup cost — not real per-coach consumption">Prompt Size</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">

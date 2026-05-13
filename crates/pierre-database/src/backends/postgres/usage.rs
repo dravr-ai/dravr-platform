@@ -659,13 +659,14 @@ impl LlmUsageRepository for PostgresDatabase {
         tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
                    COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
                    COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
-                   COUNT(*)::BIGINT as calls
+                   COUNT(*)::BIGINT as calls,
+                   AVG(execution_time_ms::DOUBLE PRECISION) as avg_exec_ms
             FROM llm_usage
             WHERE tenant_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
             GROUP BY created_at::DATE
@@ -682,12 +683,15 @@ impl LlmUsageRepository for PostgresDatabase {
         Ok(rows
             .into_iter()
             .map(
-                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
-                    date,
-                    tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
+                |(date, tokens, prompt_tokens, completion_tokens, calls, avg_exec_ms)| {
+                    LlmUsageDailyRow {
+                        date,
+                        tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                        avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
+                    }
                 },
             )
             .collect())
@@ -749,13 +753,14 @@ impl LlmUsageRepository for PostgresDatabase {
         user_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
                    COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
                    COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
-                   COUNT(*)::BIGINT as calls
+                   COUNT(*)::BIGINT as calls,
+                   AVG(execution_time_ms::DOUBLE PRECISION) as avg_exec_ms
             FROM llm_usage
             WHERE user_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
             GROUP BY created_at::DATE
@@ -776,12 +781,15 @@ impl LlmUsageRepository for PostgresDatabase {
         Ok(rows
             .into_iter()
             .map(
-                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
-                    date,
-                    tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
+                |(date, tokens, prompt_tokens, completion_tokens, calls, avg_exec_ms)| {
+                    LlmUsageDailyRow {
+                        date,
+                        tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                        avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
+                    }
                 },
             )
             .collect())

@@ -911,10 +911,13 @@ impl CoachesRepository for PostgresDatabase {
     ) -> AppResult<bool> {
         let now = Utc::now();
 
-        // Verify the coach exists and belongs to the tenant
+        // Verify the coach is reachable to the caller. System coaches (is_system = TRUE)
+        // are pinned to the seed tenant but exposed to every tenant via the catalog,
+        // so we accept them unconditionally — otherwise any non-seed-tenant user
+        // chatting with a builtin coach silently skips usage tracking.
         let exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)
             ",
         )
         .bind(coach_id)
@@ -956,10 +959,11 @@ impl CoachesRepository for PostgresDatabase {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>> {
-        // Verify the coach exists in the tenant
+        // Same reasoning as record_usage: accept system coaches so favorites
+        // toggle for non-seed-tenant users on builtin coaches.
         let coach_exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)
             ",
         )
         .bind(coach_id)
@@ -1072,10 +1076,12 @@ impl CoachesRepository for PostgresDatabase {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>> {
-        // Verify the coach exists
+        // Same reasoning as record_usage / toggle_favorite: accept system coaches
+        // unconditionally so non-seed-tenant users can pick a builtin coach as
+        // their active default.
         let coach_exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)
             ",
         )
         .bind(coach_id)

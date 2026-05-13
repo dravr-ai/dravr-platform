@@ -133,14 +133,9 @@ export default function AdminSettings() {
             <div className="flex-1 mr-4">
               <h3 className="font-medium text-on-surface">Auto-Approve Registrations</h3>
               <p className="text-sm text-on-surface-variant mt-1">
-                When enabled, new user registrations are automatically approved without requiring admin review.
-                This is useful for public platforms but may pose security risks.
+                {autoApprovalData?.description ??
+                  'When enabled, new registrations are auto-approved. When disabled, only emails from auto_approve_domains are auto-approved.'}
               </p>
-              {autoApprovalData?.description && (
-                <p className="text-xs text-outline mt-2">
-                  {autoApprovalData.description}
-                </p>
-              )}
             </div>
             <div className="flex-shrink-0">
               {isLoading ? (

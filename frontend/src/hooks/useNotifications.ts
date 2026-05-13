@@ -45,14 +45,18 @@ export function useNotificationFeed(params?: ListNotificationsParams) {
 
 /**
  * Hook for fetching the unread notification count.
- * Polls every 60 seconds for badge updates.
+ * Polls every 2 minutes for badge updates; window-focus refetch disabled
+ * because this is a low-value background counter and tab-hopping was
+ * generating 80+ requests per session.
  */
 export function useUnreadCount() {
   const query = useQuery({
     queryKey: QUERY_KEYS.notifications.unreadCount(),
     queryFn: () => notificationsApi.getUnreadCount(),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   return {

@@ -323,15 +323,17 @@ impl DashboardRoutes {
             let day_start = start_date + Duration::days(i64::from(day));
             let day_date = day_start.format("%Y-%m-%d").to_string();
 
-            let (request_count, error_count) = llm_by_date
+            let (request_count, error_count, avg_response_ms) = llm_by_date
                 .get(&day_date)
-                .map_or((0u64, 0u64), |row| (row.calls.unsigned_abs(), 0u64));
+                .map_or((0u64, 0u64, 0.0_f64), |row| {
+                    (row.calls.unsigned_abs(), 0u64, row.avg_execution_time_ms)
+                });
 
             time_series.push(UsageDataPoint {
                 date: day_date,
                 request_count,
                 error_count,
-                average_response_time: 0.0,
+                average_response_time: avg_response_ms,
             });
         }
 

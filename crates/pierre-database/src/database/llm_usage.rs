@@ -207,13 +207,14 @@ impl Database {
         tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT DATE(created_at) as date,
                    SUM(total_tokens) as tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
-                   COUNT(*) as calls
+                   COUNT(*) as calls,
+                   AVG(CAST(execution_time_ms AS REAL)) as avg_exec_ms
             FROM llm_usage
             WHERE tenant_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY DATE(created_at)
@@ -230,12 +231,15 @@ impl Database {
         Ok(rows
             .into_iter()
             .map(
-                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
-                    date,
-                    tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
+                |(date, tokens, prompt_tokens, completion_tokens, calls, avg_exec_ms)| {
+                    LlmUsageDailyRow {
+                        date,
+                        tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                        avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
+                    }
                 },
             )
             .collect())
@@ -330,13 +334,14 @@ impl LlmUsageRepository for Database {
         user_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT DATE(created_at) as date,
                    SUM(total_tokens) as tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
-                   COUNT(*) as calls
+                   COUNT(*) as calls,
+                   AVG(CAST(execution_time_ms AS REAL)) as avg_exec_ms
             FROM llm_usage
             WHERE user_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY DATE(created_at)
@@ -357,12 +362,15 @@ impl LlmUsageRepository for Database {
         Ok(rows
             .into_iter()
             .map(
-                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
-                    date,
-                    tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
+                |(date, tokens, prompt_tokens, completion_tokens, calls, avg_exec_ms)| {
+                    LlmUsageDailyRow {
+                        date,
+                        tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                        avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
+                    }
                 },
             )
             .collect())

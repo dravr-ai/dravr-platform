@@ -91,7 +91,34 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Default tab depends on user role: admin sees 'users', regular users see 'chat'
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
-  const [activeTab, setActiveTab] = useState(isAdminUser ? 'users' : 'chat');
+  // Initialize from URL hash so deep links (#users, #coaches, …) survive
+  // page reloads and bookmarks. Falls back to role default.
+  const initialTab = (() => {
+    const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
+    if (hash) return hash;
+    return isAdminUser ? 'users' : 'chat';
+  })();
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // Mirror activeTab → location.hash so the URL bar reflects the section.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const current = window.location.hash.replace(/^#/, '');
+    if (current !== activeTab) {
+      window.history.replaceState(null, '', `#${activeTab}`);
+    }
+  }, [activeTab]);
+
+  // React to back/forward and external hash changes.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHashChange = () => {
+      const next = window.location.hash.replace(/^#/, '');
+      if (next) setActiveTab(next);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   // Sub-view state for insights tab (feed vs friends), matching mobile's social stack
   const [insightsView, setInsightsView] = useState<'feed' | 'friends'>('feed');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
