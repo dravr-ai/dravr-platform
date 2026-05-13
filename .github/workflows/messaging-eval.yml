@@ -74,6 +74,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
@@ -152,6 +153,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
