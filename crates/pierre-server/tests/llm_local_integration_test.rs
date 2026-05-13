@@ -369,8 +369,8 @@ async fn test_local_llm_latency_acceptable() {
 
 #[tokio::test]
 async fn test_local_llm_streaming_first_token_latency() {
-    require_local_llm!();
     use futures_util::StreamExt;
+    require_local_llm!();
 
     let provider = create_ollama_provider();
 
