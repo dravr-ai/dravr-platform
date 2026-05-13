@@ -12,7 +12,7 @@
 
 use crate::config::admin::{
     AdminConfigService, ConfigAuditFilter, ConfigAuditResponse, ResetConfigRequest,
-    UpdateConfigRequest, ValidateConfigRequest,
+    UpdateConfigContext, UpdateConfigRequest, ValidateConfigRequest,
 };
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
@@ -305,11 +305,15 @@ pub async fn update_config(
         .service
         .update_config(
             &request,
-            &user_id,
-            user_email,
-            query.tenant_id.as_deref(),
-            None, // IP address - would come from request headers in production
-            None, // User agent - would come from request headers in production
+            UpdateConfigContext {
+                admin_user_id: &user_id,
+                admin_email: user_email,
+                tenant_id: query.tenant_id.as_deref(),
+                // IP address - would come from request headers in production
+                ip_address: None,
+                // User agent - would come from request headers in production
+                user_agent: None,
+            },
         )
         .await?;
 
@@ -389,11 +393,13 @@ pub async fn update_category_config(
         .service
         .update_config(
             &filtered_request,
-            &user_id,
-            user_email,
-            query.tenant_id.as_deref(),
-            None,
-            None,
+            UpdateConfigContext {
+                admin_user_id: &user_id,
+                admin_email: user_email,
+                tenant_id: query.tenant_id.as_deref(),
+                ip_address: None,
+                user_agent: None,
+            },
         )
         .await?;
 
@@ -441,11 +447,13 @@ pub async fn reset_config(
         .service
         .reset_config(
             &request,
-            &user_id,
-            user_email,
-            query.tenant_id.as_deref(),
-            None,
-            None,
+            UpdateConfigContext {
+                admin_user_id: &user_id,
+                admin_email: user_email,
+                tenant_id: query.tenant_id.as_deref(),
+                ip_address: None,
+                user_agent: None,
+            },
         )
         .await?;
 

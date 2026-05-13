@@ -66,13 +66,15 @@ pub mod manager;
 #[cfg(feature = "postgresql")]
 pub mod postgres_manager;
 
+/// Per-category builders for the parameter definition catalog.
+mod definitions;
 /// Configuration service with caching and hot reload
 pub mod service;
 
 // Re-export main types for convenience
 pub use manager::AdminConfigManager;
 pub use repository::AdminConfigRepository;
-pub use service::{AdminConfigService, ParameterDefinition};
+pub use service::{AdminConfigService, ParameterDefinition, UpdateConfigContext};
 pub use types::{
     AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry, ConfigAuditFilter,
     ConfigAuditResponse, ConfigCatalogResponse, ConfigDataType, ConfigExportData, ConfigOverride,

@@ -618,30 +618,41 @@ fn create_test_activity_with_segments() -> Activity {
     .build()
 }
 
+/// Assert `actual` is within `f64::EPSILON` of `expected`.
+fn assert_f64_close(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() < f64::EPSILON,
+        "expected {expected}, got {actual}"
+    );
+}
+
+/// Assert an `Option` carrying any `Into<f64>` is within `f64::EPSILON` of
+/// `expected`. Accepts both `Option<f32>` and `Option<f64>` fields.
+fn assert_opt_f64_close<T: Into<f64>>(actual: Option<T>, expected: f64) {
+    match actual {
+        Some(v) => assert_f64_close(v.into(), expected),
+        None => unreachable!("expected Some({expected}), got None"),
+    }
+}
+
 /// Validate climb segment fields
-#[allow(clippy::float_cmp)] // Test assertions with exact literal float values
 fn validate_climb_segment(climb: &SegmentEffort) {
     assert_eq!(climb.name, "Steep Climb");
     assert_eq!(climb.elapsed_time, 600);
-    assert_eq!(climb.distance, 1200.0);
+    assert_f64_close(climb.distance, 1200.0);
     assert_eq!(climb.kom_rank, Some(5));
     assert_eq!(climb.pr_rank, Some(2));
     assert_eq!(climb.climb_category, Some(3));
-    assert_eq!(climb.average_grade, Some(8.5));
-    assert_eq!(climb.elevation_gain, Some(102.0));
+    assert_opt_f64_close(climb.average_grade, 8.5);
+    assert_opt_f64_close(climb.elevation_gain, 102.0);
 }
 
 /// Validate descent segment fields
-#[allow(clippy::float_cmp)] // Test assertions with exact literal float values
 fn validate_descent_segment(descent: &SegmentEffort) {
     assert_eq!(descent.name, "Fast Descent");
     assert_eq!(descent.elapsed_time, 300);
     assert_eq!(descent.pr_rank, Some(1), "Should be PR!");
-    assert_eq!(
-        descent.average_grade,
-        Some(-6.5),
-        "Should be negative grade for descent"
-    );
+    assert_opt_f64_close(descent.average_grade, -6.5);
     assert_eq!(
         descent.climb_category, None,
         "Descents don't have climb category"
@@ -649,7 +660,6 @@ fn validate_descent_segment(descent: &SegmentEffort) {
 }
 
 #[test]
-#[allow(clippy::float_cmp)] // Test assertions with exact literal float values
 fn test_activity_detailed_fields() {
     let activity = create_test_activity_with_segments();
 

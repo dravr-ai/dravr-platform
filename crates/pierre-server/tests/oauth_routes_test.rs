@@ -32,7 +32,6 @@ use pierre_mcp_server::{
 use std::sync::Arc;
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_email_validation() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
@@ -257,7 +256,6 @@ async fn test_email_validation() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_password_validation() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
@@ -454,7 +452,6 @@ async fn test_password_validation() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_duplicate_user_registration() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
@@ -642,7 +639,6 @@ async fn test_duplicate_user_registration() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_login_with_correct_credentials() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
@@ -880,7 +876,6 @@ async fn test_login_with_correct_credentials() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_login_with_wrong_password() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
@@ -1075,7 +1070,6 @@ async fn test_login_with_wrong_password() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_login_with_non_existent_user() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();

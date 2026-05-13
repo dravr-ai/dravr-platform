@@ -32,7 +32,6 @@ use uuid::Uuid;
 mod common;
 
 /// Test configuration for universal protocols
-#[allow(clippy::too_many_lines)]
 async fn create_test_executor() -> Result<UniversalToolExecutor> {
     let database = common::create_test_database().await?;
 
@@ -456,7 +455,6 @@ async fn test_connect_fitbit_tool() -> Result<()> {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_set_goal_tool() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
@@ -1210,7 +1208,6 @@ async fn test_analyze_training_load_tool() -> Result<()> {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_disconnect_provider_tool() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;

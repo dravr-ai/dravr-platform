@@ -698,19 +698,16 @@ impl SdkBridgeHandle {
     }
 
     /// Get mutable reference to stdin for sending requests
-    #[allow(clippy::missing_const_for_fn)] // Cannot be const - returns &mut
     pub fn stdin(&mut self) -> Option<&mut ChildStdin> {
         self.process.stdin.as_mut()
     }
 
     /// Get mutable reference to stdout for reading responses
-    #[allow(clippy::missing_const_for_fn)] // Cannot be const - returns &mut
     pub fn stdout(&mut self) -> Option<&mut ChildStdout> {
         self.process.stdout.as_mut()
     }
 
     /// Get mutable reference to stderr for reading errors
-    #[allow(clippy::missing_const_for_fn)] // Cannot be const - returns &mut
     pub fn stderr(&mut self) -> Option<&mut ChildStderr> {
         self.process.stderr.as_mut()
     }

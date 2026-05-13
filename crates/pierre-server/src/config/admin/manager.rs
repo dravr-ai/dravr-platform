@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::repository::AdminConfigRepository;
+use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
 use super::types::{
     AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
 };
@@ -142,17 +142,16 @@ impl AdminConfigManager {
     /// # Errors
     ///
     /// Returns an error if database operation fails
-    #[allow(clippy::too_many_arguments)]
-    pub async fn set_override(
-        &self,
-        category: &str,
-        key: &str,
-        value: &serde_json::Value,
-        data_type: ConfigDataType,
-        admin_user_id: &str,
-        tenant_id: Option<&str>,
-        reason: Option<&str>,
-    ) -> AppResult<ConfigOverride> {
+    pub async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {
+        let SetOverrideParams {
+            category,
+            key,
+            value,
+            data_type,
+            admin_user_id,
+            tenant_id,
+            reason,
+        } = params;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let value_str = serde_json::to_string(value)?;
@@ -300,21 +299,20 @@ impl AdminConfigManager {
     /// # Errors
     ///
     /// Returns an error if database operation fails
-    #[allow(clippy::too_many_arguments)]
-    pub async fn log_change(
-        &self,
-        admin_user_id: &str,
-        admin_email: &str,
-        category: &str,
-        key: &str,
-        old_value: Option<&serde_json::Value>,
-        new_value: &serde_json::Value,
-        data_type: ConfigDataType,
-        reason: Option<&str>,
-        tenant_id: Option<&str>,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
-    ) -> AppResult<String> {
+    pub async fn log_change(&self, params: LogChangeParams<'_>) -> AppResult<String> {
+        let LogChangeParams {
+            admin_user_id,
+            admin_email,
+            category,
+            key,
+            old_value,
+            new_value,
+            data_type,
+            reason,
+            tenant_id,
+            ip_address,
+            user_agent,
+        } = params;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let old_value_str = old_value.map(|v| serde_json::to_string(v).unwrap_or_default());
@@ -540,26 +538,8 @@ impl AdminConfigRepository for AdminConfigManager {
         self.get_effective_override(category, key, tenant_id).await
     }
 
-    async fn set_override(
-        &self,
-        category: &str,
-        key: &str,
-        value: &serde_json::Value,
-        data_type: ConfigDataType,
-        admin_user_id: &str,
-        tenant_id: Option<&str>,
-        reason: Option<&str>,
-    ) -> AppResult<ConfigOverride> {
-        self.set_override(
-            category,
-            key,
-            value,
-            data_type,
-            admin_user_id,
-            tenant_id,
-            reason,
-        )
-        .await
+    async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {
+        Self::set_override(self, params).await
     }
 
     async fn delete_override(
@@ -579,34 +559,8 @@ impl AdminConfigRepository for AdminConfigManager {
         self.delete_category_overrides(category, tenant_id).await
     }
 
-    async fn log_change(
-        &self,
-        admin_user_id: &str,
-        admin_email: &str,
-        category: &str,
-        key: &str,
-        old_value: Option<&serde_json::Value>,
-        new_value: &serde_json::Value,
-        data_type: ConfigDataType,
-        reason: Option<&str>,
-        tenant_id: Option<&str>,
-        ip_address: Option<&str>,
-        user_agent: Option<&str>,
-    ) -> AppResult<String> {
-        self.log_change(
-            admin_user_id,
-            admin_email,
-            category,
-            key,
-            old_value,
-            new_value,
-            data_type,
-            reason,
-            tenant_id,
-            ip_address,
-            user_agent,
-        )
-        .await
+    async fn log_change(&self, params: LogChangeParams<'_>) -> AppResult<String> {
+        Self::log_change(self, params).await
     }
 
     async fn get_audit_log(

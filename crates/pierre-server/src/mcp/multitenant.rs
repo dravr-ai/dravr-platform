@@ -56,7 +56,7 @@ use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 use crate::middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "client-admin-api")]
-use crate::routes::admin::AdminApiContext;
+use crate::routes::admin::{AdminApiContext, AdminApiContextInit};
 use crate::routes::billing;
 use crate::routes::endurance;
 #[cfg(feature = "oauth")]
@@ -964,7 +964,6 @@ impl MultiTenantMcpServer {
     /// registration pattern. Splitting it would fragment related route setup
     /// logic and make the code harder to follow. Each section is clearly
     /// documented and the structure follows the feature flag hierarchy.
-    #[allow(clippy::too_many_lines)]
     fn setup_axum_router(resources: &Arc<ServerContext>) -> axum::Router {
         use axum::{middleware::from_fn_with_state, Router};
 
@@ -1045,17 +1044,17 @@ impl MultiTenantMcpServer {
                 .rate_limiting
                 .admin_provisioned_api_key_monthly_limit;
             let admin_token_cache_ttl = resources.config.auth.admin_token_cache_ttl_secs;
-            let mut admin_context = AdminApiContext::new(
-                resources.database.clone(),
-                resources.repos.clone(),
-                &resources.admin_jwt_secret,
-                resources.auth_manager.clone(),
-                resources.jwks_manager.clone(),
-                admin_api_key_limit,
-                admin_token_cache_ttl,
-                resources.tool_selection.clone(),
-                resources.harness_config_registry.clone(),
-            );
+            let mut admin_context = AdminApiContext::new(AdminApiContextInit {
+                database: resources.database.clone(),
+                repos: resources.repos.clone(),
+                jwt_secret: resources.admin_jwt_secret.to_string(),
+                auth_manager: resources.auth_manager.clone(),
+                jwks_manager: resources.jwks_manager.clone(),
+                admin_api_key_monthly_limit: admin_api_key_limit,
+                admin_token_cache_ttl_secs: admin_token_cache_ttl,
+                tool_selection: resources.tool_selection.clone(),
+                harness_config_registry: resources.harness_config_registry.clone(),
+            });
             admin_context.tool_registry = Some(resources.tool_registry.clone());
             admin_context
                 .email_service

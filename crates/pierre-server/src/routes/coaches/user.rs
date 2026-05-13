@@ -13,11 +13,12 @@ use crate::{
     errors::AppError,
     llm::{ChatMessage, ChatRequest},
     mcp::resources::ServerContext,
+    middleware::AuthenticatedUser,
     services::{coach_import, coaches as coaches_service, recipes as recipes_service},
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -39,10 +40,10 @@ use super::types::{
 /// Handle GET /api/coaches - List coaches for a user
 pub(super) async fn handle_list(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(query): Query<ListCoachesQuery>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -130,10 +131,10 @@ fn check_prerequisites(
 /// Handle POST /api/coaches - Create a new coach
 pub(super) async fn handle_create(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Json(body): Json<CreateCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -172,10 +173,10 @@ pub(super) async fn handle_create(
 /// Handle GET /api/coaches/search - Search coaches
 pub(super) async fn handle_search(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(query): Query<SearchCoachesQuery>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -195,10 +196,10 @@ pub(super) async fn handle_search(
 /// Handle GET /api/coaches/:id - Get a specific coach
 pub(super) async fn handle_get(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -222,10 +223,10 @@ pub(super) async fn handle_get(
 /// Handle GET /api/coaches/:id/export - Export coach as markdown
 pub(super) async fn handle_export(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -262,10 +263,10 @@ pub(super) async fn handle_export(
 /// content already exists for this user.
 pub(super) async fn handle_import(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     body: String,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     // Parse the markdown content
@@ -308,10 +309,10 @@ pub(super) async fn handle_import(
 /// and duplicate detection information without creating a coach.
 pub(super) async fn handle_import_preview(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     body: String,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     match parse_coach_content(&body, None) {
@@ -376,10 +377,10 @@ pub(super) async fn handle_import_preview(
 /// `save` parameter.
 pub(super) async fn handle_import_from_url(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Json(body): Json<ImportFromUrlBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     // Fetch markdown from the URL (includes SSRF validation)
@@ -457,10 +458,10 @@ pub(super) async fn handle_import_from_url(
 /// generate a coach profile with title, description, system prompt, and tags.
 pub(super) async fn handle_generate(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Json(body): Json<GenerateCoachRequest>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     // Get chat manager to fetch conversation messages
@@ -547,11 +548,11 @@ pub(super) async fn handle_generate(
 /// Handle PUT /api/coaches/:id - Update a coach
 pub(super) async fn handle_update(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Json(body): Json<UpdateCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -568,10 +569,10 @@ pub(super) async fn handle_update(
 /// Handle DELETE /api/coaches/:id - Delete a coach
 pub(super) async fn handle_delete(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -587,10 +588,10 @@ pub(super) async fn handle_delete(
 /// Handle POST /api/coaches/:id/favorite - Toggle favorite status
 pub(super) async fn handle_toggle_favorite(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -605,7 +606,7 @@ pub(super) async fn handle_toggle_favorite(
 
 /// Handle POST /api/coaches/:id/usage - Record coach usage
 #[tracing::instrument(
-    skip(resources, headers),
+    skip(resources, auth),
     fields(
         route = "coach_record_usage",
         coach_id = %id,
@@ -615,10 +616,10 @@ pub(super) async fn handle_toggle_favorite(
 )]
 pub(super) async fn handle_record_usage(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     // Record IDs on the span so the NotifyLayer can attribute the
@@ -650,10 +651,10 @@ pub(super) async fn handle_record_usage(
 /// Handle POST /api/coaches/:id/hide - Hide a coach from user's view
 pub(super) async fn handle_hide_coach(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
 
     let manager = super::get_coaches_manager(&resources);
     let success = manager.hide_coach(&id, auth.user_id).await?;
@@ -668,10 +669,10 @@ pub(super) async fn handle_hide_coach(
 /// Handle DELETE /api/coaches/:id/hide - Show (unhide) a coach
 pub(super) async fn handle_show_coach(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
 
     let manager = super::get_coaches_manager(&resources);
     let success = manager.show_coach(&id, auth.user_id).await?;
@@ -686,10 +687,10 @@ pub(super) async fn handle_show_coach(
 /// Handle POST /api/coaches/:id/fork - Fork a system coach to create a user copy
 pub(super) async fn handle_fork(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -705,9 +706,9 @@ pub(super) async fn handle_fork(
 /// Handle GET /api/coaches/hidden - List hidden coaches for user
 pub(super) async fn handle_list_hidden(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);

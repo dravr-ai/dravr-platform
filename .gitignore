@@ -109,6 +109,7 @@ pnpm-lock.yaml
 /.tools/
 
 .claude/settings.local.json
+.claude/worktrees/
 data/
 logs/
 book/build/

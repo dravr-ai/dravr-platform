@@ -6,7 +6,7 @@
 
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -15,7 +15,7 @@ use std::sync::Arc;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::{errors::AppError, mcp::resources::ServerContext};
+use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
 
 use super::{insights::SharedInsightResponse, SocialMetadata, SocialRoutes};
 
@@ -103,10 +103,10 @@ impl SocialRoutes {
     /// Handle GET /api/social/feed - Get social feed
     pub(crate) async fn handle_get_feed(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<FeedQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let limit = query.limit.unwrap_or(50).clamp(1, 100);

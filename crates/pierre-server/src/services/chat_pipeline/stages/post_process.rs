@@ -68,14 +68,20 @@ pub(in crate::services::chat_pipeline) async fn post_process_assistant_reply(
 
     // Stage 16: Tier 6 text guardrails.
     let locale_opt = input.locale.as_deref();
-    let mut content = apply_text_guardrails(resources, &raw_content, locale_opt);
+    let mut content = apply_text_guardrails(
+        &resources.harness_config_registry,
+        &resources.messaging_strings_registry,
+        &raw_content,
+        locale_opt,
+    );
 
     // Stage 16b: Per-persona output-format conformance.
     // Advisory only — emits structured warn!/error! per violation; the
     // reply ships as-is. Re-prompt-with-fix-delta will land in a follow-up
     // once the rule set has stabilised in shadow mode.
-    let persona = resolve_user_persona(resources, &input.user_id).await;
-    let conformance_violations = check_reply_conformance(resources, persona, &content);
+    let persona = resolve_user_persona(resources.repos.users.as_ref(), &input.user_id).await;
+    let conformance_violations =
+        check_reply_conformance(&resources.persona_contract_registry, persona, &content);
     tracing::debug!(
         persona = persona.as_str(),
         violations = conformance_violations.len(),

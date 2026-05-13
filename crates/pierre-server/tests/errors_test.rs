@@ -38,52 +38,106 @@ fn test_error_response_serialization() {
 
 // Comprehensive Error Code HTTP Status Tests
 
-#[allow(clippy::cognitive_complexity)]
+/// Assert each [`ErrorCode`] maps to `expected_status`.
+fn assert_http_status_codes(codes: &[ErrorCode], expected_status: u16) {
+    for code in codes {
+        assert_eq!(
+            code.http_status(),
+            expected_status,
+            "expected {code:?} -> {expected_status}, got {}",
+            code.http_status()
+        );
+    }
+}
+
 #[test]
-fn test_error_code_http_status_comprehensive() {
-    // Test 400 Bad Request errors
-    assert_eq!(ErrorCode::InvalidInput.http_status(), 400);
-    assert_eq!(ErrorCode::MissingRequiredField.http_status(), 400);
-    assert_eq!(ErrorCode::InvalidFormat.http_status(), 400);
-    assert_eq!(ErrorCode::ValueOutOfRange.http_status(), 400);
+fn test_error_code_http_status_bad_request() {
+    assert_http_status_codes(
+        &[
+            ErrorCode::InvalidInput,
+            ErrorCode::MissingRequiredField,
+            ErrorCode::InvalidFormat,
+            ErrorCode::ValueOutOfRange,
+        ],
+        400,
+    );
+}
 
-    // Test 401 Unauthorized errors
-    assert_eq!(ErrorCode::AuthRequired.http_status(), 401);
-    assert_eq!(ErrorCode::AuthInvalid.http_status(), 401);
+#[test]
+fn test_error_code_http_status_unauthorized() {
+    assert_http_status_codes(&[ErrorCode::AuthRequired, ErrorCode::AuthInvalid], 401);
+}
 
-    // Test 403 Forbidden errors
-    assert_eq!(ErrorCode::AuthExpired.http_status(), 403);
-    assert_eq!(ErrorCode::AuthMalformed.http_status(), 403);
-    assert_eq!(ErrorCode::PermissionDenied.http_status(), 403);
+#[test]
+fn test_error_code_http_status_forbidden() {
+    assert_http_status_codes(
+        &[
+            ErrorCode::AuthExpired,
+            ErrorCode::AuthMalformed,
+            ErrorCode::PermissionDenied,
+        ],
+        403,
+    );
+}
 
-    // Test 404 Not Found errors
-    assert_eq!(ErrorCode::ResourceNotFound.http_status(), 404);
+#[test]
+fn test_error_code_http_status_not_found() {
+    assert_http_status_codes(&[ErrorCode::ResourceNotFound], 404);
+}
 
-    // Test 409 Conflict errors
-    assert_eq!(ErrorCode::ResourceAlreadyExists.http_status(), 409);
-    assert_eq!(ErrorCode::ResourceLocked.http_status(), 409);
+#[test]
+fn test_error_code_http_status_conflict() {
+    assert_http_status_codes(
+        &[ErrorCode::ResourceAlreadyExists, ErrorCode::ResourceLocked],
+        409,
+    );
+}
 
-    // Test 429 Too Many Requests errors
-    assert_eq!(ErrorCode::RateLimitExceeded.http_status(), 429);
-    assert_eq!(ErrorCode::QuotaExceeded.http_status(), 429);
+#[test]
+fn test_error_code_http_status_rate_limited() {
+    assert_http_status_codes(
+        &[ErrorCode::RateLimitExceeded, ErrorCode::QuotaExceeded],
+        429,
+    );
+}
 
-    // Test 502 Bad Gateway errors
-    assert_eq!(ErrorCode::ExternalServiceError.http_status(), 502);
-    assert_eq!(ErrorCode::ExternalServiceUnavailable.http_status(), 502);
+#[test]
+fn test_error_code_http_status_bad_gateway() {
+    assert_http_status_codes(
+        &[
+            ErrorCode::ExternalServiceError,
+            ErrorCode::ExternalServiceUnavailable,
+        ],
+        502,
+    );
+}
 
-    // Test 503 Service Unavailable errors
-    assert_eq!(ErrorCode::ResourceUnavailable.http_status(), 503);
-    assert_eq!(ErrorCode::ExternalAuthFailed.http_status(), 503);
-    assert_eq!(ErrorCode::ExternalRateLimited.http_status(), 503);
+#[test]
+fn test_error_code_http_status_service_unavailable() {
+    assert_http_status_codes(
+        &[
+            ErrorCode::ResourceUnavailable,
+            ErrorCode::ExternalAuthFailed,
+            ErrorCode::ExternalRateLimited,
+        ],
+        503,
+    );
+}
 
-    // Test 500 Internal Server Error errors
-    assert_eq!(ErrorCode::InternalError.http_status(), 500);
-    assert_eq!(ErrorCode::DatabaseError.http_status(), 500);
-    assert_eq!(ErrorCode::StorageError.http_status(), 500);
-    assert_eq!(ErrorCode::SerializationError.http_status(), 500);
-    assert_eq!(ErrorCode::ConfigError.http_status(), 500);
-    assert_eq!(ErrorCode::ConfigMissing.http_status(), 500);
-    assert_eq!(ErrorCode::ConfigInvalid.http_status(), 500);
+#[test]
+fn test_error_code_http_status_internal() {
+    assert_http_status_codes(
+        &[
+            ErrorCode::InternalError,
+            ErrorCode::DatabaseError,
+            ErrorCode::StorageError,
+            ErrorCode::SerializationError,
+            ErrorCode::ConfigError,
+            ErrorCode::ConfigMissing,
+            ErrorCode::ConfigInvalid,
+        ],
+        500,
+    );
 }
 
 #[test]
@@ -329,23 +383,17 @@ fn test_app_error_from_io_error() {
 
 #[test]
 fn test_app_result_type_alias() {
-    #[allow(clippy::unnecessary_wraps)]
-    fn successful_operation() -> AppResult<String> {
-        Ok("Success".to_owned())
+    let success_result: AppResult<String> = Ok("Success".to_owned());
+    let error_result: AppResult<String> = Err(AppError::auth_required());
+
+    match success_result {
+        Ok(s) => assert_eq!(s, "Success"),
+        Err(e) => unreachable!("expected Ok, got: {e:?}"),
     }
-
-    fn failed_operation() -> AppResult<String> {
-        Err(AppError::auth_required())
+    match error_result {
+        Ok(s) => unreachable!("expected Err, got Ok({s})"),
+        Err(e) => assert_eq!(e.code, ErrorCode::AuthRequired),
     }
-
-    let success_result = successful_operation();
-    assert!(success_result.is_ok());
-    assert_eq!(success_result.unwrap(), "Success");
-
-    let error_result = failed_operation();
-    assert!(error_result.is_err());
-    let error = error_result.unwrap_err();
-    assert_eq!(error.code, ErrorCode::AuthRequired);
 }
 
 // Debug and Display Tests

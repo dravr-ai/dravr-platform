@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -21,6 +21,7 @@ use utoipa::ToSchema;
 use crate::{
     errors::AppError,
     mcp::resources::ServerContext,
+    middleware::AuthenticatedUser,
     models::{ShareVisibility, UserSocialSettings},
 };
 
@@ -115,9 +116,9 @@ impl SocialRoutes {
     /// Handle GET /api/social/settings - Get social settings
     pub(crate) async fn handle_get_settings(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         let settings = social
@@ -132,10 +133,10 @@ impl SocialRoutes {
     /// Handle PUT /api/social/settings - Update social settings
     pub(crate) async fn handle_update_settings(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(body): Json<UpdateSocialSettingsBody>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let social = Self::get_social_manager(&resources)?;
 
         // Get existing settings or create defaults

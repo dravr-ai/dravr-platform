@@ -16,7 +16,6 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// Create a test database with coaches and `coach_versions` schema
-#[allow(clippy::too_many_lines)]
 async fn create_test_db() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 

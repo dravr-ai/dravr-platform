@@ -37,8 +37,7 @@ use std::sync::Arc;
 use pierre_core::models::CoachingPersona;
 use tracing::{error, warn};
 
-use crate::mcp::resources::ServerContext;
-use crate::persona_contracts::{PersonaContract, TOOL_NARRATION_PHRASES};
+use crate::persona_contracts::{PersonaContract, PersonaContractRegistry, TOOL_NARRATION_PHRASES};
 
 /// One conformance violation surfaced by [`check_reply_conformance`].
 #[derive(Debug, Clone)]
@@ -62,11 +61,11 @@ pub struct ContractViolation {
 /// pipeline.
 #[must_use]
 pub fn check_reply_conformance(
-    resources: &Arc<ServerContext>,
+    registry: &Arc<PersonaContractRegistry>,
     persona: CoachingPersona,
     reply: &str,
 ) -> Vec<ContractViolation> {
-    let snapshot = resources.persona_contract_registry.snapshot();
+    let snapshot = registry.snapshot();
     if snapshot.is_empty() {
         return Vec::new();
     }

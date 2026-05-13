@@ -16,9 +16,10 @@
 use std::sync::Arc;
 
 use pierre_database::database::MessageRecord;
+use pierre_database::repositories::HarnessMemoryRepository;
 
+use crate::harness_config_registry::HarnessConfigRegistry;
 use crate::llm::{ChatMessage, ChatProvider};
-use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor,
@@ -27,7 +28,8 @@ use crate::services::conversation_compaction::{
 /// Run conversation compaction in place. Failures log and continue — a
 /// failed compaction never blocks a turn.
 pub async fn apply_tier1_compaction(
-    resources: &Arc<ServerContext>,
+    harness_config_registry: &Arc<HarnessConfigRegistry>,
+    memory: &dyn HarnessMemoryRepository,
     provider: &ChatProvider,
     tenant_id: TenantId,
     conversation_id: &str,
@@ -37,10 +39,9 @@ pub async fn apply_tier1_compaction(
     // Read the active compaction tunables from the harness config registry
     // so admin updates via `PUT /admin/settings/harness` apply on the next
     // turn without a server restart.
-    let compactor =
-        ConversationCompactor::new(resources.harness_config_registry.current_compaction());
+    let compactor = ConversationCompactor::new(harness_config_registry.current_compaction());
     let ctx = CompactionContext {
-        repo: resources.repos.memory.as_ref(),
+        repo: memory,
         provider,
         tenant_id,
         conversation_id,

@@ -99,7 +99,6 @@ async fn create_test_auth_routes() -> Result<AuthService> {
     ))
 }
 
-#[allow(clippy::too_many_lines)] // Long function: Complex test setup with full configuration
 async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Database>)> {
     let database = common::create_test_database().await?;
 
@@ -476,7 +475,6 @@ async fn test_user_registration_edge_cases() -> Result<()> {
 // === AuthService Login Tests ===
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_user_login_success() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
@@ -775,7 +773,6 @@ async fn test_user_login_case_sensitivity() -> Result<()> {
 // === AuthService Token Refresh Tests ===
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_token_refresh_success() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
@@ -1022,7 +1019,6 @@ async fn test_token_refresh_invalid_token() -> Result<()> {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_token_refresh_mismatched_user() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
@@ -1550,7 +1546,6 @@ async fn test_password_validation_comprehensive() -> Result<()> {
 
 #[tokio::test]
 #[serial]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_complete_auth_flow() -> Result<()> {
     common::init_server_config();
     // Set required environment variables for OAuth
@@ -1889,7 +1884,6 @@ async fn test_concurrent_registrations() -> Result<()> {
 
 #[tokio::test]
 #[serial]
-#[allow(clippy::too_many_lines)] // Long function: Complex test with full setup
 async fn test_concurrent_logins() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;

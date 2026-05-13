@@ -32,12 +32,29 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED};
-use crate::mcp::resources::ServerContext;
+use crate::contremaitre::messaging_strings::{
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED,
+};
 use crate::middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use crate::services::chat_pipeline::channel_profile::ChannelProfile;
 use crate::services::chat_pipeline::turn::TurnInput;
 use crate::services::tool_execution::ToolLoopResult;
+
+/// Inputs to [`apply_auth_recovery`].
+///
+/// Bundles the per-call dependencies so the function signature stays under
+/// clippy's `too_many_arguments` ceiling without forcing callers to pass the
+/// full [`crate::mcp::resources::ServerContext`]. All fields are borrowed
+/// references, so the struct is `Copy` and cheap to pass by value.
+#[derive(Clone, Copy)]
+pub struct AuthRecoveryDeps<'a> {
+    /// JWT secret used to mint the hosted-login link token.
+    pub admin_jwt_secret: &'a Arc<str>,
+    /// Server base URL used to build the hosted-login redirect.
+    pub base_url: &'a str,
+    /// Localized messaging strings used to render the user-facing reply.
+    pub messaging_strings_registry: &'a Arc<MessagingStringsRegistry>,
+}
 
 /// Apply provider re-auth recovery in place.
 ///
@@ -53,12 +70,17 @@ use crate::services::tool_execution::ToolLoopResult;
 /// `recovery_dispatched` is updated atomically so observability hooks can
 /// surface the short-circuit alongside the assistant message.
 pub fn apply_auth_recovery(
-    resources: &Arc<ServerContext>,
+    deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,
     profile: &ChannelProfile,
     result: &mut ToolLoopResult,
     recovery_dispatched: &AtomicBool,
 ) -> bool {
+    let AuthRecoveryDeps {
+        admin_jwt_secret,
+        base_url,
+        messaging_strings_registry,
+    } = deps;
     let Some(provider_slug) = result.pending_provider_auth_required.as_deref() else {
         return false;
     };
@@ -89,7 +111,7 @@ pub fn apply_auth_recovery(
             channel,
             channel_thread: None,
         },
-        &resources.admin_jwt_secret,
+        admin_jwt_secret,
     ) {
         Ok(t) => t,
         Err(e) => {
@@ -105,7 +127,7 @@ pub fn apply_auth_recovery(
 
     let url = format!(
         "{}/providers/sciotte/login?token={}",
-        resources.config.base_url,
+        base_url,
         urlencoding::encode(&token)
     );
 
@@ -115,7 +137,7 @@ pub fn apply_auth_recovery(
         .filter(|l| !l.is_empty())
         .unwrap_or(DEFAULT_LOCALE);
     let display_name = provider_display_name(provider_slug);
-    let message = resources.messaging_strings_registry.render(
+    let message = messaging_strings_registry.render(
         KEY_PROVIDER_REAUTH_REQUIRED,
         locale,
         &[display_name, &url],

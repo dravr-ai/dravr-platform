@@ -13,89 +13,126 @@ mod common;
 
 use pierre_mcp_server::mcp::schema::*;
 
-#[test]
-#[allow(clippy::cognitive_complexity)]
-fn test_mcp_tool_schemas() {
-    // Test that all analytics tools are properly defined
-    let tools = get_tools();
+/// Minimum tool count enforced by [`test_tool_registry_minimum_size`]. Grows
+/// monotonically as new `McpTool` impls are added — the test is an
+/// availability floor, not an upper bound.
+const MINIMUM_TOOL_COUNT: usize = 65;
 
-    // ToolRegistry is the single source of truth. Tool count may grow as
-    // McpTool implementations are added. Check minimum threshold instead.
+/// Assert that every name in `expected` is present among the registered
+/// tools. Used by the per-category schema tests below.
+fn assert_tools_registered(expected: &[&str]) {
+    let tools = get_tools();
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    for name in expected {
+        assert!(
+            tool_names.contains(name),
+            "Expected tool {name:?} to be registered, got: {tool_names:?}"
+        );
+    }
+}
+
+#[test]
+fn test_tool_registry_minimum_size() {
+    let tools = get_tools();
     assert!(
-        tools.len() >= 65,
-        "Expected at least 65 tools, got {}",
+        tools.len() >= MINIMUM_TOOL_COUNT,
+        "Expected at least {MINIMUM_TOOL_COUNT} tools, got {}",
         tools.len()
     );
+}
 
-    // Check key analytics tools are present
-    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+#[test]
+fn test_core_fitness_tools_registered() {
+    assert_tools_registered(&[
+        "get_activities",
+        "get_athlete",
+        "get_stats",
+        "get_activity_intelligence",
+    ]);
+}
 
-    // Core functionality
-    assert!(tool_names.contains(&"get_activities"));
-    assert!(tool_names.contains(&"get_athlete"));
-    assert!(tool_names.contains(&"get_stats"));
-    assert!(tool_names.contains(&"get_activity_intelligence"));
+#[test]
+fn test_connection_tools_registered() {
+    assert_tools_registered(&["get_connection_status", "disconnect_provider"]);
+}
 
-    // Connection management (legacy connect_strava/connect_fitbit removed)
-    assert!(tool_names.contains(&"get_connection_status"));
-    assert!(tool_names.contains(&"disconnect_provider"));
+#[test]
+fn test_analytics_tools_registered() {
+    assert_tools_registered(&[
+        "analyze_activity",
+        "calculate_metrics",
+        "analyze_performance_trends",
+        "compare_activities",
+        "detect_patterns",
+        "calculate_fitness_score",
+        "analyze_training_load",
+    ]);
+}
 
-    // Analytics tools
-    assert!(tool_names.contains(&"analyze_activity"));
-    assert!(tool_names.contains(&"calculate_metrics"));
-    assert!(tool_names.contains(&"analyze_performance_trends"));
-    assert!(tool_names.contains(&"compare_activities"));
-    assert!(tool_names.contains(&"detect_patterns"));
+#[test]
+fn test_goal_tools_registered() {
+    assert_tools_registered(&[
+        "set_goal",
+        "track_progress",
+        "suggest_goals",
+        "analyze_goal_feasibility",
+    ]);
+}
 
-    // Goal management
-    assert!(tool_names.contains(&"set_goal"));
-    assert!(tool_names.contains(&"track_progress"));
-    assert!(tool_names.contains(&"suggest_goals"));
-    assert!(tool_names.contains(&"analyze_goal_feasibility"));
+#[test]
+fn test_fitness_config_tools_registered() {
+    assert_tools_registered(&[
+        "get_fitness_config",
+        "set_fitness_config",
+        "list_fitness_configs",
+        "delete_fitness_config",
+    ]);
+}
 
-    // Advanced analytics
-    assert!(tool_names.contains(&"calculate_fitness_score"));
-    assert!(tool_names.contains(&"analyze_training_load"));
+#[test]
+fn test_recipe_tools_registered() {
+    assert_tools_registered(&[
+        "get_recipe_constraints",
+        "validate_recipe",
+        "save_recipe",
+        "list_recipes",
+        "get_recipe",
+        "delete_recipe",
+        "search_recipes",
+    ]);
+}
 
-    // Fitness configuration tools
-    assert!(tool_names.contains(&"get_fitness_config"));
-    assert!(tool_names.contains(&"set_fitness_config"));
-    assert!(tool_names.contains(&"list_fitness_configs"));
-    assert!(tool_names.contains(&"delete_fitness_config"));
+#[test]
+fn test_user_coach_tools_registered() {
+    assert_tools_registered(&[
+        "list_coaches",
+        "create_coach",
+        "get_coach",
+        "update_coach",
+        "delete_coach",
+        "toggle_coach_favorite",
+        "search_coaches",
+        "activate_coach",
+        "deactivate_coach",
+        "get_active_coach",
+        "hide_coach",
+        "show_coach",
+        "list_hidden_coaches",
+    ]);
+}
 
-    // Recipe management tools (Combat des Chefs)
-    assert!(tool_names.contains(&"get_recipe_constraints"));
-    assert!(tool_names.contains(&"validate_recipe"));
-    assert!(tool_names.contains(&"save_recipe"));
-    assert!(tool_names.contains(&"list_recipes"));
-    assert!(tool_names.contains(&"get_recipe"));
-    assert!(tool_names.contains(&"delete_recipe"));
-    assert!(tool_names.contains(&"search_recipes"));
-
-    // Coach management tools (custom AI personas)
-    assert!(tool_names.contains(&"list_coaches"));
-    assert!(tool_names.contains(&"create_coach"));
-    assert!(tool_names.contains(&"get_coach"));
-    assert!(tool_names.contains(&"update_coach"));
-    assert!(tool_names.contains(&"delete_coach"));
-    assert!(tool_names.contains(&"toggle_coach_favorite"));
-    assert!(tool_names.contains(&"search_coaches"));
-    assert!(tool_names.contains(&"activate_coach"));
-    assert!(tool_names.contains(&"deactivate_coach"));
-    assert!(tool_names.contains(&"get_active_coach"));
-    assert!(tool_names.contains(&"hide_coach"));
-    assert!(tool_names.contains(&"show_coach"));
-    assert!(tool_names.contains(&"list_hidden_coaches"));
-
-    // Admin coach management tools (system coaches)
-    assert!(tool_names.contains(&"admin_list_system_coaches"));
-    assert!(tool_names.contains(&"admin_create_system_coach"));
-    assert!(tool_names.contains(&"admin_get_system_coach"));
-    assert!(tool_names.contains(&"admin_update_system_coach"));
-    assert!(tool_names.contains(&"admin_delete_system_coach"));
-    assert!(tool_names.contains(&"admin_assign_coach"));
-    assert!(tool_names.contains(&"admin_unassign_coach"));
-    assert!(tool_names.contains(&"admin_list_coach_assignments"));
+#[test]
+fn test_admin_coach_tools_registered() {
+    assert_tools_registered(&[
+        "admin_list_system_coaches",
+        "admin_create_system_coach",
+        "admin_get_system_coach",
+        "admin_update_system_coach",
+        "admin_delete_system_coach",
+        "admin_assign_coach",
+        "admin_unassign_coach",
+        "admin_list_coach_assignments",
+    ]);
 }
 
 #[test]

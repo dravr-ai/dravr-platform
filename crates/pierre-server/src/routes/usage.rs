@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -23,11 +23,10 @@ use serde::Serialize;
 use crate::{
     errors::AppError,
     mcp::resources::ServerContext,
-    middleware::extract_auth_from_headers,
+    middleware::AuthenticatedUser,
     models::TenantId,
     services::usage_counter::{LimitCheckResult, UsageCounterService},
 };
-use pierre_auth::auth::AuthResult;
 
 /// Usage status response containing all quota information
 #[derive(Debug, Serialize)]
@@ -86,14 +85,6 @@ impl UsageRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    pub(crate) async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
-    }
-
     /// Get user's `tenant_id` (defaults to `user_id` if no tenant)
     pub(crate) async fn get_tenant_id(
         user_id: uuid::Uuid,
@@ -108,9 +99,9 @@ impl UsageRoutes {
     /// GET /api/usage/status - Get current usage quota status
     async fn get_status(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
         let user_id_str = auth.user_id.to_string();
         let tenant_id_str = tenant_id.to_string();

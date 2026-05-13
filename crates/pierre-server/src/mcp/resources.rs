@@ -291,7 +291,7 @@ pub struct ServerContext {
     pub notification_service: Option<Arc<NotificationService>>,
     /// Health data sync orchestrator for wearable provider synchronization
     #[cfg(feature = "health-sync")]
-    pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
+    pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
     /// Abort handle for the background health data sync scheduler task
     #[cfg(feature = "health-sync")]
     pub sync_scheduler_abort_handle: Option<AbortHandle>,
@@ -351,16 +351,23 @@ pub struct ServerContext {
 /// cognitive-complexity budget under the workspace's clippy threshold;
 /// the block contains an `if-let` plus `match`, which clippy counts as
 /// two arms each.
+/// Bundle of registries pushed to the Contremaitre sync. Lives at module
+/// scope so [`run_contremaitre_full_sync`] doesn't need a sprawling
+/// positional argument list — every consumer threads the same registries.
 #[cfg(feature = "contremaitre")]
-#[allow(clippy::too_many_arguments)]
+struct ContremaitreSyncRegistries<'a> {
+    prompt: &'a Arc<PromptRegistry>,
+    tool_desc: &'a Arc<ToolDescriptionRegistry>,
+    evidence: &'a Arc<EvidenceRegistry>,
+    cageux_config: &'a Arc<CageuxConfigRegistry>,
+    messaging_strings: &'a Arc<MessagingStringsRegistry>,
+    persona_contract: &'a Arc<PersonaContractRegistry>,
+}
+
+#[cfg(feature = "contremaitre")]
 async fn run_contremaitre_full_sync(
     config: &ContremaitreConfig,
-    prompt_registry: &Arc<PromptRegistry>,
-    tool_desc_registry: &Arc<ToolDescriptionRegistry>,
-    evidence_registry: &Arc<EvidenceRegistry>,
-    cageux_config_registry: &Arc<CageuxConfigRegistry>,
-    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
-    persona_contract_registry: &Arc<PersonaContractRegistry>,
+    registries: ContremaitreSyncRegistries<'_>,
 ) {
     let store = config.store();
     info!(
@@ -368,12 +375,14 @@ async fn run_contremaitre_full_sync(
         "Contremaitre sync starting"
     );
     let outcome = full_sync(
-        prompt_registry,
-        tool_desc_registry,
-        evidence_registry,
-        cageux_config_registry,
-        messaging_strings_registry,
-        persona_contract_registry,
+        crate::contremaitre::sync::ContremaitreRegistries {
+            registry: registries.prompt,
+            tool_desc_registry: registries.tool_desc,
+            evidence_registry: registries.evidence,
+            cageux_config_registry: registries.cageux_config,
+            messaging_strings_registry: registries.messaging_strings,
+            persona_contract_registry: registries.persona_contract,
+        },
         store.as_ref(),
     )
     .await;
@@ -416,12 +425,14 @@ async fn init_contremaitre_registries(
     if let Some(config) = ContremaitreConfig::from_env() {
         run_contremaitre_full_sync(
             &config,
-            &prompt_registry,
-            &tool_desc_registry,
-            &evidence_registry,
-            cageux_config_registry,
-            &messaging_strings_registry,
-            persona_contract_registry,
+            ContremaitreSyncRegistries {
+                prompt: &prompt_registry,
+                tool_desc: &tool_desc_registry,
+                evidence: &evidence_registry,
+                cageux_config: cageux_config_registry,
+                messaging_strings: &messaging_strings_registry,
+                persona_contract: persona_contract_registry,
+            },
         )
         .await;
     } else {
@@ -443,7 +454,6 @@ impl ServerContext {
     /// - `options`: Optional initialization parameters (RSA key size, JWKS manager, LLM provider)
     // Function exceeds line limit because it assembles 20+ interdependent resources
     // Splitting would reduce clarity without improving maintainability
-    #[allow(clippy::too_many_lines)]
     pub async fn new(
         database: Database,
         auth_manager: AuthManager,
@@ -793,7 +803,7 @@ impl ServerContext {
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         sse_manager: &Arc<SseManager>,
-    ) -> (Arc<dravr_enforme::SyncOrchestrator>, AbortHandle) {
+    ) -> (Arc<pierre_enforme::SyncOrchestrator>, AbortHandle) {
         use crate::services::health_sync::PierreSyncStorage;
         use crate::services::provider_refresh::start_scheduled_sync;
 

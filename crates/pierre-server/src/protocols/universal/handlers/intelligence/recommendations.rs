@@ -891,7 +891,6 @@ fn generate_comprehensive_recommendations(activities: &[Activity]) -> serde_json
 
 /// Handle `generate_recommendations` tool - generate training recommendations
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_generate_recommendations(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

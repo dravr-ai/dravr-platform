@@ -24,14 +24,13 @@ use pierre_mcp_server::{
     mcp::ToolSelectionService,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
-    routes::admin::{AdminApiContext, AdminRoutes},
+    routes::admin::{AdminApiContext, AdminApiContextInit, AdminRoutes},
 };
 use serde_json::Value;
 use std::{env, fs, sync::Arc};
 
 /// Complete end-to-end test for admin setup and user approval workflow
 // Long function: Comprehensive test covering admin setup, user creation, approval, and cleanup
-#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn test_complete_admin_user_approval_workflow() -> Result<()> {
     // Initialize test database with cleanup
@@ -69,17 +68,17 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         database_arc.repositories(),
     )));
     let repos_arc = Arc::new(database_arc.repositories());
-    let admin_context = AdminApiContext::new(
-        database_arc,
-        repos_arc,
-        jwt_secret,
-        Arc::new(auth_manager.clone()),
-        jwks_manager.clone(),
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager.clone()),
+        jwks_manager: jwks_manager.clone(),
         admin_api_key_monthly_limit,
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
-        Arc::new(HarnessConfigRegistry::bootstrap()),
-    );
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+    });
 
     // Create admin routes
     let admin_routes = AdminRoutes::routes(admin_context);
@@ -245,7 +244,6 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
 
 /// Test admin token management functionality
 // Long function: Comprehensive test covering token creation, listing, and revocation workflow
-#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn test_admin_token_management_workflow() -> Result<()> {
     // Initialize test database
@@ -281,17 +279,17 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         database_arc.repositories(),
     )));
     let repos_arc = Arc::new(database_arc.repositories());
-    let admin_context = AdminApiContext::new(
-        database_arc,
-        repos_arc,
-        jwt_secret,
-        Arc::new(auth_manager),
-        jwks_manager.clone(),
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager),
+        jwks_manager: jwks_manager.clone(),
         admin_api_key_monthly_limit,
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
-        Arc::new(HarnessConfigRegistry::bootstrap()),
-    );
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+    });
     let admin_routes = AdminRoutes::routes(admin_context);
 
     println!("Starting admin token management workflow test");
@@ -422,17 +420,17 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         database_arc.repositories(),
     )));
     let repos_arc = Arc::new(database_arc.repositories());
-    let admin_context = AdminApiContext::new(
-        database_arc,
-        repos_arc,
-        jwt_secret,
-        Arc::new(auth_manager),
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager),
         jwks_manager,
         admin_api_key_monthly_limit,
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
-        Arc::new(HarnessConfigRegistry::bootstrap()),
-    );
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+    });
     let admin_routes = AdminRoutes::routes(admin_context);
 
     println!("Starting admin workflow error handling test");
@@ -598,17 +596,17 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
         database_arc.repositories(),
     )));
     let repos_arc = Arc::new(database_arc.repositories());
-    let admin_context = AdminApiContext::new(
-        database_arc,
-        repos_arc,
-        jwt_secret,
-        Arc::new(auth_manager.clone()),
-        jwks_manager.clone(),
-        STARTER_MONTHLY_LIMIT,
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager.clone()),
+        jwks_manager: jwks_manager.clone(),
+        admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
+        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         tool_selection,
-        Arc::new(HarnessConfigRegistry::bootstrap()),
-    );
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+    });
 
     let admin_routes = AdminRoutes::routes(admin_context);
 

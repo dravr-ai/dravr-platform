@@ -9,9 +9,10 @@ use std::sync::Arc;
 use tracing::{field, info, trace, Span};
 
 use crate::contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
-    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL,
+    KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
 };
+use crate::contremaitre::PromptRegistry;
 use crate::errors::AppResult;
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
@@ -74,7 +75,8 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
 fn interpolate_prompt_placeholders(
-    resources: &Arc<ServerContext>,
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    prompt_registry: &Arc<PromptRegistry>,
     input: &TurnInput,
     coach_ctx: Option<&CoachRuntimeContext>,
     persona: CoachingPersona,
@@ -88,19 +90,20 @@ fn interpolate_prompt_placeholders(
         prompt.to_owned()
     } else {
         let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
-        let registry = &resources.messaging_strings_registry;
-        let scope = registry.get(KEY_SCOPE_REFUSAL, locale);
-        let capability = registry.get(KEY_CAPABILITY_REFUSAL, locale);
+        let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
+        let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
         let carve_out = coach_ctx
             .and_then(|c| coach_scope_carve_out_key(c.category))
-            .map_or_else(String::new, |key| registry.get(key, locale));
+            .map_or_else(String::new, |key| {
+                messaging_strings_registry.get(key, locale)
+            });
         // Read the persona block from the prompt registry so a hot-reload
         // from contremaitre takes effect on the very next turn — no
         // redeploy needed. The registry seeds itself with the compiled-in
         // `include_str!()` content at startup, so chat works before the
         // first sync completes; once contremaitre lands a newer version
         // via webhook → selective_sync, the same lookup here picks it up.
-        let persona_block = resources.prompt_registry.coaching_persona_prompt(persona);
+        let persona_block = prompt_registry.coaching_persona_prompt(persona);
         prompt
             .replace("{{SCOPE_REFUSAL}}", &scope)
             .replace("{{CAPABILITY_REFUSAL}}", &capability)
@@ -126,13 +129,12 @@ fn interpolate_prompt_placeholders(
 /// the default persona so chat continues to flow. Persona is a UX
 /// preference, not a security boundary.
 pub(in crate::services::chat_pipeline) async fn resolve_user_persona(
-    resources: &Arc<ServerContext>,
+    users: &dyn UserRepository,
     user_id: &str,
 ) -> CoachingPersona {
     let Some(user_uuid) = parse_uuid(user_id).ok() else {
         return CoachingPersona::default();
     };
-    let users: &dyn UserRepository = resources.repos.users.as_ref();
     match users.get_global(user_uuid).await {
         Ok(Some(user)) => user.coaching_persona,
         Ok(None) | Err(_) => CoachingPersona::default(),
@@ -187,9 +189,15 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // from the user's `coaching_persona` column and controls output
     // format (structure, citation density, length) orthogonally to the
     // coach personality.
-    let persona = resolve_user_persona(resources, &input.user_id).await;
-    let base_prompt =
-        interpolate_prompt_placeholders(resources, input, coach_ctx, persona, &base_prompt);
+    let persona = resolve_user_persona(resources.repos.users.as_ref(), &input.user_id).await;
+    let base_prompt = interpolate_prompt_placeholders(
+        &resources.messaging_strings_registry,
+        &resources.prompt_registry,
+        input,
+        coach_ctx,
+        persona,
+        &base_prompt,
+    );
 
     // Stage 7a.2: Append the runtime-generated "Available Tools" section.
     // Both the default Pierre system prompt and every coach's custom
@@ -197,13 +205,13 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // the actual tool registry. The registry is the single source of
     // truth; if a tool is added, renamed, or removed, the prompt
     // immediately reflects the change without a prompt edit.
-    let tools_section = build_tools_section(resources);
+    let tools_section = build_tools_section(&resources.tool_registry);
     let base_prompt = format!("{base_prompt}\n\n{tools_section}");
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
-    let provider_context = build_provider_context(resources, user_uuid).await;
+    let provider_context = build_provider_context(&resources.data(), user_uuid).await;
     let base_prompt = if provider_context.is_empty() {
         base_prompt
     } else {
@@ -234,14 +242,25 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
 
     // Stage 7d: Trigger background provider refresh and append freshness hint.
     let base_prompt = if profile.emit_data_freshness_hint {
-        inject_refresh_context(resources, &input.user_id, input.tool_tenant_id, base_prompt).await
+        inject_refresh_context(
+            super::refresh::RefreshDeps {
+                repos: &resources.repos,
+                #[cfg(feature = "health-sync")]
+                sync_orchestrator: &resources.sync_orchestrator,
+                sse_manager: &resources.sse_manager,
+            },
+            &input.user_id,
+            input.tool_tenant_id,
+            base_prompt,
+        )
+        .await
     } else {
         base_prompt
     };
 
     // Stage 7e: Inject recalled user memory facts into the prompt.
     let base_prompt = inject_memory_recall(
-        resources,
+        resources.repos.memory.as_ref(),
         input.conversation_tenant_id,
         &input.user_id,
         conv.coach_id.as_deref(),
@@ -252,7 +271,7 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // Stage 7f: Render pending coach followups. Surfaced IDs are marked
     // delivered after the turn succeeds.
     let (base_prompt, pending_followup_ids) = inject_pending_followups(
-        resources,
+        &resources.data(),
         input.conversation_tenant_id,
         &input.user_id,
         conv.coach_id.as_deref(),

@@ -6,7 +6,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -22,7 +22,7 @@ use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use crate::llm::chat_provider_from_credentials;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::extract_auth_from_headers;
+use crate::middleware::AuthenticatedUser;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
@@ -150,14 +150,6 @@ impl LlmSettingsRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
-    }
-
     /// Get user's `tenant_id` for the current request
     ///
     /// Uses `active_tenant_id` from JWT claims (user's selected tenant) when available,
@@ -180,9 +172,9 @@ impl LlmSettingsRoutes {
     /// Get current LLM settings for the authenticated user
     async fn get_llm_settings(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Json<LlmSettingsResponse>, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let llm_creds = resources.repos.llm_credentials.as_ref();
@@ -319,10 +311,10 @@ impl LlmSettingsRoutes {
     /// Save LLM credentials
     async fn save_llm_credentials(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<SaveLlmCredentialsRequest>,
     ) -> Result<Json<SaveCredentialsResponse>, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let llm_creds = resources.repos.llm_credentials.as_ref();
@@ -408,11 +400,11 @@ impl LlmSettingsRoutes {
     /// Validate LLM credentials without saving
     async fn validate_llm_credentials(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<ValidateLlmCredentialsRequest>,
     ) -> Result<Json<ValidationResponse>, AppError> {
         // Require authentication to prevent unauthenticated abuse
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Parse provider
         let provider = LlmProvider::parse_str(&request.provider).ok_or_else(|| {
@@ -481,10 +473,10 @@ impl LlmSettingsRoutes {
     /// Delete LLM credentials
     async fn delete_llm_credentials(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(provider_name): Path<String>,
     ) -> Result<impl IntoResponse, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let llm_creds = resources.repos.llm_credentials.as_ref();

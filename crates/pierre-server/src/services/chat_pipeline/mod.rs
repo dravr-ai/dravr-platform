@@ -145,12 +145,14 @@ async fn dispatch_stage(
     let max_iterations =
         resolve_max_iterations(args.profile.max_iterations, args.resources, args.coach_ctx).await;
     let result = stages::tool_dispatch::dispatch_llm_with_tools(
-        args.resources,
-        args.input,
-        args.profile,
-        args.active_model,
-        args.coach_ctx,
-        args.history,
+        stages::tool_dispatch::DispatchLlmInputs {
+            resources: args.resources,
+            input: args.input,
+            profile: args.profile,
+            active_model: args.active_model,
+            coach_ctx: args.coach_ctx,
+            history: args.history,
+        },
         llm_messages,
         max_iterations,
         args.hooks.stream_sink.clone(),
@@ -165,23 +167,47 @@ async fn dispatch_stage(
 /// minimal `PostProcessedReply` straight from the deterministic re-auth
 /// content (no guardrails / verification needed for canned replies).
 ///
+/// Bundled inputs for [`run_recovery_and_post_process`]. The trailing
+/// `result: &mut` and `hooks: &PipelineHooks` are passed separately so the
+/// borrow checker sees them as the unique-and-shared pair they need to be.
+struct RecoveryAndPostProcessInputs<'a> {
+    /// Shared server context.
+    resources: &'a Arc<ServerContext>,
+    /// Inbound turn payload.
+    input: &'a TurnInput,
+    /// Channel-shape profile (web vs messaging vs A2A vs ...).
+    profile: &'a ChannelProfile,
+    /// Conversation row resolved upstream.
+    conv: &'a ConversationRecord,
+    /// Active coach runtime context, when one is bound.
+    coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Configured prompt-leak guardrail.
+    prompt_guard: &'a prompt_leak::PromptGuard,
+}
+
 /// Extracted out of [`run_turn`] to keep its cognitive complexity within
 /// the workspace lint budget. The shape is otherwise identical to the
 /// inline original.
-#[allow(clippy::too_many_arguments)]
 async fn run_recovery_and_post_process(
-    resources: &Arc<ServerContext>,
-    input: &TurnInput,
-    profile: &ChannelProfile,
-    conv: &ConversationRecord,
-    coach_ctx: Option<&CoachRuntimeContext>,
-    prompt_guard: &prompt_leak::PromptGuard,
+    inputs: RecoveryAndPostProcessInputs<'_>,
     result: &mut chat_tool_loop::ToolLoopResult,
     hooks: &PipelineHooks<'_>,
 ) -> stages::post_process::PostProcessedReply {
+    let RecoveryAndPostProcessInputs {
+        resources,
+        input,
+        profile,
+        conv,
+        coach_ctx,
+        prompt_guard,
+    } = inputs;
     let recovery_dispatched = AtomicBool::new(false);
     let recovery_active = stages::auth_recovery::apply_auth_recovery(
-        resources,
+        stages::auth_recovery::AuthRecoveryDeps {
+            admin_jwt_secret: &resources.admin_jwt_secret,
+            base_url: &resources.config.base_url,
+            messaging_strings_registry: &resources.messaging_strings_registry,
+        },
         input,
         profile,
         result,
@@ -393,7 +419,11 @@ pub async fn run(
     // notify: a user has just hit the chat pipeline with a question.
     // Persona is resolved here (cheap DB lookup) so the Slack ping can
     // attribute the question to the user's active coaching style.
-    let persona = stages::prompt_assembly::resolve_user_persona(resources, &input.user_id).await;
+    let persona = stages::prompt_assembly::resolve_user_persona(
+        resources.repos.users.as_ref(),
+        &input.user_id,
+    )
+    .await;
     info!(
         target: "notify",
         event = "chat.question_asked",
@@ -469,7 +499,8 @@ async fn run_turn(
         resolve_active_model(profile.model_policy, &input.conversation_id, &conv.model);
 
     // Stage 4: Ensure a long-lived coach session exists and is attached.
-    let conv = ensure_coach_session_attached(resources, conv, input.conversation_tenant_id).await;
+    let conv =
+        ensure_coach_session_attached(&resources.data(), conv, input.conversation_tenant_id).await;
 
     // Stage 5: Load conversation history for LLM context.
     let history =
@@ -520,12 +551,14 @@ async fn run_turn(
     // skip post-processing (recovery content is already canonical) or run
     // the standard guardrails/verification/hook chain on LLM-produced text.
     let post_processed = run_recovery_and_post_process(
-        resources,
-        &input,
-        profile,
-        &conv,
-        coach_ctx.as_ref(),
-        &prompt_guard,
+        RecoveryAndPostProcessInputs {
+            resources,
+            input: &input,
+            profile,
+            conv: &conv,
+            coach_ctx: coach_ctx.as_ref(),
+            prompt_guard: &prompt_guard,
+        },
         &mut result,
         hooks,
     )
@@ -556,7 +589,7 @@ async fn run_turn(
     #[cfg(feature = "tools-verification")]
     if !post_processed.pending_verdicts.is_empty() {
         persist_pending_verdicts(
-            resources,
+            &resources.data(),
             input.conversation_tenant_id,
             &input.user_id,
             &input.conversation_id,
@@ -570,7 +603,7 @@ async fn run_turn(
     // Stage 20: Tier 4 session finalize — touch session timestamp, mark
     // followups delivered.
     finalize_session_state(
-        resources,
+        &resources.data(),
         conv.session_id.as_deref(),
         &pending_followup_ids,
         input.conversation_tenant_id,
@@ -580,7 +613,8 @@ async fn run_turn(
     // Stage 21: Tier 2 background memory extraction. Detached via tokio::spawn
     // so extraction failures never affect the stored reply.
     spawn_extract_for_turn(
-        Arc::clone(resources),
+        Arc::clone(&resources.repos.memory),
+        resources.memory_extraction_prompt(),
         SpawnedExtractionRequest {
             tenant_id: input.conversation_tenant_id,
             user_id: input.user_id.clone(),

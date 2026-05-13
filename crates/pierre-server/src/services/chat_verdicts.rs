@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use pierre_core::models::TenantId;
 
+use crate::context::DataContext;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
 use crate::middleware::extract_auth_from_headers;
@@ -82,20 +83,19 @@ pub struct ChatVerdictListResponse {
 /// - Repository errors propagated from the underlying chat or
 ///   claim verdict repositories.
 pub async fn list_for_conversation(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
 ) -> AppResult<ChatVerdictListResponse> {
-    resources
-        .repos
+    data.repos()
         .chat
         .get_conversation(conversation_id, user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
-    let verdicts = resources
-        .repos
+    let verdicts = data
+        .repos()
         .claim_verdicts
         .list_verdicts_for_conversation(conversation_id, tenant_id)
         .await?;
@@ -131,9 +131,8 @@ pub async fn list_for_conversation(
 /// Mirrors the helper inside `routes::chat::ChatRoutes::get_tenant_id`
 /// without going through the route module so this handler can stay
 /// outside `routes/chat.rs` (which is at the route-thinness ceiling).
-async fn resolve_tenant_id(resources: &ServerContext, user_id: uuid::Uuid) -> TenantId {
-    resources
-        .repos
+async fn resolve_tenant_id(data: &DataContext, user_id: uuid::Uuid) -> TenantId {
+    data.repos()
         .tenants
         .list_for_user(user_id)
         .await
@@ -158,9 +157,10 @@ pub async fn get_verdicts_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id).await;
+    let data = resources.data();
+    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
     let response = list_for_conversation(
-        &resources,
+        &data,
         &conversation_id,
         &auth.user_id.to_string(),
         tenant_id,

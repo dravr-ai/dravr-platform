@@ -32,12 +32,13 @@ use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 
-use super::common::{authenticate, get_tenant_id};
+use super::common::get_tenant_id;
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas_scoped, PreChatScope};
-use super::send_insight::send_insight_message;
+use super::send_insight::{send_insight_message, SendInsightInputs};
 use super::usage::{increment_usage_counters_scoped, tokens_from_dispatch, UsageIncrementScope};
 use super::INSIGHT_PROMPT_PREFIX;
+use crate::middleware::AuthenticatedUser;
 
 /// HTTP header carrying the client surface identifier.
 ///
@@ -131,11 +132,12 @@ fn setup_agui(
 )]
 pub async fn send_message(
     State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
     Json(request): Json<SendMessageRequest>,
 ) -> Result<Response, AppError> {
-    let auth = authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
@@ -200,7 +202,7 @@ pub async fn send_message(
                  insights return a single JSON payload and emit no AG-UI events",
             ));
         }
-        return send_insight_message(
+        return send_insight_message(SendInsightInputs {
             resources,
             conversation_id,
             user_id_str,
@@ -208,7 +210,7 @@ pub async fn send_message(
             tenant_id_str,
             request,
             usage_warning,
-        )
+        })
         .await;
     }
 
@@ -220,16 +222,16 @@ pub async fn send_message(
     // spend, no AG-UI pipeline lifecycle. Non-command turns fall through
     // to the existing pipeline path below.
     if request.content.trim_start().starts_with('/') {
-        if let Some(response) = try_handle_chat_command(
-            &resources,
-            &headers,
-            auth.user_id,
+        if let Some(response) = try_handle_chat_command(ChatCommandInputs {
+            resources: &resources,
+            headers: &headers,
+            user_id: auth.user_id,
             tenant_id,
-            &conversation_id,
-            &user_id_str,
-            &request,
-            usage_warning.clone(),
-        )
+            conversation_id: &conversation_id,
+            user_id_str: &user_id_str,
+            request: &request,
+            usage_warning: usage_warning.clone(),
+        })
         .await?
         {
             return Ok(response);
@@ -292,21 +294,20 @@ pub async fn send_message(
         .is_some_and(|s| s.contains("text/event-stream"));
 
     if wants_sse {
-        return Ok(send_message_sse(
-            Arc::clone(&resources),
+        return Ok(send_message_sse(SseInputs {
+            resources: Arc::clone(&resources),
             turn_input,
             profile,
             agui_wiring,
-            request.content,
+            user_content: request.content,
             scope_coach_id,
             tenant_id_str,
             user_id_str,
-            auth.user_id,
+            auth_user_id: auth.user_id,
             tenant_id,
             conversation_id,
             usage_warning,
-        )
-        .await);
+        }));
     }
 
     let start_time = Instant::now();
@@ -402,8 +403,10 @@ pub async fn send_message(
 /// A 15-second SSE keep-alive prevents nginx (default 60s
 /// `proxy_read_timeout`) from dropping the connection during long
 /// LLM-side stalls between deltas.
-#[allow(clippy::too_many_arguments, clippy::unused_async)]
-async fn send_message_sse(
+/// Inputs threaded into [`send_message_sse`]. Resolved identifiers + the
+/// turn payload + the AG-UI wiring are bundled so the SSE entry point
+/// doesn't need a twelve-arg positional signature.
+struct SseInputs {
     resources: Arc<ServerContext>,
     turn_input: pipeline::TurnInput,
     profile: pipeline::ChannelProfile,
@@ -416,7 +419,23 @@ async fn send_message_sse(
     tenant_id: TenantId,
     conversation_id: String,
     usage_warning: super::quotas::UsageWarning,
-) -> Response {
+}
+
+fn send_message_sse(inputs: SseInputs) -> Response {
+    let SseInputs {
+        resources,
+        turn_input,
+        profile,
+        agui_wiring,
+        user_content,
+        scope_coach_id,
+        tenant_id_str,
+        user_id_str,
+        auth_user_id,
+        tenant_id,
+        conversation_id,
+        usage_warning,
+    } = inputs;
     let start_time = Instant::now();
     let agui_run_id = agui_wiring.as_ref().map(|w| w.run_id().to_owned());
 
@@ -580,17 +599,33 @@ async fn send_message_sse(
 /// but are **not** persisted — they are live only for the turn that
 /// produced them; reloading the conversation shows the rendered text
 /// body without buttons, and the user can always re-invoke the command.
-#[allow(clippy::too_many_arguments)]
-async fn try_handle_chat_command(
-    resources: &Arc<ServerContext>,
-    headers: &HeaderMap,
+/// Bundled inputs for [`try_handle_chat_command`]. Combines the resolved
+/// auth/tenant context with the incoming request + usage warning so the
+/// slash-command dispatcher doesn't need an eight-arg positional signature.
+struct ChatCommandInputs<'a> {
+    resources: &'a Arc<ServerContext>,
+    headers: &'a HeaderMap,
     user_id: Uuid,
     tenant_id: TenantId,
-    conversation_id: &str,
-    user_id_str: &str,
-    request: &SendMessageRequest,
+    conversation_id: &'a str,
+    user_id_str: &'a str,
+    request: &'a SendMessageRequest,
     usage_warning: super::quotas::UsageWarning,
+}
+
+async fn try_handle_chat_command(
+    inputs: ChatCommandInputs<'_>,
 ) -> Result<Option<Response>, AppError> {
+    let ChatCommandInputs {
+        resources,
+        headers,
+        user_id,
+        tenant_id,
+        conversation_id,
+        user_id_str,
+        request,
+        usage_warning,
+    } = inputs;
     let channel_type = headers
         .get(CLIENT_PLATFORM_HEADER)
         .and_then(|v| v.to_str().ok())

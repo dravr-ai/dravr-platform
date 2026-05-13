@@ -35,29 +35,51 @@ use super::prefetch::inject_startup_context;
 ///
 /// Returns [`AppError`] from LLM provider creation or from the tool
 /// loop (e.g. provider rate limits, tool handler failures).
-#[allow(clippy::too_many_arguments)]
+/// Read-only inputs threaded into [`dispatch_llm_with_tools`]. The remaining
+/// arguments (`llm_messages: &mut Vec<...>`, `max_iterations: usize`,
+/// `stream_sink: Option<...>`) stay positional because they carry distinct
+/// lifetimes / ownership requirements (mutable borrow + by-value usize +
+/// `Send + 'static` channel handle respectively).
+pub(in crate::services::chat_pipeline) struct DispatchLlmInputs<'a> {
+    /// Shared server context.
+    pub resources: &'a Arc<ServerContext>,
+    /// Inbound turn payload (carries `turn_id`, `conversation_id`, user content).
+    pub input: &'a TurnInput,
+    /// Channel-shape profile (web vs messaging vs A2A vs ...).
+    pub profile: &'a ChannelProfile,
+    /// Effective LLM model id selected for this turn.
+    pub active_model: &'a str,
+    /// Active coach runtime context, when one is bound.
+    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Prior conversation messages (oldest first) used for context.
+    pub history: &'a [MessageRecord],
+}
+
 #[tracing::instrument(
     skip_all,
     fields(
-        turn_id = %input.turn_id,
-        channel = profile.channel.as_str(),
-        conversation_id = %input.conversation_id,
-        model = %active_model,
+        turn_id = %inputs.input.turn_id,
+        channel = inputs.profile.channel.as_str(),
+        conversation_id = %inputs.input.conversation_id,
+        model = %inputs.active_model,
         max_iterations,
         message_count = llm_messages.len(),
     )
 )]
 pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
-    resources: &Arc<ServerContext>,
-    input: &TurnInput,
-    profile: &ChannelProfile,
-    active_model: &str,
-    coach_ctx: Option<&CoachRuntimeContext>,
-    history: &[MessageRecord],
+    inputs: DispatchLlmInputs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
     max_iterations: usize,
     stream_sink: Option<super::super::ChatStreamSink>,
 ) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
+    let DispatchLlmInputs {
+        resources,
+        input,
+        profile,
+        active_model,
+        coach_ctx,
+        history,
+    } = inputs;
     // Stage 9: MCP executor for tool calls.
     let executor = Arc::new(UniversalExecutor::new(Arc::clone(resources)));
 
@@ -76,12 +98,13 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
     .await;
 
     // Stage 11: LLM provider resolution.
-    let provider = create_chat_provider_from_resources(resources).await?;
+    let provider = create_chat_provider_from_resources(resources.llm_provider.as_ref()).await?;
     let provider_name = provider.name().to_owned();
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
     apply_tier1_compaction(
-        resources,
+        &resources.harness_config_registry,
+        resources.repos.memory.as_ref(),
         &provider,
         input.conversation_tenant_id,
         &input.conversation_id,

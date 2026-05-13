@@ -2959,6 +2959,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-enforme"
+version = "0.3.0"
+dependencies = [
+ "dravr-enforme",
+]
+
+[[package]]
 name = "pierre-evals"
 version = "0.3.0"
 dependencies = [
@@ -3082,6 +3089,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-weather"
+version = "0.3.0"
+dependencies = [
+ "dravr-meteo",
+]
+
+[[package]]
 name = "pierre_mcp_server"
 version = "0.3.0"
 dependencies = [
@@ -3104,9 +3118,7 @@ dependencies = [
  "cron",
  "dashmap",
  "dirs 5.0.1",
- "dravr-enforme",
  "dravr-equilibre",
- "dravr-meteo",
  "dravr-sciotte",
  "dravr-tronc",
  "ed25519-dalek",
@@ -3128,6 +3140,7 @@ dependencies = [
  "pierre-cache",
  "pierre-core",
  "pierre-database",
+ "pierre-enforme",
  "pierre-evals",
  "pierre-groups",
  "pierre-intelligence",
@@ -3136,6 +3149,7 @@ dependencies = [
  "pierre-messaging",
  "pierre-notifications",
  "pierre-providers",
+ "pierre-weather",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "rayon",

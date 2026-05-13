@@ -49,14 +49,12 @@ impl SyntheticDataBuilder {
 
     /// Generate a synthetic running activity
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Cannot be const: uses &mut self.rng
     pub fn generate_run(&mut self) -> ActivityBuilder<'_> {
         ActivityBuilder::new(SportType::Run, &mut self.rng)
     }
 
     /// Generate a synthetic cycling activity
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Cannot be const: uses &mut self.rng
     pub fn generate_ride(&mut self) -> ActivityBuilder<'_> {
         ActivityBuilder::new(SportType::Ride, &mut self.rng)
     }
@@ -320,7 +318,6 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set activity duration in minutes
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn duration_minutes(mut self, minutes: u64) -> Self {
         self.duration_seconds = Some(minutes * 60);
         self
@@ -338,7 +335,6 @@ impl<'a> ActivityBuilder<'a> {
     /// Set pace in minutes per kilometer (for running)
     /// This will calculate appropriate distance based on duration
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn pace_min_per_km(mut self, pace: f64) -> Self {
         self.pace_min_per_km = Some(pace);
         self
@@ -346,7 +342,6 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set start date/time
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn start_date(mut self, date: DateTime<Utc>) -> Self {
         self.start_date = Some(date);
         self
@@ -354,7 +349,6 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set heart rate range (average, max)
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn heart_rate(mut self, avg: u32, max: u32) -> Self {
         self.average_heart_rate = Some(avg);
         self.max_heart_rate = Some(max);
@@ -363,7 +357,6 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set average power (for cycling)
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn average_power(mut self, watts: u32) -> Self {
         self.average_power = Some(watts);
         self
@@ -371,7 +364,6 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set FTP (Functional Threshold Power for cycling)
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // Builder pattern methods
     pub fn ftp(mut self, watts: u32) -> Self {
         self.ftp = Some(watts);
         self
@@ -382,7 +374,6 @@ impl<'a> ActivityBuilder<'a> {
     /// Complex builder method that constructs Activity with many fields requiring
     /// calculations and default values. The length is necessary for proper field initialization.
     #[must_use]
-    #[allow(clippy::too_many_lines)] // Builder pattern requires comprehensive field initialization
     pub fn build(self) -> Activity {
         let id = format!("synthetic_{}", self.rng.random::<u64>());
         let sport_type = self.sport_type; // Save before move

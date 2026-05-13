@@ -23,9 +23,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // SetGoalTool - Create a new fitness goal
@@ -112,7 +112,7 @@ impl McpTool for SetGoalTool {
         // Single execution path: delegate to the UniversalExecutor handler so
         // MCP protocol + chat pipeline + A2A all resolve to the same body.
         // Retired with handler inlining in Stage 5 of the registry unification.
-        delegate_to_handler(context, args, "set_goal", handlers::handle_set_goal).await
+        dispatch_handler(context, args, "set_goal", handlers::handle_set_goal).await
     }
 }
 
@@ -160,7 +160,7 @@ impl McpTool for SuggestGoalsTool {
         // Single execution path: delegate to the UniversalExecutor handler so
         // MCP protocol + chat pipeline + A2A all resolve to the same body.
         // Retired with handler inlining in Stage 5 of the registry unification.
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "suggest_goals",
@@ -222,7 +222,7 @@ impl McpTool for TrackProgressTool {
         // Single execution path: delegate to the UniversalExecutor handler so
         // MCP protocol + chat pipeline + A2A all resolve to the same body.
         // Retired with handler inlining in Stage 5 of the registry unification.
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "track_progress",
@@ -302,7 +302,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
         // Single execution path: delegate to the UniversalExecutor handler so
         // MCP protocol + chat pipeline + A2A all resolve to the same body.
         // Retired with handler inlining in Stage 5 of the registry unification.
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "analyze_goal_feasibility",

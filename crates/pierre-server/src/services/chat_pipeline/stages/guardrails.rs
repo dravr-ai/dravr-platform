@@ -24,9 +24,9 @@ use std::sync::Arc;
 
 use crate::config::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use crate::contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
 };
-use crate::mcp::resources::ServerContext;
+use crate::harness_config_registry::HarnessConfigRegistry;
 
 /// Apply the live admin-configured text guardrails to an assistant reply.
 ///
@@ -35,12 +35,13 @@ use crate::mcp::resources::ServerContext;
 /// reject the response. `locale` is the BCP-47 short code resolved upstream;
 /// `None` triggers the registry's `DEFAULT_LOCALE` fallback.
 pub fn apply_text_guardrails(
-    resources: &Arc<ServerContext>,
+    harness_config_registry: &Arc<HarnessConfigRegistry>,
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     reply: &str,
     locale: Option<&str>,
 ) -> String {
     let locale = locale.unwrap_or(DEFAULT_LOCALE);
-    let rules = resources.harness_config_registry.current_guardrails();
+    let rules = harness_config_registry.current_guardrails();
     match rules.apply(reply) {
         GuardrailOutcome::Allowed(text) => text,
         GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
@@ -49,15 +50,11 @@ pub fn apply_text_guardrails(
                 cap,
                 "guardrails: trimming over-long response to safe fallback"
             );
-            resources
-                .messaging_strings_registry
-                .get(KEY_GUARDRAIL_TOO_LONG, locale)
+            messaging_strings_registry.get(KEY_GUARDRAIL_TOO_LONG, locale)
         }
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             tracing::warn!(topic, "guardrails: blocked topic in coach response");
-            resources
-                .messaging_strings_registry
-                .get(KEY_GUARDRAIL_BLOCKED_TOPIC, locale)
+            messaging_strings_registry.get(KEY_GUARDRAIL_BLOCKED_TOPIC, locale)
         }
     }
 }

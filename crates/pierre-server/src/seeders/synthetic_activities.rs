@@ -441,14 +441,16 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     let weighted_sports = build_weighted_sports(&sport_configs);
 
     let counts = generate_activities(
-        repos,
         &mut rng,
-        &sport_configs,
-        &weighted_sports,
-        user_id,
-        tenant_id,
-        args.count,
-        args.days,
+        GenerateActivitiesParams {
+            repos,
+            sport_configs: &sport_configs,
+            weighted_sports: &weighted_sports,
+            user_id,
+            tenant_id,
+            count: args.count,
+            days: args.days,
+        },
     )
     .await?;
 
@@ -498,26 +500,44 @@ fn init_rng(seed: Option<u64>) -> StdRng {
     StdRng::seed_from_u64(resolved)
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn generate_activities(
-    repos: &RepositoryRegistry,
-    rng: &mut StdRng,
-    sport_configs: &[SportConfig],
-    weighted_sports: &[usize],
+/// Bundled inputs for [`generate_activities`] — bundles the parameters that
+/// drive synthetic activity construction so the entry point doesn't need a
+/// nine-arg positional signature.
+struct GenerateActivitiesParams<'a> {
+    repos: &'a RepositoryRegistry,
+    sport_configs: &'a [SportConfig],
+    weighted_sports: &'a [usize],
     user_id: Uuid,
     tenant_id: Uuid,
     count: u32,
     days: u32,
+}
+
+async fn generate_activities(
+    rng: &mut StdRng,
+    params: GenerateActivitiesParams<'_>,
 ) -> AppResult<HashMap<&'static str, u32>> {
-    info!("Generating {count} activities over {days} days...");
+    info!(
+        "Generating {} activities over {} days...",
+        params.count, params.days
+    );
     let now = Utc::now();
     let mut activities_by_type: HashMap<&str, u32> = HashMap::new();
 
-    for i in 0..count {
-        let sport_index = *weighted_sports.choose(rng).unwrap_or(&0);
-        let sport = &sport_configs[sport_index];
-        let activity = build_activity(rng, sport, now, user_id, tenant_id, i, days);
-        repos
+    for i in 0..params.count {
+        let sport_index = *params.weighted_sports.choose(rng).unwrap_or(&0);
+        let sport = &params.sport_configs[sport_index];
+        let activity = build_activity(
+            rng,
+            sport,
+            now,
+            params.user_id,
+            params.tenant_id,
+            i,
+            params.days,
+        );
+        params
+            .repos
             .seeder
             .seed_insert_synthetic_activity(&activity)
             .await?;

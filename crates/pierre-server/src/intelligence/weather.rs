@@ -18,7 +18,7 @@
 use std::env;
 use std::sync::Arc;
 
-use dravr_meteo::{
+use pierre_weather::{
     CachedProvider, OpenMeteoArchiveProvider, OpenWeatherMapProvider, WeatherCacheStore,
     WeatherProvider, WeatherSample,
 };
@@ -71,18 +71,18 @@ struct CacheStoreArc(Arc<dyn WeatherCacheStore>);
 impl WeatherCacheStore for CacheStoreArc {
     async fn get(
         &self,
-        key: &dravr_meteo::CacheKey,
+        key: &pierre_weather::CacheKey,
         provider: &str,
-    ) -> Result<Option<WeatherSample>, dravr_meteo::CacheError> {
+    ) -> Result<Option<WeatherSample>, pierre_weather::CacheError> {
         self.0.get(key, provider).await
     }
 
     async fn put(
         &self,
-        key: dravr_meteo::CacheKey,
+        key: pierre_weather::CacheKey,
         provider: &str,
         sample: WeatherSample,
-    ) -> Result<(), dravr_meteo::CacheError> {
+    ) -> Result<(), pierre_weather::CacheError> {
         self.0.put(key, provider, sample).await
     }
 }

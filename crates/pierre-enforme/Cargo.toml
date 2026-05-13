@@ -1,0 +1,23 @@
+# ABOUTME: Health-sync facade for Pierre fitness platform
+# ABOUTME: Re-exports from dravr-enforme standalone health-data-pull library
+
+[package]
+name = "pierre-enforme"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Health-data sync facade — re-exports dravr-enforme for the Pierre health-sync path"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+provider-whoop = ["dravr-enforme/provider-whoop"]
+provider-garmin = ["dravr-enforme/provider-garmin"]
+provider-strava = ["dravr-enforme/provider-strava"]
+
+[dependencies]
+dravr-enforme = { version = "0.1.11", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.11", default-features = false }
+
+[lints]
+workspace = true

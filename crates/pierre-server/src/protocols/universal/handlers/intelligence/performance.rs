@@ -187,7 +187,6 @@ fn calculate_prediction_confidence(
 
 /// Handle `predict_performance` tool - predict future performance
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_predict_performance(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

@@ -39,7 +39,6 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_oauth_authorization_url_generation() {
     common::init_server_config();
 
@@ -366,7 +365,6 @@ async fn test_oauth_authorization_url_generation() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth state validation test with full setup
 async fn test_oauth_state_validation() {
     common::init_server_config();
 
@@ -574,7 +572,6 @@ async fn test_oauth_state_validation() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth connection status test with full setup
 async fn test_connection_status_no_providers() {
     common::init_server_config();
 
@@ -819,7 +816,6 @@ async fn test_connection_status_no_providers() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_invalid_provider_error() {
     common::init_server_config();
 
@@ -1023,7 +1019,6 @@ async fn test_invalid_provider_error() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_disconnect_provider() {
     common::init_server_config();
 
@@ -1278,7 +1273,6 @@ async fn test_disconnect_provider() {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // Long function: Complex OAuth integration test with full setup
 async fn test_oauth_urls_contain_required_parameters() {
     common::init_server_config();
 

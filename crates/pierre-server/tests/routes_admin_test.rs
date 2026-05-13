@@ -162,7 +162,7 @@ use pierre_mcp_server::{
     harness_config_registry::HarnessConfigRegistry,
     mcp::ToolSelectionService,
     models::{User, UserStatus},
-    routes::admin::{AdminApiContext, AdminRoutes},
+    routes::admin::{AdminApiContext, AdminApiContextInit, AdminRoutes},
 };
 use serde_json::{json, Value};
 use std::{str, sync::Arc};
@@ -201,17 +201,17 @@ impl AdminTestSetup {
             database_arc.repositories(),
         )));
         let repos_arc = Arc::new(database_arc.repositories());
-        let context = AdminApiContext::new(
-            database_arc,
-            repos_arc,
-            jwt_secret,
-            auth_manager.clone(),
-            jwks_manager.clone(),
+        let context = AdminApiContext::new(AdminApiContextInit {
+            database: database_arc,
+            repos: repos_arc,
+            jwt_secret: jwt_secret.to_string(),
+            auth_manager: auth_manager.clone(),
+            jwks_manager: jwks_manager.clone(),
             admin_api_key_monthly_limit,
-            AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+            admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             tool_selection,
-            Arc::new(HarnessConfigRegistry::bootstrap()),
-        );
+            harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        });
 
         // Create test user
         let (user_id, user) = common::create_test_user(&database).await?;

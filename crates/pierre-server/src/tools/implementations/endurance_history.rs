@@ -194,7 +194,8 @@ impl McpTool for GetTrainingHistoryTool {
         let tenant_id = require_tenant(context)?;
         let user_id = context.user_id;
         let (from, to) = resolve_window(&args)?;
-        let rows = fetch_history_rows(&context.resources, tenant_id, user_id, from, to).await?;
+        let rows =
+            fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
         Ok(ToolResult::ok(json!({
             "from": from.format("%Y-%m-%d").to_string(),
             "to": to.format("%Y-%m-%d").to_string(),

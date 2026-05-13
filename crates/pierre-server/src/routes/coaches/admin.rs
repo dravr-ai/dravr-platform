@@ -5,12 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::require_admin,
+    errors::AppError,
+    mcp::resources::ServerContext,
+    middleware::{require_admin, AuthenticatedUser},
     services::coaches as coaches_service,
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -33,9 +35,9 @@ use super::types::{
 /// Handle GET /admin/coaches - List all system coaches in tenant
 pub(super) async fn handle_admin_list(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -54,10 +56,10 @@ pub(super) async fn handle_admin_list(
 /// Handle POST /admin/coaches - Create a system coach
 pub(super) async fn handle_admin_create(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Json(body): Json<AdminCreateCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -73,10 +75,10 @@ pub(super) async fn handle_admin_create(
 /// Handle GET /admin/coaches/:id - Get a system coach
 pub(super) async fn handle_admin_get(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -93,11 +95,11 @@ pub(super) async fn handle_admin_get(
 /// Handle PUT /admin/coaches/:id - Update a system coach
 pub(super) async fn handle_admin_update(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Json(body): Json<UpdateCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -133,10 +135,10 @@ pub(super) async fn handle_admin_update(
 /// Handle DELETE /admin/coaches/:id - Delete a system coach
 pub(super) async fn handle_admin_delete(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -156,11 +158,11 @@ pub(super) async fn handle_admin_delete(
 /// `services::coaches::bulk_assign_coach`.
 pub(super) async fn handle_admin_assign(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Json(body): Json<AssignCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -212,11 +214,11 @@ pub(super) async fn handle_admin_assign(
 /// `services::coaches::bulk_unassign_coach`.
 pub(super) async fn handle_admin_unassign(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Json(body): Json<AssignCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -248,10 +250,10 @@ pub(super) async fn handle_admin_unassign(
 /// Handle GET /admin/coaches/:id/assignments - List users assigned to a coach
 pub(super) async fn handle_admin_list_assignments(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -280,9 +282,9 @@ pub(super) async fn handle_admin_list_assignments(
 /// Handle GET /admin/store/stats - Get store statistics
 pub(super) async fn handle_admin_store_stats(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -303,10 +305,10 @@ pub(super) async fn handle_admin_store_stats(
 /// Handle GET /admin/store/review-queue - Get pending review coaches
 pub(super) async fn handle_admin_review_queue(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -332,10 +334,10 @@ pub(super) async fn handle_admin_review_queue(
 /// Handle GET /admin/store/published - Get published coaches
 pub(super) async fn handle_admin_published(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
 
     let store_manager = super::get_store_manager(&resources);
@@ -361,10 +363,10 @@ pub(super) async fn handle_admin_published(
 /// Handle GET /admin/store/rejected - Get rejected coaches
 pub(super) async fn handle_admin_rejected(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -390,10 +392,10 @@ pub(super) async fn handle_admin_rejected(
 /// Handle POST /admin/store/coaches/:id/approve - Approve a coach
 pub(super) async fn handle_admin_approve(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -414,11 +416,11 @@ pub(super) async fn handle_admin_approve(
 /// Handle POST /admin/store/coaches/:id/reject - Reject a coach
 pub(super) async fn handle_admin_reject(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
     Json(body): Json<RejectCoachBody>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
@@ -442,10 +444,10 @@ pub(super) async fn handle_admin_reject(
 /// Handle POST /admin/store/coaches/:id/unpublish - Unpublish a coach
 pub(super) async fn handle_admin_unpublish(
     State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
+    auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let auth = super::authenticate(&headers, &resources).await?;
+    let auth = auth.into_inner();
     require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 

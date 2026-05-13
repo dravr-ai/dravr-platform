@@ -47,7 +47,6 @@ use uuid::Uuid;
 mod common;
 
 /// Test configuration for end-to-end tenant onboarding
-#[allow(clippy::too_many_lines)] // Long function: Defines complete end-to-end tenant onboarding workflow
 #[tokio::test]
 async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     fmt::init();

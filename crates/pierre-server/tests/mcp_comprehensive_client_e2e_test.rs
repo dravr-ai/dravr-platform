@@ -214,13 +214,17 @@ impl McpProtocolTester {
         }
     }
 
-    /// Test all MCP tools with sample data
-    #[allow(clippy::large_stack_frames)] // Multiple async calls create large stack frames
+    /// Test all MCP tools with sample data.
+    ///
+    /// Each sub-helper future is `Box::pin`ned so the combined state machine
+    /// stays small — without boxing, the three nested test futures each carry
+    /// non-trivial captures and the aggregate frame exceeds clippy's
+    /// `large_stack_frames` threshold.
     async fn test_all_tools(&mut self) {
         println!("Testing all MCP tools through protocol...");
-        self.test_core_data_tools().await;
-        self.test_analytics_tools().await;
-        self.test_goal_tools().await;
+        Box::pin(self.test_core_data_tools()).await;
+        Box::pin(self.test_analytics_tools()).await;
+        Box::pin(self.test_goal_tools()).await;
     }
 
     async fn test_core_data_tools(&mut self) {

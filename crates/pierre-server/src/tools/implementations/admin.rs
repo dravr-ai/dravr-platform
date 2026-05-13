@@ -27,9 +27,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // AdminListSystemCoachesTool - List all system coaches
@@ -80,7 +80,7 @@ impl McpTool for AdminListSystemCoachesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_list_system_coaches",
@@ -178,7 +178,7 @@ impl McpTool for AdminCreateSystemCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_create_system_coach",
@@ -229,7 +229,7 @@ impl McpTool for AdminGetSystemCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_get_system_coach",
@@ -325,7 +325,7 @@ impl McpTool for AdminUpdateSystemCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_update_system_coach",
@@ -376,7 +376,7 @@ impl McpTool for AdminDeleteSystemCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_delete_system_coach",
@@ -435,7 +435,7 @@ impl McpTool for AdminAssignCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_assign_coach",
@@ -494,7 +494,7 @@ impl McpTool for AdminUnassignCoachTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_unassign_coach",
@@ -545,7 +545,7 @@ impl McpTool for AdminListCoachAssignmentsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "admin_list_coach_assignments",

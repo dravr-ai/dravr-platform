@@ -24,9 +24,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // AnalyzeSleepQualityTool
@@ -92,7 +92,7 @@ impl McpTool for AnalyzeSleepQualityTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "analyze_sleep_quality",
@@ -172,7 +172,7 @@ impl McpTool for CalculateRecoveryScoreTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "calculate_recovery_score",
@@ -250,7 +250,7 @@ impl McpTool for SuggestRestDayTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "suggest_rest_day",
@@ -322,7 +322,7 @@ impl McpTool for TrackSleepTrendsTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "track_sleep_trends",
@@ -387,7 +387,7 @@ impl McpTool for OptimizeSleepScheduleTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             ctx,
             args,
             "optimize_sleep_schedule",

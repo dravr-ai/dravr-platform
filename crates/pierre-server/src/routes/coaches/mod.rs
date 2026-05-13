@@ -15,12 +15,8 @@ pub mod types;
 mod user;
 mod versions;
 
-use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
-    models::TenantId,
-};
+use crate::{errors::AppError, mcp::resources::ServerContext, models::TenantId};
 use axum::{
-    http::HeaderMap,
     routing::{delete, get, post, put},
     Router,
 };
@@ -127,14 +123,6 @@ impl CoachesRoutes {
 // ============================================
 // Shared Helper Functions
 // ============================================
-
-/// Extract and authenticate user from authorization header or cookie
-pub(super) async fn authenticate(
-    headers: &HeaderMap,
-    resources: &Arc<ServerContext>,
-) -> Result<AuthResult, AppError> {
-    extract_auth_from_headers(headers, resources).await
-}
 
 /// Get tenant ID for an authenticated user
 ///

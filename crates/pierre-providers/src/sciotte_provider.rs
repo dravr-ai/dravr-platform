@@ -46,6 +46,43 @@ pub enum SciotteTarget {
     Garmin,
 }
 
+impl SciotteTarget {
+    /// Parse the API-level target string (e.g. "garmin", "strava") into a
+    /// [`SciotteTarget`]. Unknown values fall back to [`Self::Strava`] to
+    /// preserve the long-standing default behaviour of hosted login.
+    #[must_use]
+    pub fn from_target_param(target: &str) -> Self {
+        match target {
+            "garmin" => Self::Garmin,
+            _ => Self::Strava,
+        }
+    }
+
+    /// Pierre provider name attached to OAuth/Sciotte rows for this target.
+    #[must_use]
+    pub const fn provider_name(self) -> &'static str {
+        match self {
+            Self::Strava => "sciotte",
+            Self::Garmin => "sciotte_garmin",
+        }
+    }
+
+    /// Build a fresh [`CachedScraper`] configured for this target. Used by
+    /// the hosted-login route to drive the headless-Chrome flow and by
+    /// [`SciotteProvider::new`] to back the runtime fetch path — both must
+    /// use the same scraper configuration so a cached login from one path
+    /// stays usable by the other.
+    #[must_use]
+    pub fn build_scraper(self) -> CachedScraper<ChromeScraper> {
+        let provider_config = match self {
+            Self::Strava => SciotteProviderConfig::strava_default(),
+            Self::Garmin => SciotteProviderConfig::garmin_default(),
+        };
+        let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
+        CachedScraper::new(chrome_scraper, &CacheConfig::default())
+    }
+}
+
 /// Sciotte provider that uses the dravr-sciotte library directly (in-process)
 pub struct SciotteProvider {
     config: ProviderConfig,
@@ -56,17 +93,8 @@ pub struct SciotteProvider {
 
 impl SciotteProvider {
     fn new(config: ProviderConfig, target: SciotteTarget) -> Self {
-        let scraper_config = ScraperConfig::default();
-        let provider_config = match target {
-            SciotteTarget::Strava => SciotteProviderConfig::strava_default(),
-            SciotteTarget::Garmin => SciotteProviderConfig::garmin_default(),
-        };
-        let provider_name = match target {
-            SciotteTarget::Strava => "sciotte",
-            SciotteTarget::Garmin => "sciotte_garmin",
-        };
-        let chrome_scraper = ChromeScraper::new(scraper_config, provider_config);
-        let cached = CachedScraper::new(chrome_scraper, &CacheConfig::default());
+        let cached = target.build_scraper();
+        let provider_name = target.provider_name();
 
         info!(target = ?target, "Sciotte provider initialized (in-process)");
 

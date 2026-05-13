@@ -1,5 +1,5 @@
 // ABOUTME: Real-Slack messaging-eval integration — QA driver posts, polls for coach reply, asserts
-// ABOUTME: #[ignore] by default; gated on MESSAGING_EVAL_SLACK_* env vars (run: cargo test … -- --ignored)
+// ABOUTME: Requires MESSAGING_EVAL_SLACK_* env vars; CI provides them via secrets
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,11 +14,10 @@
 //!
 //! ## Running
 //!
-//! All five env vars must be set. The test is `#[ignore]` so it never
-//! runs in the standard `cargo test` sweep; invoke explicitly:
+//! All five env vars must be set (CI exposes them as secrets):
 //!
 //! ```sh
-//! cargo test --test messaging_eval_real_slack_test -- --ignored --nocapture
+//! cargo test --test messaging_eval_real_slack_test -- --nocapture
 //! ```
 //!
 //! Missing env vars cause the test to print a clear skip message and
@@ -365,7 +364,6 @@ async fn driver_user_id(client: &Client, bot_token: &str) -> Result<String, Stri
 /// Passes today — exercises token validity, channel membership, and
 /// the polling harness without requiring the coach bot to reply.
 #[tokio::test]
-#[ignore = "real-Slack integration; opt-in via `--ignored`, gated on MESSAGING_EVAL_SLACK_* env vars"]
 async fn real_slack_post_and_read_smoke() {
     let Some(creds) = SlackCreds::from_env() else {
         return;
@@ -574,7 +572,6 @@ async fn run_probe(probe: &EvalProbe) {
 /// the question pushed the model into FR replies that bypassed the
 /// EN-only assertion list.
 #[tokio::test]
-#[ignore = "real-Slack integration; opt-in via `--ignored`, gated on MESSAGING_EVAL_SLACK_* env vars"]
 async fn real_slack_scope_refusal_e2e() {
     run_probe(&EvalProbe {
         name: "scope_refusal_food_pricing",
@@ -599,7 +596,6 @@ async fn real_slack_scope_refusal_e2e() {
 /// Off-domain medical-diagnosis question: coach must refuse and must
 /// not produce a clinical diagnosis or treatment recommendation.
 #[tokio::test]
-#[ignore = "real-Slack integration; opt-in via `--ignored`, gated on MESSAGING_EVAL_SLACK_* env vars"]
 async fn real_slack_scope_refusal_medical_diagnosis() {
     // `i recommend` was previously banned outright but flagged the
     // appropriate safety redirect ("I recommend contacting emergency
@@ -634,7 +630,6 @@ async fn real_slack_scope_refusal_medical_diagnosis() {
 /// Off-domain financial-advice question: coach must refuse and must
 /// not produce buy/sell guidance or specific market commentary.
 #[tokio::test]
-#[ignore = "real-Slack integration; opt-in via `--ignored`, gated on MESSAGING_EVAL_SLACK_* env vars"]
 async fn real_slack_scope_refusal_financial_advice() {
     run_probe(&EvalProbe {
         name: "scope_refusal_financial_advice",
@@ -662,7 +657,6 @@ async fn real_slack_scope_refusal_financial_advice() {
 /// English using training-domain terminology. Counter-test against a
 /// regression where the coach refuses everything.
 #[tokio::test]
-#[ignore = "real-Slack integration; opt-in via `--ignored`, gated on MESSAGING_EVAL_SLACK_* env vars"]
 async fn real_slack_in_domain_tempo_run_explanation() {
     run_probe(&EvalProbe {
         name: "in_domain_tempo_run_explanation",

@@ -18,7 +18,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "health-sync")]
-use dravr_enforme::models::connection::ConnectedUser;
+use pierre_enforme::models::connection::ConnectedUser;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
 
@@ -37,7 +37,7 @@ pub struct RefreshService {
     repos: Arc<RepositoryRegistry>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
-    sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
+    sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
     /// SSE manager for real-time notifications to clients.
     sse_manager: Arc<SseManager>,
     /// Optional notification service for push notifications on sync completion.
@@ -53,7 +53,7 @@ impl RefreshService {
     pub fn new(
         repos: Arc<RepositoryRegistry>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
-            Arc<dravr_enforme::SyncOrchestrator>,
+            Arc<pierre_enforme::SyncOrchestrator>,
         >,
         sse_manager: Arc<SseManager>,
     ) -> Self {
@@ -524,12 +524,12 @@ pub fn compute_smart_interval(
 /// Returns an `AbortHandle` to cancel the background task on shutdown.
 #[cfg(feature = "health-sync")]
 pub fn start_scheduled_sync(
-    orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: Arc<pierre_enforme::SyncOrchestrator>,
     repos: Arc<RepositoryRegistry>,
     sse_manager: Arc<SseManager>,
     rate_limiter: Option<Arc<ProviderRateLimiter>>,
 ) -> AbortHandle {
-    use dravr_enforme::orchestrator::scheduler::with_jitter;
+    use pierre_enforme::orchestrator::scheduler::with_jitter;
     use tokio::time::sleep;
 
     let poll_interval = Duration::from_secs(orchestrator.config().poll_interval_secs);
@@ -557,7 +557,7 @@ pub fn start_scheduled_sync(
 /// Execute one full sync cycle across all providers and users.
 #[cfg(feature = "health-sync")]
 async fn run_scheduled_sync_cycle(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
     repos: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<SseManager>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
@@ -600,7 +600,7 @@ async fn run_scheduled_sync_cycle(
 /// Sync all active users for a single provider, checking rate limits per user.
 #[cfg(feature = "health-sync")]
 async fn sync_provider_users(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
     repos: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<SseManager>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
@@ -659,7 +659,7 @@ fn is_provider_rate_limited(
 /// Sync a single user for a given provider, recording metrics and sending notifications.
 #[cfg(feature = "health-sync")]
 async fn sync_single_user(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
     repos: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<SseManager>,
     user: &ConnectedUser,

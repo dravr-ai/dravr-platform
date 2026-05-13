@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     mcp::resources::ServerContext,
-    middleware::extract_auth_from_headers,
+    middleware::AuthenticatedUser,
     models::TenantId,
     pagination::StoreSortOrder,
     services::coach_grading::{compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT},
@@ -216,14 +216,6 @@ impl StoreRoutes {
             .with_state(Arc::new(resources.clone()))
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
-    }
-
     /// Get tenant ID for an authenticated user
     ///
     /// Extracts `active_tenant_id` from JWT claims (user's selected tenant).
@@ -250,10 +242,10 @@ impl StoreRoutes {
     /// Handle GET /api/store/coaches - Browse published coaches with cursor pagination
     async fn handle_browse(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<BrowseCoachesQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let viewer_tenant = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_store_manager(&resources);
@@ -312,10 +304,10 @@ impl StoreRoutes {
     /// Handle GET /api/store/coaches/{id} - Get coach details
     async fn handle_get_coach(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let manager = Self::get_store_manager(&resources);
 
@@ -341,9 +333,9 @@ impl StoreRoutes {
     /// Handle GET /api/store/categories - List categories with counts
     async fn handle_categories(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let manager = Self::get_store_manager(&resources);
 
@@ -398,10 +390,10 @@ impl StoreRoutes {
     /// Handle GET /api/store/search - Search published coaches
     async fn handle_search(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(query): Query<SearchCoachesQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         if query.q.trim().is_empty() {
             return Err(AppError::invalid_input("Search query cannot be empty"));
@@ -435,10 +427,10 @@ impl StoreRoutes {
     /// Handle POST /api/store/coaches/{id}/install - Install a coach from the Store
     async fn handle_install(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_store_manager(&resources);
@@ -484,10 +476,10 @@ impl StoreRoutes {
     /// Handle DELETE /api/store/coaches/{id}/install - Uninstall a coach
     async fn handle_uninstall(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(coach_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_store_manager(&resources);
@@ -518,9 +510,9 @@ impl StoreRoutes {
     /// Handle GET /api/store/installations - List user's installed coaches
     async fn handle_list_installations(
         State(resources): State<Arc<ServerContext>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
         let tenant_id = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_store_manager(&resources);

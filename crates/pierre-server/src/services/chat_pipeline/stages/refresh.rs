@@ -19,10 +19,29 @@ use std::sync::Arc;
 
 use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::RepositoryRegistry;
 
-use crate::mcp::resources::ServerContext;
 use crate::models::TenantId;
 use crate::services::provider_refresh::RefreshService;
+use crate::sse::SseManager;
+
+/// Inputs to [`inject_refresh_context`].
+///
+/// Bundles the per-call dependencies so the function signature stays
+/// under clippy's `too_many_arguments` ceiling and the caller does not
+/// need to pass the full [`crate::mcp::resources::ServerContext`]. All
+/// fields are borrowed references, so the struct is `Copy` and cheap to
+/// pass by value.
+#[derive(Clone, Copy)]
+pub struct RefreshDeps<'a> {
+    /// Repository registry used to look up provider freshness rows.
+    pub repos: &'a Arc<RepositoryRegistry>,
+    /// Optional sync orchestrator used to schedule background refreshes.
+    #[cfg(feature = "health-sync")]
+    pub sync_orchestrator: &'a Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    /// SSE manager used to push refresh-status events to the client.
+    pub sse_manager: &'a Arc<SseManager>,
+}
 
 /// Trigger a background provider refresh and append a freshness hint.
 ///
@@ -34,11 +53,17 @@ use crate::services::provider_refresh::RefreshService;
 /// and returns `base_prompt` unchanged. When the coach hint is disabled
 /// the refresh still fires but nothing is appended to the prompt.
 pub async fn inject_refresh_context(
-    resources: &Arc<ServerContext>,
+    deps: RefreshDeps<'_>,
     user_id: &str,
     tenant_id: TenantId,
     base_prompt: String,
 ) -> String {
+    let RefreshDeps {
+        repos,
+        #[cfg(feature = "health-sync")]
+        sync_orchestrator,
+        sse_manager,
+    } = deps;
     let config = RefreshConfig::default();
     if !config.on_chat_enabled {
         return base_prompt;
@@ -49,10 +74,10 @@ pub async fn inject_refresh_context(
     };
 
     let refresh_service = RefreshService::new(
-        resources.repos.clone(),
+        repos.clone(),
         #[cfg(feature = "health-sync")]
-        resources.sync_orchestrator.clone(),
-        resources.sse_manager.clone(),
+        sync_orchestrator.clone(),
+        sse_manager.clone(),
     );
 
     let status = refresh_service

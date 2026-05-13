@@ -337,12 +337,14 @@ async fn handle_manual_sync(
 
     let store = config.store();
     let result = super::sync::full_sync(
-        &resources.prompt_registry,
-        &resources.tool_description_registry,
-        &resources.evidence_registry,
-        &resources.cageux_config_registry,
-        &resources.messaging_strings_registry,
-        &resources.persona_contract_registry,
+        super::sync::ContremaitreRegistries {
+            registry: &resources.prompt_registry,
+            tool_desc_registry: &resources.tool_description_registry,
+            evidence_registry: &resources.evidence_registry,
+            cageux_config_registry: &resources.cageux_config_registry,
+            messaging_strings_registry: &resources.messaging_strings_registry,
+            persona_contract_registry: &resources.persona_contract_registry,
+        },
         store.as_ref(),
     )
     .await?;

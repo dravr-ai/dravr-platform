@@ -139,12 +139,14 @@ fn spawn_selective_sync(
 
     tokio::spawn(async move {
         if let Err(e) = super::sync::selective_sync(
-            &registry,
-            &tool_desc_registry,
-            &evidence_registry,
-            &cageux_config_registry,
-            &messaging_strings_registry,
-            &persona_contract_registry,
+            super::sync::ContremaitreRegistries {
+                registry: &registry,
+                tool_desc_registry: &tool_desc_registry,
+                evidence_registry: &evidence_registry,
+                cageux_config_registry: &cageux_config_registry,
+                messaging_strings_registry: &messaging_strings_registry,
+                persona_contract_registry: &persona_contract_registry,
+            },
             store.as_ref(),
             &filtered_paths,
         )

@@ -26,7 +26,6 @@ use common::*;
 
 /// Test data flow from tool execution through intelligence analysis
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_activity_analysis_through_universal_tools() -> Result<()> {
     let database = create_test_database().await?;
 
@@ -193,7 +192,6 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
 
 /// Test recommendation engine integration with tool handlers
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_recommendation_engine_integration() -> Result<()> {
     let database = create_test_database().await?;
 

@@ -669,14 +669,18 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::start_outbound_worker;
-        start_outbound_worker(Arc::clone(&resources));
+        start_outbound_worker(Arc::clone(&resources.repos.messaging));
         info!("Messaging outbound retry worker started");
     }
 
     // Start coach followup scheduler (polls coach_followups every 60 seconds)
     {
         use pierre_mcp_server::start_followup_scheduler;
-        start_followup_scheduler(&resources);
+        start_followup_scheduler(
+            Arc::clone(&resources.repos.memory),
+            #[cfg(feature = "client-notifications")]
+            resources.notification_service.clone(),
+        );
     }
 
     // Start Discord Gateway WebSocket client for real-time message delivery

@@ -15,7 +15,6 @@ mod insights;
 mod settings;
 
 use axum::{
-    http::HeaderMap,
     routing::{delete, get, post, put},
     Router,
 };
@@ -25,10 +24,7 @@ use std::sync::Arc;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
-};
-use pierre_auth::auth::AuthResult;
+use crate::{errors::AppError, mcp::resources::ServerContext};
 use pierre_database::repositories::SocialRepository;
 
 // Re-export all public types for external consumers
@@ -145,14 +141,6 @@ impl SocialRoutes {
             // Discovery
             .route("/api/social/users/search", get(Self::handle_search_users))
             .with_state(resources)
-    }
-
-    /// Extract and authenticate user from authorization header or cookie
-    pub(crate) async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerContext>,
-    ) -> Result<AuthResult, AppError> {
-        extract_auth_from_headers(headers, resources).await
     }
 
     /// Build metadata for responses

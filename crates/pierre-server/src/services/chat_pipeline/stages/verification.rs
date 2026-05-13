@@ -22,6 +22,7 @@ use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::{ExtractedClaim, VerdictOutcome, VerificationConfig, VerificationFallback};
 use pierre_memory::claims::ClaimStatus;
 
+use crate::context::DataContext;
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
@@ -263,7 +264,7 @@ pub async fn apply_claim_verification(
 /// flagged message. Writes are best-effort: a single row failing is logged
 /// and does not affect the user-facing turn.
 pub async fn persist_pending_verdicts(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     tenant_id: TenantId,
     user_id: &str,
     conversation_id: &str,
@@ -287,8 +288,8 @@ pub async fn persist_pending_verdicts(
             explanation: Some(&outcome.explanation),
             evidence_refs: outcome.evidence_refs.as_deref(),
         };
-        if let Err(e) = resources
-            .repos
+        if let Err(e) = data
+            .repos()
             .claim_verdicts
             .insert_claim_verdict(&params)
             .await

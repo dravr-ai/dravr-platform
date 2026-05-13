@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 
 use crate::errors::AppError;
 use crate::health::{LlmHealthState, LlmHealthStatus};
-use crate::mcp::resources::ServerContext;
+use crate::llm::LlmProvider;
 
 /// Build a [`ChatProvider`] from the current process environment.
 ///
@@ -55,10 +55,10 @@ pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
 /// when no override is present and the environment-configured provider
 /// cannot be initialized.
 pub async fn create_chat_provider_from_resources(
-    resources: &Arc<ServerContext>,
+    llm_provider: Option<&Arc<dyn LlmProvider>>,
 ) -> Result<ChatProvider, AppError> {
-    if let Some(custom) = resources.llm_provider.clone() {
-        return Ok(ChatProvider::Custom(custom));
+    if let Some(custom) = llm_provider {
+        return Ok(ChatProvider::Custom(Arc::clone(custom)));
     }
     create_chat_provider().await
 }

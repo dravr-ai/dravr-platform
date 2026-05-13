@@ -20,11 +20,10 @@
 //!    Idempotent.
 
 use std::fmt::Write as _;
-use std::sync::Arc;
 
 use pierre_database::database::ConversationRecord;
 
-use crate::mcp::resources::ServerContext;
+use crate::context::DataContext;
 use crate::models::TenantId;
 
 /// Ensure the conversation has a coach session attached.
@@ -35,7 +34,7 @@ use crate::models::TenantId;
 /// and in the database so the rest of the dispatch path can rely on
 /// `conv.session_id` being set.
 pub async fn ensure_coach_session_attached(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     mut conv: ConversationRecord,
     tenant_id: TenantId,
 ) -> ConversationRecord {
@@ -46,8 +45,8 @@ pub async fn ensure_coach_session_attached(
         return conv;
     }
 
-    let session = match resources
-        .repos
+    let session = match data
+        .repos()
         .memory
         .get_or_open_coach_session(tenant_id, &conv.user_id, &coach_id)
         .await
@@ -59,8 +58,8 @@ pub async fn ensure_coach_session_attached(
         }
     };
 
-    if let Err(e) = resources
-        .repos
+    if let Err(e) = data
+        .repos()
         .chat
         .set_conversation_session_id(&conv.id, &session.id, tenant_id)
         .await
@@ -79,7 +78,7 @@ pub async fn ensure_coach_session_attached(
 /// any) plus the list of followup IDs that were surfaced this turn so the
 /// dispatcher can mark them delivered after the assistant reply lands.
 pub async fn inject_pending_followups(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     tenant_id: TenantId,
     user_id: &str,
     coach_id: Option<&str>,
@@ -88,8 +87,8 @@ pub async fn inject_pending_followups(
     let Some(coach_id) = coach_id else {
         return (base_prompt, Vec::new());
     };
-    let followups = match resources
-        .repos
+    let followups = match data
+        .repos()
         .memory
         .list_pending_followups(tenant_id, user_id, coach_id)
         .await
@@ -126,14 +125,14 @@ pub async fn inject_pending_followups(
 /// surfaces a fresh timestamp) and marks any followups we surfaced this
 /// turn as delivered. Errors are logged and swallowed.
 pub async fn finalize_session_state(
-    resources: &Arc<ServerContext>,
+    data: &DataContext,
     session_id: Option<&str>,
     delivered_followup_ids: &[String],
     tenant_id: TenantId,
 ) {
     if let Some(session_id) = session_id {
-        if let Err(e) = resources
-            .repos
+        if let Err(e) = data
+            .repos()
             .memory
             .touch_coach_session(session_id, tenant_id)
             .await
@@ -142,8 +141,8 @@ pub async fn finalize_session_state(
         }
     }
     for followup_id in delivered_followup_ids {
-        if let Err(e) = resources
-            .repos
+        if let Err(e) = data
+            .repos()
             .memory
             .mark_followup_delivered(followup_id, tenant_id)
             .await

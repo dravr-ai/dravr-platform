@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-#![allow(clippy::unwrap_used, clippy::panic)]
 #![allow(missing_docs)]
 
 mod common;
@@ -14,14 +13,11 @@ use pierre_mcp_server::sse::manager::SseManager;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
-#[allow(clippy::expect_used)]
 #[tokio::test]
-async fn test_protocol_stream_cleanup_removes_from_user_sessions() {
+async fn test_protocol_stream_cleanup_removes_from_user_sessions() -> anyhow::Result<()> {
     // Create SSE manager
     let manager = SseManager::new(100);
-    let resources = create_test_server_resources()
-        .await
-        .expect("Failed to create test resources");
+    let resources = create_test_server_resources().await?;
 
     // Create a test user
     let user_id = Uuid::new_v4();
@@ -67,75 +63,69 @@ async fn test_protocol_stream_cleanup_removes_from_user_sessions() {
 
     // After all sessions removed, user_sessions should be empty
     // (verified by the fact that cleanup completed without panics)
+    Ok(())
 }
 
-#[allow(clippy::expect_used, clippy::similar_names)]
 #[tokio::test]
-async fn test_protocol_stream_cleanup_with_multiple_users() {
+async fn test_protocol_stream_cleanup_with_multiple_users() -> anyhow::Result<()> {
     let manager = SseManager::new(100);
-    let resources = create_test_server_resources()
-        .await
-        .expect("Failed to create test resources");
+    let resources = create_test_server_resources().await?;
 
     // Create two users
     let user_id_1 = Uuid::new_v4();
     let user_id_2 = Uuid::new_v4();
 
-    // Register sessions for user 1
-    let session_user1_a = "user1_session_a".to_owned();
-    let session_user1_b = "user1_session_b".to_owned();
+    // Register two sessions for user 1, one for user 2. Collect the receiver
+    // handles into a Vec so the streams stay alive across the cleanup phase.
+    let user1_sessions = ["user1_session_a".to_owned(), "user1_session_b".to_owned()];
+    let user2_session = "user2_session_a".to_owned();
 
-    let _r1a = manager
-        .register_protocol_stream(
-            session_user1_a.clone(),
-            Some(format!("Bearer test_{user_id_1}")),
-            resources.clone(),
-        )
-        .await;
-    let _r1b = manager
-        .register_protocol_stream(
-            session_user1_b.clone(),
-            Some(format!("Bearer test_{user_id_1}")),
-            resources.clone(),
-        )
-        .await;
-
-    // Register sessions for user 2
-    let session_user2_a = "user2_session_a".to_owned();
-
-    let _r2a = manager
-        .register_protocol_stream(
-            session_user2_a.clone(),
-            Some(format!("Bearer test_{user_id_2}")),
-            resources.clone(),
-        )
-        .await;
+    let mut receivers = Vec::with_capacity(3);
+    for session in &user1_sessions {
+        receivers.push(
+            manager
+                .register_protocol_stream(
+                    session.clone(),
+                    Some(format!("Bearer test_{user_id_1}")),
+                    resources.clone(),
+                )
+                .await,
+        );
+    }
+    receivers.push(
+        manager
+            .register_protocol_stream(
+                user2_session.clone(),
+                Some(format!("Bearer test_{user_id_2}")),
+                resources.clone(),
+            )
+            .await,
+    );
 
     assert_eq!(manager.active_protocol_streams(), 3);
 
     // Unregister one session from user 1
-    manager.unregister_protocol_stream(&session_user1_a);
+    manager.unregister_protocol_stream(&user1_sessions[0]);
 
-    // User 1 should still have session_user1_b tracked
-    // User 2 should still have session_user2_a tracked
+    // User 1 should still have user1_sessions[1] tracked
+    // User 2 should still have user2_session tracked
     assert_eq!(manager.active_protocol_streams(), 2);
 
     // Unregister user 2's session
-    manager.unregister_protocol_stream(&session_user2_a);
+    manager.unregister_protocol_stream(&user2_session);
     assert_eq!(manager.active_protocol_streams(), 1);
 
     // Unregister last session from user 1
-    manager.unregister_protocol_stream(&session_user1_b);
+    manager.unregister_protocol_stream(&user1_sessions[1]);
     assert_eq!(manager.active_protocol_streams(), 0);
+    drop(receivers);
+    Ok(())
 }
 
-#[allow(clippy::expect_used)]
 #[tokio::test]
-async fn test_memory_leak_prevention_after_many_connects_disconnects() {
+async fn test_memory_leak_prevention_after_many_connects_disconnects() -> anyhow::Result<()> {
     let manager = SseManager::new(100);
-    let resources = create_test_server_resources()
-        .await
-        .expect("Failed to create test resources");
+    let resources = create_test_server_resources().await?;
 
     let user_id = Uuid::new_v4();
     let token = Some(format!("Bearer test_{user_id}"));
@@ -157,15 +147,13 @@ async fn test_memory_leak_prevention_after_many_connects_disconnects() {
 
     // The fact that this test completes without excessive memory usage
     // indicates the cleanup is working properly
+    Ok(())
 }
 
-#[allow(clippy::expect_used)]
 #[tokio::test]
-async fn test_cleanup_inactive_connections() {
+async fn test_cleanup_inactive_connections() -> anyhow::Result<()> {
     let manager = SseManager::new(100);
-    let resources = create_test_server_resources()
-        .await
-        .expect("Failed to create test resources");
+    let resources = create_test_server_resources().await?;
 
     let user_id = Uuid::new_v4();
     let session_id = "test_session".to_owned();
@@ -193,4 +181,5 @@ async fn test_cleanup_inactive_connections() {
 
     // Connection should be cleaned up
     assert_eq!(manager.active_protocol_streams(), 0);
+    Ok(())
 }

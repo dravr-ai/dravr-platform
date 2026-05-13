@@ -24,7 +24,7 @@ use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
 use crate::services::weather_backfill;
 use crate::utils::uuid::parse_user_id_for_protocol;
-use dravr_meteo::WeatherProvider;
+use pierre_weather::WeatherProvider;
 use serde::Serialize;
 use serde_json::{json, to_value, Value};
 use std::cmp::Reverse;
@@ -1227,7 +1227,6 @@ async fn process_activity_analysis(
 
 /// Handle `get_activities` tool - retrieve user's fitness activities
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_get_activities(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -1616,7 +1615,6 @@ pub fn handle_get_activities(
 
 /// Handle `get_athlete` tool - retrieve user's athlete profile
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_get_athlete(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -1913,7 +1911,6 @@ async fn fetch_and_cache_stats(
 
 /// Handle `get_stats` tool - retrieve user's activity statistics
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_get_stats(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
@@ -2071,7 +2068,6 @@ pub fn handle_get_stats(
 
 /// Handle `analyze_activity` tool - analyze specific activity with intelligence
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_analyze_activity(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

@@ -82,12 +82,16 @@ pub mod errors;
 /// Central tool registry with capability-based filtering
 pub mod registry;
 
-/// Transitional delegate from `McpTool::execute` to a UniversalExecutor handler.
+/// Single-conversion dispatch from `McpTool::execute` onto a
+/// `protocols::universal::handlers::handle_*` body.
 ///
-/// Ensures every tool has a single executing body regardless of which
-/// protocol dispatched it. Retired once handler inlining completes
-/// (Stage 5 of the tool-registry unification).
-pub mod universal_delegate;
+/// Owns the canonical conversion between `ToolExecutionContext` + `Value`
+/// args and the protocol-level `UniversalRequest`/`UniversalResponse` shape,
+/// so each tool impl is a thin schema definition plus one call into
+/// [`dispatch_handler`].
+///
+/// [`dispatch_handler`]: dispatch::dispatch_handler
+pub mod dispatch;
 
 /// Tool decorators (caching, auditing)
 pub mod decorators;

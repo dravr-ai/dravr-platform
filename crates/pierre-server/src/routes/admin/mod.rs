@@ -92,39 +92,53 @@ pub struct AdminApiContext {
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
 }
 
+/// Initial wiring required to construct an [`AdminApiContext`].
+///
+/// Lives as a dedicated struct so [`AdminApiContext::new`] doesn't need a
+/// sprawling positional argument list — all callers go through named fields.
+pub struct AdminApiContextInit {
+    /// Backing database handle
+    pub database: Arc<Database>,
+    /// Repository registry for admin queries
+    pub repos: Arc<RepositoryRegistry>,
+    /// Admin JWT signing secret
+    pub jwt_secret: String,
+    /// Shared auth manager
+    pub auth_manager: Arc<AuthManager>,
+    /// Shared JWKS manager
+    pub jwks_manager: Arc<JwksManager>,
+    /// Per-tenant monthly API-key limit for admin-provisioned keys
+    pub admin_api_key_monthly_limit: u32,
+    /// TTL for admin-token validation cache, in seconds
+    pub admin_token_cache_ttl_secs: u64,
+    /// Tool selection service used by admin coach tooling
+    pub tool_selection: Arc<ToolSelectionService>,
+    /// Harness config registry surfaced to admin eval flows
+    pub harness_config_registry: Arc<HarnessConfigRegistry>,
+}
+
 impl AdminApiContext {
-    /// Creates a new admin API context
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        database: Arc<Database>,
-        repos: Arc<RepositoryRegistry>,
-        jwt_secret: &str,
-        auth_manager: Arc<AuthManager>,
-        jwks_manager: Arc<JwksManager>,
-        admin_api_key_monthly_limit: u32,
-        admin_token_cache_ttl_secs: u64,
-        tool_selection: Arc<ToolSelectionService>,
-        harness_config_registry: Arc<HarnessConfigRegistry>,
-    ) -> Self {
+    /// Creates a new admin API context from the init bundle.
+    pub fn new(init: AdminApiContextInit) -> Self {
         info!("AdminApiContext initialized with JWT signing key");
         let auth_service = AdminAuthService::new(
-            Arc::clone(&repos.admin),
-            jwks_manager.clone(),
-            admin_token_cache_ttl_secs,
+            Arc::clone(&init.repos.admin),
+            init.jwks_manager.clone(),
+            init.admin_token_cache_ttl_secs,
         );
         Self {
-            database,
-            repos,
+            database: init.database,
+            repos: init.repos,
             auth_service,
-            auth_manager,
-            admin_jwt_secret: jwt_secret.to_owned(),
-            jwks_manager,
-            admin_api_key_monthly_limit,
-            tool_selection,
+            auth_manager: init.auth_manager,
+            admin_jwt_secret: init.jwt_secret,
+            jwks_manager: init.jwks_manager,
+            admin_api_key_monthly_limit: init.admin_api_key_monthly_limit,
+            tool_selection: init.tool_selection,
             tool_registry: None,
             email_service: None,
             frontend_url: None,
-            harness_config_registry,
+            harness_config_registry: init.harness_config_registry,
         }
     }
 }

@@ -24,9 +24,9 @@ use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
+use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // GetRecipeConstraintsTool
@@ -112,7 +112,7 @@ impl McpTool for GetRecipeConstraintsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "get_recipe_constraints",
@@ -212,7 +212,7 @@ impl McpTool for ValidateRecipeTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "validate_recipe",
@@ -359,7 +359,7 @@ impl McpTool for SaveRecipeTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "save_recipe", handlers::handle_save_recipe).await
+        dispatch_handler(context, args, "save_recipe", handlers::handle_save_recipe).await
     }
 }
 
@@ -418,7 +418,7 @@ impl McpTool for ListRecipesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "list_recipes", handlers::handle_list_recipes).await
+        dispatch_handler(context, args, "list_recipes", handlers::handle_list_recipes).await
     }
 }
 
@@ -461,7 +461,7 @@ impl McpTool for GetRecipeTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(context, args, "get_recipe", handlers::handle_get_recipe).await
+        dispatch_handler(context, args, "get_recipe", handlers::handle_get_recipe).await
     }
 }
 
@@ -504,7 +504,7 @@ impl McpTool for DeleteRecipeTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "delete_recipe",
@@ -569,7 +569,7 @@ impl McpTool for SearchRecipesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        delegate_to_handler(
+        dispatch_handler(
             context,
             args,
             "search_recipes",

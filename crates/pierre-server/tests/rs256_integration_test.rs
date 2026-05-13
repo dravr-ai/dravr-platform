@@ -250,9 +250,10 @@ async fn test_rs256_tampered_token_rejection() -> Result<()> {
     } else {
         token_bytes[50] = b'a';
     }
-    // Safe: We're only modifying ASCII characters in a JWT token
-    #[allow(clippy::unwrap_used)]
-    let token = String::from_utf8(token_bytes).unwrap();
+    // Token bytes only contain ASCII (JWT chars + the single mutation above),
+    // so UTF-8 decoding is infallible — propagate any framework error anyway
+    // rather than silencing the lint with an `.unwrap()`.
+    let token = String::from_utf8(token_bytes)?;
 
     // Tampered token should fail validation
     let result = auth_manager.validate_token(&token, &jwks_manager_arc);

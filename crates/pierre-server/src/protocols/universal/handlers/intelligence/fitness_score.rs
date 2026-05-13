@@ -365,7 +365,6 @@ fn calculate_trend(activities: &[Activity]) -> &'static str {
 /// - `sleep_provider` (optional): Sleep/recovery provider for cross-provider analysis
 /// - `timeframe` (optional): `month`, `last_90_days`, or `all_time`
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn handle_calculate_fitness_score(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

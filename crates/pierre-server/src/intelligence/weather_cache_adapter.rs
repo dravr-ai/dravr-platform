@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Adapter wrapping an `Arc<dyn WeatherCacheRepository>` so it satisfies
-//! the `dravr_meteo::WeatherCacheStore` trait expected by the
+//! the `pierre_weather::WeatherCacheStore` trait expected by the
 //! `CachedProvider` decorator.
 //!
 //! Storage stays in pierre-database (`SQLite` or `PostgreSQL`); dravr-meteo
@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dravr_meteo::{CacheError, CacheKey, WeatherCacheStore, WeatherSample};
 use pierre_database::repositories::{WeatherCacheEntry, WeatherCacheRepository};
+use pierre_weather::{CacheError, CacheKey, WeatherCacheStore, WeatherSample};
 
 /// Adapter that lets a database-backed `WeatherCacheRepository` satisfy
 /// the dravr-meteo `WeatherCacheStore` trait.
