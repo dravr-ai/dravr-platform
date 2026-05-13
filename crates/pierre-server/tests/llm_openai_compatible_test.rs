@@ -365,6 +365,7 @@ fn test_vllm_capabilities_include_json_mode() {
 #[tokio::test]
 async fn test_openai_compatible_health_check() {
     use pierre_mcp_server::llm::LlmProvider;
+    require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
     let provider = OpenAiCompatibleProvider::new(config).unwrap();
