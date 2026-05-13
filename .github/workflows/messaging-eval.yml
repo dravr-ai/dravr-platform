@@ -72,12 +72,12 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -151,12 +151,12 @@ jobs:
       LLM_REQUEST_TIMEOUT_SECS: "900"
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
 
       - uses: dtolnay/rust-toolchain@stable
 
