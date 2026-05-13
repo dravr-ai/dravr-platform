@@ -1324,8 +1324,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.3.0"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.3.0#019258c8063d37299feb08a5a2028f279b4652e5"
+version = "0.3.1"
+source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.3.1#b824d09e73797aabe99a8f003dad6a90df88b323"
 dependencies = [
  "async-trait",
  "axum",
