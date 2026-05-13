@@ -29,6 +29,7 @@ use super::{
     FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
     OpenAiCompatibleProvider, Tool,
 };
+use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use embacle::CliRunnerType;
@@ -710,27 +711,80 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.complete(request).await,
             Self::Cli(p) => p.complete(request).await,
             Self::Custom(p) => p.complete(request).await,
-            Self::Chain { primary, secondary } => match primary.complete(request).await {
-                Ok(response) => Ok(response),
-                Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+            Self::Chain { primary, secondary } => {
+                // Preemptive skip: CHAIN_GUARD short-circuits to the
+                // secondary when GitHub rate-limit headroom is below
+                // threshold (Strategy A) or when the circuit breaker
+                // is open after consecutive primary auth failures
+                // (Strategy B). Half-open / closed states fall through
+                // to the normal "try primary, fall back on retryable
+                // error" path so a single half-open probe gets to
+                // exercise the primary.
+                if CHAIN_GUARD.should_skip_primary() {
                     warn!(
                         primary = primary.name(),
                         secondary = secondary.name(),
-                        error = %primary_err,
-                        "Primary LLM complete() failed with retryable error; falling back"
+                        budget_low = CHAIN_GUARD.is_github_budget_low(),
+                        circuit_open = CHAIN_GUARD.is_circuit_open(),
+                        "Chain skipping primary preemptively; using secondary directly"
                     );
                     info!(
                         target: "notify",
                         event = "embacle.fallback_triggered",
                         from_provider = primary.name(),
                         to_provider = secondary.name(),
-                        reason = ?primary_err.code,
-                        "Runtime LLM fallback engaged on complete()"
+                        reason = "preemptive_guard",
+                        "Runtime LLM fallback engaged preemptively (guard)"
                     );
-                    secondary.complete(request).await
+                    return secondary.complete(request).await;
                 }
-                Err(primary_err) => Err(primary_err),
-            },
+                match primary.complete(request).await {
+                    Ok(response) => {
+                        if matches!(
+                            CHAIN_GUARD.record_primary_success(),
+                            CircuitTransition::Closed
+                        ) {
+                            info!(
+                                target: "notify",
+                                event = "llm.circuit_closed",
+                                provider = primary.name(),
+                                "Chain circuit closed on primary recovery"
+                            );
+                        }
+                        Ok(response)
+                    }
+                    Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+                        if matches!(
+                            CHAIN_GUARD.record_primary_failure(),
+                            CircuitTransition::Opened
+                        ) {
+                            info!(
+                                target: "notify",
+                                event = "llm.circuit_opened",
+                                provider = primary.name(),
+                                reason = ?primary_err.code,
+                                "Chain circuit opened after consecutive primary failures"
+                            );
+                        }
+                        warn!(
+                            primary = primary.name(),
+                            secondary = secondary.name(),
+                            error = %primary_err,
+                            "Primary LLM complete() failed with retryable error; falling back"
+                        );
+                        info!(
+                            target: "notify",
+                            event = "embacle.fallback_triggered",
+                            from_provider = primary.name(),
+                            to_provider = secondary.name(),
+                            reason = ?primary_err.code,
+                            "Runtime LLM fallback engaged on complete()"
+                        );
+                        secondary.complete(request).await
+                    }
+                    Err(primary_err) => Err(primary_err),
+                }
+            }
         }
     }
 
@@ -741,27 +795,80 @@ impl LlmProvider for ChatProvider {
             Self::Local(p) => p.complete_stream(request).await,
             Self::Cli(p) => p.complete_stream(request).await,
             Self::Custom(p) => p.complete_stream(request).await,
-            Self::Chain { primary, secondary } => match primary.complete_stream(request).await {
-                Ok(stream) => Ok(stream),
-                Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+            Self::Chain { primary, secondary } => {
+                // Same preemptive-skip logic as `complete()` — see
+                // there for the rationale. We record success/failure on
+                // the same shared CHAIN_GUARD so the breaker is unified
+                // across streaming and non-streaming calls.
+                if CHAIN_GUARD.should_skip_primary() {
                     warn!(
                         primary = primary.name(),
                         secondary = secondary.name(),
-                        error = %primary_err,
-                        "Primary LLM complete_stream() failed with retryable error; falling back"
+                        budget_low = CHAIN_GUARD.is_github_budget_low(),
+                        circuit_open = CHAIN_GUARD.is_circuit_open(),
+                        "Chain skipping primary preemptively on stream; using secondary directly"
                     );
                     info!(
                         target: "notify",
                         event = "embacle.fallback_triggered",
                         from_provider = primary.name(),
                         to_provider = secondary.name(),
-                        reason = ?primary_err.code,
-                        "Runtime LLM fallback engaged on complete_stream()"
+                        reason = "preemptive_guard",
+                        "Runtime LLM fallback engaged preemptively (guard, stream)"
                     );
-                    secondary.complete_stream(request).await
+                    return secondary.complete_stream(request).await;
                 }
-                Err(primary_err) => Err(primary_err),
-            },
+                match primary.complete_stream(request).await {
+                    Ok(stream) => {
+                        // Note: success here only means the stream was
+                        // OPENED — content may still error mid-stream.
+                        // The breaker tracks transport-level establishment,
+                        // which is what auth/rate-limit failures hit first.
+                        if matches!(
+                            CHAIN_GUARD.record_primary_success(),
+                            CircuitTransition::Closed
+                        ) {
+                            info!(
+                                target: "notify",
+                                event = "llm.circuit_closed",
+                                provider = primary.name(),
+                                "Chain circuit closed on primary stream recovery"
+                            );
+                        }
+                        Ok(stream)
+                    }
+                    Err(primary_err) if is_retryable_for_fallback(&primary_err) => {
+                        if matches!(
+                            CHAIN_GUARD.record_primary_failure(),
+                            CircuitTransition::Opened
+                        ) {
+                            info!(
+                                target: "notify",
+                                event = "llm.circuit_opened",
+                                provider = primary.name(),
+                                reason = ?primary_err.code,
+                                "Chain circuit opened on primary stream failure"
+                            );
+                        }
+                        warn!(
+                            primary = primary.name(),
+                            secondary = secondary.name(),
+                            error = %primary_err,
+                            "Primary LLM complete_stream() failed with retryable error; falling back"
+                        );
+                        info!(
+                            target: "notify",
+                            event = "embacle.fallback_triggered",
+                            from_provider = primary.name(),
+                            to_provider = secondary.name(),
+                            reason = ?primary_err.code,
+                            "Runtime LLM fallback engaged on complete_stream()"
+                        );
+                        secondary.complete_stream(request).await
+                    }
+                    Err(primary_err) => Err(primary_err),
+                }
+            }
         }
     }
 
