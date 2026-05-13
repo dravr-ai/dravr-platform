@@ -137,11 +137,7 @@ impl ChainGuard {
 
     /// Record the latest GitHub rate-limit probe result. Returns the
     /// budget-tier transition for the caller to optionally page on.
-    pub fn record_github_rate_limit(
-        &self,
-        remaining: u64,
-        reset_at: u64,
-    ) -> RateLimitTransition {
+    pub fn record_github_rate_limit(&self, remaining: u64, reset_at: u64) -> RateLimitTransition {
         let previous = self.github_remaining.load(Ordering::Relaxed);
         let was_low = previous != RATE_LIMIT_UNKNOWN && previous < GITHUB_BUDGET_THRESHOLD;
         let is_low = remaining < GITHUB_BUDGET_THRESHOLD;

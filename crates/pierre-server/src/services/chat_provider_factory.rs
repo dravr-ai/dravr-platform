@@ -227,8 +227,7 @@ async fn run_github_rate_limit_probe() {
         RateLimitTransition::ExitedLow => {
             info!(
                 remaining,
-                reset_at,
-                "GitHub rate-limit headroom recovered above threshold"
+                reset_at, "GitHub rate-limit headroom recovered above threshold"
             );
             info!(
                 target: "notify",
