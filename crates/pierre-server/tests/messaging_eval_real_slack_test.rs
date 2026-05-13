@@ -56,6 +56,28 @@
 
 mod helpers;
 
+/// Live-Slack tests need both the QA driver tokens AND a Pierre dev server
+/// running locally that's wired into the Slack workspace. Gate on
+/// `RUN_SLACK_E2E_TESTS=1` so they skip silently otherwise — CI cron with
+/// the full setup is the only environment that can pass these. Mirrors
+/// `llm_local_integration_test::require_local_llm!`.
+///
+/// Without this gate the tests had a deceptive failure mode: developers
+/// with `MESSAGING_EVAL_SLACK_*` in `.envrc` would see the tests fail
+/// (no live Pierre to reply), while CI runners with NO env vars saw the
+/// tests return early and report as passed — meaning CI was silently
+/// skipping coverage.
+macro_rules! require_slack_e2e {
+    () => {
+        if std::env::var("RUN_SLACK_E2E_TESTS").is_err() {
+            eprintln!(
+                "skipping: set RUN_SLACK_E2E_TESTS=1 (and run a local Pierre with SLACK_ALLOWED_BOT_IDS configured) to enable Slack e2e tests"
+            );
+            return;
+        }
+    };
+}
+
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::env;
@@ -365,6 +387,7 @@ async fn driver_user_id(client: &Client, bot_token: &str) -> Result<String, Stri
 /// the polling harness without requiring the coach bot to reply.
 #[tokio::test]
 async fn real_slack_post_and_read_smoke() {
+    require_slack_e2e!();
     let Some(creds) = SlackCreds::from_env() else {
         return;
     };
@@ -465,6 +488,7 @@ struct EvalProbe {
 /// independent — multiple probes can be invoked from sibling tests in
 /// the same CI run, sharing one warm Pierre + Ollama process.
 async fn run_probe(probe: &EvalProbe) {
+    require_slack_e2e!();
     let Some(creds) = SlackCreds::from_env() else {
         return;
     };
