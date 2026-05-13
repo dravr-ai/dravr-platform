@@ -11,6 +11,18 @@ use pierre_mcp_server::config::LlmProviderType;
 use pierre_mcp_server::llm::{LlmCapabilities, OpenAiCompatibleConfig, OpenAiCompatibleProvider};
 use std::env;
 
+/// Live-Ollama tests gate on `RUN_LOCAL_LLM_TESTS=1` so they skip silently on
+/// developer machines without a local Ollama server. Pattern mirrors
+/// `llm_local_integration_test::require_local_llm!`.
+macro_rules! require_local_llm {
+    () => {
+        if env::var("RUN_LOCAL_LLM_TESTS").is_err() {
+            eprintln!("skipping: set RUN_LOCAL_LLM_TESTS=1 (and run `ollama serve`) to enable live Ollama integration tests");
+            return;
+        }
+    };
+}
+
 // =============================================================================
 // OpenAiCompatibleConfig Tests
 // =============================================================================
@@ -364,6 +376,7 @@ async fn test_openai_compatible_health_check() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete() {
+    require_local_llm!();
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
@@ -380,6 +393,7 @@ async fn test_openai_compatible_complete() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete_with_tools() {
+    require_local_llm!();
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, FunctionDeclaration, Tool};
     use serde_json::json;
 
@@ -420,6 +434,7 @@ async fn test_openai_compatible_complete_with_tools() {
 
 #[tokio::test]
 async fn test_openai_compatible_streaming() {
+    require_local_llm!();
     use futures_util::StreamExt;
     use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
 

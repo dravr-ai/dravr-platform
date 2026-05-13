@@ -1,0 +1,113 @@
+# ABOUTME: Daily cron that runs the live-Ollama LLM integration tests
+# ABOUTME: Provisions Ollama + qwen2.5 model, sets RUN_LOCAL_LLM_TESTS=1
+
+name: "Monitor: LLM Live Integration"
+
+on:
+  schedule:
+    # Every day at 06:30 UTC (after Copilot + Claude probes; cheap when LLM API is quiet)
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: llm-live-cron
+  cancel-in-progress: false
+
+jobs:
+  live-llm:
+    name: Live Ollama integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pierre
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: pierre_mcp_server
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pierre"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          # Start Ollama in background
+          ollama serve > /tmp/ollama.log 2>&1 &
+          # Wait for the server to come up (max 30s)
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Pull qwen2.5 models
+        run: |
+          # The live integration tests use both qwen2.5:7b (small) and
+          # qwen2.5:14b-instruct (tool-calling). 7b is ~4GB, 14b is ~9GB.
+          # GitHub-hosted runners have ~14GB disk; tight but workable.
+          ollama pull qwen2.5:7b
+          ollama pull qwen2.5:14b-instruct
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "llm-live-cron"
+
+      - name: Run live LLM integration tests
+        env:
+          RUN_LOCAL_LLM_TESTS: "1"
+          DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+        run: |
+          cargo test --test llm_local_integration_test --test llm_openai_compatible_test \
+            -- --test-threads=1 --nocapture
+
+      - name: Dump Ollama log on failure
+        if: failure()
+        run: |
+          echo "=== ollama.log (tail 200) ==="
+          tail -200 /tmp/ollama.log || true
+
+      - name: Open tracking issue on failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `LLM Live Integration failed on ${today}`;
+            const body = `The daily live-Ollama integration tests failed.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nLikely causes: Ollama model schema changed, llm provider implementation drift, GitHub runner disk pressure. See the run log + dumped ollama.log.`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['ci', 'llm'],
+            });
