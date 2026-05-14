@@ -773,3 +773,246 @@ async fn test_persona_prompt_changes_output_style() {
         "Casual and Coach personas produced identical text — persona prompt likely ignored"
     );
 }
+
+// =============================================================================
+// Coach + Group Live-LLM Tests
+// =============================================================================
+//
+// These tests prove that coach prompts and group-context prompts actually
+// steer the model — not just that they get attached to the request. Each
+// test runs against the local Ollama server (qwen2.5:14b-instruct) so a
+// regression in prompt assembly, scope carve-outs, or member attribution
+// will surface as a concrete behavioral diff instead of a silent drop.
+//
+// Run locally with `RUN_LOCAL_LLM_TESTS=1 cargo test --test llm_local_integration_test`.
+
+const SLEEP_COACH_INSTRUCTIONS: &str = "You are a sleep optimization specialist for athletes. \
+    Your expertise includes: sleep architecture and its role in recovery, optimal sleep duration \
+    for different training loads, sleep hygiene practices, chronotype optimization, napping \
+    strategies for athletes, sleep tracking metrics interpretation (deep sleep, REM, HRV during \
+    sleep), and managing sleep around competition. When giving advice, ask about their typical \
+    sleep schedule, sleep quality issues, and training schedule.";
+
+const STRENGTH_COACH_INSTRUCTIONS: &str = "You are a strength and conditioning specialist for \
+    endurance athletes. Focus your advice on resistance training, exercise selection (single-leg \
+    work, heavy compound lifts, hip abductor and calf loading), concurrent training interference \
+    (endurance first, strength second, 6h separation), and periodization (heavy strength in \
+    base/off-season, maintenance during race-specific phases). When giving advice, ask about \
+    their primary sport, training volume, injury history, and equipment access.";
+
+const NUTRITION_COACH_INSTRUCTIONS: &str = "You are a sports nutrition specialist. You answer \
+    questions about meal timing, macronutrients, hydration, supplements, race-day fueling, \
+    and recovery nutrition. You do NOT prescribe training plans, set workout intensities, or \
+    program lifting sessions — if asked about training programming, redirect the user to a \
+    training-focused coach and explain that programming is outside your scope.";
+
+#[tokio::test]
+async fn test_coach_prompt_steers_topic() {
+    require_local_llm!();
+    let provider = create_ollama_provider();
+
+    let question = "What's one thing I should focus on this week to improve my recovery?";
+
+    let sleep_request = ChatRequest::new(vec![
+        ChatMessage::system(SLEEP_COACH_INSTRUCTIONS),
+        ChatMessage::user(question),
+    ]);
+    let strength_request = ChatRequest::new(vec![
+        ChatMessage::system(STRENGTH_COACH_INSTRUCTIONS),
+        ChatMessage::user(question),
+    ]);
+
+    let sleep = provider
+        .complete(&sleep_request)
+        .await
+        .expect("sleep coach call should succeed");
+    let strength = provider
+        .complete(&strength_request)
+        .await
+        .expect("strength coach call should succeed");
+
+    let sleep_lc = sleep.content.to_lowercase();
+    let strength_lc = strength.content.to_lowercase();
+
+    // Sleep coach must lean on sleep vocabulary; strength coach should not.
+    assert!(
+        sleep_lc.contains("sleep")
+            || sleep_lc.contains("rest")
+            || sleep_lc.contains("hrv")
+            || sleep_lc.contains("nap"),
+        "Sleep coach response missing sleep vocabulary: {}",
+        sleep.content
+    );
+    assert!(
+        strength_lc.contains("strength")
+            || strength_lc.contains("resistance")
+            || strength_lc.contains("lift")
+            || strength_lc.contains("squat")
+            || strength_lc.contains("muscle"),
+        "Strength coach response missing strength vocabulary: {}",
+        strength.content
+    );
+
+    // If both responses are byte-identical, the coach system prompt was
+    // ignored — that's the regression this test guards against.
+    assert_ne!(
+        sleep.content.trim(),
+        strength.content.trim(),
+        "Sleep and strength coaches produced identical text — coach prompt likely ignored"
+    );
+}
+
+#[tokio::test]
+async fn test_coach_scope_refusal_nutrition_vs_training() {
+    require_local_llm!();
+    let provider = create_ollama_provider();
+
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(NUTRITION_COACH_INSTRUCTIONS),
+        ChatMessage::user(
+            "Design me a 12-week marathon training plan with weekly mileage progression \
+             and tempo workout intensities.",
+        ),
+    ]);
+
+    let response = provider
+        .complete(&request)
+        .await
+        .expect("nutrition coach call should succeed");
+
+    let lc = response.content.to_lowercase();
+
+    // The nutrition coach must signal that programming is out of scope
+    // (redirect, refuse, or pivot back to nutrition). We accept any of
+    // the documented signals — the test fails only if the coach answers
+    // the training question on its own without acknowledging scope.
+    let signals_scope = lc.contains("nutrition")
+        || lc.contains("scope")
+        || lc.contains("training coach")
+        || lc.contains("training-focused")
+        || lc.contains("not my")
+        || lc.contains("outside")
+        || lc.contains("redirect")
+        || lc.contains("specialist");
+
+    assert!(
+        signals_scope,
+        "Nutrition coach answered a training-programming question without acknowledging \
+         scope. Response: {}",
+        response.content
+    );
+}
+
+#[tokio::test]
+async fn test_group_message_attribution() {
+    require_local_llm!();
+    let provider = create_ollama_provider();
+
+    let group_context = "You are answering inside a group chat. Recent messages from members:\n\
+        - Alice said: I ran 10km this morning at an easy pace.\n\
+        - Bob said: I did a 50km bike ride yesterday with some hill repeats.\n\
+        - Carol said: I took a rest day and stretched for 30 minutes.\n\
+        Answer the user's question using the names of the members exactly as written above.";
+
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(group_context),
+        ChatMessage::user("Who in the group ran today?"),
+    ]);
+
+    let response = provider
+        .complete(&request)
+        .await
+        .expect("group attribution call should succeed");
+
+    let content = response.content.as_str();
+
+    // Alice ran. The model MUST surface Alice and MUST NOT mis-attribute to Bob.
+    assert!(
+        content.contains("Alice"),
+        "Group response did not attribute the run to Alice. Response: {content}"
+    );
+    assert!(
+        !content.contains("Bob ran")
+            && !content.contains("Carol ran")
+            && !content.contains("Bob did a run")
+            && !content.contains("Carol did a run"),
+        "Group response mis-attributed the run to a non-runner. Response: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_group_summary_includes_all_members() {
+    require_local_llm!();
+    let provider = create_ollama_provider();
+
+    let group_context = "You are summarizing a group's training week. Here is each member's \
+        weekly volume:\n\
+        - Alice: 45 km running, 3 sessions, longest run 18 km.\n\
+        - Bob: 180 km cycling, 4 sessions, biggest ride 65 km.\n\
+        - Carol: 6 km swimming, 5 sessions, longest swim 2 km.\n\
+        Produce a concise weekly summary that gives every member at least one sentence by name.";
+
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(group_context),
+        ChatMessage::user("Summarize the group's week."),
+    ]);
+
+    let response = provider
+        .complete(&request)
+        .await
+        .expect("group summary call should succeed");
+
+    let content = response.content.as_str();
+
+    for name in ["Alice", "Bob", "Carol"] {
+        assert!(
+            content.contains(name),
+            "Group summary missing member '{name}'. Response: {content}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_persona_x_coach_composition() {
+    require_local_llm!();
+    let provider = create_ollama_provider();
+
+    // Compose the Coach persona on top of the sleep coach prompt. The
+    // resulting reply should be both sleep-focused (from the coach) AND
+    // structured/directive (from the persona) — neither prompt should
+    // silently win.
+    let coach_persona = get_coaching_persona_prompt(CoachingPersona::Coach);
+    let combined_system = format!("{coach_persona}\n\n{SLEEP_COACH_INSTRUCTIONS}");
+
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(combined_system),
+        ChatMessage::user(
+            "I have a hard track workout tomorrow morning. How should I sleep tonight?",
+        ),
+    ]);
+
+    let response = provider
+        .complete(&request)
+        .await
+        .expect("persona+coach composition call should succeed");
+
+    let lc = response.content.to_lowercase();
+
+    // Sleep coach signal must survive composition.
+    assert!(
+        lc.contains("sleep") || lc.contains("rest") || lc.contains("nap") || lc.contains("bed"),
+        "Composed persona+coach response lost the sleep-coach topic. Response: {}",
+        response.content
+    );
+
+    // The reply should not be a single trivial sentence; the Coach persona
+    // is documented as structured/directive. We use a generous length floor
+    // (the assertion fires only on a near-empty reply, which would indicate
+    // the system prompt was rejected outright).
+    assert!(
+        response.content.trim().len() > 80,
+        "Composed persona+coach reply is suspiciously short ({} chars): {}",
+        response.content.trim().len(),
+        response.content
+    );
+}
