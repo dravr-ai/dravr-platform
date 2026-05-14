@@ -40,6 +40,17 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Free up runner disk space
+        run: |
+          # Runner has ~14GB free; qwen2.5:7b (~4GB) + qwen2.5:14b (~9GB) + a
+          # full debug build of pierre_mcp_server pushes it over the edge.
+          # Drop the preinstalled tooling we don't use to reclaim ~25GB.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          df -h /
+
       - name: Checkout
         uses: actions/checkout@v6
 
