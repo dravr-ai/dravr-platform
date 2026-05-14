@@ -313,8 +313,8 @@ async fn test_pierre_fitness_tools_with_local_llm() {
                         println!("Matched expected tool!");
                     }
                 } else if let Some(content) = &resp.content {
-                    let preview_len = 100.min(content.len());
-                    println!("No tool calls, text response: {}", &content[..preview_len]);
+                    let preview: String = content.chars().take(100).collect();
+                    println!("No tool calls, text response: {preview}");
                 }
             }
             Err(e) => {
@@ -662,8 +662,10 @@ async fn test_real_tool_registry_calling_analyze_training_load() {
     require_local_llm!();
     assert_tool_called_with_retry(
         "analyze_training_load",
-        "Call the analyze_training_load tool to check whether I am overtraining \
-         based on my recent activities. You must call the tool — do not answer in prose.",
+        "I want a training load analysis for the last 30 days. \
+         Call the analyze_training_load tool now with timeframe=\"month\". \
+         The tool fetches its own data — do not ask me for activities first \
+         and do not answer in prose. Issue the tool call.",
     )
     .await;
 }
