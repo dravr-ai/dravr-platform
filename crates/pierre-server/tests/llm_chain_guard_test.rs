@@ -75,7 +75,8 @@ impl LlmProvider for MockProvider {
     }
 
     fn default_model(&self) -> &str {
-        "mock-model"
+        const NAME: &str = "mock-model";
+        NAME
     }
 
     fn available_models(&self) -> &[String] {
@@ -130,11 +131,12 @@ fn reset_chain_guard() {
 }
 
 fn epoch_secs_in(offset_secs: i64) -> u64 {
-    let now = SystemTime::now()
+    let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock must be after epoch")
-        .as_secs() as i64;
-    let target = now + offset_secs;
+        .as_secs();
+    let now = i64::try_from(now_secs).unwrap_or(i64::MAX);
+    let target = now.saturating_add(offset_secs);
     u64::try_from(target.max(0)).unwrap_or(0)
 }
 

@@ -59,7 +59,7 @@ impl LlmProvider for ProbeMock {
     }
 
     fn default_model(&self) -> &str {
-        "probe-mock"
+        self.name
     }
 
     fn available_models(&self) -> &[String] {
