@@ -88,6 +88,7 @@ jobs:
           PIERRE_RSA_KEY_SIZE: "2048"
         run: |
           cargo test --test llm_local_integration_test --test llm_openai_compatible_test \
+            --test llm_chain_guard_test --test llm_health_probe_test \
             -- --test-threads=1 --nocapture
 
       - name: Dump Ollama log on failure
