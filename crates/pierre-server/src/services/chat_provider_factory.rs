@@ -150,26 +150,42 @@ pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
 /// `CHAIN_GUARD` in whatever state the previous probe left it (or
 /// `RATE_LIMIT_UNKNOWN` if no probe has succeeded yet).
 async fn run_github_rate_limit_probe() {
-    let token = match env::var("GITHUB_PERSONAL_ACCESS_TOKEN") {
-        Ok(t) if !t.is_empty() => t,
-        _ => {
-            debug!("GITHUB_PERSONAL_ACCESS_TOKEN unset; skipping rate-limit probe");
-            return;
-        }
+    let Some((remaining, reset_at)) = fetch_github_rate_limit().await else {
+        return;
     };
+    let transition = CHAIN_GUARD.record_github_rate_limit(remaining, reset_at);
+    log_rate_limit_transition(transition, remaining, reset_at);
+}
 
-    let client = match reqwest::Client::builder()
+async fn fetch_github_rate_limit() -> Option<(u64, u64)> {
+    let token = env::var("GITHUB_PERSONAL_ACCESS_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())?;
+    let client = build_probe_client()?;
+    let response = send_rate_limit_request(&client, &token).await?;
+    let body = parse_rate_limit_body(response).await?;
+    let remaining = body["resources"]["core"]["remaining"]
+        .as_u64()
+        .unwrap_or(u64::MAX);
+    let reset_at = body["resources"]["core"]["reset"].as_u64().unwrap_or(0);
+    Some((remaining, reset_at))
+}
+
+fn build_probe_client() -> Option<reqwest::Client> {
+    reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(error = %e, "Failed to build reqwest client for GitHub rate-limit probe");
-            return;
-        }
-    };
+        .map_err(
+            |e| warn!(error = %e, "Failed to build reqwest client for GitHub rate-limit probe"),
+        )
+        .ok()
+}
 
-    let response = match client
+async fn send_rate_limit_request(
+    client: &reqwest::Client,
+    token: &str,
+) -> Option<reqwest::Response> {
+    let response = client
         .get("https://api.github.com/rate_limit")
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
@@ -177,69 +193,63 @@ async fn run_github_rate_limit_probe() {
         .header("User-Agent", "dravr-platform-probe")
         .send()
         .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(error = %e, "GitHub rate-limit probe HTTP request failed");
-            return;
-        }
-    };
-
+        .map_err(|e| warn!(error = %e, "GitHub rate-limit probe HTTP request failed"))
+        .ok()?;
     if !response.status().is_success() {
         warn!(
             status = %response.status(),
             "GitHub rate-limit probe returned non-2xx; leaving CHAIN_GUARD unchanged"
         );
-        return;
+        return None;
     }
+    Some(response)
+}
 
-    let body: serde_json::Value = match response.json().await {
-        Ok(v) => v,
-        Err(e) => {
-            warn!(error = %e, "GitHub rate-limit probe response was not valid JSON");
-            return;
-        }
-    };
+async fn parse_rate_limit_body(response: reqwest::Response) -> Option<serde_json::Value> {
+    response
+        .json()
+        .await
+        .map_err(|e| warn!(error = %e, "GitHub rate-limit probe response was not valid JSON"))
+        .ok()
+}
 
-    let remaining = body["resources"]["core"]["remaining"]
-        .as_u64()
-        .unwrap_or(u64::MAX);
-    let reset_at = body["resources"]["core"]["reset"].as_u64().unwrap_or(0);
-
-    let transition = CHAIN_GUARD.record_github_rate_limit(remaining, reset_at);
-
+fn log_rate_limit_transition(transition: RateLimitTransition, remaining: u64, reset_at: u64) {
     match transition {
-        RateLimitTransition::EnteredLow => {
-            warn!(
-                remaining,
-                reset_at,
-                "GitHub rate-limit headroom dropped below threshold; \
-                 Chain will skip primary until recovered"
-            );
-            info!(
-                target: "notify",
-                event = "llm.rate_limit_low",
-                remaining = remaining,
-                reset_at = reset_at,
-                "GitHub rate-limit budget low; chain skipping primary preemptively"
-            );
-        }
-        RateLimitTransition::ExitedLow => {
-            info!(
-                remaining,
-                reset_at, "GitHub rate-limit headroom recovered above threshold"
-            );
-            info!(
-                target: "notify",
-                event = "llm.rate_limit_recovered",
-                remaining = remaining,
-                "GitHub rate-limit budget recovered; chain primary re-enabled"
-            );
-        }
+        RateLimitTransition::EnteredLow => log_entered_low(remaining, reset_at),
+        RateLimitTransition::ExitedLow => log_exited_low(remaining, reset_at),
         RateLimitTransition::StillLow | RateLimitTransition::StillOk => {
             debug!(remaining, reset_at, "GitHub rate-limit probe steady state");
         }
     }
+}
+
+fn log_entered_low(remaining: u64, reset_at: u64) {
+    warn!(
+        remaining,
+        reset_at,
+        "GitHub rate-limit headroom dropped below threshold; \
+         Chain will skip primary until recovered"
+    );
+    info!(
+        target: "notify",
+        event = "llm.rate_limit_low",
+        remaining = remaining,
+        reset_at = reset_at,
+        "GitHub rate-limit budget low; chain skipping primary preemptively"
+    );
+}
+
+fn log_exited_low(remaining: u64, reset_at: u64) {
+    info!(
+        remaining,
+        reset_at, "GitHub rate-limit headroom recovered above threshold"
+    );
+    info!(
+        target: "notify",
+        event = "llm.rate_limit_recovered",
+        remaining = remaining,
+        "GitHub rate-limit budget recovered; chain primary re-enabled"
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
