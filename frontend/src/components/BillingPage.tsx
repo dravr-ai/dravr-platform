@@ -133,7 +133,7 @@ export default function BillingPage() {
           </div>
         ) : (
           <p className="text-sm text-on-surface-variant">
-            No subscription on file. You're on the Starter plan — pick a paid tier below to upgrade.
+            No subscription on file. You're on the Starter plan — use the buttons below to upgrade or contact sales.
           </p>
         )}
 

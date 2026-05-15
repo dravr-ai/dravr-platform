@@ -167,6 +167,29 @@ fn finalize_sentence(buf: &mut String, out: &mut Vec<String>) {
     buf.clear();
 }
 
+/// Match a keyword against a sentence with whole-token boundaries.
+///
+/// Plain `.contains()` matched "carb" inside French "carburant" (fuel) and
+/// misclassified training-intensity claims as Nutrition. Tokenize on non-word
+/// chars first; a multi-word keyword like "vo2 max" or "long run" is matched
+/// by sliding over the token window of equal length.
+fn keyword_hits(lower: &str, keyword: &str) -> bool {
+    let kw_tokens: Vec<&str> = keyword
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if kw_tokens.is_empty() {
+        return false;
+    }
+    let tokens: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    tokens
+        .windows(kw_tokens.len())
+        .any(|w| w == kw_tokens.as_slice())
+}
+
 fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
     let lower = sentence.to_lowercase();
     let mut best: Option<(ClaimCategory, usize)> = None;
@@ -185,6 +208,14 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "substrate",
                 "zone",
                 "ftp",
+                // French
+                "fc",
+                "fc moy",
+                "fc max",
+                "fréquence cardiaque",
+                "frequence cardiaque",
+                "bpm",
+                "seuil",
             ],
         ),
         (
@@ -201,6 +232,20 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "volume",
                 "intensity",
                 "taper",
+                // French
+                "intervalle",
+                "fractionné",
+                "fractionne",
+                "sortie longue",
+                "endurance fondamentale",
+                "séance",
+                "seance",
+                "kilométrage",
+                "kilometrage",
+                "périodisation",
+                "periodisation",
+                "affûtage",
+                "affutage",
             ],
         ),
         (
@@ -208,7 +253,9 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
             &[
                 "protein",
                 "carbohydrate",
+                "carbohydrates",
                 "carb",
+                "carbs",
                 "calorie",
                 "gram",
                 "macro",
@@ -217,6 +264,20 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "meal",
                 "fueling",
                 "fuelling",
+                // French
+                "protéine",
+                "protéines",
+                "proteine",
+                "proteines",
+                "glucide",
+                "glucides",
+                "calorie",
+                "macros",
+                "hydratation",
+                "électrolyte",
+                "electrolyte",
+                "repas",
+                "ravitaillement",
             ],
         ),
         (
@@ -229,6 +290,12 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "sauna",
                 "recovery",
                 "rest day",
+                // French
+                "sommeil",
+                "vfc",
+                "récupération",
+                "recuperation",
+                "jour de repos",
             ],
         ),
         (
@@ -241,6 +308,14 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "supplement",
                 "dose",
                 "dosing",
+                // French
+                "créatine",
+                "creatine",
+                "caféine",
+                "cafeine",
+                "complément",
+                "complement",
+                "dosage",
             ],
         ),
         (
@@ -252,15 +327,26 @@ fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "achilles",
                 "tendon",
                 "physical therapy",
-                "pt ",
+                "pt",
                 "strain",
                 "sprain",
+                // French
+                "rééducation",
+                "reeducation",
+                "kiné",
+                "kine",
+                "tendinite",
+                "entorse",
+                "claquage",
             ],
         ),
     ];
 
     for (cat, keywords) in buckets {
-        let score = keywords.iter().filter(|kw| lower.contains(*kw)).count();
+        let score = keywords
+            .iter()
+            .filter(|kw| keyword_hits(&lower, kw))
+            .count();
         if score > 0 && best.is_none_or(|(_, b)| score > b) {
             best = Some((cat, score));
         }
@@ -306,6 +392,43 @@ mod tests {
     #[test]
     fn rejects_non_factual_sentence() {
         assert_eq!(classify_heuristic("You're crushing it!"), None);
+    }
+
+    #[test]
+    fn french_hr_observation_classifies_as_physiological_not_nutrition() {
+        // Regression: "carburant" (fuel/gasoline, used metaphorically here for
+        // "refuel") contains the substring "carb", so the old contains()-based
+        // classifier flagged this training-intensity observation as Nutrition.
+        let claim = "Ta séance était plutôt facile à modérée: 49 min, 5,39 km, \
+                     FC moy 111, donc le besoin principal ce matin, c'est surtout \
+                     de remettre du carburant.";
+        // Tokens: fc, moy, séance → multiple Physiological + TrainingPrescription
+        // hits. Either is correct; the bug was Nutrition being the verdict.
+        let result = classify_heuristic(claim);
+        assert!(
+            matches!(
+                result,
+                Some(ClaimCategory::Physiological | ClaimCategory::TrainingPrescription)
+            ),
+            "expected physiological/training but got {result:?}"
+        );
+    }
+
+    #[test]
+    fn carbohydrate_word_still_triggers_nutrition() {
+        // Boundary check: legitimate Nutrition claims must still classify.
+        assert_eq!(
+            classify_heuristic("Aim for 60g of carbs per hour during long efforts."),
+            Some(ClaimCategory::Nutrition)
+        );
+    }
+
+    #[test]
+    fn french_nutrition_keywords_classify_as_nutrition() {
+        assert_eq!(
+            classify_heuristic("Vise 1,6 g de protéines par kg de poids corporel."),
+            Some(ClaimCategory::Nutrition)
+        );
     }
 
     #[test]

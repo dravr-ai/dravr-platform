@@ -67,6 +67,20 @@ export default function UserDetailDrawer({
     enabled: !!user && isOpen,
   });
 
+  const { data: adminProfile, isLoading: adminProfileLoading } = useQuery({
+    queryKey: ['adminUsers', 'admin-profile', user?.id],
+    queryFn: () => user ? adminApi.getUserAdminProfile(user.id) : null,
+    enabled: !!user && isOpen,
+  });
+
+  const formatCost = (usd: number) => {
+    if (usd < 0.01 && usd > 0) return '<$0.01';
+    return `$${usd.toFixed(2)}`;
+  };
+
+  const formatPersona = (slug: string) =>
+    slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
   if (!isOpen || !user) return null;
 
   const formatDate = (dateString: string) => {
@@ -165,6 +179,22 @@ export default function UserDetailDrawer({
                   <p className="font-medium text-on-surface">{user.approved_by}</p>
                 </div>
               )}
+              {adminProfile && (
+                <div>
+                  <span className="text-on-surface-variant">Coach Style</span>
+                  <p className="font-medium text-on-surface">
+                    {formatPersona(adminProfile.coaching_persona)}
+                  </p>
+                </div>
+              )}
+              {adminProfile?.default_coach_id && (
+                <div>
+                  <span className="text-on-surface-variant">Default Coach</span>
+                  <p className="font-medium text-on-surface truncate" title={adminProfile.default_coach_id}>
+                    {adminProfile.default_coach_id}
+                  </p>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -223,6 +253,16 @@ export default function UserDetailDrawer({
                     Resets: {formatDate(rateLimit.reset_times.monthly_reset)}
                   </p>
                 </div>
+                <p className="text-xs text-outline pt-2 border-t ghost-border">
+                  Tier defaults editable in{' '}
+                  <a
+                    href="#platform-settings"
+                    className="text-pierre-activity hover:underline"
+                  >
+                    Platform Settings → Rate Limits
+                  </a>
+                  .
+                </p>
               </div>
             ) : (
               <p className="text-sm text-on-surface-variant">Unable to load rate limit data</p>
@@ -302,6 +342,12 @@ export default function UserDetailDrawer({
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
+                  <span className="text-on-surface-variant">Total Cost</span>
+                  <span className="font-medium text-on-surface">
+                    {formatCost(usage.total_cost_usd ?? 0)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="text-on-surface-variant">Total Calls</span>
                   <span className="font-medium text-on-surface">
                     {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString()}
@@ -322,7 +368,9 @@ export default function UserDetailDrawer({
                           <span className="text-sm text-on-surface-variant">
                             {row.total_tokens.toLocaleString()} tok
                           </span>
-                          <span className="text-xs text-outline">({row.calls} calls)</span>
+                          <span className="text-xs text-outline">
+                            ({row.calls} calls · {formatCost(row.cost_usd ?? 0)})
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -331,6 +379,68 @@ export default function UserDetailDrawer({
               </div>
             ) : (
               <p className="text-sm text-on-surface-variant">No LLM activity this month</p>
+            )}
+          </Card>
+
+          {/* Installed Coaches Card */}
+          <Card variant="dark" className="p-4">
+            <h4 className="text-sm font-semibold text-on-surface mb-4 flex items-center">
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              Installed Coaches
+            </h4>
+            {adminProfileLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-4 bg-surface-container-high rounded w-3/4"></div>
+                <div className="h-4 bg-surface-container-high rounded w-2/3"></div>
+              </div>
+            ) : adminProfile && adminProfile.installed_coaches.length > 0 ? (
+              <div className="space-y-2">
+                {adminProfile.installed_coaches.map((coach) => (
+                  <div key={coach.coach_id} className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-on-surface">
+                      {coach.title}
+                      {coach.is_default && (
+                        <span className="ml-2 text-xs text-pierre-activity">(default)</span>
+                      )}
+                    </span>
+                    <span className="text-xs text-outline capitalize">{coach.category}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">No coaches installed</p>
+            )}
+          </Card>
+
+          {/* Groups Card */}
+          <Card variant="dark" className="p-4">
+            <h4 className="text-sm font-semibold text-on-surface mb-4 flex items-center">
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              Coaching Groups
+            </h4>
+            {adminProfileLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-4 bg-surface-container-high rounded w-3/4"></div>
+                <div className="h-4 bg-surface-container-high rounded w-2/3"></div>
+              </div>
+            ) : adminProfile && adminProfile.joined_groups.length > 0 ? (
+              <div className="space-y-2">
+                {adminProfile.joined_groups.map((group) => (
+                  <div key={group.group_id} className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-on-surface">{group.name}</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-on-surface-variant capitalize">{group.role}</span>
+                      <span className="text-xs text-outline">({group.member_count} members)</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">Not a member of any groups</p>
             )}
           </Card>
 

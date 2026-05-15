@@ -274,7 +274,16 @@ impl AuthService {
         self.auto_approve_if_eligible(&mut user).await?;
 
         // Generate session and return response
-        self.complete_firebase_login(&user, &claims.provider).await
+        let response = self
+            .complete_firebase_login(&user, &claims.provider)
+            .await?;
+
+        // Match the password-login notification: every successful auth fires
+        // a #ops-users login event. Without this Slack only saw email/password
+        // logins and looked like Google users never connected.
+        crate::ops_notifier().notify_login(&user.email);
+
+        Ok(response)
     }
 
     /// Find existing user or create new one from Firebase claims
@@ -512,6 +521,17 @@ impl AuthService {
             .await?;
 
         info!(firebase_uid = %claims.sub, user_id = %user_id, "Firebase user registered");
+
+        // Mirror the password-register notification so #ops-users gets a row
+        // for Google / Apple / Firebase sign-ups too. Previously this only
+        // fired on the password register endpoint, so social sign-ins landed
+        // silently and Phil's outage dashboard missed Firebase signups.
+        crate::ops_notifier().notify_user_registered(
+            &user_id.to_string(),
+            email,
+            &new_user.user_status.to_string(),
+        );
+
         Ok(new_user)
     }
 

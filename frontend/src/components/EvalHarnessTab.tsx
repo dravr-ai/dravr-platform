@@ -97,7 +97,7 @@ export default function EvalHarnessTab() {
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Read-only browser over the <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">pierre-evals</code>{' '}
-              golden fixture set used by the Tier 5 evaluation harness.
+              golden fixture set used by the claim-verification evaluation harness.
               Live evaluation runs land in a follow-up sprint; for now
               this tab shows which scenarios ship with the release and
               what each case asserts.

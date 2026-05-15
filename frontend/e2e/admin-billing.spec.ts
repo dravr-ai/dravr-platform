@@ -129,6 +129,24 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     });
   });
 
+  // Admin profile endpoint feeds the Installed Coaches + Groups + Coach Style
+  // sections of the drawer. Without a mock the un-authed request would 401 and
+  // leave the new cards in skeleton state, pushing the Impersonate button below
+  // the viewport — Playwright's toBeVisible() then times out.
+  await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user_id: 'user-active-1',
+        coaching_persona: 'casual',
+        default_coach_id: null,
+        installed_coaches: [],
+        joined_groups: [],
+      }),
+    });
+  });
+
   // NotificationBell fires `/api/notifications?limit=10` on every Dashboard render.
   // Without a 200 here the dev server returns 401 → AuthContext fires the auth-failure
   // event and logs the user back out before the test can interact with the UI.

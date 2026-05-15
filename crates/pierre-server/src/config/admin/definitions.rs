@@ -2124,3 +2124,30 @@ pub(super) fn register_activity_access_quotas(defs: &mut HashMap<String, Paramet
         },
     );
 }
+
+/// Register the `Group Permissions` catalog entries. Backs the admin Group
+/// Creation Policy selector and the `/api/groups/permissions` enforcement
+/// path in `routes::groups`.
+pub(super) fn register_group_permissions(defs: &mut HashMap<String, ParameterDefinition>) {
+    add_definition(
+        defs,
+        ParameterDefinition {
+            key: "group_creation_policy".to_owned(),
+            display_name: "Group Creation Policy".to_owned(),
+            description: "Controls who can create coaching groups within the tenant. \
+                When set to admins_only, only tenant admins and owners can create groups. \
+                When set to everyone, any authenticated tenant member can create groups."
+                .to_owned(),
+            category: "group_permissions".to_owned(),
+            data_type: ConfigDataType::Enum,
+            default_value: serde_json::json!("admins_only"),
+            valid_range: None,
+            enum_options: Some(vec!["admins_only".to_owned(), "everyone".to_owned()]),
+            units: None,
+            scientific_basis: None,
+            env_variable: None,
+            is_runtime_configurable: true,
+            requires_restart: false,
+        },
+    );
+}
