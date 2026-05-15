@@ -14,6 +14,7 @@ use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
     config::social::SocialInsightsConfig,
     errors::AppError,
+    llm::pricing::calculate_cost,
     mcp::resources::ServerContext,
     middleware::{extract_auth_from_headers, require_admin},
     services::admin_ops,
@@ -221,6 +222,20 @@ pub struct BillingExportQuery {
     pub limit: Option<i64>,
 }
 
+/// Per-(provider, model, `call_type`) rollup with the USD cost folded in.
+///
+/// The base `LlmUsageAggregateRow` only carries token counts; this variant
+/// is what the admin User Details panel renders so each row shows tokens
+/// + cost without the client having to re-implement the pricing table.
+#[derive(Debug, Serialize)]
+pub struct LlmUsageAggregateRowWithCost {
+    /// Underlying token + call rollup.
+    #[serde(flatten)]
+    pub row: LlmUsageAggregateRow,
+    /// Estimated USD cost for this (provider, model) line item.
+    pub cost_usd: f64,
+}
+
 /// Per-user usage response — same shape as the tenant variant so the
 /// admin UI can render either with one component.
 #[derive(Debug, Serialize)]
@@ -229,8 +244,10 @@ pub struct UserUsageResponse {
     pub user_id: String,
     /// Window start (`RFC3339`).
     pub from: String,
-    /// Per-(provider, model, `call_type`) rollup.
-    pub by_model: Vec<LlmUsageAggregateRow>,
+    /// Per-(provider, model, `call_type`) rollup, including USD cost per row.
+    pub by_model: Vec<LlmUsageAggregateRowWithCost>,
+    /// Sum of `cost_usd` across `by_model` for the window.
+    pub total_cost_usd: f64,
     /// Daily time series over the window.
     pub daily: Vec<LlmUsageDailyRow>,
 }
@@ -312,6 +329,10 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/users/{user_id}/activity",
                 get(Self::handle_get_user_activity),
+            )
+            .route(
+                "/api/admin/users/{user_id}/admin-profile",
+                get(Self::handle_get_user_admin_profile),
             )
             .route(
                 "/api/admin/settings/auto-approval",
@@ -891,6 +912,26 @@ impl WebAdminRoutes {
             .into_response())
     }
 
+    /// Handle GET /api/admin/users/{user_id}/admin-profile — returns the user's
+    /// coaching persona, installed coaches, and joined groups for the admin
+    /// User Details drawer.
+    async fn handle_get_user_admin_profile(
+        State(resources): State<Arc<ServerContext>>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+        let profile =
+            admin_ops::compute_user_admin_profile(&resources.data(), auth.user_id, user_uuid)
+                .await?;
+
+        Ok((StatusCode::OK, Json(profile)).into_response())
+    }
+
     /// Handle getting user activity via web admin
     async fn handle_get_user_activity(
         State(resources): State<Arc<ServerContext>>,
@@ -1439,7 +1480,7 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
-        let by_model = resources
+        let raw_rows = resources
             .repos
             .llm_usage
             .get_llm_usage_aggregates_by_user(&user_id, &from)
@@ -1449,12 +1490,28 @@ impl WebAdminRoutes {
             .llm_usage
             .get_llm_usage_daily_series_by_user(&user_id, &from)
             .await?;
+
+        let by_model: Vec<LlmUsageAggregateRowWithCost> = raw_rows
+            .into_iter()
+            .map(|row| {
+                let cost_usd = calculate_cost(
+                    &row.provider,
+                    &row.model,
+                    row.prompt_tokens,
+                    row.completion_tokens,
+                );
+                LlmUsageAggregateRowWithCost { row, cost_usd }
+            })
+            .collect();
+        let total_cost_usd: f64 = by_model.iter().map(|r| r.cost_usd).sum();
+
         Ok((
             StatusCode::OK,
             Json(UserUsageResponse {
                 user_id,
                 from,
                 by_model,
+                total_cost_usd,
                 daily,
             }),
         )

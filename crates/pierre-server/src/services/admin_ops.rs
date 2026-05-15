@@ -83,6 +83,36 @@ pub(crate) struct UserActivityResult {
     pub(crate) top_tools: Vec<ToolUsageEntry>,
 }
 
+/// A coach installed by a user (admin User Details panel).
+#[derive(Serialize)]
+pub(crate) struct InstalledCoachSummary {
+    pub(crate) coach_id: String,
+    pub(crate) title: String,
+    pub(crate) category: String,
+    pub(crate) is_default: bool,
+}
+
+/// A coaching group a user belongs to (admin User Details panel).
+#[derive(Serialize)]
+pub(crate) struct UserGroupSummary {
+    pub(crate) group_id: String,
+    pub(crate) name: String,
+    pub(crate) role: String,
+    pub(crate) coach_id: String,
+    pub(crate) member_count: i64,
+}
+
+/// Per-user enrichments rendered by the admin User Details drawer:
+/// coaching persona, default coach, installed coaches, joined groups.
+#[derive(Serialize)]
+pub(crate) struct UserAdminProfile {
+    pub(crate) user_id: String,
+    pub(crate) coaching_persona: String,
+    pub(crate) default_coach_id: Option<String>,
+    pub(crate) installed_coaches: Vec<InstalledCoachSummary>,
+    pub(crate) joined_groups: Vec<UserGroupSummary>,
+}
+
 /// A single LLM call record for the admin activity feed
 #[derive(Serialize)]
 pub(crate) struct LlmCallEntry {
@@ -636,7 +666,7 @@ pub(crate) async fn generate_password_reset_token(
 pub(crate) async fn compute_user_rate_limits(
     data: &DataContext,
     admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
+    _active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
 ) -> Result<UserRateLimits, AppError> {
     debug!(
@@ -645,15 +675,17 @@ pub(crate) async fn compute_user_rate_limits(
         "Fetching user rate limit"
     );
 
-    // Tenant-scoped lookup: admin can only view metrics for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
-    let user = if let Some(tid) = admin_tenant {
-        data.repos().users.get(target_user_id, tid).await
-    } else {
-        data.repos().users.get_global(target_user_id).await
-    }
-    .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-    .ok_or_else(|| AppError::not_found("User not found"))?;
+    // Admin user views (rate-limit, activity, usage) are global by design — the
+    // user list at /api/admin/users is also global ("Per-tenant isolation
+    // applies to data operations, not admin views"). Earlier tenant scoping
+    // here caused 404s for cross-tenant lookups in the Users panel.
+    let user = data
+        .repos()
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
 
     // Get current monthly usage
     let monthly_used = data
@@ -716,7 +748,7 @@ pub(crate) async fn compute_user_rate_limits(
 pub(crate) async fn compute_user_activity(
     data: &DataContext,
     admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
+    _active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
     days: Option<u32>,
 ) -> Result<UserActivityResult, AppError> {
@@ -726,15 +758,14 @@ pub(crate) async fn compute_user_activity(
         "Fetching user activity"
     );
 
-    // Tenant-scoped lookup: admin can only view activity for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
-    if let Some(tid) = admin_tenant {
-        data.repos().users.get(target_user_id, tid).await
-    } else {
-        data.repos().users.get_global(target_user_id).await
-    }
-    .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-    .ok_or_else(|| AppError::not_found("User not found"))?;
+    // Admin user views are global by design — matches the unscoped list at
+    // /api/admin/users. See compute_user_rate_limits for rationale.
+    data.repos()
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
 
     // Get time range for activity using days parameter (default 30)
     let days = i64::from(days.unwrap_or(30).clamp(1, 365));
@@ -774,6 +805,95 @@ pub(crate) async fn compute_user_activity(
         period_days: days,
         total_requests,
         top_tools,
+    })
+}
+
+// =========================================================================
+// User admin profile (installed coaches, joined groups, coach style)
+// =========================================================================
+
+/// Build the per-user enrichments rendered by the admin User Details drawer.
+///
+/// Returns coaching persona + default coach (from the user model), the list
+/// of coaches the user has installed from the Coach Store, and the coaching
+/// groups they're a member of. Used by `/api/admin/users/{user_id}/admin-profile`.
+pub(crate) async fn compute_user_admin_profile(
+    data: &DataContext,
+    admin_user_id: Uuid,
+    target_user_id: Uuid,
+) -> Result<UserAdminProfile, AppError> {
+    debug!(
+        admin_id = %admin_user_id,
+        target_user_id = %target_user_id,
+        "Fetching user admin profile"
+    );
+
+    // Admin views are global (see compute_user_rate_limits rationale).
+    let user = data
+        .repos()
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+
+    // Installed coaches require a tenant scope — use the user's first tenant.
+    // Most users belong to exactly one tenant; for multi-tenant users we show
+    // installs from their primary tenant only.
+    let tenants = data
+        .repos()
+        .tenants
+        .list_for_user(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user tenants: {e}")))?;
+
+    let installed_coaches = if let Some(tenant) = tenants.first() {
+        let coaches = data
+            .repos()
+            .store_listings
+            .get_installed_coaches(target_user_id, tenant.id)
+            .await
+            .unwrap_or_default();
+        coaches
+            .into_iter()
+            .map(|c| InstalledCoachSummary {
+                is_default: user
+                    .default_coach_id
+                    .as_deref()
+                    .is_some_and(|d| d == c.id.to_string()),
+                coach_id: c.id.to_string(),
+                title: c.title,
+                category: c.category.as_str().to_owned(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Joined groups are user-keyed and don't require a tenant scope.
+    let groups = data
+        .repos()
+        .groups
+        .list_groups_for_user(target_user_id)
+        .await
+        .unwrap_or_default();
+    let joined_groups: Vec<UserGroupSummary> = groups
+        .into_iter()
+        .map(|g| UserGroupSummary {
+            group_id: g.id.to_string(),
+            name: g.name,
+            role: g.my_role.to_string(),
+            coach_id: g.coach_id,
+            member_count: g.member_count,
+        })
+        .collect();
+
+    Ok(UserAdminProfile {
+        user_id: target_user_id.to_string(),
+        coaching_persona: user.coaching_persona.to_string(),
+        default_coach_id: user.default_coach_id,
+        installed_coaches,
+        joined_groups,
     })
 }
 

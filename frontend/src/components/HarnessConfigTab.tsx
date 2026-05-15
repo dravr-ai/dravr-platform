@@ -145,7 +145,7 @@ export default function HarnessConfigTab() {
               Coaching Harness Configuration
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Tunables for conversation compaction and Tier 6 text guardrails.
+              Tunables for conversation compaction and response text guardrails.
               Changes apply on the next coach turn.
             </p>
           </div>
@@ -242,7 +242,7 @@ export default function HarnessConfigTab() {
 
       <Card className="p-6">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Text guardrails (Tier 6)
+          Response text guardrails
         </h3>
         <div className="space-y-4">
           <NumericField

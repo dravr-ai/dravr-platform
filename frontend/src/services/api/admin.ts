@@ -196,7 +196,9 @@ export const adminApi = {
       prompt_tokens: number;
       completion_tokens: number;
       calls: number;
+      cost_usd: number;
     }>;
+    total_cost_usd: number;
     daily: Array<{
       date: string;
       tokens: number;
@@ -207,6 +209,28 @@ export const adminApi = {
   }> {
     const qs = fromIso ? `?from=${encodeURIComponent(fromIso)}` : '';
     const response = await axios.get(`/api/admin/users/${userId}/usage${qs}`);
+    return response.data;
+  },
+
+  async getUserAdminProfile(userId: string): Promise<{
+    user_id: string;
+    coaching_persona: string;
+    default_coach_id: string | null;
+    installed_coaches: Array<{
+      coach_id: string;
+      title: string;
+      category: string;
+      is_default: boolean;
+    }>;
+    joined_groups: Array<{
+      group_id: string;
+      name: string;
+      role: string;
+      coach_id: string;
+      member_count: number;
+    }>;
+  }> {
+    const response = await axios.get(`/api/admin/users/${userId}/admin-profile`);
     return response.data;
   },
 

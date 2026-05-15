@@ -7,11 +7,11 @@
 use super::definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_cache_ttl,
     register_feature_flags, register_fitbit_provider, register_garmin_provider,
-    register_heart_rate_zones, register_llm_pricing, register_llm_provider_config,
-    register_mcp_network, register_monitoring, register_nutrition, register_rate_limiting,
-    register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
-    register_strava_provider, register_tokio_runtime, register_training_stress_balance,
-    register_usage_quotas, register_weather_analysis,
+    register_group_permissions, register_heart_rate_zones, register_llm_pricing,
+    register_llm_provider_config, register_mcp_network, register_monitoring, register_nutrition,
+    register_rate_limiting, register_recommendation_engine, register_sleep_recovery,
+    register_sqlx_pool, register_strava_provider, register_tokio_runtime,
+    register_training_stress_balance, register_usage_quotas, register_weather_analysis,
 };
 use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
@@ -185,6 +185,9 @@ impl AdminConfigService {
 
         // LLM Pricing Parameters — see config::admin::definitions::register_llm_pricing
         register_llm_pricing(&mut defs);
+
+        // Group Permissions — see config::admin::definitions::register_group_permissions
+        register_group_permissions(&mut defs);
 
         // Acquire lock briefly and insert all definitions at once
         let def_count = defs.len();

@@ -255,6 +255,24 @@ test.describe('Impersonation - Super Admin Access', () => {
       });
     });
 
+    // Admin profile endpoint backs the Installed Coaches + Groups + Coach Style
+    // sections of UserDetailDrawer. Without a mock the un-authed request 401s and
+    // leaves the new cards in skeleton state, pushing the Impersonate button
+    // out of viewport so toBeVisible() times out.
+    await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user_id: 'user-1',
+          coaching_persona: 'casual',
+          default_coach_id: null,
+          installed_coaches: [],
+          joined_groups: [],
+        }),
+      });
+    });
+
     await loginAsSuperAdminAndNavigateToUsers(page);
   });
 
@@ -426,6 +444,24 @@ test.describe('Impersonation - Start and End Flow', () => {
           period_days: 30,
           total_requests: 500,
           top_tools: [],
+        }),
+      });
+    });
+
+    // Admin profile endpoint backs the new Installed Coaches + Groups + Coach
+    // Style cards in UserDetailDrawer. Without a mock the un-authed request
+    // 401s and leaves the cards in skeleton state, pushing the Impersonate
+    // button below the viewport so Playwright's toBeVisible() times out.
+    await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user_id: 'user-1',
+          coaching_persona: 'casual',
+          default_coach_id: null,
+          installed_coaches: [],
+          joined_groups: [],
         }),
       });
     });
@@ -639,6 +675,20 @@ test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
       });
     });
 
+    await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user_id: 'user-1',
+          coaching_persona: 'casual',
+          default_coach_id: null,
+          installed_coaches: [],
+          joined_groups: [],
+        }),
+      });
+    });
+
     await loginAsRegularAdmin(page);
   });
 
@@ -722,6 +772,24 @@ test.describe('Impersonation - Error Handling', () => {
           period_days: 30,
           total_requests: 500,
           top_tools: [],
+        }),
+      });
+    });
+
+    // Admin profile endpoint backs the new Installed Coaches + Groups + Coach
+    // Style cards in UserDetailDrawer. Without a mock the un-authed request
+    // 401s and leaves the cards in skeleton state, pushing the Impersonate
+    // button below the viewport so Playwright's toBeVisible() times out.
+    await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user_id: 'user-1',
+          coaching_persona: 'casual',
+          default_coach_id: null,
+          installed_coaches: [],
+          joined_groups: [],
         }),
       });
     });
