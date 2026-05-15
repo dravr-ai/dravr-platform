@@ -298,6 +298,18 @@ impl GroqProvider {
         }
     }
 
+    /// Override the default model after construction.
+    ///
+    /// Used by the runtime fallback chain when
+    /// `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` redirects the secondary to a
+    /// Groq-specific model name that differs from the primary's
+    /// `PIERRE_LLM_DEFAULT_MODEL`.
+    #[must_use]
+    pub fn with_default_model(mut self, model: impl Into<String>) -> Self {
+        self.default_model = model.into();
+        self
+    }
+
     /// Create a Groq provider from environment variable
     ///
     /// # Errors
