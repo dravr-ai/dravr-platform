@@ -85,6 +85,40 @@ pub trait LlmCallRecorder: Send + Sync {
     fn record(&self, record: LlmCallRecord);
 }
 
+/// One round of tool dispatch as the in-memory loop sees it.
+///
+/// Carries an optional preamble of assistant text that accompanied the tool
+/// request, plus the formatted tool result text. Persisting both lets a
+/// follow-up turn replay the same [`ChatMessage`] sequence the in-memory
+/// loop produced and gives the model the same evidence base when answering
+/// grounded follow-ups.
+#[derive(Debug, Clone)]
+pub struct ToolRoundRecord {
+    /// Assistant text emitted alongside the tool call. Empty when the
+    /// model returned only a tool call (no preamble). The replay path
+    /// inserts this as `ChatMessage::assistant(content)`.
+    pub assistant_text: String,
+    /// Formatted tool result the loop pushes back to the model as a user
+    /// turn (e.g. `"[Tool Result for get_activities]: ..."`). Always set.
+    pub tool_result_text: String,
+}
+
+/// Sink that receives one [`ToolRoundRecord`] per tool dispatch round.
+///
+/// Implementations persist the round so subsequent turns rebuild the same
+/// `Vec<ChatMessage>` that the in-memory loop produced. Without this, the
+/// next turn sees only the final assistant text and the model — having no
+/// trace of the tool result it consumed — defaults to refusing grounded
+/// follow-ups ("I don't have access to your Strava data").
+///
+/// Invocations happen on the async runtime but the sink method itself is
+/// synchronous; implementers spawn a task or push to a channel if the
+/// underlying persistence is async.
+pub trait ToolMessageRecorder: Send + Sync {
+    /// Record a completed tool dispatch round.
+    fn record(&self, record: ToolRoundRecord);
+}
+
 /// Parameters for the multi-turn tool execution loop
 pub struct ToolLoopParams<'a> {
     /// LLM provider to use for completions
@@ -106,6 +140,12 @@ pub struct ToolLoopParams<'a> {
     /// When absent, the loop still accumulates cumulative usage for
     /// the returned [`ToolLoopResult`] without recording individual calls.
     pub call_recorder: Option<Arc<dyn LlmCallRecorder>>,
+    /// Optional sink that persists each tool dispatch round (assistant
+    /// preamble + formatted tool result) so follow-up turns can replay
+    /// the grounded evidence the model already saw. Absent in callers
+    /// that have no conversation to attach the rows to (e.g. one-shot
+    /// non-conversational tool runs).
+    pub tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>>,
     /// Optional per-coach LLM sampling temperature. When `Some`, applied
     /// to every `ChatRequest` in the loop via `with_temperature`. When
     /// `None`, the provider/server default is used.
@@ -327,18 +367,36 @@ pub async fn run_api_tool_loop(
                 }
 
                 // Add assistant's text to messages if present (strip synthetic function syntax)
-                if let Some(ref text) = response.content {
-                    let cleaned = strip_synthetic_function_calls(text);
-                    if !cleaned.is_empty() {
-                        llm_messages.push(ChatMessage::assistant(&*cleaned));
-                    }
-                }
+                let assistant_round_text =
+                    response
+                        .content
+                        .as_deref()
+                        .map_or_else(String::new, |text| {
+                            let cleaned = strip_synthetic_function_calls(text);
+                            if cleaned.is_empty() {
+                                String::new()
+                            } else {
+                                let owned = cleaned.into_owned();
+                                llm_messages.push(ChatMessage::assistant(&owned));
+                                owned
+                            }
+                        });
 
                 // Add function responses as user messages, capturing activity list if present
-                if let Some(list) =
-                    add_function_responses_to_messages(llm_messages, &function_responses)
-                {
+                let round_responses =
+                    add_function_responses_to_messages(llm_messages, &function_responses);
+                if let Some(list) = round_responses.activity_list {
                     captured_activity_list = Some(list);
+                }
+
+                // Persist this round so a follow-up turn replays the same
+                // grounded evidence. The recorder is None for callers that
+                // don't own a conversation row (one-shot, eval, etc.).
+                if let Some(recorder) = params.tool_message_recorder.as_ref() {
+                    recorder.record(ToolRoundRecord {
+                        assistant_text: assistant_round_text,
+                        tool_result_text: round_responses.combined_text,
+                    });
                 }
                 continue;
             }
@@ -593,6 +651,16 @@ pub async fn run_cli_tool_loop(
         }
 
         llm_messages.push(ChatMessage::user(&tool_results_text));
+
+        // Persist this round so a follow-up turn replays the same grounded
+        // evidence. Mirrors the API loop's recorder call so both paths
+        // produce identical conversation history rows.
+        if let Some(recorder) = params.tool_message_recorder.as_ref() {
+            recorder.record(ToolRoundRecord {
+                assistant_text,
+                tool_result_text: tool_results_text,
+            });
+        }
     }
 
     // Max iterations reached without a final text response
@@ -1055,14 +1123,31 @@ fn build_function_response(
     }
 }
 
+/// Outcome of [`add_function_responses_to_messages`].
+///
+/// Carries the captured `get_activities` list (used to prepend a deterministic
+/// activity summary to the final reply) plus the joined tool-result text
+/// representing the round. The joined text is what a [`ToolMessageRecorder`]
+/// persists as a single `tool_result` row so a follow-up turn can replay the
+/// same evidence the model just consumed.
+pub struct AddedFunctionResponses {
+    /// Activity list extracted from `get_activities` when present.
+    pub activity_list: Option<String>,
+    /// Every formatted `[Tool Result for X]: ...` block from this round,
+    /// joined by `"\n\n"`. Empty when `function_responses` is empty.
+    pub combined_text: String,
+}
+
 /// Add function responses as user messages for the next LLM iteration.
 ///
-/// Returns the activity list if found (to prepend to final response).
+/// Returns the captured `get_activities` list (to prepend to the final
+/// response) and the joined tool-result text for persistence.
 pub fn add_function_responses_to_messages(
     llm_messages: &mut Vec<ChatMessage>,
     function_responses: &[FunctionResponse],
-) -> Option<String> {
+) -> AddedFunctionResponses {
     let mut activity_list_content: Option<String> = None;
+    let mut combined_blocks: Vec<String> = Vec::with_capacity(function_responses.len());
 
     for func_response in function_responses {
         let response_text =
@@ -1085,10 +1170,14 @@ pub fn add_function_responses_to_messages(
         // All tool results use the same format
         let name = &func_response.name;
         let message = format!("[Tool Result for {name}]: {response_text}");
+        combined_blocks.push(message.clone());
         llm_messages.push(ChatMessage::user(message));
     }
 
-    activity_list_content
+    AddedFunctionResponses {
+        activity_list: activity_list_content,
+        combined_text: combined_blocks.join("\n\n"),
+    }
 }
 
 /// Select and run the appropriate tool loop strategy based on provider capabilities.

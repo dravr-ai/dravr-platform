@@ -20,7 +20,7 @@ use crate::services::tool_execution::{self as chat_tool_loop, build_mcp_tools, T
 
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
-use super::super::{call_type_for_profile, UsageRepoCallRecorder};
+use super::super::{call_type_for_profile, ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
 use super::compaction::apply_tier1_compaction;
 use super::prefetch::inject_startup_context;
 
@@ -136,6 +136,16 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
             input.turn_id,
             call_type_for_profile(profile),
         )));
+    // Persist each tool round into chat_messages so follow-up turns can
+    // see the same grounded evidence the model just consumed. Drops the
+    // refusal pattern where turn N+1 disclaims "no access to Strava" even
+    // though turn N just successfully called get_activities.
+    let tool_message_recorder: Option<Arc<dyn chat_tool_loop::ToolMessageRecorder>> =
+        Some(Arc::new(ChatRepoToolMessageRecorder::new(
+            Arc::clone(&resources.repos.chat),
+            input.conversation_id.clone(),
+            input.user_id.clone(),
+        )));
     let tools = build_mcp_tools();
     let tool_params = ToolLoopParams {
         provider: &provider,
@@ -146,6 +156,7 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
         tenant_id: input.tool_tenant_id,
         max_iterations,
         call_recorder,
+        tool_message_recorder,
         stream_sink,
         temperature: coach_ctx.and_then(|c| c.temperature),
     };

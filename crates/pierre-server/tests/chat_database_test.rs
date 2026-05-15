@@ -90,7 +90,7 @@ async fn create_test_db() -> SqlitePool {
         CREATE TABLE IF NOT EXISTS chat_messages (
             id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-            role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
+            role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool_call', 'tool_result')),
             content TEXT NOT NULL,
             token_count INTEGER,
             finish_reason TEXT,
@@ -803,4 +803,151 @@ async fn test_delete_all_user_conversations() {
         .unwrap();
 
     assert!(remaining.is_empty());
+}
+
+/// Persisting a `tool_call` row alongside its `tool_result` lets a follow-up
+/// turn replay the grounded evidence the model already consumed. Without
+/// these two roles the chat pipeline only stores the final assistant text,
+/// and turn N+1 hits the "I don't have access to your Strava data"
+/// refusal pattern even when turn N successfully called `get_activities`.
+#[tokio::test]
+async fn test_persist_tool_round_messages() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+
+    let tenant_id = test_tenant_id();
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Tool Round",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Give me my last 7 activities",
+            token_count: Some(6),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+
+    // The assistant emitted only a tool call this round (no preamble text).
+    // The chat pipeline persists assistant_text=None here, so we exercise
+    // the path where only `tool_result` lands but `tool_call` does not.
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "tool_result",
+            content: "[Tool Result for get_activities]: {\"activity_list\":\"...7 activities...\"}",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "Here are your 7 most recent activities…",
+            token_count: Some(20),
+            finish_reason: Some("stop"),
+            prompt_tokens: Some(150),
+            model: Some("gemini-1.5-flash"),
+        })
+        .await
+        .unwrap();
+
+    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    assert_eq!(messages.len(), 3, "user → tool_result → assistant");
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(messages[1].role, "tool_result");
+    assert!(messages[1].content.contains("activity_list"));
+    assert_eq!(messages[2].role, "assistant");
+}
+
+/// Multi-tool round where the assistant emits a preamble alongside the call.
+/// Both roles land in history so a follow-up turn replays the exact
+/// `Vec<ChatMessage>` shape the in-memory tool loop produced.
+#[tokio::test]
+async fn test_persist_tool_round_with_assistant_preamble() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+
+    let tenant_id = test_tenant_id();
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Preamble Round",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Recipe + stretching for my week",
+            token_count: Some(5),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "tool_call",
+            content: "Let me pull your last 7 activities first.",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+
+    manager
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "tool_result",
+            content:
+                "[Tool Result for get_activities]: {\"activity_list\":\"3 trails, 3 MTB, 1 hike\"}",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+
+    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(messages[1].role, "tool_call");
+    assert_eq!(messages[2].role, "tool_result");
 }

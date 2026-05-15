@@ -125,6 +125,10 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         tenant_id,
         max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
         call_recorder,
+        // Insight generation runs out-of-band on an existing conversation
+        // and writes its own assistant row afterwards. Tool-round messages
+        // aren't part of that contract, so the recorder stays absent here.
+        tool_message_recorder: None,
         temperature: None,
         // Insight generation is a one-shot JSON response — no progressive
         // UX, so the streaming sink stays absent.
