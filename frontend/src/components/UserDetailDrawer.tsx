@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User } from '../types/api';
 import { Button, Card } from './ui';
@@ -29,7 +29,12 @@ export default function UserDetailDrawer({
 }: UserDetailDrawerProps) {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isImpersonating, setIsImpersonating] = useState(false);
+  const [overrideEditing, setOverrideEditing] = useState(false);
+  const [overrideDaily, setOverrideDaily] = useState<string>('');
+  const [overrideMonthly, setOverrideMonthly] = useState<string>('');
+  const [overrideNote, setOverrideNote] = useState<string>('');
   const { user: currentUser, startImpersonation } = useAuth();
+  const queryClient = useQueryClient();
 
   const canImpersonate = currentUser?.role === 'super_admin' &&
     user?.role !== 'super_admin' &&
@@ -80,6 +85,47 @@ export default function UserDetailDrawer({
 
   const formatPersona = (slug: string) =>
     slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const refetchRateLimit = () => {
+    queryClient.invalidateQueries({
+      queryKey: QUERY_KEYS.adminUsers.rateLimit(user?.id),
+    });
+  };
+
+  const setOverrideMutation = useMutation({
+    mutationFn: () => {
+      if (!user) return Promise.reject(new Error('no user'));
+      const parseLimit = (v: string): number | null => {
+        const trimmed = v.trim();
+        if (trimmed === '' || trimmed.toLowerCase() === 'unlimited') return null;
+        const n = Number.parseInt(trimmed, 10);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error('Daily and monthly limits must be positive integers or blank for unlimited');
+        }
+        return n;
+      };
+      return adminApi.setUserRateLimitOverride(user.id, {
+        daily_limit: parseLimit(overrideDaily),
+        monthly_limit: parseLimit(overrideMonthly),
+        note: overrideNote.trim() === '' ? null : overrideNote.trim(),
+      });
+    },
+    onSuccess: () => {
+      setOverrideEditing(false);
+      refetchRateLimit();
+    },
+  });
+
+  const clearOverrideMutation = useMutation({
+    mutationFn: () =>
+      user
+        ? adminApi.clearUserRateLimitOverride(user.id)
+        : Promise.reject(new Error('no user')),
+    onSuccess: () => {
+      setOverrideEditing(false);
+      refetchRateLimit();
+    },
+  });
 
   if (!isOpen || !user) return null;
 
@@ -253,16 +299,116 @@ export default function UserDetailDrawer({
                     Resets: {formatDate(rateLimit.reset_times.monthly_reset)}
                   </p>
                 </div>
-                <p className="text-xs text-outline pt-2 border-t ghost-border">
-                  Tier defaults editable in{' '}
-                  <a
-                    href="#platform-settings"
-                    className="text-pierre-activity hover:underline"
-                  >
-                    Platform Settings → Rate Limits
-                  </a>
-                  .
-                </p>
+                <div className="pt-2 border-t ghost-border space-y-2">
+                  {rateLimit.override_active ? (
+                    <div className="rounded-md bg-pierre-activity/10 border border-pierre-activity/30 p-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-pierre-activity">Per-user override active</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOverrideDaily(rateLimit.rate_limits.daily.limit?.toString() ?? '');
+                            setOverrideMonthly(rateLimit.rate_limits.monthly.limit?.toString() ?? '');
+                            setOverrideNote(rateLimit.override_note ?? '');
+                            setOverrideEditing(true);
+                          }}
+                          className="text-pierre-activity hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      {rateLimit.override_note && (
+                        <p className="text-on-surface-variant mt-1 italic">"{rateLimit.override_note}"</p>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOverrideDaily('');
+                        setOverrideMonthly('');
+                        setOverrideNote('');
+                        setOverrideEditing(true);
+                      }}
+                      className="text-xs text-pierre-activity hover:underline"
+                    >
+                      Override limits for this user…
+                    </button>
+                  )}
+                  <p className="text-xs text-outline">
+                    Tier defaults editable in{' '}
+                    <a href="#platform-settings" className="text-pierre-activity hover:underline">
+                      Platform Settings → Rate Limits
+                    </a>
+                    .
+                  </p>
+
+                  {overrideEditing && (
+                    <div className="rounded-md bg-surface-container-high p-3 space-y-2 text-xs">
+                      <div className="font-semibold text-on-surface">Override</div>
+                      <p className="text-on-surface-variant">
+                        Leave blank for unlimited; positive integers set a custom cap.
+                        Industry standard exemption pattern — tier defaults apply when no override is set.
+                      </p>
+                      <label className="block">
+                        <span className="text-on-surface-variant">Daily limit</span>
+                        <input
+                          type="text"
+                          value={overrideDaily}
+                          onChange={(e) => setOverrideDaily(e.target.value)}
+                          placeholder="e.g. 100, or blank for unlimited"
+                          className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-on-surface-variant">Monthly limit</span>
+                        <input
+                          type="text"
+                          value={overrideMonthly}
+                          onChange={(e) => setOverrideMonthly(e.target.value)}
+                          placeholder="e.g. 3000, or blank for unlimited"
+                          className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-on-surface-variant">Note (operator-only)</span>
+                        <input
+                          type="text"
+                          value={overrideNote}
+                          onChange={(e) => setOverrideNote(e.target.value)}
+                          placeholder="Why this override exists"
+                          className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
+                        />
+                      </label>
+                      {setOverrideMutation.error && (
+                        <p className="text-pierre-red-400">
+                          {(setOverrideMutation.error as Error).message}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button
+                          onClick={() => setOverrideMutation.mutate()}
+                          disabled={setOverrideMutation.isPending}
+                          className="bg-pierre-activity text-on-primary"
+                        >
+                          {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
+                        </Button>
+                        {rateLimit.override_active && (
+                          <Button
+                            onClick={() => clearOverrideMutation.mutate()}
+                            disabled={clearOverrideMutation.isPending}
+                            variant="secondary"
+                          >
+                            {clearOverrideMutation.isPending ? 'Clearing…' : 'Clear override'}
+                          </Button>
+                        )}
+                        <Button onClick={() => setOverrideEditing(false)} variant="secondary">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <p className="text-sm text-on-surface-variant">Unable to load rate limit data</p>

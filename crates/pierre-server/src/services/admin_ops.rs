@@ -15,6 +15,7 @@ use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::models::TenantId;
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
+use pierre_database::repositories::UserRateLimitOverride;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -65,6 +66,10 @@ pub(crate) struct UserRateLimits {
     pub(crate) monthly_remaining: Option<u32>,
     pub(crate) daily_reset: DateTime<Utc>,
     pub(crate) monthly_reset: DateTime<Utc>,
+    /// True when a per-user override is in effect (tier default ignored).
+    pub(crate) override_active: bool,
+    /// Operator note attached to the override, if any.
+    pub(crate) override_note: Option<String>,
 }
 
 /// A single tool usage entry with computed percentage
@@ -711,9 +716,24 @@ pub(crate) async fn compute_user_rate_limits(
             tools.iter().map(|t| t.request_count as u32).sum::<u32>()
         });
 
-    // Calculate limits based on tier
-    let monthly_limit = user.tier.monthly_limit();
-    let daily_limit = monthly_limit.map(|m| m / 30);
+    // Per-user override wins over the tier default. Industry pattern: tier
+    // baseline + admin-managed exemption table. None on the override row means
+    // "unlimited" — same shape as UserTier::Enterprise.monthly_limit() = None.
+    let override_row = data
+        .repos()
+        .user_rate_limit_overrides
+        .get(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch rate-limit override: {e}")))?;
+
+    let (daily_limit, monthly_limit, override_active, override_note) = if let Some(o) = override_row
+    {
+        (o.daily_limit, o.monthly_limit, true, o.note)
+    } else {
+        let monthly = user.tier.monthly_limit();
+        let daily = monthly.map(|m| m / 30);
+        (daily, monthly, false, None)
+    };
 
     // Calculate remaining
     let monthly_remaining = monthly_limit.map(|l| l.saturating_sub(monthly_used));
@@ -737,7 +757,87 @@ pub(crate) async fn compute_user_rate_limits(
         monthly_remaining,
         daily_reset,
         monthly_reset,
+        override_active,
+        override_note,
     })
+}
+
+/// Set or update a per-user rate-limit override (industry-standard exemption
+/// pattern). Persists to `user_rate_limit_overrides`. `None` on either limit
+/// means "unlimited" for that dimension. Rejects `Some(0)` since 0 has no
+/// useful semantic — callers should pass `None` for unlimited.
+pub(crate) async fn set_user_rate_limit_override(
+    data: &DataContext,
+    admin_user_id: Uuid,
+    target_user_id: Uuid,
+    daily_limit: Option<u32>,
+    monthly_limit: Option<u32>,
+    note: Option<String>,
+) -> Result<(), AppError> {
+    if matches!(daily_limit, Some(0)) || matches!(monthly_limit, Some(0)) {
+        return Err(AppError::invalid_input(
+            "Rate limit values must be positive integers; use null for unlimited",
+        ));
+    }
+
+    // Verify the target user exists (admin views are global).
+    data.repos()
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+
+    let now = Utc::now();
+    let row = UserRateLimitOverride {
+        user_id: target_user_id,
+        daily_limit,
+        monthly_limit,
+        note,
+        set_by: Some(admin_user_id),
+        set_at: now,
+        updated_at: now,
+    };
+
+    data.repos()
+        .user_rate_limit_overrides
+        .upsert(&row)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to persist rate-limit override: {e}")))?;
+
+    info!(
+        admin_id = %admin_user_id,
+        target_user_id = %target_user_id,
+        daily_limit = ?daily_limit,
+        monthly_limit = ?monthly_limit,
+        "Per-user rate-limit override set"
+    );
+
+    Ok(())
+}
+
+/// Remove a per-user rate-limit override; user reverts to the tier default.
+/// Returns `true` when an override row existed and was removed.
+pub(crate) async fn clear_user_rate_limit_override(
+    data: &DataContext,
+    admin_user_id: Uuid,
+    target_user_id: Uuid,
+) -> Result<bool, AppError> {
+    let removed = data
+        .repos()
+        .user_rate_limit_overrides
+        .delete(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to clear rate-limit override: {e}")))?;
+
+    info!(
+        admin_id = %admin_user_id,
+        target_user_id = %target_user_id,
+        removed,
+        "Per-user rate-limit override cleared"
+    );
+
+    Ok(removed)
 }
 
 // =========================================================================

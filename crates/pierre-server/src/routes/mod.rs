@@ -123,6 +123,11 @@ pub mod admin;
 #[cfg(feature = "client-admin-ui")]
 pub mod web_admin;
 
+/// Per-user rate-limit override (PUT/DELETE) — split from `web_admin` to keep
+/// route handlers thin per architectural-validation.sh line budget.
+#[cfg(feature = "client-admin-ui")]
+pub mod admin_rate_limit_override;
+
 /// API key management routes
 #[cfg(feature = "client-api-keys")]
 pub mod api_keys;

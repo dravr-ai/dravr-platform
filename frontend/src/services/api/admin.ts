@@ -165,9 +165,23 @@ export const adminApi = {
       daily_reset: string;
       monthly_reset: string;
     };
+    override_active: boolean;
+    override_note: string | null;
   }> {
     const response = await axios.get(`/api/admin/users/${userId}/rate-limit`);
     return response.data.data;
+  },
+
+  async setUserRateLimitOverride(
+    userId: string,
+    body: { daily_limit: number | null; monthly_limit: number | null; note: string | null },
+  ): Promise<void> {
+    await axios.put(`/api/admin/users/${userId}/rate-limit-override`, body);
+  },
+
+  async clearUserRateLimitOverride(userId: string): Promise<{ removed: boolean }> {
+    const response = await axios.delete(`/api/admin/users/${userId}/rate-limit-override`);
+    return { removed: Boolean(response.data?.removed) };
   },
 
   async getUserActivity(userId: string, days: number = 30): Promise<{
