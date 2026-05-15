@@ -23,7 +23,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
@@ -325,6 +325,11 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/users/{user_id}/rate-limit",
                 get(Self::handle_get_user_rate_limit),
+            )
+            .route(
+                "/api/admin/users/{user_id}/rate-limit-override",
+                put(super::admin_rate_limit_override::handle_set)
+                    .delete(super::admin_rate_limit_override::handle_clear),
             )
             .route(
                 "/api/admin/users/{user_id}/activity",
@@ -906,6 +911,8 @@ impl WebAdminRoutes {
                         "daily_reset": limits.daily_reset.to_rfc3339(),
                         "monthly_reset": limits.monthly_reset.to_rfc3339(),
                     },
+                    "override_active": limits.override_active,
+                    "override_note": limits.override_note,
                 }
             })),
         )

@@ -29,7 +29,7 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bullets: [
       'Prose, not bullet lists. No structured blocks.',
       'No framework citations or technical acronyms.',
-      'Only urgent (P0) push notifications — weekly digest otherwise.',
+      'Push notifications: urgent only — weekly digest otherwise.',
     ],
   },
   {
@@ -41,31 +41,31 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bullets: [
       'Headline answer first, key datum second. Replies under ~250 words.',
       'Acronyms (CTL, ACWR) glossed on first use, then used freely.',
-      'P0 + P1 unsolicited push (acute injury risk, near-overreached).',
+      'Push notifications: urgent and high priority (acute injury risk, near-overreached).',
     ],
   },
   {
     id: 'power_athlete',
     name: 'Power-athlete',
-    tagline: 'Section 11 discipline — line-by-line, framework-cited',
+    tagline: 'Line-by-line discipline, framework-cited',
     description:
       "Deterministic, auditable output. Per-activity reports with exact numbers. Framework citations on every numeric claim.",
     bullets: [
       'Line-by-line activity blocks with framework labels (Coggan, Banister, Foster).',
-      'Full P0–P3 readiness ladder verbatim. 10-point validation checklist.',
-      'Full P0/P1/P2 unsolicited push. Pre-workout briefing on request.',
+      'Full readiness ladder verbatim with a multi-point validation checklist.',
+      'Push notifications: all priorities. Pre-workout briefing on request.',
     ],
   },
   {
     id: 'coach',
     name: 'Coach',
-    tagline: 'Inherits Power-athlete + roster framing for managing other athletes',
+    tagline: 'Power-athlete discipline plus a roster view for the athletes you coach',
     description:
-      "Same Power-athlete discipline, plus per-athlete tenant-scoped reports and roster-wide summaries.",
+      "Same Power-athlete discipline, plus per-athlete reports and roster-wide summaries.",
     bullets: [
       'Athlete-scoped queries — never cross-aggregate the coach and their athletes.',
       'Roster-wide blocks (e.g. ACWR > 1.3 across the squad).',
-      'Full P0/P1/P2 push for every athlete; P3 only for the coach themselves.',
+      "Push notifications: all priorities for every athlete; lowest priority shown for the coach themselves.",
     ],
   },
 ];

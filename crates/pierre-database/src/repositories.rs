@@ -3472,6 +3472,53 @@ pub trait RosterRepository: Send + Sync {
 }
 
 // ================================
+// User rate-limit override repository
+// ================================
+
+/// Per-user rate-limit override row (industry-standard exemption pattern).
+///
+/// When a row exists for a user, its values win over the tier-keyed default
+/// computed from `UserTier::monthly_limit()` and friends. `None` on either
+/// limit field means "unlimited for this dimension" (same semantics as the
+/// existing `Enterprise.monthly_limit()` returning `None`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserRateLimitOverride {
+    /// User the override applies to.
+    pub user_id: Uuid,
+    /// Custom daily request cap. `None` = unlimited daily.
+    pub daily_limit: Option<u32>,
+    /// Custom monthly request cap. `None` = unlimited monthly.
+    pub monthly_limit: Option<u32>,
+    /// Operator-facing note explaining why the override exists.
+    pub note: Option<String>,
+    /// Admin user who set the override (audit trail).
+    pub set_by: Option<Uuid>,
+    /// First-set timestamp.
+    pub set_at: DateTime<Utc>,
+    /// Most-recent update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// CRUD for `user_rate_limit_overrides` — the exemption table consulted by
+/// [`crate::services::admin_ops::compute_user_rate_limits`] before falling
+/// back to the tier default.
+#[async_trait]
+pub trait UserRateLimitOverrideRepository: Send + Sync {
+    /// Fetch the override row for a user, or `None` if no override is set
+    /// (tier default applies).
+    async fn get(&self, user_id: Uuid) -> AppResult<Option<UserRateLimitOverride>>;
+
+    /// Insert or update the override row for a user. `set_at` is preserved
+    /// on update; `updated_at` is always bumped to the call time.
+    async fn upsert(&self, row: &UserRateLimitOverride) -> AppResult<()>;
+
+    /// Remove the override row so the user reverts to the tier default.
+    /// Returns `true` when a row was removed, `false` when no override
+    /// existed.
+    async fn delete(&self, user_id: Uuid) -> AppResult<bool>;
+}
+
+// ================================
 // Database lifecycle trait (connection + migration only)
 // ================================
 

@@ -84,6 +84,8 @@ pub mod user_mcp_tokens;
 pub mod user_oauth_tokens;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (`SQLite`)
 pub mod user_physiological_profiles;
+/// Per-user rate-limit exemption table (`SQLite`) backing `UserRateLimitOverrideRepository`.
+pub mod user_rate_limit_overrides;
 /// User account management and authentication
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)

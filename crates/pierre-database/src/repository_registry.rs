@@ -21,8 +21,8 @@ use crate::repositories::{
     SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
     SubscriptionsRepository, SyncCursorRepository, TenantRepository, TimeSeriesPointRepository,
     ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -131,6 +131,10 @@ pub struct RepositoryRegistry {
     /// Coach-athlete roster assignments (1:N junction). Gates routes that
     /// require `manages_roster=true` and surfaces who coaches whom.
     pub roster: Arc<dyn RosterRepository>,
+    /// Per-user rate-limit overrides (industry-standard exemption pattern).
+    /// Row presence wins over `UserTier::monthly_limit()` in admin views and
+    /// the rate-limit middleware.
+    pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
 }
 
 impl RepositoryRegistry {
@@ -188,7 +192,8 @@ impl RepositoryRegistry {
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
             time_series_points: db.clone(),
-            roster: db,
+            roster: db.clone(),
+            user_rate_limit_overrides: db,
         }
     }
 
@@ -244,7 +249,8 @@ impl RepositoryRegistry {
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
             time_series_points: db.clone(),
-            roster: db,
+            roster: db.clone(),
+            user_rate_limit_overrides: db,
         }
     }
 }
