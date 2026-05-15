@@ -31,13 +31,16 @@ use dravr_tronc::notifications::{
 use dravr_tronc::notify::NotifyLayer;
 use serde_json::json;
 use std::env;
+use std::fmt::Debug;
 use std::io;
 use std::sync::Arc;
-use tracing::info;
+use tracing::field::{Field, Visit};
+use tracing::{info, Event, Metadata, Subscriber};
 use tracing_subscriber::{
     filter::{filter_fn, FilterFn},
     fmt::{self, format::FmtSpan},
-    layer::SubscriberExt,
+    layer::{Context, Filter, SubscriberExt},
+    registry::LookupSpan,
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
@@ -83,6 +86,89 @@ fn chromiumoxide_teardown_predicate(metadata: &tracing::Metadata<'_>) -> bool {
 /// `.with_filter(...)`.
 fn chromiumoxide_teardown_filter() -> FilterFn<TeardownFilterFn> {
     filter_fn(chromiumoxide_teardown_predicate as TeardownFilterFn)
+}
+
+/// Substring that identifies the chromiumoxide post-close WS reset pattern.
+/// Matches both the tungstenite error `Display` (`Connection reset
+/// without closing handshake`) and the `Debug` form chromiumoxide
+/// emits (`Ws(Protocol(ResetWithoutClosingHandshake))`).
+const CHROMIUMOXIDE_RESET_TOKEN: &str = "ResetWithoutClosingHandshake";
+
+/// Visitor that records whether the event's `message` field contains a
+/// given substring. Only inspects the `message` field — other fields are
+/// ignored so we don't trip on incidental references in structured args.
+struct MessageContainsVisitor<'a> {
+    needle: &'a str,
+    matched: bool,
+}
+
+impl<'a> MessageContainsVisitor<'a> {
+    fn new(needle: &'a str) -> Self {
+        Self {
+            needle,
+            matched: false,
+        }
+    }
+}
+
+impl Visit for MessageContainsVisitor<'_> {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        if field.name() == "message" {
+            let rendered = format!("{value:?}");
+            if rendered.contains(self.needle) {
+                self.matched = true;
+            }
+        }
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "message" && value.contains(self.needle) {
+            self.matched = true;
+        }
+    }
+}
+
+/// Per-event filter applied to the Slack notification sink only.
+///
+/// Suppresses chromiumoxide handler ERROR events whose message contains
+/// `ResetWithoutClosingHandshake` — that exact tungstenite protocol
+/// variant fires whenever Chrome exits without sending a Close frame.
+/// We see it in two paths: the explicit `close_browsers` route (already
+/// covered by [`chromiumoxide_teardown_predicate`]'s grace window) and
+/// the implicit `Drop` route when a `Browser` Arc is reaped without
+/// going through `close_browsers`. Both cases are post-close lifecycle
+/// noise — Chrome is gone, no operator action will recover it, and the
+/// scrape function's own error path is the actionable signal.
+///
+/// Other chromiumoxide handler errors (TLS faults, capacity exhaustion,
+/// distinct protocol violations) still page through the notifier with
+/// full fidelity. Cloud Logging keeps every event regardless: this
+/// filter only suppresses the *Slack ping*, not the structured log.
+///
+/// Exposed for integration tests so the filter can be wired into a
+/// scratch subscriber without going through [`LoggingConfig::init`]
+/// (which installs a process-global subscriber).
+pub struct ChromiumoxideNotifierFilter;
+
+impl<S> Filter<S> for ChromiumoxideNotifierFilter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn enabled(&self, _metadata: &Metadata<'_>, _ctx: &Context<'_, S>) -> bool {
+        // Defer the decision to `event_enabled` so we can inspect the
+        // message field, which `Metadata` alone does not expose.
+        true
+    }
+
+    fn event_enabled(&self, event: &Event<'_>, _ctx: &Context<'_, S>) -> bool {
+        let meta = event.metadata();
+        if meta.target() != "chromiumoxide::handler" || *meta.level() != tracing::Level::ERROR {
+            return true;
+        }
+        let mut visitor = MessageContainsVisitor::new(CHROMIUMOXIDE_RESET_TOKEN);
+        event.record(&mut visitor);
+        !visitor.matched
+    }
 }
 
 /// Log output options for controlling what information is included
@@ -316,9 +402,11 @@ impl LoggingConfig {
                     .json()
                     .with_filter(chromiumoxide_teardown_filter());
 
-                let r = registry
-                    .with(json_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                let r = registry.with(json_layer).with(
+                    error_layer
+                        .with_filter(chromiumoxide_teardown_filter())
+                        .with_filter(ChromiumoxideNotifierFilter),
+                );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 r.init();
@@ -338,9 +426,11 @@ impl LoggingConfig {
                     })
                     .with_filter(chromiumoxide_teardown_filter());
 
-                let r = registry
-                    .with(pretty_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                let r = registry.with(pretty_layer).with(
+                    error_layer
+                        .with_filter(chromiumoxide_teardown_filter())
+                        .with_filter(ChromiumoxideNotifierFilter),
+                );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 r.init();
@@ -357,9 +447,11 @@ impl LoggingConfig {
                     .with_span_events(FmtSpan::NONE)
                     .with_filter(chromiumoxide_teardown_filter());
 
-                let r = registry
-                    .with(compact_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                let r = registry.with(compact_layer).with(
+                    error_layer
+                        .with_filter(chromiumoxide_teardown_filter())
+                        .with_filter(ChromiumoxideNotifierFilter),
+                );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 r.init();
@@ -375,9 +467,11 @@ impl LoggingConfig {
                     ))
                     .with_filter(chromiumoxide_teardown_filter());
 
-                let r = registry
-                    .with(gcp_layer)
-                    .with(error_layer.with_filter(chromiumoxide_teardown_filter()));
+                let r = registry.with(gcp_layer).with(
+                    error_layer
+                        .with_filter(chromiumoxide_teardown_filter())
+                        .with_filter(ChromiumoxideNotifierFilter),
+                );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 r.init();
