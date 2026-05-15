@@ -157,9 +157,13 @@ impl ChatProvider {
     ///    naming conventions for the same upstream SKU (Copilot's
     ///    `claude-opus-4.7` vs Anthropic's `claude-opus-4-7`).
     ///
-    /// Non-CLI fallback types (Groq, Gemini, Local) fall back to
-    /// [`Self::create_provider`] — they read their own model env vars
-    /// independently and aren't affected by `PIERRE_LLM_PROVIDER` dispatch.
+    /// Non-CLI fallback types (Groq, Gemini, Local) start from
+    /// [`Self::create_provider`], then have `PIERRE_LLM_FALLBACK_PROVIDER_MODEL`
+    /// applied on top. Their stock `from_env()` paths read
+    /// `PIERRE_LLM_DEFAULT_MODEL`, which the primary owns — so without this
+    /// override the Gemini fallback would send Copilot's
+    /// `claude-opus-4.7` model name to `generativelanguage.googleapis.com`
+    /// and 404 the entire fallback chain.
     async fn create_fallback_provider(fallback_type: LlmProviderType) -> Result<Self, AppError> {
         let model_override = LlmProviderType::fallback_provider_model_from_env();
 
@@ -170,7 +174,11 @@ impl ChatProvider {
             )?));
         }
 
-        Self::create_provider(fallback_type).await
+        let provider = Self::create_provider(fallback_type).await?;
+        Ok(match model_override {
+            Some(m) => provider.with_model(&m),
+            None => provider,
+        })
     }
 
     /// Combine the primary and secondary init results into a single provider
@@ -491,6 +499,33 @@ impl ChatProvider {
     #[must_use]
     pub fn name(&self) -> &'static str {
         LlmProvider::name(self)
+    }
+
+    /// Apply a model override to a provider after construction.
+    ///
+    /// Used by the runtime fallback chain to honor
+    /// `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` for the secondary provider —
+    /// the secondary's `from_env()` would otherwise read
+    /// `PIERRE_LLM_DEFAULT_MODEL`, which belongs to the primary and may be
+    /// in a model namespace the secondary's API cannot resolve (e.g. a
+    /// Copilot Claude SKU sent to `generativelanguage.googleapis.com`
+    /// returns 404 and collapses the fallback).
+    ///
+    /// Only affects the variants whose URL/path embeds a model name
+    /// (Gemini, Groq, Local). `Cli` variants take their model from the
+    /// embacle runner config and are handled via
+    /// `CliLlmProvider::from_runner_type_with_model` instead. `Chain`
+    /// and `Custom` are pass-through — chain composition applies the
+    /// override to its primary/secondary before they're nested, and
+    /// `Custom` is test-only.
+    #[must_use]
+    fn with_model(self, model: &str) -> Self {
+        match self {
+            Self::Gemini(p) => Self::Gemini(p.with_default_model(model)),
+            Self::Groq(p) => Self::Groq(p.with_default_model(model)),
+            Self::Local(p) => Self::Local(p.with_default_model(model)),
+            other => other,
+        }
     }
 
     /// Get provider display name
