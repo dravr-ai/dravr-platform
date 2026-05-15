@@ -87,6 +87,12 @@ pub async fn resolve_group_context(
 ///
 /// The system prompt (when provided) leads the message list; history is
 /// appended in order, dropping messages with unknown roles defensively.
+///
+/// `tool_call` and `tool_result` rows are emitted as assistant/user text
+/// messages respectively — they replay the exact `Vec<ChatMessage>` shape
+/// that `run_api_tool_loop` and `run_cli_tool_loop` push into `llm_messages`
+/// mid-loop, so a follow-up turn sees the same grounded evidence the model
+/// just consumed last turn.
 #[must_use]
 pub fn build_llm_messages(
     system_prompt: Option<&str>,
@@ -100,8 +106,8 @@ pub fn build_llm_messages(
 
     for msg in history {
         let chat_msg = match msg.role.as_str() {
-            "user" => ChatMessage::user(&msg.content),
-            "assistant" => ChatMessage::assistant(&msg.content),
+            "user" | "tool_result" => ChatMessage::user(&msg.content),
+            "assistant" | "tool_call" => ChatMessage::assistant(&msg.content),
             "system" => ChatMessage::system(&msg.content),
             _ => continue,
         };

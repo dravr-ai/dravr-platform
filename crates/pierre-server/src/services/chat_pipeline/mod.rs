@@ -59,6 +59,7 @@ use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_database::repositories::ChatRepository;
 use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
 use tracing::{debug, info, warn};
 
@@ -369,6 +370,79 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
             };
             if let Err(e) = llm_usage.insert_llm_usage(&params).await {
                 warn!("Failed to record per-LLM-call usage: {e}");
+            }
+        });
+    }
+}
+
+/// Persists each tool dispatch round as `chat_messages` rows.
+///
+/// Each round writes an optional `tool_call` row (assistant preamble) plus a
+/// `tool_result` row (formatted tool output), so follow-up turns rebuild the
+/// same `Vec<ChatMessage>` the in-memory tool loop produced. Without this,
+/// the next turn sees only the final assistant text and the model — having no
+/// trace of the tool result it consumed last turn — defaults to refusing
+/// grounded follow-ups ("I don't have access to your Strava data") even
+/// though it answered correctly the turn before.
+pub struct ChatRepoToolMessageRecorder {
+    chat: Arc<dyn ChatRepository>,
+    conversation_id: String,
+    user_id: String,
+}
+
+impl ChatRepoToolMessageRecorder {
+    /// Build a recorder scoped to a single conversation.
+    #[must_use]
+    pub fn new(chat: Arc<dyn ChatRepository>, conversation_id: String, user_id: String) -> Self {
+        Self {
+            chat,
+            conversation_id,
+            user_id,
+        }
+    }
+}
+
+impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
+    fn record(&self, record: chat_tool_loop::ToolRoundRecord) {
+        let chat = Arc::clone(&self.chat);
+        let conversation_id = self.conversation_id.clone();
+        let user_id = self.user_id.clone();
+        tokio::spawn(async move {
+            // Two writes per round so replay yields assistant→user back-to-back,
+            // mirroring what the in-memory loop pushes into `llm_messages`.
+            // Empty preamble (model returned only the tool call) skips the
+            // assistant row entirely — the in-memory loop applies the same
+            // `is_empty` guard at the push site, so persistence must mirror it.
+            if !record.assistant_text.is_empty() {
+                let params = AddMessageParams {
+                    conversation_id: &conversation_id,
+                    user_id: &user_id,
+                    role: "tool_call",
+                    content: &record.assistant_text,
+                    token_count: None,
+                    finish_reason: None,
+                    prompt_tokens: None,
+                    model: None,
+                };
+                if let Err(e) = chat.add_message(&params).await {
+                    warn!("Failed to persist tool_call message: {e}");
+                    return;
+                }
+            }
+            if !record.tool_result_text.is_empty() {
+                let params = AddMessageParams {
+                    conversation_id: &conversation_id,
+                    user_id: &user_id,
+                    role: "tool_result",
+                    content: &record.tool_result_text,
+                    token_count: None,
+                    finish_reason: None,
+                    prompt_tokens: None,
+                    model: None,
+                };
+                if let Err(e) = chat.add_message(&params).await {
+                    warn!("Failed to persist tool_result message: {e}");
+                }
             }
         });
     }
