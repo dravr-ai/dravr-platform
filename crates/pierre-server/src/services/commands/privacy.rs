@@ -41,7 +41,11 @@ impl CommandHandler for PrivacyStatusHandler {
         let status_word = reg.render(status_word_key, locale, &[]);
         let text = reg.render(KEY_PRIVACY_STATUS_LINE, locale, &[&status_word]);
 
-        Ok(CommandResponse::text(text))
+        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
+        // through CommandResponse::rich_text so each channel renderer
+        // translates the markup into native formatting instead of shipping
+        // the raw tags through MessageContent::Text.
+        Ok(CommandResponse::rich_text(text))
     }
 }
 
@@ -68,7 +72,11 @@ impl CommandHandler for PrivacyOnHandler {
             &[],
         );
 
-        Ok(CommandResponse::text(text))
+        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
+        // through CommandResponse::rich_text so each channel renderer
+        // translates the markup into native formatting instead of shipping
+        // the raw tags through MessageContent::Text.
+        Ok(CommandResponse::rich_text(text))
     }
 }
 
@@ -95,6 +103,10 @@ impl CommandHandler for PrivacyOffHandler {
             &[],
         );
 
-        Ok(CommandResponse::text(text))
+        // The privacy strings embed an `<b>` / `<code>` HTML subset; route
+        // through CommandResponse::rich_text so each channel renderer
+        // translates the markup into native formatting instead of shipping
+        // the raw tags through MessageContent::Text.
+        Ok(CommandResponse::rich_text(text))
     }
 }
