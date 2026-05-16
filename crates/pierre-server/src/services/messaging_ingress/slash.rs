@@ -152,6 +152,10 @@ pub(super) async fn try_handle_slash_command(
                         })
                         .collect(),
                 }
+            } else if response.is_rich_text {
+                MessageContent::RichText {
+                    body: response.text,
+                }
             } else {
                 MessageContent::Text {
                     body: response.text,

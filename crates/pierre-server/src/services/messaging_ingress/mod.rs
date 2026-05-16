@@ -637,6 +637,7 @@ pub(super) static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<Toki
 fn content_type_label(content: &MessageContent) -> &'static str {
     match content {
         MessageContent::Text { .. } => "text",
+        MessageContent::RichText { .. } => "rich_text",
         MessageContent::Media { .. } => "media",
         MessageContent::Location { .. } => "location",
         MessageContent::Card { .. } => "card",
@@ -646,7 +647,9 @@ fn content_type_label(content: &MessageContent) -> &'static str {
 /// Extract the text body from the message content (if applicable)
 pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
     match content {
-        MessageContent::Text { body } | MessageContent::Card { body, .. } => Some(body.clone()),
+        MessageContent::Text { body }
+        | MessageContent::RichText { body }
+        | MessageContent::Card { body, .. } => Some(body.clone()),
         MessageContent::Media { caption, .. } => caption.clone(),
         MessageContent::Location { .. } => None,
     }

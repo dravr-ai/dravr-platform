@@ -196,4 +196,117 @@ mod rendering_snapshots {
 
         assert_eq!(rendered, expected, "Messenger Graph API shape drifted");
     }
+
+    /// Build a canonical `RichText` outgoing message for channel `ct`.
+    /// Same body across all channels so any per-channel difference
+    /// reflects only the renderer's HTML-subset translation.
+    fn short_rich(ct: ChannelType, recipient: &str) -> OutgoingMessage {
+        OutgoingMessage {
+            channel_type: ct,
+            recipient_id: recipient.to_owned(),
+            content: MessageContent::RichText {
+                body: "Status is <b>enabled</b>. Use <code>/privacy off</code> to opt out."
+                    .to_owned(),
+            },
+            turn_id: ConversationTurnId::nil().into(),
+            reply_to: None,
+            thread_id: None,
+        }
+    }
+
+    #[test]
+    fn telegram_renders_richtext_as_native_html() {
+        // The /privacy reply ships as RichText. Telegram is the channel
+        // that originally broke (literal `<b>` showed up to the user
+        // because the tags were escaped through MessageContent::Text);
+        // this snapshot pins the fix so a regression would be caught.
+        let msg = short_rich(ChannelType::Telegram, "123456789");
+        let rendered = TelegramRenderer
+            .render(&msg)
+            .expect("telegram render succeeds");
+
+        let expected = json!({
+            "chat_id": "123456789",
+            "text": "Status is <b>enabled</b>. Use <code>/privacy off</code> to opt out.",
+            "parse_mode": "HTML"
+        });
+        assert_eq!(
+            rendered, expected,
+            "Telegram RichText must pass `<b>` and `<code>` through verbatim, not escape them"
+        );
+    }
+
+    #[test]
+    fn slack_renders_richtext_as_mrkdwn() {
+        let msg = short_rich(ChannelType::Slack, "C_RICH");
+        let rendered = SlackRenderer.render(&msg).expect("slack render succeeds");
+
+        let expected = json!({
+            "channel": "C_RICH",
+            "blocks": [{
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Status is *enabled*. Use `/privacy off` to opt out."
+                }
+            }]
+        });
+        assert_eq!(
+            rendered, expected,
+            "Slack RichText must translate `<b>` -> `*` and `<code>` -> `` ` `` (mrkdwn)"
+        );
+    }
+
+    #[test]
+    fn whatsapp_renders_richtext_with_native_formatting() {
+        let msg = short_rich(ChannelType::WhatsApp, "15551234567");
+        let rendered = WhatsAppRenderer
+            .render(&msg)
+            .expect("whatsapp render succeeds");
+
+        let expected = json!({
+            "messaging_product": "whatsapp",
+            "to": "15551234567",
+            "type": "text",
+            "text": { "body": "Status is *enabled*. Use `/privacy off` to opt out." }
+        });
+        assert_eq!(
+            rendered, expected,
+            "WhatsApp RichText must translate `<b>` -> `*` and `<code>` -> `` ` ``"
+        );
+    }
+
+    #[test]
+    fn discord_renders_richtext_as_markdown() {
+        let msg = short_rich(ChannelType::Discord, "987654321");
+        let rendered = DiscordRenderer
+            .render(&msg)
+            .expect("discord render succeeds");
+
+        let expected = json!({
+            "content": "Status is **enabled**. Use `/privacy off` to opt out.",
+            "channel_id": "987654321"
+        });
+        assert_eq!(
+            rendered, expected,
+            "Discord RichText must translate `<b>` -> `**` and `<code>` -> `` ` ``"
+        );
+    }
+
+    #[test]
+    fn messenger_renders_richtext_as_plain_text() {
+        let msg = short_rich(ChannelType::Messenger, "fb-user-42");
+        let rendered = MessengerRenderer
+            .render(&msg)
+            .expect("messenger render succeeds");
+
+        let expected = json!({
+            "recipient": { "id": "fb-user-42" },
+            "message": { "text": "Status is enabled. Use /privacy off to opt out." }
+        });
+        assert_eq!(
+            rendered, expected,
+            "Messenger RichText must strip tags — Messenger has no native rich-text format"
+        );
+    }
 }
