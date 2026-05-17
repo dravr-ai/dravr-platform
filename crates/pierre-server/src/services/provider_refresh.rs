@@ -129,10 +129,20 @@ impl RefreshService {
         result
     }
 
-    /// Check freshness and trigger non-blocking background refresh for stale providers.
+    /// Check freshness and refresh stale providers.
     ///
-    /// Returns immediately with the current status. Syncs run in background
-    /// tokio tasks and send SSE notifications on completion.
+    /// When `config.wait_for_refresh` is `true` (the default), this awaits
+    /// each per-provider sync up to `config.wait_for_refresh_timeout` so
+    /// the LLM downstream reads the freshly-synced cache. Providers whose
+    /// sync timed out or errored stay in the `refreshing` list and the
+    /// coach-hint flags them as stale so the model can acknowledge the
+    /// limitation. When `wait_for_refresh` is `false`, the sync runs as a
+    /// detached background task and the LLM proceeds against the cache
+    /// as it stands.
+    ///
+    /// On success the freshly-synced providers move into `fresh` so
+    /// [`Self::build_coach_hint`] correctly omits them from the staleness
+    /// hint — the data IS now fresh.
     #[instrument(skip(self, config), fields(%user_id, %tenant_id))]
     pub async fn check_and_refresh(
         &self,
@@ -140,12 +150,12 @@ impl RefreshService {
         tenant_id: TenantId,
         config: &RefreshConfig,
     ) -> RefreshStatus {
-        let freshness_list = self.get_provider_freshness(user_id, tenant_id).await;
+        let mut freshness_list = self.get_provider_freshness(user_id, tenant_id).await;
 
         let mut refreshing = Vec::new();
         let mut fresh = Vec::new();
 
-        for pf in &freshness_list {
+        for pf in &mut freshness_list {
             if !config.is_provider_eligible(&pf.provider) {
                 fresh.push(pf.provider.clone());
                 continue;
@@ -161,18 +171,64 @@ impl RefreshService {
                 }
             });
 
-            if config.should_refresh_on_chat(age) {
+            if !config.should_refresh_on_chat(age) {
+                fresh.push(pf.provider.clone());
+                continue;
+            }
+
+            if config.wait_for_refresh {
+                let budget = config.wait_for_refresh_timeout();
+                match tokio::time::timeout(
+                    budget,
+                    self.sync_provider_blocking(user_id, tenant_id, &pf.provider),
+                )
+                .await
+                {
+                    Ok(result) if result.success => {
+                        info!(
+                            provider = %pf.provider,
+                            records = result.records_synced,
+                            "Blocking refresh completed before chat handoff"
+                        );
+                        // Reflect the just-completed sync so build_coach_hint
+                        // (which reads .freshness) treats it as Fresh and
+                        // omits the stale-data warning.
+                        pf.last_sync_at = Some(Utc::now());
+                        pf.freshness = DataFreshness::Fresh;
+                        fresh.push(pf.provider.clone());
+                    }
+                    Ok(result) => {
+                        warn!(
+                            provider = %pf.provider,
+                            message = %result.message,
+                            "Blocking refresh reported failure; LLM will see stale cache"
+                        );
+                        refreshing.push(pf.provider.clone());
+                    }
+                    Err(_elapsed) => {
+                        warn!(
+                            provider = %pf.provider,
+                            timeout_secs = budget.as_secs(),
+                            "Blocking refresh exceeded budget; LLM will see stale cache"
+                        );
+                        // Sync may still complete in the background — the
+                        // orchestrator task we awaited is not cancelled by
+                        // tokio::time::timeout because it ran inside this
+                        // task. (If we move to spawn-then-await later, add
+                        // an explicit detach here.)
+                        refreshing.push(pf.provider.clone());
+                    }
+                }
+            } else {
                 self.spawn_provider_sync(user_id, tenant_id, pf.provider.clone());
                 refreshing.push(pf.provider.clone());
-            } else {
-                fresh.push(pf.provider.clone());
             }
         }
 
         if !refreshing.is_empty() {
             info!(
                 providers = ?refreshing,
-                "Triggered background refresh for stale providers"
+                "Stale providers remain after refresh attempt"
             );
         }
 

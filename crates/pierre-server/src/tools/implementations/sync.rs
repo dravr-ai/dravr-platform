@@ -1,5 +1,8 @@
 // ABOUTME: Provider data refresh MCP tool for coach-initiated data sync
 // ABOUTME: Allows the coach to trigger on-demand provider refresh with optional blocking
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
 
@@ -154,7 +157,9 @@ impl McpTool for RefreshProviderDataTool {
                 on_chat_enabled: true,
                 // Use zero max age to force refresh for all providers
                 on_chat_max_age_secs: 0,
-                on_chat_first_message_only: false,
+                wait_for_refresh: wait,
+                wait_for_refresh_timeout_secs: RefreshConfig::default()
+                    .wait_for_refresh_timeout_secs,
                 inject_coach_hint: false,
                 providers: Vec::new(),
             };
