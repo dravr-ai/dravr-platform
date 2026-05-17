@@ -124,8 +124,15 @@ pub struct RefreshConfig {
     pub on_chat_enabled: bool,
     /// Maximum data age before on-chat refresh triggers (seconds).
     pub on_chat_max_age_secs: u64,
-    /// Only trigger refresh on the first message of a session.
-    pub on_chat_first_message_only: bool,
+    /// When true, the chat pipeline **awaits** the provider sync before
+    /// the LLM runs so the cache is fresh at read time. When false, the
+    /// sync runs in the background and the LLM may read stale data.
+    /// Defaults to true — correctness over latency for coaching advice.
+    pub wait_for_refresh: bool,
+    /// Per-provider timeout for the blocking refresh path (seconds).
+    /// On timeout the chat falls back to the existing cache and the
+    /// coach-hint flags the provider as stale.
+    pub wait_for_refresh_timeout_secs: u64,
     /// Inject a hint into the coach's context about data freshness.
     pub inject_coach_hint: bool,
     /// Providers eligible for refresh. Empty means all connected providers.
@@ -204,13 +211,18 @@ impl Default for SmartScheduleWeights {
 
 /// Default on-chat max age: 4 hours.
 const DEFAULT_ON_CHAT_MAX_AGE_SECS: u64 = 14_400;
+/// Default per-provider blocking-refresh budget: 15 seconds.
+/// Long enough to absorb a Strava round-trip + sciotte scrape; short
+/// enough that a hung provider can't stall the user's chat indefinitely.
+const DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS: u64 = 15;
 
 impl Default for RefreshConfig {
     fn default() -> Self {
         Self {
             on_chat_enabled: true,
             on_chat_max_age_secs: DEFAULT_ON_CHAT_MAX_AGE_SECS,
-            on_chat_first_message_only: true,
+            wait_for_refresh: true,
+            wait_for_refresh_timeout_secs: DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS,
             inject_coach_hint: true,
             providers: Vec::new(),
         }
@@ -234,6 +246,12 @@ impl RefreshConfig {
     #[must_use]
     pub fn should_refresh_on_chat(&self, age: Duration) -> bool {
         self.on_chat_enabled && age > self.on_chat_max_age()
+    }
+
+    /// Per-provider blocking-refresh timeout budget.
+    #[must_use]
+    pub fn wait_for_refresh_timeout(&self) -> Duration {
+        Duration::from_secs(self.wait_for_refresh_timeout_secs)
     }
 }
 
@@ -292,7 +310,11 @@ mod tests {
         let cfg = RefreshConfig::default();
         assert!(cfg.on_chat_enabled);
         assert_eq!(cfg.on_chat_max_age_secs, 14_400);
-        assert!(cfg.on_chat_first_message_only);
+        assert!(
+            cfg.wait_for_refresh,
+            "default must be blocking so coaches don't read stale activity caches"
+        );
+        assert_eq!(cfg.wait_for_refresh_timeout_secs, 15);
         assert!(cfg.inject_coach_hint);
         assert!(cfg.providers.is_empty());
     }
