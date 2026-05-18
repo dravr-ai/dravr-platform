@@ -189,13 +189,16 @@ export default function UserSettings() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
 
-  // Admin users don't need Data Providers, About, or Messaging tabs
+  // Admin users don't need Data Providers, About, or Messaging tabs.
+  // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
+  // see migration 20260518000001 for the historic skew between the two.
+  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const visibleTabs = useMemo(() => {
-    if (user?.is_admin) {
+    if (isAdminUser) {
       return SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_TABS.has(tab.id));
     }
     return SETTINGS_TABS;
-  }, [user?.is_admin]);
+  }, [isAdminUser]);
 
   // Profile state
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -1283,7 +1286,7 @@ Authorization: Bearer <your-token-here>`}
 
             {/* Usage Quota Card */}
             {/* Usage quotas are user-facing only, not shown for admin */}
-            {!user?.is_admin && (
+            {!isAdminUser && (
             <Card variant="dark">
               <div className="flex items-start gap-4 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
@@ -1343,7 +1346,7 @@ Authorization: Bearer <your-token-here>`}
                   </p>
 
                   {/* Resource counts (user-facing only, not shown for admin) */}
-                  {!user?.is_admin && (
+                  {!isAdminUser && (
                   <div className="border-t ghost-border pt-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-surface-container-low rounded-lg">
