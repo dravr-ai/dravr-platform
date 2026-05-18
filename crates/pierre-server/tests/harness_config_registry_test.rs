@@ -7,7 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
+
 use pierre_database::backends::factory::Database;
+use pierre_mcp_server::config::text_guardrails::LocaleGuardrails;
 use pierre_mcp_server::harness_config_registry::{
     HarnessConfigRegistry, HarnessConfigSnapshot, HarnessConfigSource,
 };
@@ -47,11 +50,11 @@ async fn from_database_with_no_row_returns_compiled_in_defaults() {
     assert_eq!(snapshot.compaction.window_tokens, 128_000);
     assert!((snapshot.compaction.warn_threshold - 0.70).abs() < f32::EPSILON);
     assert_eq!(snapshot.guardrails.max_response_chars, 5_000);
-    assert!(snapshot
-        .guardrails
-        .disclaimer_triggers
-        .iter()
-        .any(|t| t == "injury"));
+    // Default ships triggers for every supported locale; sanity-check
+    // both the English and the French entries so the regression case
+    // (English-only triggers) cannot reappear silently.
+    assert!(snapshot.guardrails.locales.contains_key("en"));
+    assert!(snapshot.guardrails.locales.contains_key("fr"));
 }
 
 #[tokio::test]
@@ -66,8 +69,15 @@ async fn from_database_loads_persisted_row() {
     doc.compaction.sliding_drop_n = 2;
     doc.guardrails.max_response_chars = 1_500;
     doc.guardrails.blocked_topics = vec!["politics".to_owned()];
-    doc.guardrails.disclaimer_triggers = vec!["surgery".to_owned()];
-    doc.guardrails.disclaimer_text = "**Test disclaimer.**".to_owned();
+    let mut custom = HashMap::new();
+    custom.insert(
+        "en".to_owned(),
+        LocaleGuardrails {
+            disclaimer_triggers: vec!["surgery".to_owned()],
+            disclaimer_text: "**Test disclaimer.**".to_owned(),
+        },
+    );
+    doc.guardrails.locales = custom;
 
     let serialized = serde_json::to_string(&doc).expect("serialize doc");
     db.set_system_setting(HARNESS_CONFIG_SETTING_KEY, &serialized)
@@ -86,8 +96,18 @@ async fn from_database_loads_persisted_row() {
 
     assert_eq!(snapshot.guardrails.max_response_chars, 1_500);
     assert_eq!(snapshot.guardrails.blocked_topics, vec!["politics"]);
-    assert_eq!(snapshot.guardrails.disclaimer_triggers, vec!["surgery"]);
-    assert_eq!(snapshot.guardrails.disclaimer_text, "**Test disclaimer.**");
+    let en = snapshot
+        .guardrails
+        .locales
+        .get("en")
+        .expect("en locale must round-trip");
+    assert_eq!(en.disclaimer_text, "**Test disclaimer.**");
+    assert!(
+        en.triggers_re
+            .as_ref()
+            .is_some_and(|re| re.is_match("scheduled for SURGERY next week")),
+        "compiled trigger regex must match the surgery keyword case-insensitively"
+    );
 }
 
 #[tokio::test]
@@ -171,7 +191,7 @@ fn current_guardrails_blocks_a_topic_after_install() {
 
     // Default guardrails have no blocked topics.
     let baseline = registry.current_guardrails();
-    let baseline_outcome = baseline.apply("we should discuss politics openly");
+    let baseline_outcome = baseline.apply("we should discuss politics openly", "en");
     match baseline_outcome {
         GuardrailOutcome::Allowed(_) => {}
         GuardrailOutcome::Rejected(_) => panic!("default config has no blocked topics"),
@@ -183,7 +203,7 @@ fn current_guardrails_blocks_a_topic_after_install() {
     registry.install(doc, HarnessConfigSource::AdminUpdate);
 
     let updated = registry.current_guardrails();
-    let outcome = updated.apply("we should discuss politics openly");
+    let outcome = updated.apply("we should discuss politics openly", "en");
     match outcome {
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             assert_eq!(topic, "politics");

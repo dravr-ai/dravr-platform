@@ -21,7 +21,7 @@ const { adminApi } = await import('../../services/api/admin');
 
 function sampleDoc(): HarnessConfigDocument {
   return {
-    schema_version: 1,
+    schema_version: 2,
     compaction: {
       window_tokens: 100_000,
       warn_threshold: 0.6,
@@ -32,8 +32,12 @@ function sampleDoc(): HarnessConfigDocument {
     guardrails: {
       max_response_chars: 4_000,
       blocked_topics: ['self-harm'],
-      disclaimer_triggers: ['injury'],
-      disclaimer_text: 'Speak to a doctor.',
+      locales: {
+        en: {
+          disclaimer_triggers: ['injury'],
+          disclaimer_text: 'Speak to a doctor.',
+        },
+      },
     },
   };
 }
