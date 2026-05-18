@@ -20,6 +20,7 @@ use crate::{
     },
     errors::AppResult,
     models::{User, UserStatus},
+    permissions::UserRole,
 };
 use pierre_auth::auth::SetupStatusResponse;
 use pierre_database::RepositoryRegistry;
@@ -93,6 +94,7 @@ async fn create_admin_user_record(
     );
     admin_user.id = user_id;
     admin_user.is_admin = true;
+    admin_user.role = UserRole::Admin;
     admin_user.user_status = UserStatus::Active;
 
     match repos.users.create(&admin_user).await {
