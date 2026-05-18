@@ -68,26 +68,57 @@ fn warn_threshold_above_one_is_rejected() {
 #[test]
 fn empty_disclaimer_with_triggers_is_rejected() {
     let mut doc = HarnessConfigDocument::default();
-    doc.guardrails.disclaimer_text = String::new();
-    assert!(validate_document(&doc).is_err());
+    let en = doc
+        .guardrails
+        .locales
+        .get_mut("en")
+        .expect("default ships an en locale");
+    en.disclaimer_text = String::new();
+    assert!(
+        validate_document(&doc).is_err(),
+        "disclaimer_text must be required when the locale has triggers"
+    );
 }
 
 #[test]
 fn empty_triggers_allow_empty_disclaimer() {
     let mut doc = HarnessConfigDocument::default();
-    doc.guardrails.disclaimer_triggers.clear();
-    doc.guardrails.disclaimer_text = String::new();
+    let en = doc
+        .guardrails
+        .locales
+        .get_mut("en")
+        .expect("default ships an en locale");
+    en.disclaimer_triggers.clear();
+    en.disclaimer_text = String::new();
     validate_document(&doc).expect("no triggers means disclaimer is unused");
 }
 
 #[test]
+fn empty_locales_map_is_valid() {
+    // Operators are allowed to fully disable the disclaimer feature by
+    // clearing the locales map. The pass-through behavior is documented
+    // on TextGuardrails::resolve_locale.
+    let mut doc = HarnessConfigDocument::default();
+    doc.guardrails.locales.clear();
+    validate_document(&doc).expect("empty locales disables disclaimers");
+}
+
+#[test]
 fn json_round_trip_preserves_fields() {
-    // Compare via serialized JSON — the document contains f32 fields so it
-    // cannot derive PartialEq cleanly (derive_partial_eq_without_eq fires
-    // in clippy nursery), and f32 equality through Eq is not total.
+    // Compare via `serde_json::Value` rather than raw strings: the
+    // document carries a `HashMap<String, LocaleGuardrails>` whose
+    // iteration order is non-deterministic, so byte-equal serialization
+    // is not guaranteed even when the data is identical. `Value`
+    // equality is structural (recursive map / array compare).
+    //
+    // Both sides go through `to_value` so the f32 → f64 conversion is
+    // applied identically — comparing the raw parsed JSON Value against
+    // a doc-to-Value would fail on `0.7_f32` rendering as
+    // `0.699999988079071_f64` once it round-trips through f32.
     let doc = HarnessConfigDocument::default();
     let json = serde_json::to_string(&doc).expect("serialize");
     let parsed: HarnessConfigDocument = serde_json::from_str(&json).expect("deserialize");
-    let reserialized = serde_json::to_string(&parsed).expect("reserialize");
-    assert_eq!(reserialized, json);
+    let lhs = serde_json::to_value(&doc).expect("default to Value");
+    let rhs = serde_json::to_value(&parsed).expect("parsed to Value");
+    assert_eq!(lhs, rhs);
 }

@@ -16,6 +16,7 @@
 //! overrides are a Phase D follow-up — adding the column now would
 //! complicate the dispatch read path without enabling new behavior.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
@@ -24,6 +25,7 @@ use serde_json::{from_str, to_string};
 use tracing::{error, info};
 
 use crate::admin::models::{AdminPermission, ValidatedAdminToken};
+use crate::config::text_guardrails::{default_locales, LocaleGuardrails};
 use crate::errors::{AppError, AppResult};
 use crate::harness_config_registry::HarnessConfigSource;
 
@@ -60,17 +62,26 @@ impl Default for HarnessCompactionConfig {
     }
 }
 
-/// Tier 6 text guardrail tunables — disclaimer prefix, blocked topics, length cap.
+/// Tier 6 text guardrail tunables — locale-aware disclaimer rules,
+/// blocked-topic list, length cap.
+///
+/// The persisted document carries a `locales` map keyed by BCP-47 short
+/// code (`en`, `fr`, `es`, `de`, `pt`). Each entry holds the trigger
+/// list and disclaimer text in that locale. At dispatch time the chat
+/// pipeline resolves the active turn locale; if absent from this map
+/// it falls back to `en`; if both are absent, no disclaimer is prepended
+/// (the response passes through). This guarantees a wrong-language
+/// disclaimer can never leak.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HarnessGuardrailsConfig {
     /// Maximum character length for an outbound coach response. `0` disables the cap.
     pub max_response_chars: u32,
     /// Substrings (case-insensitive) that must not appear in any response.
     pub blocked_topics: Vec<String>,
-    /// Substrings (case-insensitive) that, when matched, prepend the disclaimer.
-    pub disclaimer_triggers: Vec<String>,
-    /// Disclaimer text prepended when a trigger keyword is matched.
-    pub disclaimer_text: String,
+    /// Per-locale disclaimer triggers + text. Empty map disables the
+    /// disclaimer prepend across all locales (responses pass through
+    /// untouched).
+    pub locales: HashMap<String, LocaleGuardrails>,
 }
 
 impl Default for HarnessGuardrailsConfig {
@@ -78,17 +89,7 @@ impl Default for HarnessGuardrailsConfig {
         Self {
             max_response_chars: 5_000,
             blocked_topics: Vec::new(),
-            disclaimer_triggers: vec![
-                "injury".to_owned(),
-                "pain".to_owned(),
-                "medication".to_owned(),
-                "diagnose".to_owned(),
-                "doctor".to_owned(),
-            ],
-            disclaimer_text:
-                "**Medical disclaimer:** I'm a fitness coach, not a medical professional. \
-                 Please consult a qualified clinician for any injury, pain, or medication question."
-                    .to_owned(),
+            locales: default_locales(),
         }
     }
 }
@@ -111,7 +112,14 @@ pub struct HarnessConfigDocument {
 impl Default for HarnessConfigDocument {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            // schema_version bumped from 1 to 2 when guardrails moved
+            // from flat `disclaimer_triggers`/`disclaimer_text` fields
+            // to a per-locale `locales` map. Documents persisted under
+            // schema_version 1 fail to deserialize and the registry
+            // falls back to compiled-in defaults — operators who had
+            // overridden the disclaimer must re-save through the admin
+            // UI after upgrade.
+            schema_version: 2,
             compaction: HarnessCompactionConfig::default(),
             guardrails: HarnessGuardrailsConfig::default(),
         }
@@ -266,10 +274,12 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
     }
 
     let g = &doc.guardrails;
-    if !g.disclaimer_triggers.is_empty() && g.disclaimer_text.trim().is_empty() {
-        return Err(AppError::invalid_input(
-            "disclaimer_text must be non-empty when disclaimer_triggers is set",
-        ));
+    for (locale, lg) in &g.locales {
+        if !lg.disclaimer_triggers.is_empty() && lg.disclaimer_text.trim().is_empty() {
+            return Err(AppError::invalid_input(format!(
+                "locale '{locale}': disclaimer_text must be non-empty when disclaimer_triggers is set"
+            )));
+        }
     }
 
     Ok(())

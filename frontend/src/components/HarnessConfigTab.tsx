@@ -1,5 +1,5 @@
 // ABOUTME: Phase B Sprint C3 — admin tab editing the global coaching harness configuration
-// ABOUTME: Compaction thresholds + Tier 6 text guardrails persisted via /admin/settings/harness
+// ABOUTME: Compaction thresholds + Tier 6 locale-aware text guardrails persisted via /admin/settings/harness
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,15 +10,31 @@ import {
   adminApi,
   type HarnessConfigDocument,
   type HarnessConfigResponse,
+  type LocaleGuardrails,
 } from '../services/api/admin';
 import { Card, Button, Badge } from './ui';
 
 const HARNESS_CONFIG_QUERY_KEY = ['admin', 'harness-config'] as const;
 
-/// Default document used as the form fallback before the API responds.
+/// BCP-47 short codes editable from this tab. Server defaults ship the same
+/// five; operators can add more by extending the locales map manually but
+/// the UI surfaces the supported set.
+const SUPPORTED_LOCALES: readonly string[] = ['en', 'fr', 'es', 'de', 'pt'];
+
+const LOCALE_LABELS: Record<string, string> = {
+  en: 'English',
+  fr: 'Français',
+  es: 'Español',
+  de: 'Deutsch',
+  pt: 'Português',
+};
+
+/// Compile-time fallback document used before the API responds. The locale
+/// payloads here mirror the Rust `default_locales()` so the form never
+/// renders blank fields during the initial fetch.
 function defaultDocument(): HarnessConfigDocument {
   return {
-    schema_version: 1,
+    schema_version: 2,
     compaction: {
       window_tokens: 128_000,
       warn_threshold: 0.7,
@@ -29,12 +45,79 @@ function defaultDocument(): HarnessConfigDocument {
     guardrails: {
       max_response_chars: 5_000,
       blocked_topics: [],
-      disclaimer_triggers: ['injury', 'pain', 'medication', 'diagnose', 'doctor'],
-      disclaimer_text:
-        "**Medical disclaimer:** I'm a fitness coach, not a medical professional. " +
-        'Please consult a qualified clinician for any injury, pain, or medication question.',
+      locales: {
+        en: {
+          disclaimer_triggers: [
+            'injury',
+            'pain',
+            'medication',
+            'diagnose',
+            'doctor',
+            'prescription',
+          ],
+          disclaimer_text:
+            "**Medical disclaimer:** I'm a fitness coach, not a medical professional. " +
+            'Please consult a qualified clinician for any injury, pain, or medication question.',
+        },
+        fr: {
+          disclaimer_triggers: [
+            'blessure',
+            'douleur',
+            'médicament',
+            'médecin',
+            'diagnostic',
+            'ordonnance',
+          ],
+          disclaimer_text:
+            '**Avis médical :** Je suis un coach sportif, pas un professionnel de santé. ' +
+            'Consulte un clinicien qualifié pour toute blessure, douleur ou question médicamenteuse.',
+        },
+        es: {
+          disclaimer_triggers: [
+            'lesión',
+            'dolor',
+            'medicamento',
+            'médico',
+            'diagnóstico',
+            'receta',
+          ],
+          disclaimer_text:
+            '**Aviso médico:** Soy un entrenador deportivo, no un profesional médico. ' +
+            'Consulta a un clínico cualificado para cualquier lesión, dolor o duda sobre medicación.',
+        },
+        de: {
+          disclaimer_triggers: [
+            'verletzung',
+            'schmerz',
+            'medikament',
+            'arzt',
+            'diagnose',
+            'rezept',
+          ],
+          disclaimer_text:
+            '**Medizinischer Hinweis:** Ich bin ein Fitness-Coach, kein Arzt. Bitte ' +
+            'konsultiere eine qualifizierte Fachkraft bei Verletzungen, Schmerzen oder Medikamentenfragen.',
+        },
+        pt: {
+          disclaimer_triggers: [
+            'lesão',
+            'dor',
+            'medicamento',
+            'médico',
+            'diagnóstico',
+            'receita',
+          ],
+          disclaimer_text:
+            '**Aviso médico:** Sou um treinador desportivo, não um profissional de saúde. ' +
+            'Consulta um clínico qualificado para qualquer lesão, dor ou questão de medicação.',
+        },
+      },
     },
   };
+}
+
+function emptyLocaleGuardrails(): LocaleGuardrails {
+  return { disclaimer_triggers: [], disclaimer_text: '' };
 }
 
 function parseCsv(value: string): string[] {
@@ -71,12 +154,13 @@ function validate(doc: HarnessConfigDocument): ValidationError[] {
       message: 'warn must be strictly less than emergency',
     });
   }
-  const g = doc.guardrails;
-  if (g.disclaimer_triggers.length > 0 && g.disclaimer_text.trim() === '') {
-    errors.push({
-      field: 'disclaimer_text',
-      message: 'cannot be empty when triggers are configured',
-    });
+  for (const [locale, lg] of Object.entries(doc.guardrails.locales)) {
+    if (lg.disclaimer_triggers.length > 0 && lg.disclaimer_text.trim() === '') {
+      errors.push({
+        field: `locales.${locale}.disclaimer_text`,
+        message: 'cannot be empty when triggers are configured',
+      });
+    }
   }
   return errors;
 }
@@ -89,6 +173,7 @@ export default function HarnessConfigTab() {
   });
 
   const [draft, setDraft] = useState<HarnessConfigDocument>(defaultDocument());
+  const [activeLocale, setActiveLocale] = useState<string>('en');
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -103,6 +188,18 @@ export default function HarnessConfigTab() {
 
   const validationErrors = useMemo(() => validate(draft), [draft]);
   const isInvalid = validationErrors.length > 0;
+  const activeLocaleRules: LocaleGuardrails =
+    draft.guardrails.locales[activeLocale] ?? emptyLocaleGuardrails();
+
+  function updateActiveLocale(next: LocaleGuardrails) {
+    setDraft({
+      ...draft,
+      guardrails: {
+        ...draft.guardrails,
+        locales: { ...draft.guardrails.locales, [activeLocale]: next },
+      },
+    });
+  }
 
   const mutation = useMutation({
     mutationFn: (doc: HarnessConfigDocument) => adminApi.putHarnessConfig(doc),
@@ -270,39 +367,68 @@ export default function HarnessConfigTab() {
               })
             }
           />
-          <CsvField
-            label="Disclaimer triggers (comma separated)"
-            help="Coach replies containing any of these substrings get the disclaimer prepended."
-            value={joinCsv(draft.guardrails.disclaimer_triggers)}
-            onChange={(v) =>
-              setDraft({
-                ...draft,
-                guardrails: { ...draft.guardrails, disclaimer_triggers: parseCsv(v) },
-              })
-            }
-          />
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">
-              Disclaimer text
-            </span>
-            <textarea
-              value={draft.guardrails.disclaimer_text}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  guardrails: {
-                    ...draft.guardrails,
-                    disclaimer_text: e.target.value,
-                  },
+
+          <div>
+            <div className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              Disclaimer triggers &amp; text — per locale
+            </div>
+            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              Triggers are matched against the assistant reply with Unicode word boundaries in
+              the locale of the active conversation. Authoring per-locale prevents
+              false-positives like the English word &ldquo;pain&rdquo; firing on the French
+              word for bread. If the active turn locale has no entry, the server falls back
+              to the English entry; if that is also absent, no disclaimer is prepended.
+            </p>
+            <div className="mb-3 flex gap-1" role="tablist" aria-label="Locale">
+              {SUPPORTED_LOCALES.map((loc) => (
+                <button
+                  key={loc}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeLocale === loc}
+                  onClick={() => setActiveLocale(loc)}
+                  className={`rounded px-3 py-1 text-xs font-medium ${
+                    activeLocale === loc
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {LOCALE_LABELS[loc] ?? loc}
+                </button>
+              ))}
+            </div>
+
+            <CsvField
+              label={`Triggers (${activeLocale})`}
+              help={`Single words in ${LOCALE_LABELS[activeLocale] ?? activeLocale} that prepend the disclaimer when matched.`}
+              value={joinCsv(activeLocaleRules.disclaimer_triggers)}
+              onChange={(v) =>
+                updateActiveLocale({
+                  ...activeLocaleRules,
+                  disclaimer_triggers: parseCsv(v),
                 })
               }
-              rows={4}
-              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
-            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-              Markdown allowed. Prepended to the coach response when any trigger matches.
-            </span>
-          </label>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">
+                Disclaimer text ({activeLocale})
+              </span>
+              <textarea
+                value={activeLocaleRules.disclaimer_text}
+                onChange={(e) =>
+                  updateActiveLocale({
+                    ...activeLocaleRules,
+                    disclaimer_text: e.target.value,
+                  })
+                }
+                rows={4}
+                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
+              />
+              <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                Markdown allowed. Author in the target locale.
+              </span>
+            </label>
+          </div>
         </div>
       </Card>
 

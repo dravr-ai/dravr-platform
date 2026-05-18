@@ -211,10 +211,9 @@ fn compaction_from(c: &HarnessCompactionConfig) -> CompactionConfig {
 }
 
 fn guardrails_from(g: &HarnessGuardrailsConfig) -> TextGuardrails {
-    TextGuardrails {
-        max_response_chars: g.max_response_chars as usize,
-        blocked_topics: g.blocked_topics.clone(),
-        disclaimer_triggers: g.disclaimer_triggers.clone(),
-        disclaimer_text: g.disclaimer_text.clone(),
-    }
+    TextGuardrails::compile(
+        g.max_response_chars as usize,
+        g.blocked_topics.clone(),
+        g.locales.clone(),
+    )
 }

@@ -1171,12 +1171,26 @@ export interface HarnessCompactionConfig {
   sliding_drop_n: number;
 }
 
-/** Tier 6 text guardrail tunables. */
+/**
+ * Per-locale disclaimer rules. Triggers are matched against the assistant
+ * reply with Unicode word boundaries; the disclaimer is authored in the
+ * target locale.
+ */
+export interface LocaleGuardrails {
+  disclaimer_triggers: string[];
+  disclaimer_text: string;
+}
+
+/** Tier 6 text guardrail tunables (locale-aware as of schema_version 2). */
 export interface HarnessGuardrailsConfig {
   max_response_chars: number;
   blocked_topics: string[];
-  disclaimer_triggers: string[];
-  disclaimer_text: string;
+  /**
+   * BCP-47 short locale → per-locale trigger list + disclaimer text.
+   * At apply time the active turn locale is looked up here first, then
+   * `en` as a fallback, then disclaimer generation skips.
+   */
+  locales: Record<string, LocaleGuardrails>;
 }
 
 /** Top-level harness config document persisted under `system_settings`. */

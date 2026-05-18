@@ -42,7 +42,7 @@ pub fn apply_text_guardrails(
 ) -> String {
     let locale = locale.unwrap_or(DEFAULT_LOCALE);
     let rules = harness_config_registry.current_guardrails();
-    match rules.apply(reply) {
+    match rules.apply(reply, locale) {
         GuardrailOutcome::Allowed(text) => text,
         GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
             tracing::warn!(

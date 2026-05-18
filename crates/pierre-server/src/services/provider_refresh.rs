@@ -14,6 +14,7 @@ use pierre_core::models::{
     SmartScheduleWeights, TenantId,
 };
 use pierre_database::RepositoryRegistry;
+use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
@@ -178,7 +179,7 @@ impl RefreshService {
 
             if config.wait_for_refresh {
                 let budget = config.wait_for_refresh_timeout();
-                match tokio::time::timeout(
+                match timeout(
                     budget,
                     self.sync_provider_blocking(user_id, tenant_id, &pf.provider),
                 )
