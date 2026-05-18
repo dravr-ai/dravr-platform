@@ -1,0 +1,15 @@
+# Scenario: Monitor LLM flake — strength coach replies must honour its
+# vocabulary contract even when the question is recovery-focused.
+#
+# Origin: tests/llm_local_integration_test.rs::test_coach_prompt_steers_topic
+# fails ~50% of runs because the LLM answers recovery questions with
+# generic sleep advice. The vocabulary contract pattern makes this a
+# product contract enforced by the asserter (P4).
+name: "Strength coach uses strength vocabulary even on recovery questions"
+locales: ["en"]
+notes: "Monitor LLM flake — vocabulary contract pattern"
+turns:
+  - user: "How should I improve recovery this week?"
+    assertions:
+      - kind: vocabulary_contract
+        coach_id: strength

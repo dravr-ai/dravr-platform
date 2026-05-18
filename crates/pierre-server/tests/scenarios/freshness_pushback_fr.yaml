@@ -1,0 +1,38 @@
+# Scenario: Bug 2 + Bug 3 — freshness pushback should refresh + recompute.
+#
+# Origin: ChefFamille's Telegram session 2026-05-17 (screenshot 2) and
+# 2026-05-18 (screenshots 3 + 4). The bot's first reply omitted the
+# previous day's activities; even after acknowledging "yes I have
+# them now", the running-km total was never recomputed.
+name: "Freshness pushback recovers missing activities + recomputes totals (FR)"
+locales: ["fr"]
+notes: "Bug 2 + Bug 3 regression — 2026-05-18 Telegram screenshots 3+4"
+provider_state:
+  providers:
+    strava:
+      initial_activities:
+        - { name: "Trail 14k", sport: trail_run, distance_km: 14.48, date: "2026-05-16" }
+        - { name: "Trail 5k a", sport: trail_run, distance_km: 5.23, date: "2026-05-15" }
+        - { name: "Trail 5k b", sport: trail_run, distance_km: 5.39, date: "2026-05-14" }
+      appears_after_sync:
+        - { name: "8k road", sport: run, distance_km: 8.0, date: "2026-05-17" }
+        - { name: "25k road bike", sport: ride, distance_km: 25.0, date: "2026-05-17" }
+turns:
+  - user: "Suis encore trop fatigué pour faire un 80 km de vélo gravel aujourd'hui"
+    trigger_sync_before_turn: true
+    assertions:
+      - kind: no_substring
+        values: ["Medical disclaimer"]
+  - user: "Côté course, combien de km?"
+    assertions:
+      - kind: tool_called
+        name: get_activities
+      - kind: distance_mentioned
+        value_km: 33.10
+        tolerance_km: 0.5
+  - user: "Mes activités d'hier tu les as ou pas?"
+    assertions:
+      - kind: tool_called
+        name: get_activities
+      - kind: any_of
+        values: ["33", "33.10", "33,10"]

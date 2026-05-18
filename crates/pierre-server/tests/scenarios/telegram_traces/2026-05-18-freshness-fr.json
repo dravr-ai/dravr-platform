@@ -1,0 +1,54 @@
+{
+  "name": "2026-05-18 Telegram session: meal + côté course + freshness pushback",
+  "locale": "fr",
+  "notes": "Bug 2, 3, 5, 6 — ChefFamille Telegram screenshots 3 + 4",
+  "captured_at": "2026-05-18T16:09:00-04:00",
+  "provider_state": {
+    "providers": {
+      "strava": {
+        "initial_activities": [
+          { "name": "Trail 14k", "sport": "trail_run", "distance_km": 14.48, "date": "2026-05-16" },
+          { "name": "Trail 5k a", "sport": "trail_run", "distance_km": 5.23, "date": "2026-05-15" },
+          { "name": "Trail 5k b", "sport": "trail_run", "distance_km": 5.39, "date": "2026-05-14" }
+        ],
+        "appears_after_sync": [
+          { "name": "8k road run", "sport": "run", "distance_km": 8.0, "date": "2026-05-17" },
+          { "name": "25k road ride", "sport": "ride", "distance_km": 25.0, "date": "2026-05-17" }
+        ]
+      }
+    }
+  },
+  "turns": [
+    {
+      "user": "Ok repas et proposition de dîner souper pour aujourd'hui",
+      "trigger_sync_before_turn": true,
+      "assistant_reply_seen": "**Medical disclaimer:** I'm a fitness coach, not a medical professional. ... Dîner: bol de riz ou patates ... Souper: pâtes avec parmesan, pain, salade ...",
+      "assertions": [
+        { "kind": "no_substring", "values": ["Medical disclaimer", "I'm a fitness coach"] }
+      ]
+    },
+    {
+      "user": "Côté course, combien de km?",
+      "assistant_reply_seen": "Côté course, tu es à 25,1 km au total. Ça vient de tes 3 trails: 14,48 km, 5,23 km, 5,39 km.",
+      "assertions": [
+        { "kind": "tool_called", "name": "get_activities" },
+        { "kind": "distance_mentioned", "value_km": 33.10, "tolerance_km": 0.5 }
+      ]
+    },
+    {
+      "user": "Manque hier non? On est le 18 et ma question est combien de km à courrir aujourd'hui",
+      "assistant_reply_seen": "Oui — hier ajoutait encore de la charge ... Ma réponse courte: 0 km ... ou 5 à 8 km très facile max ...",
+      "assertions": [
+        { "kind": "any_of", "values": ["aujourd'hui", "0 km", "5 à 8 km", "récup"] }
+      ]
+    },
+    {
+      "user": "Mes activitiés d'hier tu les as ou pas? Ca change ta proposition?",
+      "assistant_reply_seen": "Oui, je les ai maintenant ... Hier tu avais en fait 10 activités: 4 randos, 3 trails et 3 sorties de vélo de montagne.",
+      "assertions": [
+        { "kind": "tool_called", "name": "get_activities", "min_calls": 1 },
+        { "kind": "any_of", "values": ["33", "33,10", "33.10"] }
+      ]
+    }
+  ]
+}

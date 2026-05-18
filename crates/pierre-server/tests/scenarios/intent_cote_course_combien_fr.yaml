@@ -1,0 +1,18 @@
+# Scenario: Bug 5 — "Côté course, combien de km" intent disambiguation.
+#
+# Origin: ChefFamille's Telegram session 2026-05-18 (screenshot 3) —
+# the bot read the question as a historical stats query and reported
+# 25.10 km total. The user actually meant "how many km should I run
+# today" given the fatigue context two turns prior.
+name: "Côté course combien de km is read as recommendation when context is planning (FR)"
+locales: ["fr"]
+notes: "Bug 5 regression — intent routing under planning context"
+turns:
+  - user: "Suis fatigué"
+    assertions: []
+  - user: "Côté course, combien de km?"
+    assertions:
+      - kind: any_of
+        values: ["aujourd'hui", "0 km", "5 à 8 km", "facile", "récup"]
+      - kind: no_substring
+        values: ["au total", "kilomètres au total"]

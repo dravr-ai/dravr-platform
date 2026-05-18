@@ -1,0 +1,21 @@
+# Scenario: Rendering — /privacy on Telegram must NOT show literal HTML tags.
+#
+# Origin: ChefFamille's Telegram session 2026-05-16 (screenshot 1) —
+# bot reply rendered "<b>activé</b>" and "<code>/privacy on</code>" as
+# literal characters. The MessageContent::RichText variant + per-channel
+# translators fixed it.
+#
+# This scenario is primarily a smoke check that the canonical /privacy
+# reply for the active locale never contains visible HTML tag literals.
+name: "/privacy reply never shows literal HTML tags"
+locales: ["fr", "en", "es", "de", "pt"]
+notes: "Rendering regression — bug from 2026-05-16 Telegram screenshot 1"
+turns:
+  - user: "/privacy"
+    assertions:
+      - kind: no_substring
+        values:
+          - "<b>"
+          - "</b>"
+          - "<code>"
+          - "</code>"
