@@ -40,8 +40,9 @@ use std::collections::HashMap;
 use regex::{escape, Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
-/// Per-locale disclaimer triggers and the disclaimer text shipped when a
-/// trigger fires. Persisted inside [`crate::routes::admin::harness_config::HarnessGuardrailsConfig`]
+/// Per-locale disclaimer triggers and disclaimer text.
+///
+/// Persisted inside [`crate::routes::admin::harness_config::HarnessGuardrailsConfig`]
 /// and projected into [`TextGuardrails`] at registry-install time.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocaleGuardrails {
@@ -226,10 +227,11 @@ fn build_trigger_regex(triggers: &[String]) -> Option<Regex> {
         .ok()
 }
 
-/// Compile-time defaults shipping disclaimer rules for the five
-/// supported locales. Each entry uses the locale's own medical
-/// vocabulary so the substring-overlap problem (English `pain`
-/// matching French bread) cannot recur.
+/// Compile-time disclaimer rules for the five supported locales.
+///
+/// Each entry uses the locale's own medical vocabulary so the
+/// substring-overlap problem (English `pain` matching French bread)
+/// cannot recur.
 #[must_use]
 pub fn default_locales() -> HashMap<String, LocaleGuardrails> {
     let mut m = HashMap::new();
