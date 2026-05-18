@@ -48,8 +48,10 @@ async fn promote_topic_blocks_subsequent_replies() {
     // Replies that mention "creatine causes kidney damage" pass before
     // promotion (only the medical-disclaimer triggers fire, and only on
     // certain other keywords).
-    let baseline_outcome =
-        baseline.apply("Some say creatine causes kidney damage in healthy adults.");
+    let baseline_outcome = baseline.apply(
+        "Some say creatine causes kidney damage in healthy adults.",
+        "en",
+    );
     assert!(matches!(baseline_outcome, GuardrailOutcome::Allowed(_)));
 
     // Promote the claim. The handler-shared helper runs the full
@@ -63,7 +65,10 @@ async fn promote_topic_blocks_subsequent_replies() {
     // After promotion the registry's runtime guardrails reject the same input.
     let updated = registry.current_guardrails();
     assert_eq!(updated.blocked_topics.len(), 1);
-    let outcome = updated.apply("Some say creatine causes kidney damage in healthy adults.");
+    let outcome = updated.apply(
+        "Some say creatine causes kidney damage in healthy adults.",
+        "en",
+    );
     match outcome {
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             assert_eq!(topic, "creatine causes kidney damage");
