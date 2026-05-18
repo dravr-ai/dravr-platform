@@ -48,6 +48,7 @@
 - [Tool Development](tool-development.md)
 - [Build](build.md)
 - [Testing](testing.md)
+  - [Chat Conversation Scenarios](eval/scenario-authoring.md)
 - [CI/CD](ci-cd.md)
 - [Mobile Development](mobile-development.md)
 - [Provider Registration](provider-registration-guide.md)

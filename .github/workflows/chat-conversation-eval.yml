@@ -1,0 +1,136 @@
+# ABOUTME: Conversation eval framework — multi-turn YAML scenarios + Telegram-trace replays
+# ABOUTME: Per-push gate runs the structural pass; nightly + manual run the live-LLM pass
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+# Two layers of execution:
+#
+# 1. **`structural`** — always runs. Loads every YAML scenario +
+#    Telegram trace, asserts schema invariants, and exercises the
+#    runner against the mock driver. Fast (< 30s) and deterministic;
+#    catches scenario-file syntax errors and runner regressions on
+#    every push to chat-eval code.
+#
+# 2. **`live-llm`** — nightly + on-demand only. Runs the same
+#    scenarios end-to-end against the live chat pipeline with the
+#    configured LLM (Cloud Run dev config). Cost-bounded by the
+#    token-budget threshold the runner enforces per scenario; a
+#    failure is signal that the LLM drift caught a regression.
+
+name: "Chat Eval: Conversation Scenarios"
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Execution mode"
+        required: true
+        default: "live-llm"
+        type: choice
+        options:
+          - structural
+          - live-llm
+  schedule:
+    # 03:30 UTC nightly — ahead of the messaging-eval nightly at 04:00
+    # so an early signal lights up before the heavier suite runs.
+    - cron: "30 3 * * *"
+  push:
+    paths:
+      - "crates/pierre-server/tests/helpers/chat_scenario/**"
+      - "crates/pierre-server/tests/chat_scenario_test.rs"
+      - "crates/pierre-server/tests/scenarios/**"
+      - "book/src/eval/**"
+      - ".github/workflows/chat-conversation-eval.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  RUSTFLAGS: -Dwarnings
+
+concurrency:
+  group: chat-conversation-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Structural pass: per-push, fast, no external dependencies.
+  # ---------------------------------------------------------------------------
+  structural:
+    name: Structural validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.mode == 'structural' ||
+      inputs.mode == 'live-llm'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+
+      - name: Configure git for private deps
+        run: |
+          git config --global \
+            url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: chat-eval-structural
+
+      - name: Run chat_scenario_test (structural mode)
+        run: cargo test --test chat_scenario_test
+        env:
+          # CHAT_SCENARIO_LIVE unset → structural mode only
+          PIERRE_LLM_MODEL: "mock"
+
+  # ---------------------------------------------------------------------------
+  # Live-LLM pass: nightly cron + on-demand. Boots a fixture, drives
+  # every scenario through the real chat pipeline, asserts on actual
+  # LLM replies. Cost-bounded.
+  # ---------------------------------------------------------------------------
+  live-llm:
+    name: Live LLM execution
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: structural
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-llm')
+
+    env:
+      CHAT_SCENARIO_LIVE: "1"
+      # P3 follow-up: the live driver consumes these to pick its
+      # provider. Today the test self-skips when the env is set but
+      # the driver isn't wired (see `live_driver_executes_every_scenario`).
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PIERRE_LLM_MODEL: "gemini-2.0-flash-exp"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+
+      - name: Configure git for private deps
+        run: |
+          git config --global \
+            url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: chat-eval-live
+
+      - name: Run chat_scenario_test (live mode)
+        run: cargo test --test chat_scenario_test -- --include-ignored

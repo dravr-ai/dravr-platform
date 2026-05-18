@@ -1,0 +1,18 @@
+# Scenario: Bug 6 — French meal recommendation must NOT trigger English
+# medical disclaimer when the reply mentions "pain" (bread).
+#
+# Origin: ChefFamille's Telegram session 2026-05-18 (screenshot 3) —
+# souper proposal mentioned "parmesan, pain, salade" and the substring
+# "pain" lit up the English "Medical disclaimer" trigger.
+name: "French meal recommendation with bread does not leak English disclaimer"
+locales: ["fr"]
+notes: "Bug 6 regression — substring 'pain' (bread) vs 'pain' (suffering)"
+turns:
+  - user: "Ok repas et proposition de dîner souper pour aujourd'hui"
+    assertions:
+      - kind: no_substring
+        values:
+          - "Medical disclaimer"
+          - "I'm a fitness coach, not a medical professional"
+      - kind: any_of
+        values: ["dîner", "souper", "repas", "menu"]
