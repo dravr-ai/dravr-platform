@@ -1182,6 +1182,12 @@ impl MultiTenantMcpServer {
         // Phase B Sprint C5 — user-facing harness memory facts (list / forget)
         let app = app.merge(MemoryRoutes::routes(Arc::clone(resources)));
 
+        // Runtime feature flags — self-read endpoint (admin endpoints are
+        // mounted alongside the cookie-admin middleware in `web_admin`).
+        let app = app.merge(crate::routes::feature_flags::FeatureFlagsRoutes::routes(
+            Arc::clone(resources),
+        ));
+
         #[cfg(feature = "client-coaches")]
         let app = app
             .merge(CoachesRoutes::routes(Arc::clone(resources)))

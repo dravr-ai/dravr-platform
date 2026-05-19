@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { billingApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 
@@ -37,6 +38,8 @@ function formatDate(epochSecs: number | undefined): string {
 
 export default function BillingPage() {
   const { user } = useAuth();
+  const { flags: featureFlags } = useFeatureFlags();
+  const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
   const [error, setError] = useState<string | null>(null);
 
   const subscriptionQuery = useQuery({
@@ -95,6 +98,7 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {showBillingHeader && (
       <Card variant="dark" className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -169,6 +173,7 @@ export default function BillingPage() {
 
         {error && <p className="mt-4 text-sm text-pierre-red-400">Error: {error}</p>}
       </Card>
+      )}
 
       <Card variant="dark" className="p-6">
         <h2 className="text-lg font-semibold text-on-surface mb-4">Usage Quota</h2>

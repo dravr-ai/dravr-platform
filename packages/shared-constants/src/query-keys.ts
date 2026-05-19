@@ -219,6 +219,14 @@ export const QUERY_KEYS = {
     all: ['prompts'] as const,
     suggestions: () => ['prompt-suggestions'] as const,
   },
+
+  // ==================== FEATURE FLAGS ====================
+  featureFlags: {
+    all: ['feature-flags'] as const,
+    self: () => ['feature-flags', 'me'] as const,
+    tenantDefaults: (tenantId: string) => ['feature-flags', 'tenant', tenantId] as const,
+    userOverrides: (userId: string) => ['feature-flags', 'user', userId] as const,
+  },
 } as const;
 
 /** Type helpers for query key inference */

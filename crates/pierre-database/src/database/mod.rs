@@ -24,6 +24,8 @@ pub mod coaches;
 pub mod coaching_groups;
 /// Database error types
 pub mod errors;
+/// Tenant defaults + per-user overrides (`SQLite`) backing `FeatureFlagsRepository`.
+pub mod feature_flags;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
 /// Health persistence: data sources, sleep, recovery, health snapshots

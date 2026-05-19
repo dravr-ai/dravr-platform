@@ -13,6 +13,7 @@ import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
 import { useAuth } from '../hooks/useAuth';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import FeatureFlagsPanel from './FeatureFlagsPanel';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -414,6 +415,9 @@ export default function UserDetailDrawer({
               <p className="text-sm text-on-surface-variant">Unable to load rate limit data</p>
             )}
           </Card>
+
+          {/* Feature Flags Card — per-user overrides */}
+          {user && <FeatureFlagsPanel scope={{ kind: 'user', id: user.id }} />}
 
           {/* Activity Card */}
           <Card variant="dark" className="p-4">

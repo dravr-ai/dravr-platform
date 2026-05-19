@@ -60,6 +60,18 @@ vi.mock('../../hooks/useUsageStatus', () => ({
   }),
 }));
 
+// Default: API Tokens flag enabled so existing assertions still find the tab.
+// Specific tests can re-mock with `vi.doMock` if they want the flag off.
+vi.mock('../../hooks/useFeatureFlags', () => ({
+  useFeatureFlags: () => ({
+    flags: { api_tokens: true, billing_header: false },
+    known: [],
+    isLoading: false,
+    isError: false,
+  }),
+  FEATURE_KEYS: { apiTokens: 'api_tokens', billingHeader: 'billing_header' },
+}));
+
 // Mock auth context
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({

@@ -8,6 +8,21 @@ import { axios } from './client';
 import type { Coach } from '@pierre/shared-types';
 import type { SocialInsightsConfig } from '../../types/api';
 
+/// One stored feature-flag row at either tenant or user scope.
+export interface FeatureFlagRow {
+  feature_key: string;
+  enabled: boolean;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+/// Registry entry shown in admin UIs even when no row is stored.
+export interface KnownFeatureFlag {
+  key: string;
+  description: string;
+  default_enabled: boolean;
+}
+
 export const adminApi = {
   // ==================== SETUP STATUS ====================
   async getSetupStatus() {
@@ -181,6 +196,56 @@ export const adminApi = {
 
   async clearUserRateLimitOverride(userId: string): Promise<{ removed: boolean }> {
     const response = await axios.delete(`/api/admin/users/${userId}/rate-limit-override`);
+    return { removed: Boolean(response.data?.removed) };
+  },
+
+  // ==================== FEATURE FLAGS ====================
+
+  async getTenantFeatureFlags(tenantId: string): Promise<{
+    rows: FeatureFlagRow[];
+    known: KnownFeatureFlag[];
+  }> {
+    const response = await axios.get(`/api/admin/tenants/${tenantId}/features`);
+    return response.data;
+  },
+
+  async setTenantFeatureFlag(
+    tenantId: string,
+    featureKey: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await axios.put(`/api/admin/tenants/${tenantId}/features/${featureKey}`, { enabled });
+  },
+
+  async clearTenantFeatureFlag(
+    tenantId: string,
+    featureKey: string,
+  ): Promise<{ removed: boolean }> {
+    const response = await axios.delete(`/api/admin/tenants/${tenantId}/features/${featureKey}`);
+    return { removed: Boolean(response.data?.removed) };
+  },
+
+  async getUserFeatureOverrides(userId: string): Promise<{
+    rows: FeatureFlagRow[];
+    known: KnownFeatureFlag[];
+  }> {
+    const response = await axios.get(`/api/admin/users/${userId}/features`);
+    return response.data;
+  },
+
+  async setUserFeatureOverride(
+    userId: string,
+    featureKey: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await axios.put(`/api/admin/users/${userId}/features/${featureKey}`, { enabled });
+  },
+
+  async clearUserFeatureOverride(
+    userId: string,
+    featureKey: string,
+  ): Promise<{ removed: boolean }> {
+    const response = await axios.delete(`/api/admin/users/${userId}/features/${featureKey}`);
     return { removed: Boolean(response.data?.removed) };
   },
 

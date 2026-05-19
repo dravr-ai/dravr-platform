@@ -332,6 +332,24 @@ impl WebAdminRoutes {
                     .delete(super::admin_rate_limit_override::handle_clear),
             )
             .route(
+                "/api/admin/users/{user_id}/features",
+                get(super::feature_flags::handle_admin_list_user_overrides),
+            )
+            .route(
+                "/api/admin/users/{user_id}/features/{key}",
+                put(super::feature_flags::handle_admin_set_user_override)
+                    .delete(super::feature_flags::handle_admin_clear_user_override),
+            )
+            .route(
+                "/api/admin/tenants/{tenant_id}/features",
+                get(super::feature_flags::handle_admin_list_tenant_defaults),
+            )
+            .route(
+                "/api/admin/tenants/{tenant_id}/features/{key}",
+                put(super::feature_flags::handle_admin_set_tenant_default)
+                    .delete(super::feature_flags::handle_admin_clear_tenant_default),
+            )
+            .route(
                 "/api/admin/users/{user_id}/activity",
                 get(Self::handle_get_user_activity),
             )

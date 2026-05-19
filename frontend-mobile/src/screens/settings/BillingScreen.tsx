@@ -17,6 +17,7 @@ import {
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiClient } from '../../services/api';
+import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 
 interface SubscriptionView {
   id: string;
@@ -64,6 +65,8 @@ const TIER_LABEL: Record<string, string> = {
 
 export function BillingScreen(): React.ReactElement {
   const { user } = useAuth();
+  const { flags: featureFlags } = useFeatureFlags();
+  const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
   const [error, setError] = useState<string | null>(null);
 
   const subscriptionQuery = useQuery({
@@ -136,6 +139,7 @@ export function BillingScreen(): React.ReactElement {
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      {showBillingHeader && (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Current Plan</Text>
@@ -180,6 +184,7 @@ export function BillingScreen(): React.ReactElement {
 
         {error != null && <Text style={styles.error}>Error: {error}</Text>}
       </View>
+      )}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Usage Quota</Text>

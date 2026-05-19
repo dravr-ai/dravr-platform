@@ -58,6 +58,9 @@ pub mod admin;
 /// UUID parsing, formatting, and generation utilities
 pub mod uuid_utils;
 
+/// Runtime feature flag registry (known keys + compile-time defaults)
+pub mod feature_flags;
+
 /// Character-based LLM token estimation (single source of truth for the ~4 chars/token heuristic)
 pub mod tokens;
 
