@@ -5,8 +5,11 @@
 // ABOUTME: Regression-pins: Usage Card must coexist with Impersonate button; admin /api/admin/users/{id}/usage path.
 
 import { test, expect, type Page, type Route } from '@playwright/test';
+import { applyTestStubs } from './test-helpers';
 
 async function loginAsSuperAdminWithUsers(page: Page) {
+  await applyTestStubs(page);
+
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
       status: 200,
@@ -77,7 +80,14 @@ async function loginAsSuperAdminWithUsers(page: Page) {
   await page.route('**/api/admin/users**', async (route) => {
     // Only fulfill the listing endpoint; the per-user routes are matched separately below.
     const url = route.request().url();
-    if (url.includes('/usage') || url.includes('/cost-timeseries')) {
+    if (
+      url.includes('/usage') ||
+      url.includes('/cost-timeseries') ||
+      url.includes('/features') ||
+      url.includes('/rate-limit') ||
+      url.includes('/activity') ||
+      url.includes('/admin-profile')
+    ) {
       await route.fallback();
       return;
     }
@@ -102,20 +112,28 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     });
   });
 
+  // Admin endpoints below use the wrapped-envelope `{data: ...}` shape — the
+  // admin.ts API client does `return response.data.data` so the inner payload
+  // must sit under .data. Unwrapped mocks land as `undefined` in useQuery
+  // and ErrorBoundary swallows the entire drawer.
   await page.route('**/admin/users/*/rate-limit', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        user_id: 'user-active-1',
-        tier: 'starter',
-        rate_limits: {
-          daily: { limit: 1000, used: 50, remaining: 950 },
-          monthly: { limit: 10000, used: 500, remaining: 9500 },
-        },
-        reset_times: {
-          daily_reset: '2024-01-21T00:00:00Z',
-          monthly_reset: '2024-02-01T00:00:00Z',
+        data: {
+          user_id: 'user-active-1',
+          tier: 'starter',
+          rate_limits: {
+            daily: { limit: 1000, used: 50, remaining: 950 },
+            monthly: { limit: 10000, used: 500, remaining: 9500 },
+          },
+          reset_times: {
+            daily_reset: '2024-01-21T00:00:00Z',
+            monthly_reset: '2024-02-01T00:00:00Z',
+          },
+          override_active: false,
+          override_note: null,
         },
       }),
     });
@@ -125,14 +143,17 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ user_id: 'user-active-1', period_days: 30, total_requests: 0, top_tools: [] }),
+      body: JSON.stringify({
+        data: { user_id: 'user-active-1', period_days: 30, total_requests: 0, top_tools: [] },
+      }),
     });
   });
 
   // Admin profile endpoint feeds the Installed Coaches + Groups + Coach Style
   // sections of the drawer. Without a mock the un-authed request would 401 and
   // leave the new cards in skeleton state, pushing the Impersonate button below
-  // the viewport — Playwright's toBeVisible() then times out.
+  // the viewport — Playwright's toBeVisible() then times out. Note: this
+  // endpoint returns the UNWRAPPED shape (`response.data` in admin.ts).
   await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -205,7 +226,8 @@ async function openUserDetailDrawer(page: Page) {
 
 test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
   test('renders Usage Card with by_model rows alongside Impersonate button', async ({ page }) => {
-    // Well-formed usage payload — the canonical happy path.
+    // Well-formed usage payload — the canonical happy path. Usage endpoint
+    // returns UNWRAPPED (`response.data` in admin.ts).
     await page.route('**/api/admin/users/*/usage**', async (route: Route) => {
       await route.fulfill({
         status: 200,

@@ -161,7 +161,7 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
   });
 
   test('renders Current Plan card with Starter badge and upgrade CTAs', async ({ page }) => {
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('heading', { name: 'Current Plan' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Starter', { exact: true }).first()).toBeVisible();
     await expect(page.getByText("No subscription on file", { exact: false })).toBeVisible();
@@ -170,7 +170,7 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
   });
 
   test('renders all six quota counters with limits', async ({ page }) => {
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('heading', { name: 'Usage Quota' })).toBeVisible({ timeout: 5000 });
 
     for (const label of [
@@ -197,7 +197,7 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
       });
     });
 
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('button', { name: 'Upgrade to Professional' })).toBeVisible({ timeout: 5000 });
 
     // Capture the redirect that BillingPage triggers via `window.location.href = …`.
@@ -240,7 +240,7 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
       });
     });
 
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('button', { name: 'Upgrade to Professional' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Upgrade to Professional' }).click();
 
@@ -257,7 +257,7 @@ test.describe('Billing - Existing Professional subscription', () => {
   });
 
   test('shows subscription details + Manage Subscription button', async ({ page }) => {
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('heading', { name: 'Current Plan' })).toBeVisible({ timeout: 5000 });
     // Provider customer id should be rendered in the details grid.
     await expect(page.getByText('cus_test_abc123', { exact: false })).toBeVisible();
@@ -286,7 +286,7 @@ test.describe('Billing - Existing Professional subscription', () => {
       });
     });
 
-    await page.locator('button', { hasText: 'Billing' }).first().click();
+    await page.locator('button', { hasText: 'Usage' }).first().click();
     await expect(page.getByRole('button', { name: /Manage Subscription/i })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: /Manage Subscription/i }).click();
 

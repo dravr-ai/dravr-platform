@@ -14,6 +14,52 @@ interface UserOptions {
 }
 
 /**
+ * Stubs that EVERY E2E test needs but many spec-local login helpers
+ * never added — pin the theme to light + return sane defaults for the
+ * feature-flag endpoints introduced in e25417e6. Call from any spec-local
+ * `loginAsX` helper to avoid having the FeatureFlagsPanel fetch break
+ * downstream assertions.
+ */
+export async function applyTestStubs(page: Page) {
+  await page.addInitScript(() => {
+    try {
+      // Pin theme=light only if a spec hasn't already chosen one.
+      // theme.spec.ts intentionally sets dark to test that path.
+      if (window.localStorage.getItem('dravr.theme') === null) {
+        window.localStorage.setItem('dravr.theme', 'light');
+      }
+    } catch { /* */ }
+  });
+  await page.route('**/api/me/features', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        flags: { api_tokens: true, billing_header: true },
+        known: [
+          { key: 'api_tokens', description: 'API Tokens tab', default_enabled: false },
+          { key: 'billing_header', description: 'Billing header card', default_enabled: false },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/admin/users/*/features', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rows: [], known: [] }),
+    });
+  });
+  await page.route('**/api/admin/tenants/*/features', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rows: [], known: [] }),
+    });
+  });
+}
+
+/**
  * Sets up common API mocks for authenticated dashboard access.
  * This must be called BEFORE navigating to any page.
  */
@@ -24,6 +70,9 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     displayName = 'Test Admin',
     status = 'active',
   } = userOptions;
+
+  // Theme pin + feature-flag stubs shared with spec-local helpers.
+  await applyTestStubs(page);
 
   // Mock setup status
   await page.route('**/admin/setup/status', async (route) => {

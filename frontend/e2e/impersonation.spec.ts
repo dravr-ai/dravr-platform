@@ -5,9 +5,11 @@
 // ABOUTME: Tests impersonation start/end, banner display, and role-based visibility.
 
 import { test, expect, type Page } from '@playwright/test';
+import { applyTestStubs } from './test-helpers';
 
 // Helper to authenticate as a super admin and navigate to users tab
 async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
+  await applyTestStubs(page);
   // Mock setup status
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
@@ -94,6 +96,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
 
 // Helper to authenticate as a regular admin
 async function loginAsRegularAdmin(page: Page) {
+  await applyTestStubs(page);
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
       status: 200,
