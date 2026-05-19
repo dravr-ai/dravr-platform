@@ -13,12 +13,11 @@
 //!   at least one turn, assertions reference known asserter kinds).
 //!   Fast, deterministic, runs in CI on every push.
 //! - **`CHAT_SCENARIO_LIVE=1`:** scenarios are executed against a live
-//!   chat-pipeline fixture using a real LLM. Cost-bounded, gated to
-//!   nightly + on-demand `workflow_dispatch` in the eval workflow.
-//!   The live driver lives in `helpers::chat_scenario::live_driver`
-//!   (P3 follow-up — for this PR the mode is opt-in but the runner
-//!   still walks every YAML so the framework gates itself against
-//!   format drift).
+//!   LLM-backed fixture (`helpers::chat_scenario::live_driver`). Wires
+//!   the canonical `PIERRE_SYSTEM_PROMPT`, the registered tool catalog,
+//!   and an in-memory provider store seeded from `provider_state`.
+//!   Cost-bounded, gated to nightly + on-demand `workflow_dispatch` in
+//!   the eval workflow; locally a missing env self-skips the test.
 //!
 //! The default-mode pass is the per-push gate; the live-mode pass is
 //! the nightly drift detector.
@@ -34,7 +33,7 @@ use std::path::PathBuf;
 
 use helpers::chat_scenario::{
     format::{AssertionSpec, ProviderState},
-    load_scenario, load_trace, run_scenario, ChatScenario, MockScenarioDriver,
+    load_scenario, load_trace, run_scenario, ChatScenario, LiveScenarioDriver, MockScenarioDriver,
     VocabularyContractRegistry,
 };
 
@@ -171,8 +170,9 @@ fn check_assertion(spec: &AssertionSpec) -> Result<(), String> {
 }
 
 /// Smoke-test the runner against the mock driver to prove the
-/// framework wiring works. Live execution against the real chat
-/// pipeline lands in P3 and runs only when `CHAT_SCENARIO_LIVE=1`.
+/// framework wiring works. The companion `live_driver_executes_every_scenario`
+/// test below exercises the same runner against a real LLM when
+/// `CHAT_SCENARIO_LIVE=1` is set.
 #[test]
 fn runner_executes_a_scenario_against_the_mock_driver() {
     let scenario = ChatScenario {
@@ -195,14 +195,85 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
     assert!(reports[0].passed(), "{}", reports[0].failure_summary());
 }
 
+/// Drive every YAML scenario through the live LLM-backed driver.
+///
+/// Off by default — set `CHAT_SCENARIO_LIVE=1` (and supply a
+/// `GEMINI_API_KEY`) to opt in. The chat-eval workflow's nightly +
+/// on-demand `live-llm` job exports both env vars; on developer
+/// machines the test self-skips so a casual `cargo test` doesn't
+/// blow through someone's Gemini quota.
 #[test]
-#[ignore = "opt-in live driver lands in P3"]
 fn live_driver_executes_every_scenario() {
     if env::var("CHAT_SCENARIO_LIVE").ok().as_deref() != Some("1") {
+        eprintln!(
+            "skipping live_driver_executes_every_scenario: set CHAT_SCENARIO_LIVE=1 + GEMINI_API_KEY to enable"
+        );
         return;
     }
-    // P3 follow-up: boot the test server fixture, wire a
-    // LiveScenarioDriver, execute every YAML scenario against the
-    // real chat pipeline using the configured LLM.
-    panic!("CHAT_SCENARIO_LIVE=1 set but LiveScenarioDriver is not yet implemented");
+
+    let files = enumerate_scenario_files();
+    assert!(
+        !files.is_empty(),
+        "no scenario files found under {}",
+        scenarios_dir().display()
+    );
+
+    let vocab = VocabularyContractRegistry::with_defaults();
+    let mut failures: Vec<String> = Vec::new();
+    // Scenario-level retry budget. Real LLMs are non-deterministic and
+    // occasionally drop a digit on multi-step arithmetic or pick a
+    // sibling phrasing that misses an `any_of` clause; one retry with a
+    // fresh history absorbs the variance without hiding a hard schema
+    // regression (which would fail on every attempt).
+    const MAX_SCENARIO_ATTEMPTS: usize = 2;
+
+    for (idx, path) in files.iter().enumerate() {
+        // Pace the run: Gemini free tier is ~10 RPM. Five scenarios with
+        // 2-3 turns + tool loop each easily bursts past that, and 429s
+        // bleed into retry storms that swallow real signal. A 6 s spacer
+        // between scenarios keeps us under the budget without the live
+        // driver itself having to track wall-clock state.
+        if idx > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(6));
+        }
+        let scenario =
+            load_scenario(path).unwrap_or_else(|e| panic!("load scenario {}: {e}", path.display()));
+
+        let mut last_attempt_failures: Vec<String> = Vec::new();
+        let mut scenario_passed = false;
+        for attempt in 0..MAX_SCENARIO_ATTEMPTS {
+            if attempt > 0 {
+                eprintln!(
+                    "scenario {} did not pass on attempt {}; retrying with fresh driver state",
+                    path.display(),
+                    attempt - 1
+                );
+                std::thread::sleep(std::time::Duration::from_secs(6));
+            }
+            let mut driver = LiveScenarioDriver::from_env().unwrap_or_else(|e| {
+                panic!("LiveScenarioDriver::from_env failed: {e}");
+            });
+            driver.reset_history();
+            let reports = run_scenario(&scenario, &mut driver, &vocab);
+            let attempt_failures: Vec<String> = reports
+                .iter()
+                .filter(|r| !r.passed())
+                .map(|r| format!("{}: {}", path.display(), r.failure_summary()))
+                .collect();
+            if attempt_failures.is_empty() {
+                scenario_passed = true;
+                break;
+            }
+            last_attempt_failures = attempt_failures;
+        }
+        if !scenario_passed {
+            failures.extend(last_attempt_failures);
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "live scenario failures (after {MAX_SCENARIO_ATTEMPTS} attempts each):\n{}",
+        failures.join("\n\n")
+    );
 }

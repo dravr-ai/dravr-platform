@@ -322,6 +322,33 @@ if [ "$STUB_SIGNATURE_FNS" -gt 0 ]; then
     fail_validation "Functions that don't use self AND never fail are stubs — implement them or delete them"
 fi
 
+# Structural check: Rust test bodies that exist only to panic with a TODO message.
+# A #[test] fn whose body is `panic!("not yet implemented" | "P3 follow-up" | "stub" | ...)`
+# advertises coverage it doesn't deliver: either it's also #[ignore]'d (silent skip, false
+# pass) or it's not (loud fail, no signal about the underlying behaviour). The scan looks
+# for the panic-string keywords directly so it works regardless of whether the test is
+# ignore-gated.
+echo -e "${BLUE}Checking for placeholder Rust test bodies (panic-only stubs)...${NC}"
+PLACEHOLDER_TEST_PANICS_PATTERN='panic!\([^)]*(not[[:space:]]+yet[[:space:]]+implemented|not[[:space:]]+implemented|is[[:space:]]+a[[:space:]]+placeholder|lands[[:space:]]+in[[:space:]]+P[0-9]|P[0-9][[:space:]]+follow[-[:space:]]up|coming[[:space:]]+soon|stub[[:space:]]+only|to[[:space:]]+be[[:space:]]+implemented|will[[:space:]]+be[[:space:]]+wired)'
+PLACEHOLDER_TEST_PANICS=$(rg -i "$PLACEHOLDER_TEST_PANICS_PATTERN" crates/*/tests/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$PLACEHOLDER_TEST_PANICS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $PLACEHOLDER_TEST_PANICS placeholder test bodies (panic-only stubs)${NC}"
+    rg -i "$PLACEHOLDER_TEST_PANICS_PATTERN" crates/*/tests/ -n 2>/dev/null | head -10
+    fail_validation "Test bodies must implement real behaviour. panic!('not yet implemented') stubs advertise coverage they don't deliver — implement the test or delete it."
+fi
+
+# Promote IGNORED_TESTS_UNAUTHORIZED from advisory (table-only) to fatal. The metric
+# is computed at line ~210 against the allowlist in validation-patterns.toml; any
+# #[ignore] outside that allowlist hides a failure and must be implemented, deleted,
+# or explicitly justified in the allowlist.
+if [ "$IGNORED_TESTS_UNAUTHORIZED" -gt 0 ]; then
+    ALLOWLIST_GREP=$(echo "$IGNORED_TESTS_ALLOWLIST_FILES" | tr ' ' '|' | sed 's/tests\///g')
+    UNAUTHORIZED_IGNORED=$(rg '#\[ignore' crates/pierre-server/tests/ -l 2>/dev/null | grep -v -E "${ALLOWLIST_GREP:-__NEVER_MATCH__}" | head -5)
+    echo -e "${RED}❌ Found $IGNORED_TESTS_UNAUTHORIZED unauthorized #[ignore] test(s)${NC}"
+    echo "$UNAUTHORIZED_IGNORED"
+    fail_validation "#[ignore] outside the allowlist hides failures — implement the test, delete it, or justify it in [ignored_tests_allowlist] in validation-patterns.toml"
+fi
+
 # Placeholder test bodies in JS/TS test files
 # Detects tests that only log messages or have comment-only bodies instead of real assertions
 echo -e "${BLUE}Checking for placeholder test implementations in JS/TS...${NC}"
