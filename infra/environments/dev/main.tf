@@ -317,7 +317,7 @@ module "backend" {
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
       PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-3.1-flash-lite"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"

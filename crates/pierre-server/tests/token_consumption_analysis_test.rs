@@ -327,7 +327,7 @@ mod axis2_prompt_sizes {
 
             let cost_31lite = calculate_cost(
                 "gemini",
-                "gemini-3.1-flash-lite",
+                "gemini-flash-lite-latest",
                 total_billed as i64,
                 total_output as i64,
             );
@@ -417,7 +417,7 @@ mod axis2_cost_projections {
 
             let cost_31lite = calculate_cost(
                 "gemini",
-                "gemini-3.1-flash-lite",
+                "gemini-flash-lite-latest",
                 total_input as i64,
                 total_output as i64,
             );
@@ -441,7 +441,7 @@ mod axis2_cost_projections {
 
             assert!(
                 cost_31lite > 0.0,
-                "{} profile gemini-3.1-flash-lite cost should be > 0",
+                "{} profile gemini-flash-lite-latest cost should be > 0",
                 profile.name
             );
         }
@@ -454,19 +454,19 @@ mod axis2_cost_projections {
 
         let insight_cost = calculate_cost(
             "gemini",
-            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
             insight_tokens as i64,
             insight_output as i64,
         );
         let coach_cost = calculate_cost(
             "gemini",
-            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
             coach_tokens as i64,
             coach_output as i64,
         );
 
         println!();
-        println!("Single operation costs (gemini-3.1-flash-lite):");
+        println!("Single operation costs (gemini-flash-lite-latest):");
         println!("  Insight generation: {insight_tokens} input tokens + {insight_output} output → ${insight_cost:.6}");
         println!("  Coach generation:   {coach_tokens} input tokens + {coach_output} output → ${coach_cost:.6}");
     }
@@ -481,7 +481,7 @@ mod axis2_cost_projections {
         let redundant_system_tokens = system_tokens * (system_prompt_sends - 1);
         let system_waste_cost = calculate_cost(
             "gemini",
-            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
             redundant_system_tokens as i64,
             0,
         );
@@ -491,7 +491,7 @@ mod axis2_cost_projections {
         let redundant_activity_tokens = activity_data_tokens * (activity_fetches - 1);
         let activity_waste_cost = calculate_cost(
             "gemini",
-            "gemini-3.1-flash-lite",
+            "gemini-flash-lite-latest",
             redundant_activity_tokens as i64,
             0,
         );

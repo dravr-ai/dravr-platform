@@ -475,6 +475,7 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -544,6 +545,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )

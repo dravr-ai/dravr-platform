@@ -45,10 +45,10 @@ fn gemini_with_default_model_replaces_inherited_model() {
         "baseline: GeminiProvider starts with the inherited Claude model name"
     );
 
-    let provider = provider.with_default_model("gemini-3.1-flash-lite");
+    let provider = provider.with_default_model("gemini-flash-lite-latest");
     assert_eq!(
         provider.default_model(),
-        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
         "after override, GeminiProvider must use the fallback-provider-specific model \
          so requests target a model name that exists on Google's API"
     );

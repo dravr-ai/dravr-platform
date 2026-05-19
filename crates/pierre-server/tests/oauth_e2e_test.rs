@@ -364,6 +364,7 @@ async fn test_oauth_flow_through_mcp() {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -706,6 +707,7 @@ async fn test_oauth_callback_error_handling() {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -1001,6 +1003,7 @@ async fn test_oauth_state_csrf_protection() {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -1199,6 +1202,7 @@ async fn test_connection_status_tracking() {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )

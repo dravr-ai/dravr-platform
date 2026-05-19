@@ -84,10 +84,10 @@ fn test_groq_mixtral_pricing() {
 }
 
 #[test]
-fn test_gemini_3_1_flash_lite_pricing() {
-    // Gemini 3.1 Flash Lite GA: $0.25/M input (text), $1.50/M output
-    let cost = calculate_cost("gemini", "gemini-3.1-flash-lite", 1_000_000, 100_000);
-    let expected = 0.25 + 0.15; // $0.25 for 1M input + $0.15 for 100K output
+fn test_gemini_flash_lite_latest_pricing() {
+    // Gemini Flash-Lite Latest (alias to current GA flash-lite): $0.10/M input, $0.40/M output
+    let cost = calculate_cost("gemini", "gemini-flash-lite-latest", 1_000_000, 100_000);
+    let expected = 0.10 + 0.04; // $0.10 for 1M input + $0.04 for 100K output
     assert!(
         (cost - expected).abs() < 1e-10,
         "Expected {expected}, got {cost}"
@@ -97,7 +97,7 @@ fn test_gemini_3_1_flash_lite_pricing() {
 #[test]
 fn test_all_production_models_have_pricing() {
     let production_models = [
-        ("gemini", "gemini-3.1-flash-lite"),
+        ("gemini", "gemini-flash-lite-latest"),
         ("gemini", "gemini-2.5-flash"),
         ("gemini", "gemini-2.0-flash"),
         ("groq", "llama-3.3-70b-versatile"),

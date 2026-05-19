@@ -250,6 +250,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -675,6 +676,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -1428,6 +1430,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )

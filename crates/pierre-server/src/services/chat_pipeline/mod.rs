@@ -712,9 +712,12 @@ async fn run_turn(
     .await;
 
     // Stage 21: Tier 2 background memory extraction. Detached via tokio::spawn
-    // so extraction failures never affect the stored reply.
+    // so extraction failures never affect the stored reply. Passes the
+    // shared `ChatProvider` so the background task reuses the same warm
+    // Copilot Headless subprocess as the chat turn that just completed.
     spawn_extract_for_turn(
         Arc::clone(&resources.repos.memory),
+        resources.chat_provider.as_ref().map(Arc::clone),
         resources.memory_extraction_prompt(),
         SpawnedExtractionRequest {
             tenant_id: input.conversation_tenant_id,
