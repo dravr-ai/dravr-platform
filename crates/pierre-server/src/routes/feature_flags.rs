@@ -85,7 +85,7 @@ pub struct AdminFeatureFlagRow {
 impl From<FeatureFlagRow> for AdminFeatureFlagRow {
     fn from(row: FeatureFlagRow) -> Self {
         Self {
-            feature_key: row.feature_key.as_str().to_string(),
+            feature_key: row.feature_key.as_str().to_owned(),
             enabled: row.enabled,
             updated_at: row.updated_at.to_rfc3339(),
             updated_by: row.updated_by,
@@ -104,8 +104,8 @@ fn known_flags() -> Vec<KnownFeatureFlag> {
     FeatureKey::ALL
         .iter()
         .map(|k| KnownFeatureFlag {
-            key: k.as_str().to_string(),
-            description: k.description().to_string(),
+            key: k.as_str().to_owned(),
+            description: k.description().to_owned(),
             default_enabled: k.default_enabled(),
         })
         .collect()
