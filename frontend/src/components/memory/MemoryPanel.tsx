@@ -45,6 +45,26 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+// The memory-extraction prompt models predicates as third-person verbs
+// ("has", "is", "wants"), so a literal {subject} {predicate} {object}
+// render produces "you has connected WHOOP". When the subject is the
+// "you" pronoun we drop it and capitalize the predicate so the line
+// reads as a sentence the user already knows is about themselves.
+function isUserSubject(subject: string): boolean {
+  return subject.trim().toLowerCase() === 'you';
+}
+
+function capitalizeFirst(text: string): string {
+  return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'object'>): string {
+  if (isUserSubject(fact.subject)) {
+    return `${capitalizeFirst(fact.predicate)} ${fact.object}`.trim();
+  }
+  return `${fact.subject} ${fact.predicate} ${fact.object}`.trim();
+}
+
 export default function MemoryPanel() {
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
@@ -167,9 +187,20 @@ export default function MemoryPanel() {
                   <li key={fact.id} className="flex items-start justify-between gap-4 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-gray-900 dark:text-gray-100">
-                        <span className="font-medium">{fact.subject}</span>{' '}
-                        <span className="text-gray-600 dark:text-gray-400">{fact.predicate}</span>{' '}
-                        <span className="font-medium">{fact.object}</span>
+                        {isUserSubject(fact.subject) ? (
+                          <>
+                            <span className="text-gray-600 dark:text-gray-400">
+                              {capitalizeFirst(fact.predicate)}
+                            </span>{' '}
+                            <span className="font-medium">{fact.object}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium">{fact.subject}</span>{' '}
+                            <span className="text-gray-600 dark:text-gray-400">{fact.predicate}</span>{' '}
+                            <span className="font-medium">{fact.object}</span>
+                          </>
+                        )}
                       </p>
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
                         Confidence {(fact.confidence * 100).toFixed(0)}% ·{' '}
@@ -196,7 +227,7 @@ export default function MemoryPanel() {
         <ConfirmDialog
           isOpen
           title="Forget this fact?"
-          message={`The coach will stop using "${pendingForget.subject} ${pendingForget.predicate} ${pendingForget.object}" on the next turn. This cannot be undone.`}
+          message={`The coach will stop using "${factSentence(pendingForget)}" on the next turn. This cannot be undone.`}
           confirmLabel="Forget"
           cancelLabel="Cancel"
           variant="danger"

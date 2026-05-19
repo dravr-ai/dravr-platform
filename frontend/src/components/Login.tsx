@@ -56,10 +56,11 @@ function DravrLogo() {
 interface LoginProps {
   onNavigateToRegister?: () => void;
   onNavigateToForgotPassword?: () => void;
+  prefilledEmail?: string;
 }
 
-export default function Login({ onNavigateToRegister, onNavigateToForgotPassword }: LoginProps) {
-  const [email, setEmail] = useState('');
+export default function Login({ onNavigateToRegister, onNavigateToForgotPassword, prefilledEmail }: LoginProps) {
+  const [email, setEmail] = useState(prefilledEmail ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -253,7 +254,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 label="Email address"
                 autoComplete="email"
                 required
-                placeholder="you@dravr.ai"
+                placeholder="name@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -264,7 +265,6 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 label="Password"
                 autoComplete="current-password"
                 required
-                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 rightIcon={
