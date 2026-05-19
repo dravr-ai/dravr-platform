@@ -23,17 +23,23 @@ interface ThemeContextValue {
 const STORAGE_KEY = 'dravr.theme';
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+// Brand stance: Dravr is dark-first. New visitors (no stored preference)
+// land in dark regardless of OS setting. Light remains opt-in via the
+// theme toggle — once a user explicitly picks light or system, that
+// preference is persisted and respected on subsequent visits.
+const DEFAULT_PREFERENCE: Preference = 'dark';
+
 function readPreference(): Preference {
-  if (typeof window === 'undefined') return 'system';
+  if (typeof window === 'undefined') return DEFAULT_PREFERENCE;
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
-  return 'system';
+  return DEFAULT_PREFERENCE;
 }
 
 function resolveScheme(pref: Preference): Scheme {
   if (pref === 'system') {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return 'light';
+      return 'dark';
     }
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
