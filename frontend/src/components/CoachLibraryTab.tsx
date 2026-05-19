@@ -786,9 +786,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      {/* Title and badges */}
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className={clsx('font-semibold', isHidden ? 'text-outline' : 'text-on-surface')}>
+                      {/* Title and badges. `flex-wrap` lets the badges drop
+                          to a second line when the title needs the full
+                          row — without this, a long title like "Strength
+                          Training for Endurance Athletes Coach" wraps one
+                          word per line at mobile widths. */}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                        <h3 className={clsx('font-semibold min-w-0 break-words', isHidden ? 'text-outline' : 'text-on-surface')}>
                           {coach.title}
                         </h3>
                         <span className={clsx(
@@ -839,13 +843,17 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       )}
                     </div>
 
-                    {/* Chat button with violet glow */}
+                    {/* Chat button with violet glow. The card itself is
+                        already clickable, so this is a high-prominence
+                        shortcut; on mobile we shrink padding so the title
+                        column gets back the horizontal real estate that
+                        was producing one-word-per-line wraps. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedCoach(coach);
                       }}
-                      className="px-4 py-2 rounded-full text-sm font-semibold text-on-surface flex-shrink-0"
+                      className="px-3 sm:px-4 py-2 rounded-full text-sm font-semibold text-on-surface flex-shrink-0 min-h-[44px] inline-flex items-center justify-center"
                       style={{
                         backgroundColor: '#00241a',
                         boxShadow: '0 0 12px rgba(0, 36, 26, 0.4)',
