@@ -22,13 +22,6 @@
       "command": "npx",
       "args": ["-y", "ios-simulator-mcp@latest"]
     },
-    "linear": {
-      "type": "http",
-      "url": "https://mcp.linear.app/mcp",
-      "headers": {
-        "Authorization": "Bearer ${LINEAR_API_KEY}"
-      }
-    },
     "claude-channel": {
       "command": "dravr-canot-claude-channel",
       "args": ["--webhook-port", "3001"],
