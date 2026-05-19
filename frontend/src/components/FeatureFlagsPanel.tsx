@@ -53,14 +53,20 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
     retry: 1,
   });
 
+  // After a write, also invalidate the calling admin's own
+  // `/api/me/features` so toggling a flag while sitting on their own user
+  // Settings tab updates immediately instead of waiting for staleTime.
+  const invalidateAfterWrite = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.featureFlags.self() });
+  };
+
   const setMutation = useMutation({
     mutationFn: async (vars: { key: string; enabled: boolean }) =>
       scope.kind === 'tenant'
         ? adminApi.setTenantFeatureFlag(scope.id, vars.key, vars.enabled)
         : adminApi.setUserFeatureOverride(scope.id, vars.key, vars.enabled),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    onSuccess: invalidateAfterWrite,
   });
 
   const clearMutation = useMutation({
@@ -68,9 +74,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
       scope.kind === 'tenant'
         ? adminApi.clearTenantFeatureFlag(scope.id, key)
         : adminApi.clearUserFeatureOverride(scope.id, key),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    onSuccess: invalidateAfterWrite,
   });
 
   const flags = useMemo<FlagState[]>(() => {
