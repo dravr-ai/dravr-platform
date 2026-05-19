@@ -30,6 +30,17 @@ mod helpers;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::thread::sleep as thread_sleep;
+use std::time::Duration;
+
+/// Scenario-level retry budget for the live driver. Real LLMs are
+/// non-deterministic and occasionally drop a digit on multi-step
+/// arithmetic or pick a sibling phrasing that misses an `any_of`
+/// clause; one retry with a fresh history absorbs the variance
+/// without hiding a hard schema regression (which would fail on every
+/// attempt). Hoisted out of the function body so the workspace's
+/// `clippy::items_after_statements` lint stays satisfied.
+const MAX_SCENARIO_ATTEMPTS: usize = 2;
 
 use helpers::chat_scenario::{
     format::{AssertionSpec, ProviderState},
@@ -220,12 +231,6 @@ fn live_driver_executes_every_scenario() {
 
     let vocab = VocabularyContractRegistry::with_defaults();
     let mut failures: Vec<String> = Vec::new();
-    // Scenario-level retry budget. Real LLMs are non-deterministic and
-    // occasionally drop a digit on multi-step arithmetic or pick a
-    // sibling phrasing that misses an `any_of` clause; one retry with a
-    // fresh history absorbs the variance without hiding a hard schema
-    // regression (which would fail on every attempt).
-    const MAX_SCENARIO_ATTEMPTS: usize = 2;
 
     for (idx, path) in files.iter().enumerate() {
         // Pace the run: Gemini free tier is ~10 RPM. Five scenarios with
@@ -234,7 +239,7 @@ fn live_driver_executes_every_scenario() {
         // between scenarios keeps us under the budget without the live
         // driver itself having to track wall-clock state.
         if idx > 0 {
-            std::thread::sleep(std::time::Duration::from_secs(6));
+            thread_sleep(Duration::from_secs(6));
         }
         let scenario =
             load_scenario(path).unwrap_or_else(|e| panic!("load scenario {}: {e}", path.display()));
@@ -248,7 +253,7 @@ fn live_driver_executes_every_scenario() {
                     path.display(),
                     attempt - 1
                 );
-                std::thread::sleep(std::time::Duration::from_secs(6));
+                thread_sleep(Duration::from_secs(6));
             }
             let mut driver = LiveScenarioDriver::from_env().unwrap_or_else(|e| {
                 panic!("LiveScenarioDriver::from_env failed: {e}");

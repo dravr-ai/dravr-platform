@@ -32,14 +32,18 @@
 use std::collections::BTreeMap;
 use std::env;
 
+use pierre_mcp_server::errors::AppError;
 use pierre_mcp_server::llm::prompts::PIERRE_SYSTEM_PROMPT;
 use pierre_mcp_server::llm::{
-    ChatMessage, ChatRequest, FunctionCall, FunctionDeclaration, LlmCapabilities, LlmProvider,
-    OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
+    ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
+    LlmCapabilities, LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
 use pierre_mcp_server::mcp::schema::ToolSchema;
 use pierre_mcp_server::tools::registry::ToolRegistry;
 use serde_json::{json, Value};
+use std::time::Duration;
+use tokio::runtime::Builder as TokioRuntimeBuilder;
+use tokio::time::sleep as tokio_sleep;
 
 use super::format::ScenarioActivity;
 use super::runner::{DriverTurnOutput, ScenarioDriver};
@@ -57,9 +61,11 @@ const GEMINI_OPENAI_BASE_URL: &str = "https://generativelanguage.googleapis.com/
 /// data the model can't parse, an infinite refetch loop, etc.).
 const MAX_TOOL_ITERATIONS_PER_TURN: usize = 6;
 
-/// Max retries for a single LLM dispatch. Gemini free tier returns 429
-/// + occasional transient 5xx; retry-with-backoff absorbs the noise so
-/// the test fails only on real regressions, not on rate-limit blips.
+/// Max retries for a single LLM dispatch.
+///
+/// Gemini free tier returns 429 + occasional transient 5xx;
+/// retry-with-backoff absorbs the noise so the test fails only on real
+/// regressions, not on rate-limit blips.
 const MAX_DISPATCH_RETRIES: usize = 6;
 
 /// Base backoff for retry. Doubles on each attempt
@@ -181,7 +187,7 @@ impl LiveScenarioDriver {
                 args: json!({}),
             };
             let prefetch_result = self.tool_get_activities(&synthesized.args);
-            tools_called.push(synthesized.name.clone());
+            tools_called.push(synthesized.name);
             self.history.push(ChatMessage::user(format!(
                 "(prefetched per channel policy) Tool `get_activities` returned:\n{prefetch_result}"
             )));
@@ -252,9 +258,8 @@ impl LiveScenarioDriver {
     async fn dispatch_with_retry(
         &self,
         request: &ChatRequest,
-    ) -> Result<pierre_mcp_server::llm::ChatResponseWithTools, pierre_mcp_server::errors::AppError>
-    {
-        let mut last_err: Option<pierre_mcp_server::errors::AppError> = None;
+    ) -> Result<ChatResponseWithTools, AppError> {
+        let mut last_err: Option<AppError> = None;
         for attempt in 0..MAX_DISPATCH_RETRIES {
             match self
                 .provider
@@ -267,7 +272,7 @@ impl LiveScenarioDriver {
                     last_err = Some(e);
                     if attempt + 1 < MAX_DISPATCH_RETRIES {
                         let backoff_ms = RETRY_BASE_BACKOFF_MS * (1 << attempt);
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                        tokio_sleep(Duration::from_millis(backoff_ms)).await;
                     }
                 }
             }
@@ -314,7 +319,7 @@ impl LiveScenarioDriver {
         }
     }
 
-    /// Render the seeded provider state as a get_activities response.
+    /// Render the seeded provider state as a `get_activities` response.
     /// Supports the common `limit` / `provider` arguments scenarios pass.
     fn tool_get_activities(&self, args: &Value) -> String {
         let provider_filter = args
@@ -436,7 +441,7 @@ impl ScenarioDriver for LiveScenarioDriver {
         // live-driver test is itself a `#[tokio::test]` — we just need
         // a nested runtime that can drive the provider's async HTTP
         // calls without leaking back to the outer runtime's executor.
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = TokioRuntimeBuilder::new_current_thread()
             .enable_all()
             .build()
             .expect("build single-threaded runtime for live driver turn");
