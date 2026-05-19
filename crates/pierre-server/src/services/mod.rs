@@ -157,6 +157,9 @@ pub mod tool_execution;
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
 
+/// Runtime feature flags: self-resolution + admin-gated tenant defaults / per-user overrides
+pub mod feature_flags_ops;
+
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;

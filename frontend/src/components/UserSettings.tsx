@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
@@ -21,6 +21,7 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
+import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import type { LimitCheckResult } from '../services/api/usage';
 
@@ -193,12 +194,26 @@ export default function UserSettings() {
   // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
   // see migration 20260518000001 for the historic skew between the two.
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
+  const { flags: featureFlags } = useFeatureFlags();
   const visibleTabs = useMemo(() => {
-    if (isAdminUser) {
-      return SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_TABS.has(tab.id));
+    const base = isAdminUser
+      ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_TABS.has(tab.id))
+      : SETTINGS_TABS;
+    // API Tokens tab is gated behind the per-tenant/per-user flag; default
+    // off until an admin flips it on.
+    if (!featureFlags[FEATURE_KEYS.apiTokens]) {
+      return base.filter(tab => tab.id !== 'tokens');
     }
-    return SETTINGS_TABS;
-  }, [isAdminUser]);
+    return base;
+  }, [isAdminUser, featureFlags]);
+
+  // Snap activeTab back to a visible tab when the API Tokens flag flips off
+  // while the user is sitting on that tab.
+  useEffect(() => {
+    if (!visibleTabs.some(tab => tab.id === activeTab)) {
+      setActiveTab('profile');
+    }
+  }, [visibleTabs, activeTab]);
 
   // Profile state
   const [displayName, setDisplayName] = useState(user?.display_name || '');

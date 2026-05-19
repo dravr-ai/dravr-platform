@@ -12,17 +12,18 @@ use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
     CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
-    FitnessConfigRepository, HarnessMemoryRepository, HealthSnapshotRepository,
-    ImpersonationRepository, InsightRepository, LlmCredentialRepository, LlmUsageRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, TimeSeriesPointRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
+    HealthSnapshotRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
+    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
+    SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, TimeSeriesPointRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    WeatherCacheRepository, WorkoutTemplateRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -135,6 +136,9 @@ pub struct RepositoryRegistry {
     /// Row presence wins over `UserTier::monthly_limit()` in admin views and
     /// the rate-limit middleware.
     pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
+    /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
+    /// per-tenant/per-user toggle endpoints.
+    pub feature_flags: Arc<dyn FeatureFlagsRepository>,
 }
 
 impl RepositoryRegistry {
@@ -193,7 +197,8 @@ impl RepositoryRegistry {
             workout_templates: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
-            user_rate_limit_overrides: db,
+            user_rate_limit_overrides: db.clone(),
+            feature_flags: db,
         }
     }
 
@@ -250,7 +255,8 @@ impl RepositoryRegistry {
             workout_templates: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
-            user_rate_limit_overrides: db,
+            user_rate_limit_overrides: db.clone(),
+            feature_flags: db,
         }
     }
 }

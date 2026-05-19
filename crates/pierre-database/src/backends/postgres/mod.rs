@@ -24,6 +24,8 @@ pub mod coaches;
 pub mod coaching_groups;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
+/// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
+pub mod feature_flags;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)

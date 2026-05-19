@@ -7,14 +7,18 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
 import { Card, ConfirmDialog } from './ui';
 import type { SocialInsightsConfig } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import FeatureFlagsPanel from './FeatureFlagsPanel';
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [showSocialInsightsConfig, setShowSocialInsightsConfig] = useState(false);
+  const adminTenantId = user?.tenant_id ?? null;
 
   const { data: autoApprovalData, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminSettings.autoApproval(),
@@ -123,6 +127,20 @@ export default function AdminSettings() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Tenant-wide feature flags. Falls back to an info banner when the
+          admin has no tenant_id yet (e.g. bootstrap admin before tenant
+          provisioning). */}
+      {adminTenantId ? (
+        <FeatureFlagsPanel scope={{ kind: 'tenant', id: adminTenantId }} />
+      ) : (
+        <Card variant="dark">
+          <h2 className="text-lg font-semibold text-on-surface mb-2">Feature Flags</h2>
+          <p className="text-sm text-on-surface-variant">
+            No tenant attached to your admin account — feature flags require a tenant.
+          </p>
+        </Card>
+      )}
+
       {/* User Registration Settings */}
       <Card variant="dark">
         <h2 className="text-lg font-semibold text-on-surface mb-4">User Registration</h2>

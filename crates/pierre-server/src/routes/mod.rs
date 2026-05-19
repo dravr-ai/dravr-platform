@@ -128,6 +128,10 @@ pub mod web_admin;
 #[cfg(feature = "client-admin-ui")]
 pub mod admin_rate_limit_override;
 
+/// Runtime feature flags — self-read endpoint plus admin tenant defaults
+/// and per-user overrides.
+pub mod feature_flags;
+
 /// API key management routes
 #[cfg(feature = "client-api-keys")]
 pub mod api_keys;
