@@ -44,12 +44,19 @@
   --color-outline: #717974;
   --color-outline-variant: #c0c8c3;
 
-  /* Ghost border baseline — 15% opacity on outline-variant */
-  --ghost-border: rgba(192, 200, 195, 0.15);
+  /* Ghost border — visible enough to anchor cards on the light canvas
+     without becoming a hard rule. 0.40 is the product-tier baseline; the
+     0.15 marketing-tier value left cards floating without anchor. */
+  --ghost-border: rgba(155, 165, 159, 0.40);
+  --ghost-border-strong: rgba(155, 165, 159, 0.55);
 
-  /* Ambient shadow — 6% on_surface, 24px blur, -4px spread */
-  --shadow-ambient: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
-  --shadow-card: 0 24px 48px -12px rgba(26, 28, 27, 0.06);
+  /* Card elevation stack — two-layer shadow for crisp resting elevation
+     (close shadow gives the edge, distant shadow gives the lift). Mirrors
+     the elevation language used by Linear / Stripe / Vercel dashboards. */
+  --shadow-card: 0 1px 2px rgba(26, 28, 27, 0.06), 0 1px 3px rgba(26, 28, 27, 0.08);
+  --shadow-card-hover: 0 4px 8px -2px rgba(26, 28, 27, 0.08), 0 2px 4px -1px rgba(26, 28, 27, 0.06);
+  --shadow-floating: 0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08);
+  --shadow-ambient: var(--shadow-card);
 }
 
 html.dark {
@@ -85,9 +92,13 @@ html.dark {
   --color-outline: #8a9389;
   --color-outline-variant: #414845;
 
-  --ghost-border: rgba(192, 200, 195, 0.18);
-  --shadow-ambient: 0 24px 48px -4px rgba(0, 0, 0, 0.5);
-  --shadow-card: 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+  /* Dark canvas needs more shadow opacity to read elevation against near-black. */
+  --ghost-border: rgba(192, 200, 195, 0.22);
+  --ghost-border-strong: rgba(192, 200, 195, 0.34);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.40);
+  --shadow-card-hover: 0 4px 8px -2px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.40);
+  --shadow-floating: 0 12px 24px -6px rgba(0, 0, 0, 0.55), 0 6px 12px -3px rgba(0, 0, 0, 0.45);
+  --shadow-ambient: var(--shadow-card);
 }
 
 @layer base {
@@ -123,11 +134,19 @@ html.dark {
      ========================================================================== */
 
   .btn-base {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-md font-medium text-sm transition-all duration-base cursor-pointer border-0;
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-sm transition-all duration-base cursor-pointer border-0;
   }
 
+  /* The `!` on text-on-primary is load-bearing — it stops any
+     ancestor text-on-surface / text-pierre-* style from bleeding through
+     onto a filled primary surface and producing the dark-on-dark bug. */
   .btn-primary {
-    @apply btn-base bg-primary text-on-primary hover:bg-primary-container disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply btn-base bg-primary !text-on-primary hover:bg-primary-container disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: var(--shadow-card);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: var(--shadow-card-hover);
   }
 
   /* Drop gradient/pill differentiation — everything funnels to primary.
@@ -202,16 +221,24 @@ html.dark {
      ========================================================================== */
 
   .card {
-    @apply bg-surface-container-lowest rounded-lg p-4 md:p-6 transition-all duration-base;
+    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 transition-all duration-base;
+    border: 1px solid var(--ghost-border);
+    box-shadow: var(--shadow-card);
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-card-hover);
   }
 
   .card-header {
     @apply pb-4 mb-6;
-    border-bottom: 1px solid rgba(192, 200, 195, 0.15); /* ghost border */
+    border-bottom: 1px solid var(--ghost-border);
   }
 
   .stat-card {
-    @apply bg-surface-container-lowest rounded-lg p-4 md:p-6 text-center transition-all duration-base relative overflow-hidden;
+    @apply bg-surface-container-lowest rounded-xl p-4 md:p-6 text-center transition-all duration-base relative overflow-hidden;
+    border: 1px solid var(--ghost-border);
+    box-shadow: var(--shadow-card);
   }
 
   .stat-card::before {
@@ -452,8 +479,18 @@ html.dark {
     @apply focus:outline-none;
   }
 
+  /* Two-layer focus ring — opaque primary outer + white inset — reads on
+     any surface tone (light card, dark card, photographic background). */
   .focus-ring:focus {
-    box-shadow: 0 0 0 2px rgba(0, 36, 26, 0.4);
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      0 0 0 4px rgba(255, 255, 255, 0.95);
+  }
+
+  html.dark .focus-ring:focus {
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      0 0 0 4px rgba(0, 0, 0, 0.85);
   }
 
   /* ==========================================================================
@@ -730,9 +767,14 @@ html.dark {
     -webkit-backdrop-filter: blur(16px);
   }
 
-  /* Ghost border fallback (DESIGN.md §4) */
+  /* Ghost border — single source for the 1px Product Tier separator.
+     Resolves via CSS var so dark mode swaps to its lifted opacity. */
   .ghost-border {
-    border: 1px solid rgba(192, 200, 195, 0.15);
+    border-color: var(--ghost-border);
+  }
+
+  .ghost-border-strong {
+    border-color: var(--ghost-border-strong);
   }
 
   /* DRAVR wordmark tracking */

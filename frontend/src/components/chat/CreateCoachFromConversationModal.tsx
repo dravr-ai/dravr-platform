@@ -153,7 +153,7 @@ export default function CreateCoachFromConversationModal({
               <div className="w-16 h-16 mx-auto mb-4 relative">
                 <div className="absolute inset-0 bg-pierre-violet/10 rounded-full animate-ping" />
                 <div className="relative w-16 h-16 bg-pierre-violet/10 rounded-full flex items-center justify-center">
-                  <MessageSquareText className="w-8 h-8 text-pierre-violet animate-pulse" />
+                  <MessageSquareText className="w-8 h-8 text-primary animate-pulse" />
                 </div>
               </div>
               <p className="text-pierre-gray-700 font-medium mb-2">Analyzing conversation...</p>
@@ -173,7 +173,7 @@ export default function CreateCoachFromConversationModal({
               <p className="text-pierre-gray-500 text-sm mb-4">{errorMessage}</p>
               <button
                 onClick={handleRegenerate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-on-primary bg-pierre-violet rounded-lg hover:bg-pierre-violet/90 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Try Again
@@ -186,7 +186,7 @@ export default function CreateCoachFromConversationModal({
             <>
               {/* Analysis Info Banner */}
               <div className="mb-4 p-3 bg-pierre-violet/5 border border-pierre-violet/10 rounded-lg">
-                <div className="flex items-center gap-2 text-sm text-pierre-violet">
+                <div className="flex items-center gap-2 text-sm text-primary">
                   <MessageSquareText className="w-4 h-4" />
                   <span>
                     Analyzed {messagesAnalyzed} of {totalMessages} messages
@@ -212,7 +212,7 @@ export default function CreateCoachFromConversationModal({
                     placeholder="e.g., Marathon Training Coach"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     required
                   />
                 </div>
@@ -226,7 +226,7 @@ export default function CreateCoachFromConversationModal({
                     placeholder="Brief description of what this coach specializes in"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
 
@@ -239,7 +239,7 @@ export default function CreateCoachFromConversationModal({
                     value={formData.system_prompt}
                     onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
                     rows={6}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent resize-none"
+                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                     required
                   />
                   {formData.system_prompt && (
@@ -256,7 +256,7 @@ export default function CreateCoachFromConversationModal({
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent bg-white"
+                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
                   >
                     <option value="Training">Training</option>
                     <option value="Nutrition">Nutrition</option>
@@ -279,7 +279,7 @@ export default function CreateCoachFromConversationModal({
                   <button
                     type="submit"
                     disabled={createMutation.isPending || !formData.title.trim() || !formData.system_prompt.trim()}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-pierre-violet rounded-lg hover:bg-pierre-violet/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {createMutation.isPending ? 'Saving...' : 'Save Coach'}
                   </button>

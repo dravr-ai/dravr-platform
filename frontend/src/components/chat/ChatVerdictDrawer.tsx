@@ -114,7 +114,7 @@ export default function ChatVerdictDrawer({
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
               The claim
             </h4>
-            <blockquote className="border-l-2 border-pierre-violet bg-surface-container-low p-3 text-zinc-100">
+            <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-zinc-100">
               {verdict.claim_text}
             </blockquote>
           </section>
@@ -151,7 +151,7 @@ export default function ChatVerdictDrawer({
             <button
               type="button"
               onClick={onAskAboutClaim}
-              className="w-full rounded-lg bg-pierre-violet px-4 py-2 text-sm font-medium text-on-primary hover:bg-pierre-violet/90"
+              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-pierre-violet/90"
             >
               Ask me about this claim
             </button>

@@ -99,7 +99,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       case 'trial':
         return 'bg-pierre-nutrition/20 text-pierre-nutrition border border-pierre-nutrition/30';
       case 'standard':
-        return 'bg-pierre-cyan/20 text-pierre-cyan border border-pierre-cyan/30';
+        return 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30';
       case 'professional':
         return 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30';
       case 'enterprise':
@@ -111,11 +111,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
   const getCapabilityBadgeColor = (capability: string) => {
     const colorMap: { [key: string]: string } = {
-      'fitness-data-analysis': 'bg-pierre-cyan/20 text-pierre-cyan border border-pierre-cyan/30',
+      'fitness-data-analysis': 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30',
       'activity-intelligence': 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30',
       'goal-management': 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30',
       'performance-prediction': 'bg-pierre-nutrition/20 text-pierre-nutrition border border-pierre-nutrition/30',
-      'training-analytics': 'bg-pierre-cyan/20 text-pierre-cyan border border-pierre-cyan/30',
+      'training-analytics': 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30',
       'provider-integration': 'bg-pierre-recovery/20 text-pierre-recovery border border-pierre-recovery/30',
     };
     return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
@@ -213,7 +213,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               key={client.id}
               className={`border rounded-lg p-4 cursor-pointer transition-colors ${
                 selectedClient === client.id
-                  ? 'border-pierre-violet bg-pierre-violet/10'
+                  ? 'border-primary bg-pierre-violet/10'
                   : 'ghost-border hover:ghost-border'
               }`}
               onClick={() => setSelectedClient(selectedClient === client.id ? null : client.id)}

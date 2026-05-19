@@ -46,7 +46,7 @@ function SettingRow({ icon, title, description, value, onChange, disabled }: Set
         disabled={disabled}
         className={clsx(
           'relative w-11 h-6 rounded-full transition-colors',
-          value ? 'bg-pierre-violet' : 'bg-surface-container-highest',
+          value ? 'bg-primary' : 'bg-surface-container-highest',
           disabled && 'opacity-50 cursor-not-allowed'
         )}
       >
@@ -192,7 +192,7 @@ export default function SocialSettingsTab() {
             className={clsx(
               'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
               settings.default_visibility === 'friends_only'
-                ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
+                ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
                 : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
             )}
           >
@@ -206,7 +206,7 @@ export default function SocialSettingsTab() {
             className={clsx(
               'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
               settings.default_visibility === 'public'
-                ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
+                ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
                 : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
             )}
           >

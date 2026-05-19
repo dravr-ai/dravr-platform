@@ -262,7 +262,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
             aria-label="Search coaches"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
+            className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-primary transition-colors"
           />
           {searchQuery && (
             <button
@@ -277,7 +277,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
           )}
           {isSearching && (
             <div className="absolute right-3 top-1/2 transform -translate-y-1/2" aria-hidden="true">
-              <div className="w-4 h-4 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
         </div>
@@ -293,7 +293,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 selectedCategory === filter.key
-                  ? 'bg-pierre-violet text-on-primary shadow-ambient'
+                  ? 'bg-primary text-on-primary shadow-ambient'
                   : 'bg-surface-container-low text-gray-400 hover:bg-surface-container hover:text-gray-300'
               )}
             >
@@ -327,7 +327,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <div className="w-8 h-8 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin mx-auto" />
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="mt-3 text-sm text-gray-500">Loading coaches...</p>
             </div>
           </div>
@@ -364,7 +364,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               <div ref={loadMoreRef} className="py-8 flex justify-center">
                 {isFetchingNextPage ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     <span className="text-sm text-gray-500">Loading more...</span>
                   </div>
                 ) : hasNextPage ? (
@@ -406,7 +406,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
       </div>
 
       {/* Title */}
-      <h3 className="font-semibold text-on-surface mb-1 line-clamp-1 group-hover:text-pierre-violet transition-colors">
+      <h3 className="font-semibold text-on-surface mb-1 line-clamp-1 group-hover:text-primary transition-colors">
         {coach.title}
       </h3>
 
@@ -464,7 +464,7 @@ function CoachDetailView({
       <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin mx-auto" />
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="mt-3 text-sm text-gray-500">Loading coach details...</p>
           </div>
         </div>
@@ -480,7 +480,7 @@ function CoachDetailView({
             <p className="text-lg text-gray-400 mb-4">Coach not found</p>
             <button
               onClick={onBack}
-              className="px-4 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet/80 transition-colors"
+              className="px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-pierre-violet/80 transition-colors"
             >
               Go Back
             </button>
@@ -634,7 +634,7 @@ function CoachDetailView({
           <button
             onClick={onInstall}
             disabled={isInstalling}
-            className="w-full py-3 px-4 bg-pierre-violet text-on-primary font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-primary text-on-primary font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isInstalling ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

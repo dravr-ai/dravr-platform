@@ -348,7 +348,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             <div className="text-sm text-on-surface-variant">Disabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-pierre-violet">{summaryData.data.overridden_tools}</div>
+            <div className="text-2xl font-bold text-primary">{summaryData.data.overridden_tools}</div>
             <div className="text-sm text-on-surface-variant">Overrides</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
@@ -387,7 +387,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           onClick={() => setSelectedCategories(new Set())}
           className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
             selectedCategories.size === 0
-              ? 'bg-pierre-violet text-on-primary'
+              ? 'bg-primary text-on-primary'
               : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
           }`}
         >
@@ -407,7 +407,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             }}
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               selectedCategories.has(category)
-                ? 'bg-pierre-violet text-on-primary'
+                ? 'bg-primary text-on-primary'
                 : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
             }`}
           >
@@ -440,7 +440,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-zinc-600 bg-zinc-800 text-pierre-violet focus:ring-pierre-violet accent-violet-600"
+                    className="rounded border-zinc-600 bg-zinc-800 text-primary focus:ring-primary accent-violet-600"
                   />
                 </th>
                 <th className="text-left py-3 px-3 font-medium text-on-surface-variant">Tool</th>
@@ -466,7 +466,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
                         disabled={globallyDisabled}
-                        className="rounded border-zinc-600 bg-zinc-800 text-pierre-violet focus:ring-pierre-violet accent-violet-600 disabled:opacity-50"
+                        className="rounded border-zinc-600 bg-zinc-800 text-primary focus:ring-primary accent-violet-600 disabled:opacity-50"
                       />
                     </td>
                     <td className="py-3 px-3">
@@ -513,7 +513,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         <button
                           onClick={() => handleToggleTool(tool)}
                           disabled={globallyDisabled}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-offset-2 ${
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
                             tool.is_enabled ? 'bg-green-500' : 'bg-zinc-600'
                           } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                           role="switch"

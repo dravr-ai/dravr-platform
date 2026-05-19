@@ -195,7 +195,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               {coach.system_prompt.length > 500 && (
                 <button
                   onClick={() => setIsPromptExpanded(!isPromptExpanded)}
-                  className="mt-2 text-sm text-pierre-violet-light hover:text-pierre-violet transition-colors"
+                  className="mt-2 text-sm text-pierre-violet-light hover:text-primary transition-colors"
                 >
                   {isPromptExpanded ? 'Show less' : 'Show full prompt'}
                 </button>

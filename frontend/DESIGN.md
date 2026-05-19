@@ -1,220 +1,299 @@
-# Design System: Pierre UI
-**Project ID:** 13228861249011906351 (Stitch Reference)
+# Design System: Dravr Boreal — Product Tier
 
-> This document serves as the source of truth for prompting Stitch to generate new screens that align with Pierre's design language. Based on analysis of the Pierre UI Redesign Stitch project.
+> **Source of truth.** The hex values and rules in this document are mirrored in
+> `frontend/src/index.css`, `frontend/tailwind.config.cjs`,
+> `frontend-mobile/global.css`, `frontend-mobile/tailwind.config.js`, and
+> `packages/shared-constants/src/design-system.ts`. Any change to those files
+> must be reflected here.
 
-## 1. Visual Theme & Atmosphere
+Dravr ships two related design systems that share a brand identity but differ
+in tone:
 
-**Mood:** Dark, premium, sophisticated with cosmic undertones
-**Aesthetic Philosophy:** "Holistic Intelligence" - representing the human in motion with data flowing between wellness pillars
-**Density:** Spacious and breathable with generous padding
-**Character:** Modern glassmorphism with subtle depth, accented by violet glow effects
+| Tier | Surface | Tone | Density |
+|---|---|---|---|
+| **Editorial** | `dravr.ai` marketing site | Quiet, photographic, single-column long-form | Sparse |
+| **Product** | `web` + `mobile` app | Dense, scannable, data-first | Compact |
 
-The interface evokes a sense of advanced technology while remaining approachable and wellness-focused. Think "premium fitness tech meets AI intelligence."
+Both tiers share colors, type, radius, and motion. **The Product Tier adds the
+affordances a dense data UI needs** that an editorial marketing surface does
+not: real card elevation, visible borders, lifted pillar saturation, mandatory
+on-color text pairings.
 
-## 2. Color Palette & Roles
+---
 
-### Primary Brand Colors
-| Descriptive Name | Hex Code | Functional Role |
-|-----------------|----------|-----------------|
-| Pierre Violet | `#7C3AED` | Primary actions, AI indicators, brand identity |
-| Pierre Cyan | `#06B6D4` | Data flow, connectivity, secondary accents |
+## 1. Brand identity
 
-### Three Pillars (Semantic Accents)
-| Pillar | Descriptive Name | Hex Code | Functional Role |
-|--------|-----------------|----------|-----------------|
-| Activity | Energetic Emerald | `#10B981` | Movement, fitness, running, cycling |
-| Nutrition | Warm Amber | `#FBBF24` | Food tracking, calories, meals |
-| Recovery | Calming Indigo | `#818CF8` | Sleep, rest, restoration metrics |
+| Property | Value |
+|---|---|
+| Brand name (lockup) | DRAVR — `letter-spacing: 0.15em` |
+| Tone | Calm, premium, editorial — never glossy or hype |
+| Motif | Boreal forest at dusk — deep greens, paper-white, warm bronze |
 
-### Background Hierarchy
-| Descriptive Name | Hex Code | Functional Role |
-|-----------------|----------|-----------------|
-| Deep Space | `#0F0F1A` | Primary dark background, app canvas |
-| Elevated Slate | `#1E1E2E` | Card backgrounds, elevated surfaces |
-| Cosmic Gray | `#2A2A3E` | Hover states, tertiary surfaces |
+The brand does not change between tiers. The Product Tier inherits the
+identity and adds discipline for high-density screens.
 
-### Glass & Transparency
-| Descriptive Name | Value | Functional Role |
-|-----------------|-------|-----------------|
-| Glass Base | `rgba(30, 30, 46, 0.6)` | Standard card background |
-| Glass Dense | `rgba(30, 30, 46, 0.8)` | Featured/prominent cards |
-| Glass Light | `rgba(255, 255, 255, 0.05)` | AI message bubbles |
-| Glass Border | `rgba(255, 255, 255, 0.1)` | Card borders, dividers |
-| Glass Border Strong | `rgba(255, 255, 255, 0.15)` | Emphasized borders |
+---
 
-## 3. Typography Rules
+## 2. Color tokens
 
-### Font Families
-| Platform | Primary Font | Fallback Stack |
-|----------|-------------|----------------|
-| Web | Plus Jakarta Sans | Inter, system-ui, sans-serif |
-| Mobile | Lexend | System, sans-serif |
-| Monospace | JetBrains Mono | Monaco, Menlo, monospace |
+### Primary
 
-> **Lexend** is specifically chosen for mobile due to its optimized readability on small screens.
+| Token | Light | Dark | Role |
+|---|---|---|---|
+| `primary` | `#00241a` | `#a3d0be` | Filled CTAs, active state, wordmark ink |
+| `primary-container` | `#0d3b2e` | `#234e40` | Hero gradient endpoint, dense fills |
+| `on-primary` | `#ffffff` | `#002117` | **Mandatory** text color on `primary` surfaces |
+| `on-primary-container` | `#79a694` | `#beedd9` | Text on `primary-container` |
 
-### Weight Usage
-| Context | Weight | Usage |
-|---------|--------|-------|
-| Headings | 600-700 (Semibold/Bold) | Page titles, section headers |
-| Subheadings | 500 (Medium) | Card titles, labels |
-| Body | 400 (Regular) | Paragraph text, descriptions |
-| Emphasis | 500-600 | Important values, metrics |
+**Dark-on-dark is a bug, never a style choice.** Any element with `bg-primary`
+or any inline `backgroundColor` ≤ `#234e40` MUST use `text-on-primary`
+(`#ffffff` in light, `#002117` in dark). The `.btn-primary` class enforces this
+with `!text-on-primary` so inherited text colors cannot bleed through.
 
-### Type Scale
-| Name | Size | Usage |
-|------|------|-------|
-| Hero | 1.875rem (30px) | Dashboard headlines |
-| Title | 1.5rem (24px) | Page headers |
-| Subtitle | 1.25rem (20px) | Section headers |
-| Body Large | 1.125rem (18px) | Lead paragraphs |
-| Body | 1rem (16px) | Standard text |
-| Small | 0.875rem (14px) | Labels, captions |
-| Tiny | 0.75rem (12px) | Badges, timestamps |
+### Surface stack (light)
 
-## 4. Component Stylings
+| Token | Hex | Role |
+|---|---|---|
+| `surface` | `#f9f9f6` | App canvas (body background) |
+| `surface-container-lowest` | `#ffffff` | Cards, modals, popovers |
+| `surface-container-low` | `#f4f4f1` | Section fills, input backgrounds |
+| `surface-container` | `#eeeeeb` | Neutral chips, secondary surfaces |
+| `surface-container-high` | `#e8e8e5` | Hover states on neutral chips |
+| `surface-container-highest` | `#e2e3e0` | Pressed states, very dense rows |
+
+Cards sit on **`surface-container-lowest` (pure white) with a 1px Product Tier
+ghost border + two-layer ambient shadow**. The page canvas (`surface`) is
+intentionally a half-step warmer than pure white so cards "lift off" the page.
+
+### Pillar accents — Product Tier
+
+| Pillar | Hex (light) | Hex (dark) | Role |
+|---|---|---|---|
+| Activity | `#0f7d68` | `#79a694` | Movement, fitness, training load |
+| Nutrition | `#b08326` | `#d6b87a` | Food, fuel, calories |
+| Recovery | `#3e7283` | `#9bb6bd` | Sleep, HRV, rest |
+| Mobility | `#9b4666` | `#c4929e` | Flexibility, range of motion |
+
+These values are **lifted ~15% in chroma** from the Editorial Tier (sage
+`#3c6658`, bronze `#8f6a2e`, slate `#5e7a82`, rose `#7a4d5e`). The editorial
+muting was too subtle to function as a semantic indicator in dense data UIs.
+Product Tier values remain earthy and on-brand but are unambiguously readable
+as semantic categories.
+
+### Feedback
+
+| Token | Light | Dark | Role |
+|---|---|---|---|
+| `success` | `#2e7d5b` | `#79a694` | Connected, completed, healthy |
+| `warning` | `#b08326` | `#d6b87a` | Pending, attention, advisory |
+| `error` | `#ba1a1a` | `#ffb4ab` | Failed, destructive, blocking |
+| `info` | `#3e7283` | `#9bb6bd` | Informational, processing |
+
+### Outline / borders
+
+| Token | Hex (light) | Role |
+|---|---|---|
+| `outline` | `#717974` | Helper text, label tertiary |
+| `outline-variant` | `#c0c8c3` | Inactive icons, separator hints |
+| `ghost-border` (CSS var) | `rgba(155, 165, 159, 0.40)` | **Card and chip border baseline** |
+| `ghost-border-strong` (CSS var) | `rgba(155, 165, 159, 0.55)` | Focus rings, active separators |
+
+The 0.40 opacity is load-bearing. The editorial-tier value (0.15) made cards
+invisible on the light canvas. Anything denser than 0.55 becomes a hard
+rule and breaks the Boreal "quiet separator" tone.
+
+---
+
+## 3. Typography
+
+| Role | Family | Weight | Notes |
+|---|---|---|---|
+| Display, headlines | Space Grotesk | 600–700 | Hero text, page H1, the DRAVR wordmark |
+| Body | Plus Jakarta Sans | 400–500 | All running text |
+| Labels, caps | Inter | 500 | Buttons, chips, table headers, small caps |
+| Serif accent | Newsreader | 400 | Editorial pull-quotes only (sparingly) |
+| Mono | JetBrains Mono | 400 | Code, IDs, raw data |
+
+**Mobile** uses the same families via `expo-font`. The native font fallback
+chain in `tailwind.config.js` is `'System', 'sans-serif'` so unloaded screens
+still render correctly.
+
+### Scale
+
+| Token | Size | Line height | Use |
+|---|---|---|---|
+| `text-xs` | 12px | 1.4 | Badges, timestamps |
+| `text-sm` | 14px | 1.45 | Body small, labels |
+| `text-base` | 16px | 1.5 | Body |
+| `text-lg` | 18px | 1.45 | Lead paragraphs |
+| `text-xl` | 20px | 1.3 | Subtitles |
+| `text-2xl` | 24px | 1.25 | Page headers |
+| `text-3xl` | 30px | 1.2 | Hero |
+
+Mobile-first responsive variants: `text-h1-mobile`, `text-h2-mobile`,
+`text-h3-mobile`, `text-body-mobile`. Step up at `md:` for desktop.
+
+---
+
+## 4. Elevation
+
+The Product Tier replaces the editorial-tier 24px ambient blur (which produced
+"no visible shadow" on cards) with a **two-layer shadow** that gives both edge
+definition and lift. Mirrors the elevation language used by Linear, Stripe
+Dashboard, and Vercel.
+
+| CSS var | Light | Dark | Use |
+|---|---|---|---|
+| `--shadow-card` | `0 1px 2px rgba(26,28,27,.06), 0 1px 3px rgba(26,28,27,.08)` | `0 1px 2px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.40)` | Resting cards |
+| `--shadow-card-hover` | `0 4px 8px -2px rgba(26,28,27,.08), 0 2px 4px -1px rgba(26,28,27,.06)` | `0 4px 8px -2px rgba(0,0,0,.45), 0 2px 4px -1px rgba(0,0,0,.40)` | Hover, focus |
+| `--shadow-floating` | `0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)` | `0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)` | Modals, drawers, popovers |
+
+React Native collapses to a single shadow per view. The mobile tokens in
+`packages/shared-constants/src/design-system.ts` export `AMBIENT_SHADOW.card`,
+`.hover`, `.floating` with the strongest spread of the recipe.
+
+No glow. No violet ring. No backdrop-blur on standard cards (reserved for the
+`boreal-overlay` callout pattern used over photographic backgrounds only).
+
+---
+
+## 5. Components
 
 ### Buttons
 
-**Primary CTA (Pill-shaped with glow):**
-```css
-background: linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%);
-border-radius: 9999px; /* Pill shape */
-box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25);
-/* Hover: intensified glow */
-box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+| Variant | Class | Use |
+|---|---|---|
+| Primary | `.btn-primary` | Sole CTA per view. `bg-primary !text-on-primary`. |
+| Secondary | `.btn-secondary` | Confirmation, ghost-style with center-expanding underline. |
+| Tertiary | `.btn-tertiary` | Small-caps text-only action (Inter, `tracking-label`). |
+| Danger | `.btn-danger` | Destructive — paired with confirmation pattern. |
+| Outline | `.btn-outline` | Inverse of primary for primary-tinted backgrounds. |
+| Size | `.btn-sm`, `.btn-lg` | Override default size. |
+
+Buttons are `rounded-lg` (8px). Pills (`rounded-full`) are reserved for inline
+action shortcuts within cards — see the Coach card "Chat" button.
+
+**Forbidden:**
+- `bg-pierre-violet` (or any dark surface) paired with `text-on-surface` /
+  `text-pierre-dark`. Use `.btn-primary` or pair explicitly with
+  `text-on-primary`.
+- Hard-coded inline `style={{ backgroundColor: '#00241a' }}`. Use the class.
+
+### Cards
+
+```html
+<div class="card">…</div>
 ```
 
-**Pillar Buttons:**
-- Activity: Emerald fill with `shadow-glow-activity`
-- Nutrition: Amber fill with `shadow-glow-nutrition`
-- Recovery: Indigo fill with `shadow-glow-recovery`
+`.card` = `surface-container-lowest` background, 12px border-radius, 1px
+ghost-border, `--shadow-card` resting elevation, `--shadow-card-hover` on
+hover. The hover transition is 200ms — long enough to be felt, short enough to
+feel responsive.
 
-### Cards/Containers (Glassmorphism 2.0)
+**Variants** (`.card-activity`, `.card-nutrition`, `.card-recovery`,
+`.card-mobility`): tonal washes at 8% opacity over the same card surface. Use
+sparingly — pillar cards should be obvious without needing a label.
 
-**Standard Card:**
-```css
-background: rgba(30, 30, 46, 0.6);
-backdrop-filter: blur(16px);
-border: 1px solid rgba(255, 255, 255, 0.1);
-border-radius: 1rem; /* 16px */
-```
+**`.card-boreal-overlay`** is the only glass-blur card. Reserved for data
+callouts over photographic boreal imagery. Do not use over flat surfaces.
 
-**Featured Card (with glow):**
-```css
-background: rgba(30, 30, 46, 0.8);
-backdrop-filter: blur(16px);
-border: 1px solid rgba(124, 58, 237, 0.3);
-box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
-border-radius: 1.5rem; /* 24px */
-```
+### Badges
 
-**Prominent Card (large radius):**
-```css
-border-radius: 2rem; /* 32px */
-/* For hero sections, major CTAs */
-```
+`.badge` = neutral 12px rounded-full chip on `surface-container-high`. Variants
+match feedback states: `.badge-success`, `.badge-warning`, `.badge-error`,
+`.badge-info`. Pillar-tinted variants live alongside (`.badge-mobility`, etc.).
 
-### Inputs/Forms
+System-coach tag: `bg-primary/10 text-primary border border-primary/20`. Reads
+on the light card surface at AA contrast.
 
-**Glass Input:**
-```css
-background: rgba(255, 255, 255, 0.03);
-backdrop-filter: blur(20px);
-border: 1px solid rgba(255, 255, 255, 0.08);
-border-radius: 0.75rem; /* 12px */
-/* Focus state */
-border-color: rgba(124, 58, 237, 0.5);
-box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
-```
+### Inputs
 
-### Chat Bubbles (AI Coach)
+Editorial underline by default — no enclosing box, single bottom rule that
+grows on focus. Class: `.input-field`. Glass variant `.input-glass` reserved
+for inputs floating over photographic backgrounds (rare in product).
 
-**AI Message:**
-```css
-background: rgba(255, 255, 255, 0.05);
-backdrop-filter: blur(12px);
-border: 1px solid rgba(255, 255, 255, 0.1);
-border-radius: 1rem;
-```
+### Chat surfaces
 
-**User Message:**
-```css
-background: rgba(124, 58, 237, 0.9);
-backdrop-filter: blur(8px);
-border: 1px solid rgba(255, 255, 255, 0.1);
-border-radius: 1rem;
-```
+| Element | Class | Notes |
+|---|---|---|
+| AI bubble | `.chat-bubble-ai` | `surface-container-lowest`, 1px ghost-border |
+| User bubble | `.chat-bubble-user` | `bg-primary text-on-primary` |
+| Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop |
 
-## 5. Layout Principles
+### Focus rings
 
-### Spacing Scale
-| Name | Value | Usage |
-|------|-------|-------|
-| xs | 0.25rem (4px) | Tight inline spacing |
-| sm | 0.5rem (8px) | Icon gaps, compact elements |
-| md | 1rem (16px) | Standard component padding |
-| lg | 1.5rem (24px) | Card padding, section gaps |
-| xl | 2rem (32px) | Major section separations |
-| 2xl | 3rem (48px) | Hero spacing |
+Two-layer ring: 2px solid `primary` + 2px inset white (`rgba(255,255,255,.95)`
+in light, `rgba(0,0,0,.85)` in dark). Visible on any surface — light card,
+dark card, photographic background. Class: `.focus-ring`. Applied via `:focus`
+pseudo-class so it never renders unless focused.
 
-### Grid & Alignment
-- **Bento Grid**: Use for dashboards with varied card sizes
-- **Content Width**: Max 1280px for main content
-- **Sidebar Width**: 280px (collapsed: 72px)
-- **Card Gap**: 1rem (16px) standard, 1.5rem (24px) for dashboard
+---
 
-### Responsive Breakpoints
-| Name | Width | Target |
-|------|-------|--------|
-| Mobile | < 640px | Phone portrait |
-| Tablet | 640-1024px | Tablet, phone landscape |
-| Desktop | > 1024px | Desktop, laptop |
+## 6. Layout
 
-## 6. Motion & Interactions
+| Token | Value | Use |
+|---|---|---|
+| `xs` | 4px | Tight inline gaps |
+| `sm` | 8px | Icon gaps, chip padding |
+| `md` | 16px | Standard component padding |
+| `lg` | 24px | Card padding, section gap |
+| `xl` | 32px | Major section separation |
+| `2xl` | 48px | Hero spacing |
+| `section` | 136px | Editorial spreads only |
 
-### Micro-interactions
-```css
-/* Hover lift effect */
-transition: transform 0.2s ease, box-shadow 0.2s ease;
-transform: translateY(-2px);
+Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
+(chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
 
-/* Glow intensification */
-box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+Content max-width: 1280px main, 720px reading, sidebar 280px (collapsed 72px).
 
-/* Press effect */
-transform: scale(0.98);
-```
+---
 
-### Animation Timing
+## 7. Motion
+
 | Type | Duration | Easing |
-|------|----------|--------|
-| Hover | 200ms | ease-out |
-| Press | 100ms | ease-in |
-| Modal | 300ms | cubic-bezier(0.4, 0, 0.2, 1) |
-| Page | 400ms | ease-in-out |
+|---|---|---|
+| Hover | 200ms | `ease-out` |
+| Press | 100ms | `ease-in` |
+| Modal | 300ms | `cubic-bezier(.4, 0, .2, 1)` |
+| Page | 400ms | `ease-in-out` |
+| Fade-rise entrance | 500ms | `cubic-bezier(.22, 1, .36, 1)` |
 
-### Pulse Glow (Active States)
-```css
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
-}
-```
+All motion respects `prefers-reduced-motion: reduce`.
 
-## 7. Accessibility Notes
+---
 
-- Maintain minimum 4.5:1 contrast ratio for text
-- Pillar colors are WCAG AA compliant on dark backgrounds
-- All interactive elements have visible focus states
-- Animations respect `prefers-reduced-motion`
+## 8. Accessibility
 
-## 8. Stitch Prompting Tips
+| Rule | Target |
+|---|---|
+| Body text contrast | ≥ 4.5:1 against bearing surface (WCAG AA) |
+| Large text / icons | ≥ 3:1 |
+| Focus visibility | Two-layer ring (see §5), never `outline: 0` without replacement |
+| Tap targets | ≥ 44×44px (mobile and product chrome) |
+| Color encoding | Never the sole channel — pair with icon, label, or position |
 
-When generating new screens, reference this document by including:
-- "Use Pierre's Deep Space (#0F0F1A) background"
-- "Apply glassmorphism cards with 16px blur and white/10 borders"
-- "Buttons should be pill-shaped with violet gradient glow"
-- "Use Lexend font for mobile screens"
-- "Include the three-pillar color system for Activity/Nutrition/Recovery"
+Pillar colors meet AA at 4.5:1 against `surface` (`#f9f9f6`).
+
+---
+
+## 9. What changed from the previous (Editorial-Tier) docs
+
+This document supersedes the Pierre Violet/Cyan design system that previously
+lived in this file. That system shipped a dark-glassmorphism aesthetic
+(`#7C3AED` violet, `#06B6D4` cyan, deep-space backgrounds, backdrop-blur
+cards). It was retired in commit `cf8c01d8` when the platform rebranded to
+dravr.ai.
+
+Differences from the *Editorial Tier* (dravr.ai marketing site):
+
+| | Editorial | Product (this doc) |
+|---|---|---|
+| Card border opacity | 15% | **40%** |
+| Card shadow | 24px ambient blur (visually flat) | **Two-layer crisp elevation** |
+| Pillar saturation | Heavily muted | **~15% chroma lift** |
+| Default body bg | `surface` (pure off-white) | Same, but cards now lift visibly |
+| Pure-color primary text pairing | Convention | **`!text-on-primary` enforced in `.btn-primary`** |
+| Default card radius | 8px (lg) | **12px (xl)** — softer, modern |
+
+The brand identity (forest green primary, Plus Jakarta Sans / Space Grotesk
+type, ambient calm) is preserved.

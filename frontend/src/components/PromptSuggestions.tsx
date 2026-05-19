@@ -349,7 +349,7 @@ const CoachCard = memo(function CoachCard({
 }: CoachCardProps) {
   return (
     <div
-      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-pierre-violet/10 px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-pierre-violet focus-within:ring-opacity-50 group hover:shadow-ambient"
+      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-pierre-violet/10 px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient"
     >
       {/* Action buttons container */}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-surface-container-low/90 backdrop-blur-sm rounded-lg px-1 py-0.5 shadow-sm border ghost-border">
@@ -361,7 +361,7 @@ const CoachCard = memo(function CoachCard({
               e.stopPropagation();
               onEditCoach(coach);
             }}
-            className="p-1 text-on-surface-variant hover:text-pierre-violet hover:bg-pierre-violet/20 rounded transition-colors"
+            className="p-1 text-on-surface-variant hover:text-primary hover:bg-pierre-violet/20 rounded transition-colors"
             title="Edit coach"
             aria-label="Edit coach"
           >
@@ -415,7 +415,7 @@ const CoachCard = memo(function CoachCard({
         className="w-full text-left"
       >
         <div className="flex items-center justify-between">
-          <span className="font-medium text-on-surface group-hover:text-pierre-violet transition-colors">
+          <span className="font-medium text-on-surface group-hover:text-primary transition-colors">
             {coach.title}
           </span>
           <div className="flex items-center gap-1">

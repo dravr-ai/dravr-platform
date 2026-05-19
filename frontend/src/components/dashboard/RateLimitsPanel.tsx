@@ -15,7 +15,7 @@ const tierConfig: Record<string, { color: string; bg: string; icon: string }> = 
   trial: { color: 'text-on-surface-variant', bg: 'bg-surface-container-low', icon: 'T' },
   starter: { color: 'text-pierre-activity', bg: 'bg-pierre-activity/10', icon: 'S' },
   professional: { color: 'text-pierre-violet-light', bg: 'bg-pierre-violet/15', icon: 'P' },
-  enterprise: { color: 'text-pierre-cyan', bg: 'bg-pierre-cyan/15', icon: 'E' },
+  enterprise: { color: 'text-primary-container', bg: 'bg-pierre-cyan/15', icon: 'E' },
 };
 
 export default function RateLimitsPanel() {

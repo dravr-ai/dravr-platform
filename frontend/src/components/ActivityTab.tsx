@@ -168,7 +168,7 @@ export default function ActivityTab() {
                 onClick={() => setTypeFilter(type)}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   typeFilter === type
-                    ? 'bg-pierre-violet text-on-primary'
+                    ? 'bg-primary text-on-primary'
                     : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
                 }`}
               >
@@ -237,7 +237,7 @@ export default function ActivityTab() {
                         </span>
                       ) : (
                         <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-pierre-cyan/20">
-                          <svg className="w-4 h-4 text-pierre-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                           </svg>
                         </span>
@@ -255,7 +255,7 @@ export default function ActivityTab() {
                       <span className={`text-xs px-2 py-1 rounded-full ${
                         entry.type === 'llm'
                           ? 'bg-pierre-violet/20 text-pierre-violet-light'
-                          : 'bg-pierre-cyan/20 text-pierre-cyan'
+                          : 'bg-pierre-cyan/20 text-primary-container'
                       }`}>
                         {entry.category}
                       </span>
@@ -342,7 +342,7 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-pierre-cyan">
+        <div className="text-2xl font-bold text-primary-container">
           {summary?.active_conversations ?? 0}
         </div>
         <div className="text-sm text-on-surface-variant">Active Conversations (15m)</div>

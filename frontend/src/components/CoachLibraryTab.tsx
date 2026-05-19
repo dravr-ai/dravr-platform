@@ -525,7 +525,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               {onBack && (
                 <button
                   onClick={onBack}
-                  className="p-2 rounded-lg text-on-surface-variant hover:text-pierre-violet hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="Back"
                   aria-label="Back"
                 >
@@ -557,7 +557,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <div className="relative" ref={importMenuRef}>
                 <button
                   onClick={() => setShowImportMenu(!showImportMenu)}
-                  className="p-2 rounded-lg text-on-surface-variant hover:text-pierre-violet hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="Import Coach"
                   aria-label="Import Coach"
                 >
@@ -610,7 +610,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   setFormData(defaultFormData);
                   setIsCreating(true);
                 }}
-                className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="p-2 rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Create Coach"
                 aria-label="Create Coach"
               >
@@ -640,7 +640,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               aria-label="Search coaches"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
+              className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-primary transition-colors"
             />
             {searchQuery && (
               <button
@@ -664,7 +664,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 categoryFilter === null
-                  ? 'bg-pierre-violet text-on-primary shadow-ambient'
+                  ? 'bg-primary text-on-primary shadow-ambient'
                   : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
@@ -677,7 +677,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className={clsx(
                   'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                   categoryFilter === cat
-                    ? 'bg-pierre-violet text-on-primary shadow-ambient'
+                    ? 'bg-primary text-on-primary shadow-ambient'
                     : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
                 )}
               >
@@ -802,7 +802,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                           {coach.category}
                         </span>
                         {coach.is_system && (
-                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-zinc-700/50 text-on-surface-variant flex-shrink-0">
+                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary border border-primary/20 flex-shrink-0">
                             System
                           </span>
                         )}
@@ -815,7 +815,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                             key={star}
                             className={clsx(
                               'w-3 h-3',
-                              coach.use_count >= star * 2 ? 'text-pierre-yellow-500 fill-pierre-yellow-500' : 'text-on-surface-variant fill-none'
+                              coach.use_count >= star * 2 ? 'text-pierre-nutrition fill-pierre-nutrition' : 'text-outline-variant fill-none'
                             )}
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -826,7 +826,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         ))}
                         <button
                           onClick={(e) => handleToggleFavorite(e, coach.id)}
-                          className="ml-2 p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-pierre-violet transition-colors"
+                          className="ml-2 p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-primary transition-colors"
                           title={coach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                         >
                           <svg className="w-4 h-4" aria-hidden="true" fill={coach.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -843,21 +843,17 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       )}
                     </div>
 
-                    {/* Chat button with violet glow. The card itself is
-                        already clickable, so this is a high-prominence
-                        shortcut; on mobile we shrink padding so the title
-                        column gets back the horizontal real estate that
-                        was producing one-word-per-line wraps. */}
+                    {/* High-prominence Chat shortcut. The card itself is
+                        already clickable; this surfaces the most common action
+                        without forcing a hover/focus. On mobile we shrink
+                        padding so the title column gets the horizontal real
+                        estate it needs to avoid one-word-per-line wraps. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedCoach(coach);
                       }}
-                      className="px-3 sm:px-4 py-2 rounded-full text-sm font-semibold text-on-surface flex-shrink-0 min-h-[44px] inline-flex items-center justify-center"
-                      style={{
-                        backgroundColor: '#00241a',
-                        boxShadow: '0 0 12px rgba(0, 36, 26, 0.4)',
-                      }}
+                      className="btn-primary !rounded-full !px-3 sm:!px-5 !py-2 !text-sm !min-h-[40px] flex-shrink-0"
                     >
                       Chat
                     </button>
@@ -1052,7 +1048,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 type="text"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-4"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent mb-4"
                 placeholder="Enter new name"
                 autoFocus
                 onKeyDown={(e) => {
@@ -1096,7 +1092,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 type="url"
                 value={importUrl}
                 onChange={(e) => setImportUrl(e.target.value)}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-3"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent mb-3"
                 placeholder="https://example.com/coach.md"
                 autoFocus
                 onKeyDown={(e) => {
@@ -1265,7 +1261,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 setFormData(defaultFormData);
                 setSelectedCoach(null);
               }}
-              className="p-1.5 rounded-lg text-outline hover:text-pierre-violet hover:bg-surface-container-low transition-colors"
+              className="p-1.5 rounded-lg text-outline hover:text-primary hover:bg-surface-container-low transition-colors"
               title="Back to coaches"
             >
               <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1287,7 +1283,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 type="text"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
                 placeholder="e.g., Marathon Training Coach"
                 maxLength={100}
                 required
@@ -1302,7 +1298,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-primary focus:border-transparent"
               >
                 {COACH_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat} className="bg-surface-container-low">{cat}</option>
@@ -1318,7 +1314,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
                 rows={2}
                 maxLength={500}
                 placeholder="Brief description of the coach's specialty..."
@@ -1336,7 +1332,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <textarea
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent font-mono text-sm"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
                 rows={8}
                 maxLength={4000}
                 placeholder="You are Pierre, an expert coach with deep knowledge of..."
@@ -1359,7 +1355,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 type="text"
                 value={formData.tags}
                 onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
                 placeholder="marathon, endurance, beginner (comma-separated)"
               />
             </div>
@@ -1518,7 +1514,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSelectedCoach(null)}
-              className="p-1.5 rounded-lg text-outline hover:text-pierre-violet hover:bg-surface-container-low transition-colors"
+              className="p-1.5 rounded-lg text-outline hover:text-primary hover:bg-surface-container-low transition-colors"
               title="Back to coaches"
             >
               <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1581,7 +1577,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-surface-container-low rounded-lg">
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-violet">
+            <div className="text-2xl font-bold text-primary">
               ~{selectedCoach.token_count.toLocaleString()}
             </div>
             <div className="text-xs text-outline">

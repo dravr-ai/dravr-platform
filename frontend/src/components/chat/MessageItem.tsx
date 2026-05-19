@@ -169,7 +169,7 @@ const MessageItem = memo(function MessageItem({
             </div>
           </details>
         )}
-        <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
+        <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
           <Markdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -195,7 +195,7 @@ const MessageItem = memo(function MessageItem({
                 key={`${action.value}-${idx}`}
                 type="button"
                 onClick={() => onActionClick?.(action)}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-pierre-violet/15 text-pierre-violet hover:bg-pierre-violet/25 transition-colors"
+                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-pierre-violet/15 text-primary hover:bg-pierre-violet/25 transition-colors"
               >
                 {action.label}
               </button>
@@ -226,7 +226,7 @@ const MessageItem = memo(function MessageItem({
               <button
                 type="button"
                 onClick={() => onAskAboutClaim(messageVerdicts[0])}
-                className="text-xs text-pierre-violet hover:underline"
+                className="text-xs text-primary hover:underline"
               >
                 Ask me about this claim
               </button>
@@ -272,7 +272,7 @@ const MessageItem = memo(function MessageItem({
                 {onCreateInsight && !hasInsight && (
                   <button
                     onClick={onCreateInsight}
-                    className="p-0.5 text-outline hover:text-pierre-cyan transition-colors"
+                    className="p-0.5 text-outline hover:text-primary-container transition-colors"
                     title="Create shareable insight"
                   >
                     <Lightbulb className="w-3.5 h-3.5" />
@@ -293,7 +293,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onThumbsUp}
                     className={`p-0.5 transition-colors ${
-                      feedback === 'up' ? 'text-pierre-violet' : 'text-outline hover:text-on-surface'
+                      feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'
                     }`}
                     title="Good response"
                   >

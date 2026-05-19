@@ -154,10 +154,10 @@ export const PIERRE_COLORS = {
  * palette. Values were chosen to meet WCAG AA 4.5:1 contrast against surface.
  */
 export const PILLAR_COLORS = {
-  activity: '#3c6658',   // surface_tint — deep sage, matches primary family
-  nutrition: '#8f6a2e',  // warm bronze — sits next to primary without clashing
-  recovery: '#5e7a82',   // muted slate — cool complement for rest/sleep data
-  mobility: '#7a4d5e',   // aged rose — calmer than the Pierre fuchsia
+  activity: '#0f7d68',   // sage — Product Tier lift (chroma +~15% over surface_tint)
+  nutrition: '#b08326',  // warm bronze — Product Tier lift
+  recovery: '#3e7283',   // muted slate — Product Tier lift
+  mobility: '#9b4666',   // aged rose — Product Tier lift
 } as const;
 
 // ========== PRIMARY PALETTE (forest tonal scale) ==========
@@ -211,14 +211,14 @@ export const TEXT_COLORS = {
 } as const;
 
 /**
- * Ghost border tokens. DESIGN.md §4 "Ghost Border Fallback" sets the baseline
- * at 15% opacity; we also expose subtle (10%) and strong (25%) steps for rare
- * cases where a stronger separator is unavoidable. No 1px solid borders.
+ * Ghost border tokens — Product Tier values. The marketing-tier 0.15 alpha was
+ * too subtle for data-dense product UI; 0.40 anchors cards without becoming a
+ * hard rule. `strong` is reserved for emphasis (active states, focus surfaces).
  */
 export const BORDER_COLORS = {
-  subtle: 'rgba(192, 200, 195, 0.10)',
-  default: 'rgba(192, 200, 195, 0.15)',
-  strong: 'rgba(192, 200, 195, 0.25)',
+  subtle: 'rgba(155, 165, 159, 0.22)',
+  default: 'rgba(155, 165, 159, 0.40)',
+  strong: 'rgba(155, 165, 159, 0.55)',
 } as const;
 
 // ========== SEMANTIC / PROVIDER COLORS ==========
@@ -285,11 +285,11 @@ export const GRADIENT_COLORS = {
  */
 export const GLASS_CARD = {
   background: 'rgba(249, 249, 246, 0.85)',   // boreal-glass from website
-  borderColor: 'rgba(192, 200, 195, 0.15)',  // ghost border
+  borderColor: 'rgba(155, 165, 159, 0.40)',  // ghost border, Product Tier
   borderWidth: 1,
   shadowColor: BOREAL_LIGHT.onSurface,
-  shadowOpacity: 0.06,
-  shadowRadius: 24,
+  shadowOpacity: 0.10,
+  shadowRadius: 3,
 } as const;
 
 // ========== AMBIENT SHADOW / AI GLOW ==========
@@ -299,20 +299,40 @@ export const GLASS_CARD = {
  * spread. Replaces the old violet glow stack. We expose the single spec plus
  * a `card` variant with larger offset for modals/FABs.
  */
+/**
+ * Product Tier elevation — replaces the marketing-tier 24px-blur ambient with a
+ * crisp two-layer recipe. React Native takes only one shadow per view, so we
+ * collapse the two-layer recipe to its stronger spread + tune opacity to read
+ * on the lighter mobile canvas. See DESIGN.md §4 (Boreal Product Tier).
+ */
 export const AMBIENT_SHADOW = {
-  /** Subtle ambient — for popovers, FABs. */
-  ambient: {
-    shadowColor: BOREAL_LIGHT.onSurface,
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 24 },
-  },
-  /** Card elevation — matches --shadow-card from the website. */
+  /** Resting card elevation. */
   card: {
     shadowColor: BOREAL_LIGHT.onSurface,
-    shadowOpacity: 0.06,
-    shadowRadius: 48,
-    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.10,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  /** Hover / lifted elevation (popovers, FABs, active cards). */
+  hover: {
+    shadowColor: BOREAL_LIGHT.onSurface,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  /** Floating elevation — modals, drawers, bottom sheets. */
+  floating: {
+    shadowColor: BOREAL_LIGHT.onSurface,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  /** Legacy name retained for drop-in compatibility. */
+  ambient: {
+    shadowColor: BOREAL_LIGHT.onSurface,
+    shadowOpacity: 0.10,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
 } as const;
 
@@ -323,7 +343,7 @@ export const AMBIENT_SHADOW = {
  */
 export const AI_GLOW = {
   ambient: AMBIENT_SHADOW.ambient,
-  strong: AMBIENT_SHADOW.card,
+  strong: AMBIENT_SHADOW.hover,
   avatar: AMBIENT_SHADOW.ambient,
   thinking: AMBIENT_SHADOW.ambient,
   response: AMBIENT_SHADOW.ambient,

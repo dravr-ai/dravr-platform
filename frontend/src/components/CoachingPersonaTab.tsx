@@ -136,16 +136,16 @@ export default function CoachingPersonaTab() {
               data-testid={`persona-card-${option.id}`}
               onClick={() => handleSelect(option.id)}
               disabled={mutation.isPending}
-              className={`text-left p-4 rounded-xl border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-pierre-violet ${
+              className={`text-left p-4 rounded-xl border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary ${
                 isSelected
-                  ? 'border-pierre-violet bg-pierre-violet/10 ring-1 ring-pierre-violet/40'
+                  ? 'border-primary bg-pierre-violet/10 ring-1 ring-pierre-violet/40'
                   : 'border-zinc-700/60 bg-surface-container-low hover:border-zinc-500'
               } ${mutation.isPending ? 'opacity-70 cursor-wait' : ''}`}
             >
               <div className="flex items-center justify-between gap-3 mb-2">
                 <h3 className="text-base font-semibold text-on-surface">{option.name}</h3>
                 {isSelected && (
-                  <span className="text-xs font-medium text-pierre-violet uppercase tracking-wide">
+                  <span className="text-xs font-medium text-primary uppercase tracking-wide">
                     Active
                   </span>
                 )}

@@ -135,7 +135,7 @@ export function ActivityDetailScreen() {
                   <Text className="text-sm text-on-surface-variant mb-2">{activityDate}</Text>
                 )}
                 <View className="self-start px-2 py-1 rounded-full bg-pierre-cyan/20">
-                  <Text className="text-xs font-medium text-pierre-cyan capitalize">
+                  <Text className="text-xs font-medium text-primary-container capitalize">
                     {activityType}
                   </Text>
                 </View>
@@ -154,7 +154,7 @@ export function ActivityDetailScreen() {
                   <Feather name="zap" size={20} color={colors.pierre.violet} />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-xs font-medium text-pierre-violet mb-1">
+                  <Text className="text-xs font-medium text-primary mb-1">
                     AI Insight
                   </Text>
                   <Text className="text-sm text-on-surface leading-5">

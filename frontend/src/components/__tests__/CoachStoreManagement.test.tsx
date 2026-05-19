@@ -135,7 +135,7 @@ describe('CoachStoreManagement', () => {
     if (publishedTab) {
       await user.click(publishedTab);
       // Tab should be active (check for active styling class)
-      expect(publishedTab).toHaveClass('border-pierre-violet');
+      expect(publishedTab).toHaveClass('border-primary');
     }
   });
 
@@ -156,7 +156,7 @@ describe('CoachStoreManagement', () => {
       // The Published tab should now be active
       const publishedTabs = screen.getAllByRole('button', { name: /Published$/i });
       const publishedTab = publishedTabs.find(btn => btn.textContent?.trim() === 'Published');
-      expect(publishedTab).toHaveClass('border-pierre-violet');
+      expect(publishedTab).toHaveClass('border-primary');
     }
   });
 

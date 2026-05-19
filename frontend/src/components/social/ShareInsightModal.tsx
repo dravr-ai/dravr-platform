@@ -211,7 +211,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                 className={clsx(
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'friends_only'
-                    ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
+                    ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
                     : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >
@@ -226,7 +226,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                 className={clsx(
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'public'
-                    ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
+                    ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
                     : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >

@@ -142,10 +142,12 @@ module.exports = {
           accent: 'rgb(var(--color-primary) / <alpha-value>)',
         },
 
+        // Product Tier border opacities — lifted from the 0.08/0.14/0.22 marketing
+        // values that left mobile cards floating without anchor. See DESIGN.md §4.
         border: {
-          subtle: 'rgb(var(--color-border) / 0.08)',
-          DEFAULT: 'rgb(var(--color-border) / 0.14)',
-          strong: 'rgb(var(--color-border) / 0.22)',
+          subtle: 'rgb(var(--color-border) / 0.22)',
+          DEFAULT: 'rgb(var(--color-border) / 0.40)',
+          strong: 'rgb(var(--color-border) / 0.55)',
         },
 
         success: 'rgb(var(--color-success) / <alpha-value>)',
@@ -186,17 +188,18 @@ module.exports = {
         full: '9999px',
       },
       boxShadow: {
-        // Static shadow recipes — deepened for the dark canvas. RN style props
-        // get the fully tuned values from the JS theme tokens; these utilities
-        // exist for compatibility with components that still reference the
-        // class form during the sweep.
-        ambient: '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
-        card: '0 24px 48px -12px rgba(0, 0, 0, 0.55)',
-        'glow-violet': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
-        'glow-cyan': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
-        'glow-activity': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
-        'glow-nutrition': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
-        'glow-recovery': '0 24px 48px -4px rgba(0, 0, 0, 0.45)',
+        // Product Tier elevation — two-layer recipe collapsed for RN's single-shadow
+        // model. JS theme tokens in design-system.ts carry the fully tuned values
+        // for runtime style props; these utilities cover legacy className use.
+        ambient: '0 1px 3px rgba(0, 0, 0, 0.40)',
+        card: '0 1px 3px rgba(0, 0, 0, 0.40)',
+        'card-hover': '0 4px 8px rgba(0, 0, 0, 0.45)',
+        floating: '0 12px 24px rgba(0, 0, 0, 0.55)',
+        'glow-violet': '0 1px 3px rgba(0, 0, 0, 0.40)',
+        'glow-cyan': '0 1px 3px rgba(0, 0, 0, 0.40)',
+        'glow-activity': '0 1px 3px rgba(0, 0, 0, 0.40)',
+        'glow-nutrition': '0 1px 3px rgba(0, 0, 0, 0.40)',
+        'glow-recovery': '0 1px 3px rgba(0, 0, 0, 0.40)',
       },
     },
   },

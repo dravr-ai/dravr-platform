@@ -171,7 +171,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                   type="checkbox"
                   checked={isSuperAdmin}
                   onChange={(e) => handleSuperAdminToggle(e.target.checked)}
-                  className="mt-1 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                  className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                 />
                 <div>
                   <div className="font-medium text-on-surface">Super Admin API Token</div>
@@ -215,7 +215,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                       type="checkbox"
                       checked={selectedPermissions.has(permission as AdminPermission)}
                       onChange={() => handlePermissionToggle(permission as AdminPermission)}
-                      className="mt-1 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                      className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                     />
                     <div className="flex-1">
                       <div className={`font-medium ${info.danger ? 'text-pierre-red-400' : 'text-on-surface'}`}>
@@ -262,7 +262,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                         setExpiresInDays(365);
                       }
                     }}
-                    className="rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                    className="rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                   />
                   <span className="font-medium text-on-surface">Never expires</span>
                 </label>
@@ -317,7 +317,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
 
       {/* Security Reminder */}
       <div className="bg-pierre-cyan/15 border border-pierre-cyan/30 rounded-lg p-4">
-        <h4 className="font-medium text-pierre-cyan mb-2">🔒 Security Reminder</h4>
+        <h4 className="font-medium text-primary-container mb-2">🔒 Security Reminder</h4>
         <ul className="text-sm text-on-surface space-y-1">
           <li>• The API token will be shown only once after creation</li>
           <li>• Store the token securely in your environment</li>

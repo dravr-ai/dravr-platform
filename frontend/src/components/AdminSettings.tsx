@@ -164,7 +164,7 @@ export default function AdminSettings() {
                 <button
                   onClick={handleToggleAutoApproval}
                   disabled={updateAutoApprovalMutation.isPending}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-offset-2 focus:ring-offset-pierre-slate ${
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-pierre-slate ${
                     autoApprovalData?.enabled
                       ? 'bg-pierre-activity'
                       : 'bg-zinc-600'
@@ -238,7 +238,7 @@ export default function AdminSettings() {
                 value={groupCreationPolicy}
                 onChange={(e) => updateGroupPolicyMutation.mutate(e.target.value)}
                 disabled={updateGroupPolicyMutation.isPending}
-                className="w-48 px-3 py-2 bg-surface-container-low text-on-surface border ghost-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet disabled:opacity-50"
+                className="w-48 px-3 py-2 bg-surface-container-low text-on-surface border ghost-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary disabled:opacity-50"
               >
                 <option value="admins_only">Admins Only</option>
                 <option value="everyone">Everyone</option>
@@ -298,7 +298,7 @@ export default function AdminSettings() {
 
         {socialInsightsLoading ? (
           <div className="p-4 flex justify-center">
-            <div className="w-8 h-8 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : socialInsightsError ? (
           <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">

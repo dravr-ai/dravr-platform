@@ -206,7 +206,7 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
               Description
             </label>
             <textarea
-              className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
+              className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary resize-none"
               placeholder="What is this group about?"
               rows={3}
               value={formDescription}

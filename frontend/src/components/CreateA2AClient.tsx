@@ -322,7 +322,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 key={capability.id}
                 className={`border rounded-lg p-3 cursor-pointer transition-colors ${
                   formData.capabilities.includes(capability.id)
-                    ? 'border-pierre-violet bg-pierre-violet/10'
+                    ? 'border-primary bg-pierre-violet/10'
                     : 'ghost-border hover:ghost-border'
                 }`}
                 onClick={() => handleCapabilityToggle(capability.id)}
@@ -332,7 +332,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                     type="checkbox"
                     checked={formData.capabilities.includes(capability.id)}
                     onChange={() => handleCapabilityToggle(capability.id)}
-                    className="mr-3 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                    className="mr-3 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div>

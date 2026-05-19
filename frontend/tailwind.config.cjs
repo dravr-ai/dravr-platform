@@ -72,24 +72,27 @@ module.exports = {
         pierre: {
           violet: '#00241a',           // → primary
           cyan: '#0d3b2e',              // → primary-container
-          activity: '#3c6658',          // pillar sage
-          nutrition: '#8f6a2e',         // pillar warm bronze
-          recovery: '#5e7a82',          // pillar muted slate
-          mobility: '#7a4d5e',          // pillar aged rose
+          // Pillars — Product Tier (Boreal Editorial). Lifted ~15% in chroma
+          // from the marketing-tier values so they function as semantic
+          // indicators in dense data UIs while remaining earthy / on-brand.
+          activity: '#0f7d68',          // sage, product-tier lift
+          nutrition: '#b08326',         // warm bronze, product-tier lift
+          recovery: '#3e7283',           // muted slate, product-tier lift
+          mobility: '#9b4666',          // aged rose, product-tier lift
           dark: '#1a1c1b',              // → on-surface (ink, not bg)
           slate: '#eeeeeb',             // → surface-container
           'violet-light': '#234e40',    // on_primary_fixed_variant
           'violet-dark': '#002117',     // on_primary_fixed
           'cyan-light': '#a3d0be',      // primary_fixed_dim
           'cyan-dark': '#0d3b2e',
-          'activity-light': '#5e8a78',
-          'activity-dark': '#234e40',
-          'nutrition-light': '#b98a47',
-          'nutrition-dark': '#6e5020',
-          'recovery-light': '#839ba2',
-          'recovery-dark': '#425962',
-          'mobility-light': '#9a6b7b',
-          'mobility-dark': '#5a3744',
+          'activity-light': '#3aa68d',
+          'activity-dark': '#0a5849',
+          'nutrition-light': '#d5a040',
+          'nutrition-dark': '#7a5a1a',
+          'recovery-light': '#6694a4',
+          'recovery-dark': '#2a4f5c',
+          'mobility-light': '#bb6b85',
+          'mobility-dark': '#6e3148',
           // Grayscale legacy scales mapped onto the Boreal neutral ramp.
           blue: {
             50: '#eef4f1', 100: '#d6e3dc', 200: '#a3d0be', 300: '#79a694',
@@ -193,27 +196,30 @@ module.exports = {
         // `full` (9999px) still available from core for chips only
       },
       boxShadow: {
-        // Boreal ambient shadows — 6% on_surface, 24px blur, -4px spread.
-        // No glow presets. Elevation comes from tonal layering first.
-        'ambient': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'card': '0 24px 48px -12px rgba(26, 28, 27, 0.06)',
-        // Retain sm/md/lg/xl as softer variants so legacy classes don't blow up.
-        'sm': '0 1px 2px 0 rgba(26, 28, 27, 0.04)',
-        'md': '0 8px 16px -4px rgba(26, 28, 27, 0.05)',
-        'lg': '0 16px 32px -4px rgba(26, 28, 27, 0.06)',
-        'xl': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        // Legacy glow-* names repointed at ambient shadow so old classes render
-        // quietly instead of crashing during the content sweep.
-        'glow': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-sm': '0 16px 32px -4px rgba(26, 28, 27, 0.05)',
-        'glow-lg': '0 32px 64px -8px rgba(26, 28, 27, 0.08)',
-        'glow-violet': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-cyan': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-activity': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-nutrition': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        'glow-recovery': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
-        // Ghost border fallback — 1px inset ghost border for accessibility
-        'glass': 'inset 0 0 0 1px rgba(192, 200, 195, 0.15)',
+        // Boreal Product Tier elevation stack — two-layer shadows. Reads
+        // from CSS vars so dark mode swaps to the deepened recipe via
+        // `html.dark` overrides in index.css.
+        'card': 'var(--shadow-card)',
+        'card-hover': 'var(--shadow-card-hover)',
+        'floating': 'var(--shadow-floating)',
+        'ambient': 'var(--shadow-card)',
+        // Tailwind sm/md/lg/xl utility scale, tuned to the same two-layer recipe.
+        'sm': '0 1px 2px rgba(26, 28, 27, 0.05)',
+        'md': '0 4px 8px -2px rgba(26, 28, 27, 0.08), 0 2px 4px -1px rgba(26, 28, 27, 0.06)',
+        'lg': '0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08)',
+        'xl': '0 24px 48px -12px rgba(26, 28, 27, 0.18), 0 8px 16px -4px rgba(26, 28, 27, 0.10)',
+        // Legacy glow-* names — kept resolving as the resting card shadow so
+        // call sites compile during the sweep.
+        'glow': 'var(--shadow-card)',
+        'glow-sm': 'var(--shadow-card)',
+        'glow-lg': 'var(--shadow-card-hover)',
+        'glow-violet': 'var(--shadow-card)',
+        'glow-cyan': 'var(--shadow-card)',
+        'glow-activity': 'var(--shadow-card)',
+        'glow-nutrition': 'var(--shadow-card)',
+        'glow-recovery': 'var(--shadow-card)',
+        // Inset ghost border, repointed at the lifted Product Tier opacity.
+        'glass': 'inset 0 0 0 1px rgba(155, 165, 159, 0.40)',
       },
       backdropBlur: {
         xs: '2px',

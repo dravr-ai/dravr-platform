@@ -392,7 +392,7 @@ export function MessageList({
                 className="px-3 py-2 rounded-lg bg-pierre-violet/15"
                 onPress={() => onActionClick?.(action)}
               >
-                <Text className="text-sm text-pierre-violet font-medium">{action.label}</Text>
+                <Text className="text-sm text-primary font-medium">{action.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -474,9 +474,9 @@ export function MessageList({
           />
         </View>
         <View className="flex-row items-center gap-1">
-          <View className="w-2 h-2 rounded-full bg-pierre-violet opacity-60" />
-          <View className="w-2 h-2 rounded-full bg-pierre-violet opacity-80" />
-          <View className="w-2 h-2 rounded-full bg-pierre-violet" />
+          <View className="w-2 h-2 rounded-full bg-primary opacity-60" />
+          <View className="w-2 h-2 rounded-full bg-primary opacity-80" />
+          <View className="w-2 h-2 rounded-full bg-primary" />
         </View>
       </View>
     </View>

@@ -85,7 +85,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
     return (
       <div className="h-full flex items-center justify-center bg-surface">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="mt-3 text-sm text-on-surface-variant">Loading coach details...</p>
         </div>
       </div>
@@ -107,7 +107,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
         <p className="text-sm text-on-surface-variant mt-1">This coach may have been removed or is no longer available.</p>
         <button
           onClick={onBack}
-          className="mt-4 px-4 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet/90 transition-colors shadow-ambient"
+          className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-pierre-violet/90 transition-colors shadow-ambient"
         >
           Go Back
         </button>
@@ -268,7 +268,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
             <button
               onClick={handleInstall}
               disabled={installMutation.isPending}
-              className="px-6 py-2.5 bg-pierre-violet text-on-primary rounded-lg font-medium hover:bg-pierre-violet/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-ambient"
+              className="px-6 py-2.5 bg-primary text-on-primary rounded-lg font-medium hover:bg-pierre-violet/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-ambient"
             >
               {installMutation.isPending ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

@@ -66,7 +66,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                 {active && (
                   <span
                     aria-hidden="true"
-                    className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-pierre-violet rounded-b-full"
+                    className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full"
                   />
                 )}
               </button>

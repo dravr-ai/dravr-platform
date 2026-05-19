@@ -427,7 +427,7 @@ export function SciotteLoginModal({
             {twoFactorOptions.map((option) => (
               <TouchableOpacity
                 key={option.id}
-                className="bg-background-secondary rounded-xl p-4 border border-border-default active:border-pierre-violet"
+                className="bg-background-secondary rounded-xl p-4 border border-border-default active:border-primary"
                 onPress={() => handleSelect2FA(option.id)}
                 disabled={isLoading}
                 activeOpacity={0.7}

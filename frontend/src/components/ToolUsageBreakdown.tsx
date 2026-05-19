@@ -255,13 +255,13 @@ export default function ToolUsageBreakdownComponent({
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-violet">
+          <div className="text-2xl font-bold text-primary">
             {toolUsage.length}
           </div>
           <div className="text-sm text-on-surface-variant">Tools Used</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-cyan">
+          <div className="text-2xl font-bold text-primary-container">
             {toolUsage.reduce((sum, tool) => sum + tool.request_count, 0).toLocaleString()}
           </div>
           <div className="text-sm text-on-surface-variant">Total Requests</div>

@@ -144,7 +144,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
       <div>
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-on-surface-variant hover:text-pierre-violet transition-colors mb-4"
+          className="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
           <span className="text-sm">All Groups</span>
@@ -271,7 +271,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                     Description
                   </label>
                   <textarea
-                    className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
+                    className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary resize-none"
                     rows={3}
                     value={editDescription}
                     onChange={(e) => setEditDescription(e.target.value)}
@@ -283,7 +283,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                     type="checkbox"
                     checked={editPeerSharing}
                     onChange={(e) => setEditPeerSharing(e.target.checked)}
-                    className="w-4 h-4 rounded ghost-border bg-surface-container-low text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
+                    className="w-4 h-4 rounded ghost-border bg-surface-container-low text-primary focus:ring-primary focus:ring-offset-0"
                   />
                   <div>
                     <span className="text-sm text-on-surface group-hover:text-on-surface transition-colors">

@@ -187,7 +187,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                 type="checkbox"
                 checked={selectedTokens.size === tokens.length && tokens.length > 0}
                 onChange={handleSelectAll}
-                className="rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                className="rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
               />
               <span className="text-sm font-medium text-on-surface">
                 Select All ({tokens.length})
@@ -202,7 +202,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                     type="checkbox"
                     checked={selectedTokens.has(token.id)}
                     onChange={() => handleSelectToken(token.id)}
-                    className="mt-1 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
+                    className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                   />
 
                   <div className="flex-1">

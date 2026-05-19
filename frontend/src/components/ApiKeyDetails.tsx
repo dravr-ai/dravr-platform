@@ -345,7 +345,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
-                  <div className="text-2xl font-semibold text-pierre-cyan">
+                  <div className="text-2xl font-semibold text-primary-container">
                     {stats.total_actions.toLocaleString()}
                   </div>
                   <div className="text-xs text-on-surface-variant">Total Actions</div>
@@ -357,7 +357,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                   <div className="text-xs text-on-surface-variant">Last 24h</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-semibold text-pierre-violet">
+                  <div className="text-2xl font-semibold text-primary">
                     {stats.actions_last_7d.toLocaleString()}
                   </div>
                   <div className="text-xs text-on-surface-variant">Last 7 days</div>

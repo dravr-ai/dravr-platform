@@ -65,7 +65,7 @@ export default function ChatSidebar({
         <button
           onClick={onNewChat}
           disabled={isCreatingConversation}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-pierre-violet text-on-primary hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-on-primary hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
           title="New chat"
           aria-label="New chat"
         >
@@ -85,14 +85,14 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             !selectedConversation && !showMyCoachesPanel && !showStorePanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <MessageCircle className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">Chat</span>
           {!selectedConversation && !showMyCoachesPanel && !showStorePanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shadow-ambient" />
           )}
         </button>
 
@@ -104,14 +104,14 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showMyCoachesPanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <Users className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">My Coaches</span>
           {showMyCoachesPanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shadow-ambient" />
           )}
         </button>
 
@@ -123,14 +123,14 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showStorePanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <Compass className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">Discover</span>
           {showStorePanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shadow-ambient" />
           )}
         </button>
       </nav>
@@ -186,7 +186,7 @@ export default function ChatSidebar({
           </div>
           {/* Text */}
           <div className="flex flex-col flex-1 min-w-0">
-            <p className="text-sm font-medium text-on-surface truncate group-hover:text-pierre-violet transition-colors">
+            <p className="text-sm font-medium text-on-surface truncate group-hover:text-primary transition-colors">
               {user?.display_name || 'User'}
             </p>
             <p className="text-[11px] text-on-surface-variant truncate">
