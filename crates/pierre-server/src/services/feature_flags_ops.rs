@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use crate::context::DataContext;
 use crate::errors::{AppError, ErrorCode};
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, User};
 use pierre_database::repositories::FeatureFlagRow;
 use tracing::info;
 use uuid::Uuid;
@@ -45,7 +45,7 @@ pub(crate) async fn resolve_self_flags(
 
     Ok(resolved
         .into_iter()
-        .map(|(k, v)| (k.as_str().to_string(), v))
+        .map(|(k, v)| (k.as_str().to_owned(), v))
         .collect())
 }
 
@@ -265,10 +265,7 @@ async fn authorize_admin_for_user(
     }
 }
 
-async fn load_admin(
-    data: &DataContext,
-    admin_user_id: Uuid,
-) -> Result<pierre_core::models::User, AppError> {
+async fn load_admin(data: &DataContext, admin_user_id: Uuid) -> Result<User, AppError> {
     data.repos()
         .users
         .get_global(admin_user_id)
