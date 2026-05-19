@@ -39,6 +39,7 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::time::sleep;
 
 /// Returns true when the test should actually run (CI provisions Ollama and
 /// sets `RUN_LOCAL_LLM_TESTS=1`). On developer machines this defaults to false
@@ -706,7 +707,7 @@ async fn test_multi_tool_real_registry_query() {
                         "multi-tool attempt {attempt} failed: {e} — sleeping {OLLAMA_RETRY_BACKOFF:?} before retry"
                     );
                     last_err = Some(e.to_string());
-                    tokio::time::sleep(OLLAMA_RETRY_BACKOFF).await;
+                    sleep(OLLAMA_RETRY_BACKOFF).await;
                 }
             }
         }
