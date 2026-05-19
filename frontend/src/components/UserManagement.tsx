@@ -160,7 +160,7 @@ export default function UserManagement() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                   activeTab === tab.id
-                    ? 'border-pierre-violet text-pierre-violet-light'
+                    ? 'border-primary text-pierre-violet-light'
                     : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
                 }`}
               >
@@ -198,7 +198,7 @@ export default function UserManagement() {
               onClick={() => setActiveTab(tab.id)}
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                 activeTab === tab.id
-                  ? 'border-pierre-violet text-pierre-violet-light'
+                  ? 'border-primary text-pierre-violet-light'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
               }`}
             >

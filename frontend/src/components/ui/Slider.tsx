@@ -60,7 +60,7 @@ export const Slider: React.FC<SliderProps> = ({
           <label className="text-sm font-medium text-pierre-gray-700">{label}</label>
         )}
         {showValue && (
-          <span className="text-sm font-semibold text-pierre-violet">
+          <span className="text-sm font-semibold text-primary">
             {valueFormatter(value)}
           </span>
         )}
@@ -90,7 +90,7 @@ export const Slider: React.FC<SliderProps> = ({
               <div
                 className={`w-3 h-3 rounded-full border-2 transition-colors ${
                   isActive
-                    ? 'bg-pierre-violet border-pierre-violet'
+                    ? 'bg-primary border-primary'
                     : 'bg-white border-pierre-gray-300'
                 }`}
               />
@@ -126,7 +126,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-webkit-slider-thumb]:rounded-full
             [&::-webkit-slider-thumb]:bg-white
             [&::-webkit-slider-thumb]:border-2
-            [&::-webkit-slider-thumb]:border-pierre-violet
+            [&::-webkit-slider-thumb]:border-primary
             [&::-webkit-slider-thumb]:shadow-md
             [&::-webkit-slider-thumb]:cursor-pointer
             [&::-webkit-slider-thumb]:transition-transform
@@ -138,7 +138,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-moz-range-thumb]:rounded-full
             [&::-moz-range-thumb]:bg-white
             [&::-moz-range-thumb]:border-2
-            [&::-moz-range-thumb]:border-pierre-violet
+            [&::-moz-range-thumb]:border-primary
             [&::-moz-range-thumb]:shadow-md
             [&::-moz-range-thumb]:cursor-pointer
           `}

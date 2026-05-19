@@ -177,9 +177,9 @@ export default function MessageList({
           <div className="flex-1 min-w-0 pt-1">
             <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
               Dravr
-              <span className="w-1.5 h-1.5 bg-pierre-violet rounded-full animate-pulse" />
+              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             </div>
-            <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
+            <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80">
               <Markdown
                 remarkPlugins={[remarkGfm]}
                 components={{

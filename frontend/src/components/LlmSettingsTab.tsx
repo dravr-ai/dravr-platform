@@ -273,7 +273,7 @@ export default function LlmSettingsTab() {
                     href={PROVIDER_INFO[provider.name]?.docsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-pierre-violet hover:underline mt-1 inline-block"
+                    className="text-sm text-primary hover:underline mt-1 inline-block"
                   >
                     Documentation
                   </a>

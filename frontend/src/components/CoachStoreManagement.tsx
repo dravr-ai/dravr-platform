@@ -98,12 +98,12 @@ export default function CoachStoreManagement() {
         >
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 rounded-lg bg-pierre-violet/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             {(stats?.pending_count ?? 0) > 0 && (
-              <span className="bg-pierre-violet text-on-primary text-xs font-bold px-2 py-1 rounded-full">
+              <span className="bg-primary text-on-primary text-xs font-bold px-2 py-1 rounded-full">
                 {stats?.pending_count}
               </span>
             )}
@@ -158,7 +158,7 @@ export default function CoachStoreManagement() {
         <div className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 rounded-lg bg-pierre-cyan/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-pierre-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </div>
@@ -211,7 +211,7 @@ export default function CoachStoreManagement() {
               className={clsx(
                 'flex items-center gap-2 px-1 py-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === tab.id
-                  ? 'border-pierre-violet text-pierre-violet-light'
+                  ? 'border-primary text-pierre-violet-light'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-white/30'
               )}
             >

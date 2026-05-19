@@ -34,7 +34,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const baseSelectClasses = `
       w-full border rounded-lg transition-all duration-base appearance-none cursor-pointer
       bg-surface-container-low text-on-surface
-      focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-20 focus:border-pierre-violet
+      focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-20 focus:border-primary
       disabled:bg-surface-container-low disabled:text-outline disabled:cursor-not-allowed
     `;
 

@@ -174,7 +174,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           {onBack && (
             <button
               onClick={onBack}
-              className="flex items-center gap-1 text-on-surface-variant hover:text-pierre-violet transition-colors"
+              className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -200,7 +200,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'friends'
-              ? 'bg-pierre-violet text-on-primary'
+              ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
@@ -216,7 +216,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'search'
-              ? 'bg-pierre-violet text-on-primary'
+              ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
@@ -232,7 +232,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors relative',
             activeTab === 'pending'
-              ? 'bg-pierre-violet text-on-primary'
+              ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >

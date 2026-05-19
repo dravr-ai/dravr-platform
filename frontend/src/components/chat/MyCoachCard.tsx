@@ -28,7 +28,7 @@ const MyCoachCard = memo(function MyCoachCard({
 }: MyCoachCardProps) {
   return (
     <div
-      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-surface-container px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-pierre-violet focus-within:ring-opacity-50 group hover:shadow-ambient cursor-pointer"
+      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-surface-container px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient cursor-pointer"
       onClick={onSelect}
     >
       {/* Action buttons container */}
@@ -42,7 +42,7 @@ const MyCoachCard = memo(function MyCoachCard({
                 e.stopPropagation();
                 onEdit();
               }}
-              className="p-1 text-on-surface-variant hover:text-pierre-violet hover:bg-pierre-violet/10 rounded transition-colors"
+              className="p-1 text-on-surface-variant hover:text-primary hover:bg-pierre-violet/10 rounded transition-colors"
               title="Edit coach"
               aria-label="Edit coach"
             >
@@ -83,7 +83,7 @@ const MyCoachCard = memo(function MyCoachCard({
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="font-medium text-on-surface group-hover:text-pierre-violet">
+        <span className="font-medium text-on-surface group-hover:text-primary">
           {coach.title}
         </span>
         <div className="flex items-center gap-1">

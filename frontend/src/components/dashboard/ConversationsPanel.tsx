@@ -239,7 +239,7 @@ export default function ConversationsPanel({
                       className={
                         group.isNoCoach
                           ? 'w-3 h-3 text-outline'
-                          : 'w-3 h-3 text-pierre-violet'
+                          : 'w-3 h-3 text-primary'
                       }
                     />
                     <span

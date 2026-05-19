@@ -43,7 +43,7 @@ export default function StoreStatsPanel({ onNavigate }: StoreStatsPanelProps) {
       className="w-full flex items-center justify-between p-3 rounded-lg bg-pierre-violet/15 border border-pierre-violet/30 hover:bg-pierre-violet/25 transition-colors"
     >
       <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-pierre-violet animate-pulse" />
+        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
         <span className="text-sm font-medium text-on-surface">
           {pendingCount} coach{pendingCount !== 1 ? 'es' : ''} pending review
         </span>

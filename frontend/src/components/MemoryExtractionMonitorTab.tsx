@@ -287,7 +287,7 @@ export default function MemoryExtractionMonitorTab() {
                       <div className="flex-1">
                         <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
                           <div
-                            className="h-full bg-pierre-violet"
+                            className="h-full bg-primary"
                             style={{ width: `${pct}%` }}
                           />
                         </div>

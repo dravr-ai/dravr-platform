@@ -241,7 +241,7 @@ export function GroupDetailScreen() {
           <Feather name="alert-circle" size={48} color={colors.text.secondary} />
           <Text className="text-text-primary text-lg font-bold mt-4">Group Not Found</Text>
           <TouchableOpacity className="mt-4" onPress={() => router.back()}>
-            <Text className="text-pierre-violet text-base font-semibold">Go Back</Text>
+            <Text className="text-primary text-base font-semibold">Go Back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

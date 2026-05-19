@@ -29,7 +29,7 @@ const tierConfig: Record<string, { color: string; bg: string; border: string; ic
   trial: { color: 'text-on-surface-variant', bg: 'bg-surface-container-low', border: 'ghost-border', icon: 'T' },
   starter: { color: 'text-pierre-activity', bg: 'bg-pierre-activity/10', border: 'border-pierre-activity/30', icon: 'S' },
   professional: { color: 'text-pierre-violet-light', bg: 'bg-pierre-violet/15', border: 'border-pierre-violet/30', icon: 'P' },
-  enterprise: { color: 'text-pierre-cyan', bg: 'bg-pierre-cyan/15', border: 'border-pierre-cyan/30', icon: 'E' },
+  enterprise: { color: 'text-primary-container', bg: 'bg-pierre-cyan/15', border: 'border-pierre-cyan/30', icon: 'E' },
 };
 
 
@@ -357,7 +357,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                   className="w-full flex items-center justify-between p-3 rounded-lg bg-pierre-violet/15 border border-pierre-violet/30 hover:bg-pierre-violet/25 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-pierre-violet animate-pulse" />
+                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                     <span className="text-sm font-medium text-on-surface">
                       {pendingCoachReviews} coach{pendingCoachReviews !== 1 ? 'es' : ''} pending review
                     </span>

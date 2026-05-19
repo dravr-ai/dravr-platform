@@ -913,7 +913,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 <button
                   onClick={() => createConversation.mutate()}
                   disabled={createConversation.isPending}
-                  className="rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  className="rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="New Chat"
                   aria-label="New Chat"
                 >
@@ -929,7 +929,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                   <p className="text-on-surface-variant text-sm">
                     {hasConnectedProvider
                       ? 'Get personalized insights from your activity data'
-                    : 'Or ask a question to Pierre'}
+                    : 'Or ask a question to Dravr'}
                 </p>
 
                 <form
@@ -948,14 +948,14 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Message Dravr..."
                     aria-label="Message Dravr"
-                    className="flex-1 min-w-0 rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
+                    className="flex-1 min-w-0 rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors"
                     disabled={createConversation.isPending}
                   />
                   <button
                     type="submit"
                     aria-label="Send message"
                     disabled={!newMessage.trim() || createConversation.isPending}
-                    className="flex-shrink-0 min-w-[44px] min-h-[44px] px-3 sm:px-4 bg-pierre-violet text-on-primary text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+                    className="flex-shrink-0 min-w-[44px] min-h-[44px] px-3 sm:px-4 bg-primary text-on-primary text-sm font-medium rounded-lg hover:bg-primary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
                   >
                     {createConversation.isPending ? (
                       <div className="pierre-spinner w-4 h-4 border-white border-t-transparent" />
@@ -991,7 +991,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
               <button
                 onClick={() => setShowCreateCoachFromConversation(true)}
                 disabled={isStreaming}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pierre-violet bg-pierre-violet/10 hover:bg-pierre-violet/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-pierre-violet/10 hover:bg-pierre-violet/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Create a coach based on this conversation"
               >
                 <Sparkles className="w-3.5 h-3.5" />

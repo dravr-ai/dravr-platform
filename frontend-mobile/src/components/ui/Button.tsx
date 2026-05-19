@@ -38,12 +38,12 @@ const baseClasses = 'flex-row items-center justify-center rounded-xl';
 
 // Variant classes
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: 'bg-pierre-violet',
+  primary: 'bg-primary',
   secondary: 'bg-transparent border border-border-strong',
   ghost: 'bg-transparent',
   danger: 'bg-error',
-  gradient: 'bg-pierre-violet',
-  pill: 'bg-pierre-violet rounded-full',
+  gradient: 'bg-primary',
+  pill: 'bg-primary rounded-full',
   activity: 'bg-pierre-activity',
   nutrition: 'bg-pierre-nutrition',
   recovery: 'bg-pierre-recovery',

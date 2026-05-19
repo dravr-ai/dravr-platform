@@ -226,7 +226,7 @@ export function CreateGroupScreen() {
                   key={count}
                   className={`px-4 py-2 rounded-lg border ${
                     isSelected
-                      ? 'bg-pierre-violet/20 border-pierre-violet'
+                      ? 'bg-pierre-violet/20 border-primary'
                       : 'bg-background-secondary border-border-default'
                   }`}
                   onPress={() => setMaxMembers(count)}
@@ -234,7 +234,7 @@ export function CreateGroupScreen() {
                 >
                   <Text
                     className={`text-sm font-medium ${
-                      isSelected ? 'text-pierre-violet' : 'text-text-secondary'
+                      isSelected ? 'text-primary' : 'text-text-secondary'
                     }`}
                   >
                     {count}

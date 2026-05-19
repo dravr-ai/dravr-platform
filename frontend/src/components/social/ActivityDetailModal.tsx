@@ -66,7 +66,7 @@ export default function ActivityDetailModal({
           {/* Activity Header */}
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-pierre-violet/20 flex items-center justify-center flex-shrink-0">
-              <svg className="w-6 h-6 text-pierre-violet" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
                 <path d={iconPath} />
               </svg>
             </div>
@@ -75,7 +75,7 @@ export default function ActivityDetailModal({
               {activityDate && (
                 <p className="text-sm text-on-surface-variant">{activityDate}</p>
               )}
-              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-pierre-cyan/20 text-pierre-cyan rounded-full capitalize">
+              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-pierre-cyan/20 text-primary-container rounded-full capitalize">
                 {activityType}
               </span>
             </div>
@@ -86,18 +86,18 @@ export default function ActivityDetailModal({
             <Card variant="dark" className="border border-pierre-violet/30">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-full bg-pierre-violet/20 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs font-medium text-pierre-violet mb-1">AI Insight</p>
+                  <p className="text-xs font-medium text-primary mb-1">AI Insight</p>
                   <div className="text-sm text-on-surface leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:text-base prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5">
                     <Markdown
                       remarkPlugins={[remarkGfm]}
                       components={{
                         a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-pierre-violet underline hover:text-pierre-violet/80 break-all">
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-pierre-violet/80 break-all">
                             {children}
                           </a>
                         ),

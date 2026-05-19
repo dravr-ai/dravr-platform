@@ -248,7 +248,7 @@ export default function BillingPage() {
                           href={inv.hosted_invoice_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-pierre-violet hover:underline"
+                          className="text-primary hover:underline"
                         >
                           View
                         </a>

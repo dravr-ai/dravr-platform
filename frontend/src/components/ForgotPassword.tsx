@@ -59,7 +59,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
           <div className="px-8 py-10 space-y-6">
             <div className="flex flex-col items-center">
               <svg
-                className="w-12 h-12 text-pierre-violet"
+                className="w-12 h-12 text-primary"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"

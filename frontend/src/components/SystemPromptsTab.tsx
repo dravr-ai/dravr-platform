@@ -194,7 +194,7 @@ export default function SystemPromptsTab() {
                   onClick={() => handleSelectPrompt(prompt.key)}
                   className={clsx(
                     'w-full text-left px-4 py-3 hover:bg-pierre-surface-hover transition-colors',
-                    selectedPrompt === prompt.key && 'bg-pierre-violet/5 border-l-2 border-pierre-violet',
+                    selectedPrompt === prompt.key && 'bg-pierre-violet/5 border-l-2 border-primary',
                   )}
                 >
                   <div className="flex items-center justify-between">

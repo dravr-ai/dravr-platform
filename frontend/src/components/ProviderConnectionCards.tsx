@@ -36,7 +36,7 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
   },
   synthetic: {
     brandColor: 'bg-gradient-to-br boreal-hero-gradient',
-    hoverColor: 'hover:border-pierre-violet',
+    hoverColor: 'hover:border-primary',
   },
   sciotte: {
     brandColor: 'bg-gradient-to-br from-amber-500 to-orange-600',
@@ -248,7 +248,7 @@ export default function ProviderConnectionCards({
                   provider.connected
                     ? 'border-emerald-500/50'
                     : isConnecting
-                      ? 'border-pierre-violet'
+                      ? 'border-primary'
                       : isNonOAuth
                         ? 'border-transparent opacity-60'
                         : `border-transparent ${style.hoverColor} hover:shadow-lg hover:-translate-y-0.5`
@@ -307,7 +307,7 @@ export default function ProviderConnectionCards({
           >
             <Card
               variant="dark"
-              className="p-5 transition-all duration-200 h-full border-2 border-transparent hover:border-pierre-violet hover:shadow-lg hover:-translate-y-0.5"
+              className="p-5 transition-all duration-200 h-full border-2 border-transparent hover:border-primary hover:shadow-lg hover:-translate-y-0.5"
             >
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl boreal-hero-gradient flex items-center justify-center text-on-primary shadow-sm">
@@ -326,7 +326,7 @@ export default function ProviderConnectionCards({
                   <p className="text-xs text-on-surface-variant mt-0.5">Connect providers later</p>
                 </div>
                 <svg
-                  className="w-4 h-4 text-outline group-hover:text-pierre-violet transition-colors"
+                  className="w-4 h-4 text-outline group-hover:text-primary transition-colors"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

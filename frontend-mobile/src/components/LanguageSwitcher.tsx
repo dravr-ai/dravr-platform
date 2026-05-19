@@ -27,7 +27,7 @@ export function LanguageSwitcher() {
             onPress={() => changeLanguage(lang)}
             className={`flex-1 py-3 px-4 rounded-xl items-center ${
               isSelected
-                ? 'bg-pierre-violet'
+                ? 'bg-primary'
                 : 'bg-surface-container-high border border-pierre-gray-700'
             }`}
             activeOpacity={0.7}

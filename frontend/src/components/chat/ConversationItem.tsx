@@ -79,7 +79,7 @@ const ConversationItem = memo(function ConversationItem({
             onChange={(e) => onTitleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={onSaveRename}
-            className="w-full text-sm font-medium text-on-surface bg-surface-container-low border border-pierre-violet rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-pierre-violet"
+            className="w-full text-sm font-medium text-on-surface bg-surface-container-low border border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary"
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
@@ -95,7 +95,7 @@ const ConversationItem = memo(function ConversationItem({
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={onStartRename}
-          className="p-2.5 rounded transition-colors text-outline hover:text-pierre-violet hover:bg-surface-container"
+          className="p-2.5 rounded transition-colors text-outline hover:text-primary hover:bg-surface-container"
           title="Rename"
           aria-label="Rename conversation"
         >

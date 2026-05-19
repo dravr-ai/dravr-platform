@@ -46,11 +46,12 @@
     --color-outline: 113 121 116;
     --color-outline-variant: 192 200 195;
 
-    /* Pillar tints — tuned for surface (#F9F9F6) at WCAG AA. */
-    --color-pillar-activity: 60 102 88;
-    --color-pillar-nutrition: 143 106 46;
-    --color-pillar-recovery: 94 122 130;
-    --color-pillar-mobility: 122 77 94;
+    /* Pillar tints — Product Tier lift (~15% chroma) so semantic colors
+       remain readable in dense data UIs. WCAG AA against surface (#F9F9F6). */
+    --color-pillar-activity: 15 125 104;
+    --color-pillar-nutrition: 176 131 38;
+    --color-pillar-recovery: 62 114 131;
+    --color-pillar-mobility: 155 70 102;
 
     /* Pierre legacy gray ladder — light direction. */
     --color-gray-50: 249 249 246;

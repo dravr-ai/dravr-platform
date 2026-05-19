@@ -95,7 +95,7 @@ export default function ShareChatMessageModal({
               </label>
               <button
                 onClick={() => setIsEditing(true)}
-                className="flex items-center gap-1 text-xs text-pierre-violet hover:text-pierre-violet/80 transition-colors"
+                className="flex items-center gap-1 text-xs text-primary hover:text-pierre-violet/80 transition-colors"
               >
                 <Pencil className="w-3 h-3" />
                 Edit
@@ -119,7 +119,7 @@ export default function ShareChatMessageModal({
                 key={option.value}
                 className={`flex items-start p-3 rounded-lg cursor-pointer transition-colors ${
                   visibility === option.value
-                    ? 'bg-pierre-violet/20 border-pierre-violet border'
+                    ? 'bg-pierre-violet/20 border-primary border'
                     : 'bg-surface-container-low border-transparent border hover:bg-surface-container'
                 }`}
               >

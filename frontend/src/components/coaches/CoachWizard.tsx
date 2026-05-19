@@ -292,7 +292,7 @@ ${formData.successCriteria}
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
                 index === currentStep
-                  ? 'bg-pierre-violet text-on-primary'
+                  ? 'bg-primary text-on-primary'
                   : index < currentStep
                   ? 'bg-pierre-activity text-on-primary'
                   : 'bg-pierre-gray-200 text-pierre-gray-500'
@@ -300,7 +300,7 @@ ${formData.successCriteria}
             >
               {index < currentStep ? '✓' : index + 1}
             </div>
-            <span className={`text-xs mt-1 ${index === currentStep ? 'text-pierre-violet font-medium' : 'text-pierre-gray-500'}`}>
+            <span className={`text-xs mt-1 ${index === currentStep ? 'text-primary font-medium' : 'text-pierre-gray-500'}`}>
               {step.title}
             </span>
           </button>
@@ -322,7 +322,7 @@ ${formData.successCriteria}
           value={formData.title}
           onChange={(e) => updateField('title', e.target.value)}
           placeholder="Enter coach title"
-          className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 ${
+          className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
             errors.title ? 'border-pierre-red-500' : 'border-pierre-gray-300'
           }`}
           maxLength={100}
@@ -339,7 +339,7 @@ ${formData.successCriteria}
           value={formData.description}
           onChange={(e) => updateField('description', e.target.value)}
           placeholder="Brief description of what this coach does"
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={3}
           maxLength={500}
         />
@@ -355,7 +355,7 @@ ${formData.successCriteria}
               onClick={() => updateField('category', cat.key)}
               className={`px-4 py-3 rounded-lg border-2 transition-colors ${
                 formData.category === cat.key
-                  ? 'border-pierre-violet bg-pierre-violet/10'
+                  ? 'border-primary bg-pierre-violet/10'
                   : 'border-pierre-gray-200 hover:border-pierre-gray-300'
               }`}
             >
@@ -375,11 +375,11 @@ ${formData.successCriteria}
             onChange={(e) => setNewTag(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
             placeholder="Add a tag"
-            className="flex-1 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50"
+            className="flex-1 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
           />
           <button
             onClick={addTag}
-            className="px-4 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-primary-container transition-colors"
           >
             Add
           </button>
@@ -406,7 +406,7 @@ ${formData.successCriteria}
           value={formData.purpose}
           onChange={(e) => updateField('purpose', e.target.value)}
           placeholder="Describe what this coach helps users accomplish..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={5}
         />
         <span className="text-pierre-gray-500 text-xs float-right">~{tokenCounts.purpose} tokens</span>
@@ -418,7 +418,7 @@ ${formData.successCriteria}
           value={formData.whenToUse}
           onChange={(e) => updateField('whenToUse', e.target.value)}
           placeholder="Describe scenarios when users should activate this coach..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={4}
         />
       </div>
@@ -434,7 +434,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
             className={`px-3 py-1 text-sm rounded ${
-              isMarkdownMode ? 'bg-pierre-violet text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              isMarkdownMode ? 'bg-primary text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             {isMarkdownMode ? 'Visual' : 'Markdown'}
@@ -442,7 +442,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setShowPreview(!showPreview)}
             className={`px-3 py-1 text-sm rounded ${
-              showPreview ? 'bg-pierre-violet text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              showPreview ? 'bg-primary text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             Preview
@@ -456,7 +456,7 @@ ${formData.successCriteria}
             value={formData.systemPrompt}
             onChange={(e) => updateField('systemPrompt', e.target.value)}
             placeholder="Define how this coach should behave, what expertise it has, and how it should respond to users..."
-            className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none font-mono ${
+            className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none font-mono ${
               errors.systemPrompt ? 'border-pierre-red-500' : 'border-pierre-gray-300'
             }`}
             rows={15}
@@ -478,7 +478,7 @@ ${formData.successCriteria}
         </div>
         <div className="w-48 h-2 bg-pierre-gray-200 rounded-full overflow-hidden">
           <div
-            className="h-full bg-pierre-violet transition-all"
+            className="h-full bg-primary transition-all"
             style={{ width: `${Math.min(parseFloat(tokenCounts.percentage), 100)}%` }}
           />
         </div>
@@ -495,7 +495,7 @@ ${formData.successCriteria}
           value={formData.exampleInputs}
           onChange={(e) => updateField('exampleInputs', e.target.value)}
           placeholder="List example prompts users might ask this coach..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={6}
         />
       </div>
@@ -506,7 +506,7 @@ ${formData.successCriteria}
           value={formData.exampleOutputs}
           onChange={(e) => updateField('exampleOutputs', e.target.value)}
           placeholder="Show example responses the coach should provide..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={6}
         />
       </div>
@@ -530,7 +530,7 @@ ${formData.successCriteria}
               onClick={() => toggleProvider(provider)}
               className={`px-4 py-2 rounded-lg border transition-colors ${
                 formData.prerequisites.providers.includes(provider)
-                  ? 'border-pierre-violet bg-pierre-violet/10 text-pierre-violet-light'
+                  ? 'border-primary bg-pierre-violet/10 text-pierre-violet-light'
                   : 'border-pierre-gray-200 text-pierre-gray-600 hover:border-pierre-gray-300'
               }`}
             >
@@ -550,7 +550,7 @@ ${formData.successCriteria}
             ...formData.prerequisites,
             minActivities: parseInt(e.target.value) || 0,
           })}
-          className="w-32 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50"
+          className="w-32 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
         />
         <span className="text-pierre-gray-500 text-sm ml-2">activities required</span>
       </div>
@@ -585,7 +585,7 @@ ${formData.successCriteria}
           value={formData.successCriteria}
           onChange={(e) => updateField('successCriteria', e.target.value)}
           placeholder="Define what successful coaching looks like..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={4}
         />
       </div>
@@ -598,7 +598,7 @@ ${formData.successCriteria}
           placeholder="Enter coach names separated by commas"
           value={formData.relatedCoaches.join(', ')}
           onChange={(e) => updateField('relatedCoaches', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50"
+          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
         />
       </div>
     </div>
@@ -765,7 +765,7 @@ ${formData.successCriteria}
         {currentStep < STEPS.length - 1 ? (
           <button
             onClick={handleNext}
-            className="px-6 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-6 py-2 bg-primary text-on-primary rounded-lg hover:bg-primary-container transition-colors"
           >
             Next →
           </button>

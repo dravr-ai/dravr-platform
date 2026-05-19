@@ -283,7 +283,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             )}
             <button
               onClick={() => shareModal.open()}
-              className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
+              className="p-2 rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
               title="Share Insight"
               aria-label="Share Insight"
             >
@@ -392,7 +392,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 {item.insight.title && (
                   <h3 className="text-lg font-semibold text-on-surface mb-2">{item.insight.title}</h3>
                 )}
-                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
+                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{

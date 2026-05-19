@@ -195,7 +195,7 @@ describe('MessageItem', () => {
       );
 
       const thumbsUpButton = screen.getByTitle('Good response');
-      expect(thumbsUpButton).toHaveClass('text-pierre-violet');
+      expect(thumbsUpButton).toHaveClass('text-primary');
     });
 
     it('should show thumbs down as active when feedback is down', () => {

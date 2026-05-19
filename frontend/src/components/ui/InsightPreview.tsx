@@ -42,7 +42,7 @@ export function InsightPreview({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-pierre-violet underline hover:text-pierre-violet/80 break-all"
+                className="text-primary underline hover:text-pierre-violet/80 break-all"
               >
                 {children}
               </a>
@@ -68,7 +68,7 @@ export function InsightPreview({
             code: ({ children, className }) => {
               const isInline = !className;
               return isInline ? (
-                <code className="bg-surface-container-high px-1.5 py-0.5 rounded text-pierre-cyan text-xs">
+                <code className="bg-surface-container-high px-1.5 py-0.5 rounded text-primary-container text-xs">
                   {children}
                 </code>
               ) : (

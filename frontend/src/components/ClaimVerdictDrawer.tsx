@@ -82,7 +82,7 @@ export default function ClaimVerdictDrawer({ verdict, onClose }: ClaimVerdictDra
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Claim text
             </h4>
-            <blockquote className="border-l-4 border-pierre-violet bg-gray-50 p-3 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+            <blockquote className="border-l-4 border-primary bg-gray-50 p-3 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
               {verdict.claim_text}
             </blockquote>
           </section>

@@ -119,7 +119,7 @@ export default function JoinGroupModal({ isOpen, onClose, initialCode }: JoinGro
               setConsentGiven(e.target.checked);
               setFieldError('');
             }}
-            className="mt-0.5 w-4 h-4 rounded ghost-border bg-surface-container-low text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
+            className="mt-0.5 w-4 h-4 rounded ghost-border bg-surface-container-low text-primary focus:ring-primary focus:ring-offset-0"
           />
           <span className="text-sm text-on-surface group-hover:text-on-surface transition-colors">
             I agree to share my training data with the group coach for personalized coaching.

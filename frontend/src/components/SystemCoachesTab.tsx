@@ -665,7 +665,7 @@ export default function SystemCoachesTab() {
                         className={clsx(
                           'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors',
                           selectedUserIds.includes(user.id)
-                            ? 'bg-pierre-violet/20 border-2 border-pierre-violet'
+                            ? 'bg-pierre-violet/20 border-2 border-primary'
                             : 'bg-surface-container-low border-2 border-transparent hover:bg-surface-container'
                         )}
                       >
@@ -679,7 +679,7 @@ export default function SystemCoachesTab() {
                               setSelectedUserIds(selectedUserIds.filter(id => id !== user.id));
                             }
                           }}
-                          className="w-4 h-4 text-pierre-violet focus:ring-pierre-violet rounded bg-surface-container-high ghost-border"
+                          className="w-4 h-4 text-primary focus:ring-primary rounded bg-surface-container-high ghost-border"
                         />
                         <div className="flex-1">
                           <div className="font-medium text-on-surface">{user.email}</div>

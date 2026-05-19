@@ -481,7 +481,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                   >
                     {/* Active indicator */}
                     {activeTab === tab.id && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-pierre-violet rounded-r-full" />
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
                     )}
                     <div className="relative flex-shrink-0">
                       {tab.icon}
@@ -564,9 +564,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <button
               onClick={() => setActiveTab('settings')}
               className={clsx(
-                'text-outline hover:text-pierre-violet transition-colors flex-shrink-0 flex items-center justify-center',
+                'text-outline hover:text-primary transition-colors flex-shrink-0 flex items-center justify-center',
                 sidebarCollapsed ? 'min-w-[44px] min-h-[44px]' : 'min-w-[44px] min-h-[44px]',
-                activeTab === 'settings' && 'text-pierre-violet'
+                activeTab === 'settings' && 'text-primary'
               )}
               title="Settings"
               aria-label="Settings"
@@ -580,7 +580,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             {/* Sign out button */}
             <button
               onClick={logout}
-              className="text-outline hover:text-pierre-violet transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              className="text-outline hover:text-primary transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
               title="Sign out"
               aria-label="Sign out"
             >
@@ -600,7 +600,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             localStorage.setItem('pierre.sidebar_collapsed', String(next));
             setSidebarCollapsed(next);
           }}
-          className="hidden md:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-[60]"
+          className="hidden md:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-primary transition-all duration-200 z-[60]"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >

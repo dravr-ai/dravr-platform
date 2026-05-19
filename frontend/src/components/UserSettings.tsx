@@ -45,7 +45,7 @@ interface McpToken {
 
 const PROVIDERS = [
   { id: 'strava', name: 'Strava', color: 'bg-pierre-nutrition' },
-  { id: 'fitbit', name: 'Fitbit', color: 'bg-pierre-cyan' },
+  { id: 'fitbit', name: 'Fitbit', color: 'bg-primary-container' },
   { id: 'garmin', name: 'Garmin', color: 'bg-pierre-blue-600' },
   { id: 'whoop', name: 'WHOOP', color: 'bg-black' },
   { id: 'terra', name: 'Terra', color: 'bg-pierre-green-600' },
@@ -550,11 +550,11 @@ export default function UserSettings() {
               className={clsx(
                 'snap-start flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 min-h-[44px]',
                 activeTab === tab.id
-                  ? 'border-pierre-violet text-on-surface'
+                  ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:ghost-border'
               )}
             >
-              <span className={clsx('flex-shrink-0', activeTab === tab.id ? 'text-pierre-violet' : '')}>{tab.icon}</span>
+              <span className={clsx('flex-shrink-0', activeTab === tab.id ? 'text-primary' : '')}>{tab.icon}</span>
               {tab.name}
             </button>
           ))}
@@ -918,7 +918,7 @@ export default function UserSettings() {
                   <select
                     value={selectedProvider}
                     onChange={(e) => setSelectedProvider(e.target.value)}
-                    className="select-dark w-full px-4 py-3 bg-[#f9f9f6] border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                    className="select-dark w-full px-4 py-3 bg-[#f9f9f6] border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary transition-all"
                   >
                     <option value="">Select a provider</option>
                     {availableProviders.map((provider) => (
@@ -1024,7 +1024,7 @@ export default function UserSettings() {
                         <select
                           value={expiresInDays || ''}
                           onChange={(e) => setExpiresInDays(e.target.value ? Number(e.target.value) : undefined)}
-                          className="select-dark w-full px-4 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-on-surface text-sm focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                          className="select-dark w-full px-4 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-on-surface text-sm focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary transition-all"
                         >
                           <option value="">Never expires</option>
                           <option value="30">30 days</option>
@@ -1223,7 +1223,7 @@ Authorization: Bearer <your-token-here>`}
               {/* Version */}
               <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
                 <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
@@ -1241,7 +1241,7 @@ Authorization: Bearer <your-token-here>`}
                 className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
               >
                 <div className="w-10 h-10 rounded-xl bg-pierre-cyan/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-pierre-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
                   </svg>
                 </div>
@@ -1318,7 +1318,7 @@ Authorization: Bearer <your-token-here>`}
             <Card variant="dark">
               <div className="flex items-start gap-4 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
