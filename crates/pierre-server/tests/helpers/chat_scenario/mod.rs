@@ -38,12 +38,14 @@
 pub mod asserters;
 pub mod drift;
 pub mod format;
+pub mod live_driver;
 pub mod reply_tap;
 pub mod runner;
 pub mod telegram_trace;
 pub mod vocabulary_contract;
 
 pub use format::{load as load_scenario, ChatScenario};
+pub use live_driver::LiveScenarioDriver;
 pub use runner::{run_scenario, MockScenarioDriver, TurnContext};
 pub use telegram_trace::load_trace;
 pub use vocabulary_contract::VocabularyContractRegistry;
