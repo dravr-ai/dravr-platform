@@ -70,6 +70,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -107,6 +108,7 @@ async fn test_mcp_ping_request() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -141,6 +143,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -179,6 +182,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -226,6 +230,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -268,6 +273,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -316,6 +322,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -364,6 +371,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -398,6 +406,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -494,6 +503,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -565,6 +575,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -647,6 +658,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -703,6 +715,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -759,6 +772,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -802,6 +816,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )
@@ -856,6 +871,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )

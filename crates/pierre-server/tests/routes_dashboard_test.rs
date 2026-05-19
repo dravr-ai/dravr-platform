@@ -360,6 +360,7 @@ impl DashboardTestSetup {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,
+                    chat_provider: None,
                     extra_tools: Vec::new(),
                 },
             )
@@ -787,6 +788,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                chat_provider: None,
                 extra_tools: Vec::new(),
             },
         )

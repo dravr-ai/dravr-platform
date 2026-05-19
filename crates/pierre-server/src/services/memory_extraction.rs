@@ -28,7 +28,6 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::llm::ChatProvider;
-use crate::services::chat_provider_factory::create_chat_provider;
 
 /// Minimum confidence for an extracted fact to be persisted.
 /// Tuned conservatively — we'd rather miss a fact than store a hallucination.
@@ -275,13 +274,20 @@ pub struct SpawnedExtractionRequest {
 
 /// Fire-and-forget memory extraction.
 ///
-/// Spawns a tokio task that builds a `ChatProvider`, runs the extraction
-/// prompt, and persists the resulting facts. Logs and swallows every error
-/// — extraction is best-effort and never blocks a turn. This is the
-/// canonical entry point used by the messaging dispatch path after a turn
-/// has been persisted.
+/// Spawns a tokio task that runs the extraction prompt against the
+/// supplied [`ChatProvider`] (the platform's shared singleton, so this
+/// task reuses the warm `copilot --acp` subprocess instead of spawning
+/// a fresh one per extraction) and persists the resulting facts. Logs
+/// and swallows every error — extraction is best-effort and never blocks
+/// a turn. This is the canonical entry point used by the messaging
+/// dispatch path after a turn has been persisted.
+///
+/// Passing `chat_provider: None` falls back to building a `ChatProvider`
+/// on demand inside the spawned task — preserves the historical path
+/// for test fixtures that don't wire a singleton through resources.
 pub fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
+    chat_provider: Option<Arc<pierre_llm::ChatProvider>>,
     system_prompt: String,
     req: SpawnedExtractionRequest,
 ) {
@@ -296,13 +302,16 @@ pub fn spawn_extract_for_turn(
             debug!("memory extraction skipped: extraction semaphore closed");
             return;
         };
-        let provider = match create_chat_provider().await {
-            Ok(p) => p,
-            Err(e) => {
-                error!(error = %e, "memory extraction skipped: cannot build chat provider");
-                return;
-            }
+        // Singleton-only — no per-call ChatProvider::from_env() fallback.
+        // Background memory extraction is best-effort: if the singleton
+        // wasn't wired (test fixture without it, or production startup
+        // failed to build it), skip cleanly instead of spawning a fresh
+        // `copilot --acp` subprocess per extraction.
+        let Some(arc) = &chat_provider else {
+            debug!("memory extraction skipped: no chat_provider singleton wired");
+            return;
         };
+        let provider: &pierre_llm::ChatProvider = arc.as_ref();
         let request = ExtractionRequest {
             tenant_id: req.tenant_id,
             user_id: &req.user_id,
@@ -311,7 +320,7 @@ pub fn spawn_extract_for_turn(
             assistant_reply: &req.assistant_reply,
             source_msg_id: req.source_msg_id.as_deref(),
         };
-        match extract_and_persist(memory_repo.as_ref(), &provider, &system_prompt, &request).await {
+        match extract_and_persist(memory_repo.as_ref(), provider, &system_prompt, &request).await {
             Ok(outcome) => debug!(
                 raw = outcome.raw_count,
                 persisted = outcome.persisted.len(),

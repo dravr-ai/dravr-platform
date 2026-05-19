@@ -91,6 +91,7 @@ use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_llm::embeddings::{
     EmbeddingProvider, EmbeddingUsageSink, GeminiEmbeddingProvider, InstrumentedEmbeddingProvider,
 };
+use pierre_llm::ChatProvider;
 use pierre_messaging::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
@@ -117,6 +118,21 @@ pub struct ServerContextOptions {
     pub jwks_manager: Option<Arc<JwksManager>>,
     /// LLM provider for insight validation (injected for testing with mock providers)
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
+    /// Pre-built [`ChatProvider`] singleton shared by every chat / coach /
+    /// social / memory-extraction / health-probe caller.
+    ///
+    /// The production binary builds this once at startup via
+    /// [`ChatProvider::from_env`] and passes it here so the same provider
+    /// instance — and, for the Copilot Headless runner, the same long-lived
+    /// `copilot --acp` subprocess + cached GitHub→Copilot OAuth token — is
+    /// reused across every call. Without this, every chat request and every
+    /// 5-minute health probe would re-invoke `from_env`, spawn a fresh
+    /// subprocess, and re-run the token exchange.
+    ///
+    /// Tests that don't need a real provider leave this `None` and pass
+    /// [`Self::llm_provider`] instead; the resources init wraps that in
+    /// [`ChatProvider::Custom`] at construction time.
+    pub chat_provider: Option<Arc<ChatProvider>>,
     /// Extra MCP tools to register in the default tool registry.
     ///
     /// Populated by messaging-eval integration tests that need a
@@ -135,6 +151,7 @@ impl ServerContextOptions {
             rsa_key_size_bits: Some(4096),
             jwks_manager: None,
             llm_provider: None,
+            chat_provider: None,
             extra_tools: Vec::new(),
         }
     }
@@ -146,6 +163,7 @@ impl ServerContextOptions {
             rsa_key_size_bits: Some(2048),
             jwks_manager: None,
             llm_provider: None,
+            chat_provider: None,
             extra_tools: Vec::new(),
         }
     }
@@ -168,6 +186,13 @@ impl ServerContextOptions {
     #[must_use]
     pub fn with_llm_provider(mut self, provider: Arc<dyn LlmProvider>) -> Self {
         self.llm_provider = Some(provider);
+        self
+    }
+
+    /// Set the pre-built [`ChatProvider`] singleton.
+    #[must_use]
+    pub fn with_chat_provider(mut self, provider: Arc<ChatProvider>) -> Self {
+        self.chat_provider = Some(provider);
         self
     }
 }
@@ -279,6 +304,23 @@ pub struct ServerContext {
     pub tool_registry: Arc<ToolRegistry>,
     /// Optional LLM provider for insight validation and generation (injected for testing)
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
+    /// Pre-built [`ChatProvider`] singleton.
+    ///
+    /// The chat, coach, social-insight, memory-extraction, and LLM
+    /// health-probe code paths all consume this shared `Arc` instead of
+    /// calling [`ChatProvider::from_env`] per request. For the Copilot
+    /// Headless backend this is what keeps a single `copilot --acp`
+    /// subprocess (and the GitHub→Copilot OAuth token cache the CLI
+    /// holds inside it) warm across the process lifetime; with a fresh
+    /// `ChatProvider` per call the platform would re-spawn the subprocess
+    /// and re-run the token exchange every chat turn and every 5-minute
+    /// health probe — which periodically trips GitHub's rate limits.
+    ///
+    /// `None` only when the production binary failed to build the provider
+    /// at startup or a test fixture deliberately skipped wiring one. In
+    /// that case callers fall back to per-call construction via
+    /// [`create_chat_provider_from_resources_arc`].
+    pub chat_provider: Option<Arc<ChatProvider>>,
     /// Abort handle for the background usage counter pruning task
     pub pruning_abort_handle: Option<AbortHandle>,
     /// Optional email service for transactional emails (password reset codes, etc.)
@@ -465,6 +507,15 @@ impl ServerContext {
         let rsa_key_size_bits = options.rsa_key_size_bits.unwrap_or(4096);
         let jwks_manager = options.jwks_manager;
         let llm_provider = options.llm_provider;
+        // Honor explicit chat_provider passthrough first; otherwise wrap
+        // a test-injected llm_provider so test paths keep working without
+        // pre-building a ChatProvider. Production callers always pass
+        // a pre-built ChatProvider (the binary does this in `main`).
+        let chat_provider: Option<Arc<ChatProvider>> = options.chat_provider.or_else(|| {
+            llm_provider
+                .as_ref()
+                .map(|p| Arc::new(ChatProvider::Custom(Arc::clone(p))))
+        });
 
         let database_arc = Arc::new(database);
         let repos = Arc::new(database_arc.repositories());
@@ -741,6 +792,7 @@ impl ServerContext {
             tool_selection,
             tool_registry,
             llm_provider,
+            chat_provider,
             pruning_abort_handle,
             email_service,
             #[cfg(feature = "client-messaging")]
@@ -1334,6 +1386,7 @@ pub struct ServerContextBuilder {
     rsa_key_size_bits: usize,
     jwks_manager: Option<Arc<JwksManager>>,
     llm_provider: Option<Arc<dyn LlmProvider>>,
+    chat_provider: Option<Arc<ChatProvider>>,
 }
 
 impl ServerContextBuilder {
@@ -1349,6 +1402,7 @@ impl ServerContextBuilder {
             rsa_key_size_bits: 4096, // Production default
             jwks_manager: None,
             llm_provider: None,
+            chat_provider: None,
         }
     }
 
@@ -1408,6 +1462,15 @@ impl ServerContextBuilder {
         self
     }
 
+    /// Set the pre-built [`ChatProvider`] singleton (used by the production
+    /// binary so chat / coach / social / memory / health-probe consumers
+    /// share one warm provider instance instead of rebuilding per call).
+    #[must_use]
+    pub fn with_chat_provider(mut self, chat_provider: Arc<ChatProvider>) -> Self {
+        self.chat_provider = Some(chat_provider);
+        self
+    }
+
     /// Build the `ServerContext`
     ///
     /// # Errors
@@ -1426,6 +1489,7 @@ impl ServerContextBuilder {
             rsa_key_size_bits: Some(self.rsa_key_size_bits),
             jwks_manager: self.jwks_manager,
             llm_provider: self.llm_provider,
+            chat_provider: self.chat_provider,
             extra_tools: Vec::new(),
         };
 

@@ -87,6 +87,7 @@ impl IntegrationTestServer {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(jwks_manager),
                     llm_provider: None,
+                    chat_provider: None,
                     extra_tools: Vec::new(),
                 },
             )

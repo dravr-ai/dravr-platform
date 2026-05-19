@@ -602,6 +602,35 @@ fn create_auth_manager(config: &ServerConfig) -> AuthManager {
     }
 }
 
+/// Build the production [`pierre_llm::ChatProvider`] singleton ONCE at startup.
+///
+/// Every chat / coach / social / memory / health-probe caller shares this one
+/// instance. For the Copilot Headless backend this is what keeps a single
+/// `copilot --acp` subprocess + its in-memory GitHub→Copilot OAuth token
+/// cache warm across the process lifetime — without it, each call (and each
+/// 5-minute probe tick) would respawn the subprocess and re-run the token
+/// exchange.
+///
+/// Returns `None` on initialization failure so the binary keeps booting;
+/// `/ready` surfaces the failure via the LLM health probe, and the per-call
+/// fallback in `chat_provider_from_resources_arc` preserves the old
+/// build-per-call behaviour for request paths.
+async fn build_chat_provider_singleton() -> Option<Arc<pierre_llm::ChatProvider>> {
+    match pierre_llm::ChatProvider::from_env().await {
+        Ok(p) => {
+            info!("ChatProvider singleton built; reused across all callers");
+            Some(Arc::new(p))
+        }
+        Err(e) => {
+            error!(
+                error = %e,
+                "ChatProvider::from_env failed at startup; chat callers will fall back to per-call build"
+            );
+            None
+        }
+    }
+}
+
 /// Create server instance with all resources
 async fn create_server(
     database: Database,
@@ -621,6 +650,8 @@ async fn create_server(
         messaging_seed::seed_from_env(&repos).await;
     }
 
+    let chat_provider_singleton = build_chat_provider_singleton().await;
+
     let resources_instance = ServerContext::new(
         database,
         auth_manager,
@@ -631,6 +662,7 @@ async fn create_server(
             rsa_key_size_bits: Some(rsa_key_size),
             jwks_manager: None, // Generate new JWKS manager for production
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
+            chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
         },
     )
@@ -663,7 +695,10 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route
     // (Cloud Run startup probe is /health by default and stays unaffected).
-    spawn_llm_health_probe(Arc::clone(&resources.llm_health));
+    spawn_llm_health_probe(
+        Arc::clone(&resources.llm_health),
+        resources.chat_provider.as_ref().map(Arc::clone),
+    );
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)
     #[cfg(feature = "client-messaging")]

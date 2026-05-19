@@ -100,7 +100,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     ];
 
     let tools = build_mcp_tools();
-    let provider = get_llm_provider().await?;
+    let provider = get_llm_provider(&resources).await?;
     let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 
     let turn_id = ConversationTurnId::new();

@@ -32,6 +32,7 @@ use axum::Router;
 use crate::errors::AppError;
 use crate::llm::{ChatProvider, Tool};
 use crate::mcp::resources::ServerContext;
+use crate::services::chat_provider_factory::chat_provider_from_resources_arc;
 use crate::services::chat_verdicts;
 use crate::services::tool_execution::build_mcp_tools as services_build_mcp_tools;
 
@@ -48,12 +49,18 @@ pub(super) const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
 /// Must match the `INSIGHT_PROMPT_PREFIX` constant in `@pierre/chat-utils`.
 pub(super) const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from this analysis";
 
-/// Resolve the active `ChatProvider` from environment configuration.
+/// Resolve the active `ChatProvider` from the shared singleton on
+/// [`ServerContext`], falling back to a per-call build if no singleton
+/// is wired (test fixtures).
 ///
 /// Shared by `send_message` and `send_insight_message` so they report
-/// the same provider name on `llm_usage` rows as the pipeline does.
-pub(super) async fn get_llm_provider() -> Result<ChatProvider, AppError> {
-    super::create_chat_provider().await
+/// the same provider name on `llm_usage` rows as the pipeline does,
+/// and so a single Copilot Headless subprocess + token cache services
+/// every chat-side request without re-spawning per call.
+pub(super) async fn get_llm_provider(
+    resources: &Arc<ServerContext>,
+) -> Result<Arc<ChatProvider>, AppError> {
+    chat_provider_from_resources_arc(resources).await
 }
 
 /// Build LLM tool definitions for chat-mode function calling.

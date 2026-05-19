@@ -62,12 +62,22 @@ pub struct ModelPricing {
 /// within each provider to ensure the most specific match wins.
 const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     // Gemini models (provider name matches GeminiProvider::name() = "gemini")
+    // gemini-flash-lite-latest is a Google-maintained rolling alias to the
+    // current GA flash-lite tier; prices track whatever that tier costs today.
     (
         "gemini",
-        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
         ModelPricing {
-            input_per_million: 0.25,
-            output_per_million: 1.50,
+            input_per_million: 0.10,
+            output_per_million: 0.40,
+        },
+    ),
+    (
+        "gemini",
+        "gemini-2.5-flash-lite",
+        ModelPricing {
+            input_per_million: 0.10,
+            output_per_million: 0.40,
         },
     ),
     (

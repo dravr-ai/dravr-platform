@@ -25,6 +25,7 @@ use tracing::{debug, error, info, warn};
 use crate::errors::AppError;
 use crate::health::{LlmHealthState, LlmHealthStatus};
 use crate::llm::LlmProvider;
+use crate::mcp::resources::ServerContext;
 
 /// Build a [`ChatProvider`] from the current process environment.
 ///
@@ -64,6 +65,55 @@ pub async fn create_chat_provider_from_resources(
     create_chat_provider().await
 }
 
+/// Return the [`ChatProvider`] singleton held on [`ServerContext`].
+///
+/// This is the preferred accessor for any handler / service / background
+/// task that needs to issue an LLM call. Cloning an `Arc` is cheap and
+/// keeps every consumer pointed at the same provider instance so the
+/// embacle `CopilotHeadlessRunner`'s long-lived `copilot --acp`
+/// subprocess + cached GitHub→Copilot OAuth token are reused instead of
+/// torn down and rebuilt per call.
+///
+/// Resolution order — **NEVER falls through to per-call
+/// [`ChatProvider::from_env`]**:
+///
+/// 1. [`ServerContext::chat_provider`] singleton (production path)
+/// 2. [`ServerContext::llm_provider`] wrapped in [`ChatProvider::Custom`]
+///    (test path — fixtures inject a mock via
+///    [`ServerContextBuilder::with_llm_provider`])
+/// 3. Otherwise: return [`AppError::internal`] — no silent copilot spawn
+///
+/// The per-call `from_env()` fallback was a footgun: under load (`cargo
+/// test` running 30+ chat-touching tests with `--test-threads=4`, Cloud
+/// Run's 5-min probe firing N times) each fallback spawned `copilot
+/// --acp` and ran the GitHub→Copilot OAuth token exchange, which burned
+/// `ChefFamille`'s shared 5000/hr GitHub REST budget in minutes and tripped
+/// Copilot-internal per-PAT throttling that takes ~1 hour to recover.
+/// Erroring fast pushes the failure to test setup / wiring instead.
+///
+/// # Errors
+///
+/// Returns [`AppError::internal`] when neither
+/// [`ServerContext::chat_provider`] nor [`ServerContext::llm_provider`] is
+/// set. Callers should treat this as a wiring bug, not a transient
+/// failure.
+pub async fn chat_provider_from_resources_arc(
+    resources: &Arc<ServerContext>,
+) -> Result<Arc<ChatProvider>, AppError> {
+    if let Some(cp) = &resources.chat_provider {
+        return Ok(Arc::clone(cp));
+    }
+    if let Some(llm) = &resources.llm_provider {
+        return Ok(Arc::new(ChatProvider::Custom(Arc::clone(llm))));
+    }
+    Err(AppError::internal(
+        "No ChatProvider configured on ServerContext — \
+         wire one via ServerContextBuilder::with_chat_provider (production) \
+         or ::with_llm_provider (tests). Per-call ChatProvider::from_env() \
+         is intentionally disabled here to prevent copilot --acp spawn storms.",
+    ))
+}
+
 /// Environment variable controlling the periodic LLM probe interval.
 ///
 /// Defaults to 300s (5 minutes). Set to `0` to disable periodic probing
@@ -90,7 +140,10 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 300;
 /// readiness route + Slack alert. Restoring health after a transient
 /// failure is the request-time fallback chain's responsibility, not this
 /// probe's.
-pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
+pub fn spawn_llm_health_probe(
+    health_state: Arc<LlmHealthState>,
+    chat_provider: Option<Arc<ChatProvider>>,
+) {
     let provider_name = LlmProviderType::from_env().to_string();
     let interval_secs = env::var(LLM_PROBE_INTERVAL_ENV_VAR)
         .ok()
@@ -101,6 +154,7 @@ pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
         info!(
             provider = %provider_name,
             interval_secs,
+            chat_provider_singleton = chat_provider.is_some(),
             "Starting LLM health probe task"
         );
 
@@ -108,7 +162,13 @@ pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
         // within the first round-trip; subsequent probes follow the
         // interval. When interval_secs is 0, we run a single probe and
         // exit.
-        run_one_probe(&provider_name, &health_state, ProbeKind::Startup).await;
+        run_one_probe(
+            &provider_name,
+            &health_state,
+            chat_provider.as_ref(),
+            ProbeKind::Startup,
+        )
+        .await;
 
         if interval_secs == 0 {
             info!(
@@ -128,7 +188,13 @@ pub fn spawn_llm_health_probe(health_state: Arc<LlmHealthState>) {
         ticker.tick().await; // consume the immediate first tick
         loop {
             ticker.tick().await;
-            run_one_probe(&provider_name, &health_state, ProbeKind::Periodic).await;
+            run_one_probe(
+                &provider_name,
+                &health_state,
+                chat_provider.as_ref(),
+                ProbeKind::Periodic,
+            )
+            .await;
             run_github_rate_limit_probe().await;
         }
     });
@@ -279,20 +345,27 @@ impl Display for ProbeKind {
 ///   (paging-worthy: the provider became unavailable while traffic was
 ///   landing) and clear with an `info!` recovery line on
 ///   `Unhealthy -> Healthy`.
-async fn run_one_probe(provider_name: &str, health_state: &LlmHealthState, kind: ProbeKind) {
-    let provider = match create_chat_provider().await {
-        Ok(p) => p,
-        Err(e) => {
-            let msg = format!("provider construction failed: {e}");
-            let previous = health_state
-                .record_unhealthy(provider_name.to_owned(), msg.clone())
-                .await;
-            log_probe_outcome(provider_name, kind, previous, false, Some(&msg));
-            return;
-        }
+async fn run_one_probe(
+    provider_name: &str,
+    health_state: &LlmHealthState,
+    chat_provider: Option<&Arc<ChatProvider>>,
+    kind: ProbeKind,
+) {
+    // Singleton-only: reuse the warm provider so the underlying Copilot
+    // Headless subprocess + cached GitHub→Copilot OAuth token stay alive
+    // across probe ticks. No per-tick `create_chat_provider()` fallback —
+    // see `chat_provider_from_resources_arc` for the full rationale.
+    let Some(cp) = chat_provider else {
+        let msg = "no chat_provider singleton wired; probe skipped";
+        let previous = health_state
+            .record_unhealthy(provider_name.to_owned(), msg)
+            .await;
+        log_probe_outcome(provider_name, kind, previous, false, Some(msg));
+        return;
     };
+    let provider: &ChatProvider = cp.as_ref();
     match provider.health_check().await {
-        Ok(true) => match roundtrip_probe(&provider).await {
+        Ok(true) => match roundtrip_probe(provider).await {
             Ok(()) => {
                 let previous = health_state.record_healthy(provider_name.to_owned()).await;
                 log_probe_outcome(provider_name, kind, previous, true, None);

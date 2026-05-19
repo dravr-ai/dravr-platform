@@ -29,6 +29,8 @@ use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use std::sync::Arc;
 
+use crate::services::chat_provider_factory::chat_provider_from_resources_arc;
+
 use super::types::{
     CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse,
     GeneratedCoachData, HideCoachResponse, ImportCoachResponse, ImportFromUrlBody,
@@ -519,8 +521,10 @@ pub(super) async fn handle_generate(
         ChatMessage::user(&user_prompt),
     ];
 
-    // Get LLM provider and generate
-    let provider = super::super::create_chat_provider().await?;
+    // Get LLM provider and generate. Shared singleton — for Copilot
+    // Headless this reuses the warm subprocess instead of spawning a
+    // fresh `copilot --acp` per coach generation.
+    let provider = chat_provider_from_resources_arc(&resources).await?;
     let request = ChatRequest::new(llm_messages);
     let response = provider.complete(&request).await?;
 

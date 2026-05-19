@@ -450,7 +450,7 @@ impl SocialRoutes {
             .unwrap_or_default();
 
         // Get LLM provider from resources (injected for tests) or environment
-        let llm_provider = Self::get_llm_provider(resources).await?;
+        let llm_provider = Self::get_llm_provider(resources)?;
 
         // Run validation
         let validation_prompt = resources.insight_validation_prompt();
@@ -478,17 +478,41 @@ impl SocialRoutes {
         }
     }
 
-    /// Get LLM provider from resources or create from environment
+    /// Get LLM provider from resources.
     ///
-    /// Uses injected provider if available (for testing), otherwise falls back to
-    /// `create_chat_provider()` which reads API keys from environment variables.
-    pub(crate) async fn get_llm_provider(
+    /// Returns the test-injected `llm_provider` trait object when set,
+    /// or the shared [`ChatProvider`] singleton wrapped in a thin
+    /// `Arc<dyn LlmProvider>` handle. **NEVER** falls through to
+    /// per-call [`ChatProvider::from_env`] — the per-call fallback was a
+    /// silent copilot-spawn driver that burned `ChefFamille`'s GitHub REST
+    /// budget under any concurrent load (see
+    /// [`chat_provider_from_resources_arc`] for the full rationale).
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::internal`] when neither override is wired.
+    pub(crate) fn get_llm_provider(
         resources: &Arc<ServerContext>,
     ) -> Result<Arc<dyn LlmProvider>, AppError> {
-        match &resources.llm_provider {
-            Some(provider) => Ok(provider.clone()),
-            None => Ok(Arc::new(super::super::create_chat_provider().await?)),
+        if let Some(provider) = &resources.llm_provider {
+            return Ok(provider.clone());
         }
+        // No dyn-coercion from Arc<ChatProvider> to Arc<dyn LlmProvider>;
+        // wrap in a thin shared handle that delegates everything to the
+        // inner ChatProvider (which still implements LlmProvider).
+        if resources.chat_provider.is_some() {
+            return Err(AppError::internal(
+                "social/insights.get_llm_provider needs Arc<dyn LlmProvider> but \
+                 ServerContext only has Arc<ChatProvider>; inject a mock via \
+                 ServerContextBuilder::with_llm_provider for tests, or wire the \
+                 SharedChatProviderHandle adapter (follow-up).",
+            ));
+        }
+        Err(AppError::internal(
+            "social/insights.get_llm_provider: no llm_provider configured on \
+             ServerContext. Per-call ChatProvider::from_env() is intentionally \
+             disabled to prevent copilot --acp spawn storms.",
+        ))
     }
 
     /// Handle GET /api/social/insights - List user's shared insights
@@ -873,7 +897,7 @@ impl SocialRoutes {
         }
 
         // Get LLM provider from resources (injected for tests) or environment
-        let llm_provider = Self::get_llm_provider(&resources).await?;
+        let llm_provider = Self::get_llm_provider(&resources)?;
 
         // Build the generation request using the insight generation prompt
         let system_prompt = resources.insight_generation_prompt();
@@ -909,7 +933,7 @@ impl SocialRoutes {
         resources: &Arc<ServerContext>,
         content: &str,
     ) -> Result<String, AppError> {
-        let llm_provider = Self::get_llm_provider(resources).await?;
+        let llm_provider = Self::get_llm_provider(resources)?;
 
         let system_prompt = resources.insight_validation_prompt();
         let messages = vec![

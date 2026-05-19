@@ -14,7 +14,7 @@ use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
 use crate::protocols::universal::UniversalExecutor;
-use crate::services::chat_provider_factory::create_chat_provider_from_resources;
+use crate::services::chat_provider_factory::chat_provider_from_resources_arc;
 use crate::services::provider_error_filter::detect_leaked_provider_error;
 use crate::services::tool_execution::{self as chat_tool_loop, build_mcp_tools, ToolLoopParams};
 
@@ -98,14 +98,18 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
     .await;
 
     // Stage 11: LLM provider resolution.
-    let provider = create_chat_provider_from_resources(resources.llm_provider.as_ref()).await?;
+    // Shared `Arc<ChatProvider>` from the resources singleton — for the
+    // Copilot Headless backend this means every turn reuses the same warm
+    // `copilot --acp` subprocess + cached GitHub→Copilot OAuth token.
+    let provider_arc = chat_provider_from_resources_arc(resources).await?;
+    let provider: &pierre_llm::ChatProvider = provider_arc.as_ref();
     let provider_name = provider.name().to_owned();
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
     apply_tier1_compaction(
         &resources.harness_config_registry,
         resources.repos.memory.as_ref(),
-        &provider,
+        provider,
         input.conversation_tenant_id,
         &input.conversation_id,
         history,
@@ -148,7 +152,7 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
         )));
     let tools = build_mcp_tools();
     let tool_params = ToolLoopParams {
-        provider: &provider,
+        provider,
         executor,
         tools: &tools,
         model: active_model,
