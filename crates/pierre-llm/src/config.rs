@@ -20,6 +20,8 @@ pub enum LlmProviderType {
     Gemini,
     /// Local LLM provider - `OpenAI`-compatible endpoint (Ollama, vLLM, `LocalAI`)
     Local,
+    /// `OpenRouter` provider - unified gateway to 200+ models via openrouter.ai
+    OpenRouter,
     /// Claude Code CLI provider - subprocess-based Anthropic Claude
     ClaudeCode,
     /// Cursor Agent CLI provider - subprocess-based Cursor AI
@@ -60,6 +62,7 @@ impl LlmProviderType {
         match s.to_lowercase().as_str() {
             "groq" => Self::Groq,
             "local" | "ollama" | "vllm" | "localai" => Self::Local,
+            "openrouter" | "open_router" | "open-router" => Self::OpenRouter,
             "claude_code" | "claude-code" => Self::ClaudeCode,
             "cursor_agent" | "cursor-agent" => Self::CursorAgent,
             "opencode" | "open_code" => Self::OpenCode,
@@ -130,7 +133,7 @@ impl LlmProviderType {
 
     /// Get model from environment, respecting the active provider
     ///
-    /// For API-based providers (Gemini, Groq, Local), reads `PIERRE_LLM_MODEL`.
+    /// For API-based providers (Gemini, Groq, Local, `OpenRouter`), reads `PIERRE_LLM_MODEL`.
     /// For embacle-based providers, reads the runner-specific env var
     /// (e.g. `COPILOT_SDK_MODEL`) or uses the runner's built-in default.
     /// Returns None only if no model can be determined.
@@ -165,7 +168,7 @@ impl LlmProviderType {
     #[must_use]
     fn embacle_model_from_env(self) -> Option<String> {
         match self {
-            Self::Gemini | Self::Groq | Self::Local => return None,
+            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter => return None,
             _ => {}
         }
 
@@ -201,7 +204,7 @@ impl LlmProviderType {
                     .filter(|m| !m.is_empty())
                     .unwrap_or_else(|| "gpt-5.4".to_owned()),
             ),
-            Self::Gemini | Self::Groq | Self::Local => unreachable!(),
+            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter => unreachable!(),
         }
     }
 
@@ -280,6 +283,7 @@ impl Display for LlmProviderType {
             Self::Groq => write!(f, "groq"),
             Self::Gemini => write!(f, "gemini"),
             Self::Local => write!(f, "local"),
+            Self::OpenRouter => write!(f, "openrouter"),
             Self::ClaudeCode => write!(f, "claude_code"),
             Self::CursorAgent => write!(f, "cursor_agent"),
             Self::OpenCode => write!(f, "opencode"),
@@ -298,7 +302,7 @@ impl Display for LlmProviderType {
     }
 }
 
-/// LLM model configuration for all providers (Gemini, Groq, Local)
+/// LLM model configuration for all providers (Gemini, Groq, Local, `OpenRouter`)
 ///
 /// Reads model names from environment variables:
 /// - `PIERRE_LLM_DEFAULT_MODEL`: Primary model to use

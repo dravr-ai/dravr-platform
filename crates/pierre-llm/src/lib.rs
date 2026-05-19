@@ -46,6 +46,8 @@ mod groq;
 pub mod judge;
 /// Generic OpenAI-compatible LLM provider
 mod openai_compatible;
+/// `OpenRouter` LLM provider — unified gateway to 200+ models
+mod openrouter;
 /// Model pricing registry for cost tracking
 pub mod pricing;
 /// System prompts for LLM interactions
@@ -75,6 +77,7 @@ pub use gemini::{
 };
 pub use groq::GroqProvider;
 pub use openai_compatible::{OpenAiCompatibleConfig, OpenAiCompatibleProvider};
+pub use openrouter::OpenRouterProvider;
 pub use prompts::{
     get_activity_analysis_prompt, get_activity_analysis_system_prompt, get_coach_generation_prompt,
     get_insight_generation_prompt, get_insight_validation_prompt, get_messaging_context_prompt,

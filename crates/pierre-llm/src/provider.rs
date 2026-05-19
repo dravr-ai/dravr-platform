@@ -1,5 +1,5 @@
 // ABOUTME: Unified LLM provider selector for runtime provider switching
-// ABOUTME: Abstracts over Gemini, Groq, Local, and embacle providers based on environment configuration
+// ABOUTME: Abstracts over Gemini, Groq, Local, OpenRouter, and embacle providers based on environment configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,6 +14,7 @@
 //! Set `PIERRE_LLM_PROVIDER` environment variable:
 //! - `gemini` (default): Use Google Gemini for full-featured capabilities
 //! - `groq`: Use Groq for cost-effective open-source models
+//! - `openrouter`: Use `OpenRouter` as a unified gateway to 200+ models
 //! - `local`/`ollama`/`vllm`/`localai`: Use a local `OpenAI`-compatible endpoint
 //! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_headless`/`warp_cli`: Use an embacle runner
 //! - `openai_api`/`openai`: Use an `OpenAI`-compatible HTTP API via embacle
@@ -27,14 +28,14 @@ use tracing::{debug, info, warn};
 use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
     FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
-    OpenAiCompatibleProvider, Tool,
+    OpenAiCompatibleProvider, OpenRouterProvider, Tool,
 };
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use embacle::CliRunnerType;
 
-/// Unified chat provider that wraps Gemini, Groq, Local, or embacle-based LLM
+/// Unified chat provider that wraps Gemini, Groq, Local, `OpenRouter`, or embacle-based LLM
 ///
 /// This enum provides a consistent interface regardless of which
 /// underlying provider is configured.
@@ -45,6 +46,8 @@ pub enum ChatProvider {
     Groq(GroqProvider),
     /// Local LLM provider via `OpenAI`-compatible API (Ollama, vLLM, `LocalAI`)
     Local(OpenAiCompatibleProvider),
+    /// `OpenRouter` — unified gateway to 200+ frontier and open-source models
+    OpenRouter(OpenRouterProvider),
     /// Embacle-based LLM provider (CLI runners and SDK runners)
     Cli(CliLlmProvider),
     /// Custom provider supplied by the caller (used by tests to inject a
@@ -71,6 +74,7 @@ impl ChatProvider {
     /// Reads `PIERRE_LLM_PROVIDER` to determine which provider to use:
     /// - `gemini` (default): Creates `GeminiProvider` (requires `GEMINI_API_KEY`)
     /// - `groq`: Creates `GroqProvider` (requires `GROQ_API_KEY`)
+    /// - `openrouter`: Creates `OpenRouterProvider` (requires `OPENROUTER_API_KEY`)
     /// - `local`/`ollama`/`vllm`/`localai`: Creates `OpenAiCompatibleProvider`
     /// - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_headless`/`warp_cli`: Embacle runners
     ///
@@ -157,7 +161,7 @@ impl ChatProvider {
     ///    naming conventions for the same upstream SKU (Copilot's
     ///    `claude-opus-4.7` vs Anthropic's `claude-opus-4-7`).
     ///
-    /// Non-CLI fallback types (Groq, Gemini, Local) start from
+    /// Non-CLI fallback types (Groq, Gemini, Local, `OpenRouter`) start from
     /// [`Self::create_provider`], then have `PIERRE_LLM_FALLBACK_PROVIDER_MODEL`
     /// applied on top. Their stock `from_env()` paths read
     /// `PIERRE_LLM_DEFAULT_MODEL`, which the primary owns — so without this
@@ -299,6 +303,7 @@ impl ChatProvider {
             LlmProviderType::Groq => Self::groq(),
             LlmProviderType::Gemini => Self::gemini(),
             LlmProviderType::Local => Self::local(),
+            LlmProviderType::OpenRouter => Self::openrouter(),
             LlmProviderType::ClaudeCode
             | LlmProviderType::Copilot
             | LlmProviderType::CursorAgent
@@ -348,6 +353,15 @@ impl ChatProvider {
         Ok(Self::Local(OpenAiCompatibleProvider::from_env()?))
     }
 
+    /// Create an `OpenRouter` provider explicitly
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `OPENROUTER_API_KEY` is not set.
+    pub fn openrouter() -> Result<Self, AppError> {
+        Ok(Self::OpenRouter(OpenRouterProvider::from_env()?))
+    }
+
     /// Create an embacle-based LLM provider explicitly
     ///
     /// Auto-detects or reads `PIERRE_LLM_PROVIDER` to select the runner
@@ -379,6 +393,14 @@ impl ChatProvider {
         Self::Groq(GroqProvider::new(api_key))
     }
 
+    /// Create an `OpenRouter` provider with a specific API key
+    ///
+    /// Use this when you have already resolved the API key from tenant/user credentials.
+    #[must_use]
+    pub fn openrouter_with_key(api_key: String) -> Self {
+        Self::OpenRouter(OpenRouterProvider::new(api_key))
+    }
+
     /// Get the provider type
     #[must_use]
     pub fn provider_type(&self) -> LlmProviderType {
@@ -388,6 +410,7 @@ impl ChatProvider {
             Self::Gemini(_) | Self::Custom(_) => LlmProviderType::Gemini,
             Self::Groq(_) => LlmProviderType::Groq,
             Self::Local(_) => LlmProviderType::Local,
+            Self::OpenRouter(_) => LlmProviderType::OpenRouter,
             Self::Cli(p) => p.provider_type(),
             // The chain reports as the primary — metrics and analytics
             // should attribute requests to the active first-line provider;
@@ -413,8 +436,8 @@ impl ChatProvider {
 
     /// Perform a chat completion with tool/function calling support
     ///
-    /// Gemini, Groq, and Local providers all support native function/tool calling
-    /// via their respective APIs (Gemini native, Groq/Local OpenAI-compatible).
+    /// Gemini, Groq, Local, and `OpenRouter` providers all support native function/tool calling
+    /// via their respective APIs (Gemini native, the others via OpenAI-compatible).
     ///
     /// Tool-calling always uses non-streaming mode. Streaming tool-call accumulation
     /// is complex and provides negligible UX benefit for short tool-call payloads.
@@ -432,6 +455,7 @@ impl ChatProvider {
             Self::Gemini(provider) => provider.complete_with_tools(request, tools).await,
             Self::Groq(provider) => provider.complete_with_tools(request, tools).await,
             Self::Local(provider) => provider.complete_with_tools(request, tools).await,
+            Self::OpenRouter(provider) => provider.complete_with_tools(request, tools).await,
             Self::Cli(_) => Err(AppError::invalid_input(
                 "Embacle-based providers do not support structured tool calling via this path",
             )),
@@ -512,8 +536,8 @@ impl ChatProvider {
     /// returns 404 and collapses the fallback).
     ///
     /// Only affects the variants whose URL/path embeds a model name
-    /// (Gemini, Groq, Local). `Cli` variants take their model from the
-    /// embacle runner config and are handled via
+    /// (Gemini, Groq, Local, `OpenRouter`). `Cli` variants take their model
+    /// from the embacle runner config and are handled via
     /// `CliLlmProvider::from_runner_type_with_model` instead. `Chain`
     /// and `Custom` are pass-through — chain composition applies the
     /// override to its primary/secondary before they're nested, and
@@ -524,6 +548,7 @@ impl ChatProvider {
             Self::Gemini(p) => Self::Gemini(p.with_default_model(model)),
             Self::Groq(p) => Self::Groq(p.with_default_model(model)),
             Self::Local(p) => Self::Local(p.with_default_model(model)),
+            Self::OpenRouter(p) => Self::OpenRouter(p.with_default_model(model)),
             other => other,
         }
     }
@@ -584,9 +609,10 @@ impl ChatProvider {
 /// for the subprocess-CLI runners.
 ///
 /// Returns `None` for provider types that are not driven by an embacle
-/// `CliRunnerType` dispatch — Gemini, Groq, Local (each construct directly
-/// from their own env vars), and `CopilotHeadless` / `OpenAiApi` (which
-/// follow their own bespoke construction paths in [`CliLlmProvider`]).
+/// `CliRunnerType` dispatch — Gemini, Groq, Local, `OpenRouter` (each
+/// construct directly from their own env vars), and `CopilotHeadless` /
+/// `OpenAiApi` (which follow their own bespoke construction paths in
+/// [`CliLlmProvider`]).
 ///
 /// Used by [`ChatProvider::create_fallback_provider`] to build the runtime
 /// chain's secondary against a specific runner type instead of re-reading
@@ -608,6 +634,7 @@ fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> 
         LlmProviderType::Gemini
         | LlmProviderType::Groq
         | LlmProviderType::Local
+        | LlmProviderType::OpenRouter
         | LlmProviderType::CopilotHeadless
         | LlmProviderType::OpenAiApi => None,
     }
@@ -650,6 +677,7 @@ impl fmt::Debug for ChatProvider {
             Self::Gemini(_) => f.debug_tuple("ChatProvider::Gemini").finish(),
             Self::Groq(_) => f.debug_tuple("ChatProvider::Groq").finish(),
             Self::Local(_) => f.debug_tuple("ChatProvider::Local").finish(),
+            Self::OpenRouter(_) => f.debug_tuple("ChatProvider::OpenRouter").finish(),
             Self::Cli(_) => f.debug_tuple("ChatProvider::Cli").finish(),
             Self::Custom(_) => f.debug_tuple("ChatProvider::Custom").finish(),
             Self::Chain { primary, secondary } => f
@@ -689,6 +717,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.name(),
             Self::Groq(p) => p.name(),
             Self::Local(p) => p.name(),
+            Self::OpenRouter(p) => p.name(),
             Self::Cli(p) => p.name(),
             Self::Custom(p) => p.name(),
             Self::Chain { primary, .. } => primary.name(),
@@ -700,6 +729,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.display_name(),
             Self::Groq(p) => p.display_name(),
             Self::Local(p) => p.display_name(),
+            Self::OpenRouter(p) => p.display_name(),
             Self::Cli(p) => p.display_name(),
             Self::Custom(p) => p.display_name(),
             Self::Chain { primary, .. } => primary.display_name(),
@@ -711,6 +741,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.capabilities(),
             Self::Groq(p) => p.capabilities(),
             Self::Local(p) => p.capabilities(),
+            Self::OpenRouter(p) => p.capabilities(),
             Self::Cli(p) => p.capabilities(),
             Self::Custom(p) => p.capabilities(),
             Self::Chain { primary, .. } => primary.capabilities(),
@@ -722,6 +753,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.default_model(),
             Self::Groq(p) => p.default_model(),
             Self::Local(p) => p.default_model(),
+            Self::OpenRouter(p) => p.default_model(),
             Self::Cli(p) => p.default_model(),
             Self::Custom(p) => p.default_model(),
             Self::Chain { primary, .. } => primary.default_model(),
@@ -733,6 +765,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.available_models(),
             Self::Groq(p) => p.available_models(),
             Self::Local(p) => p.available_models(),
+            Self::OpenRouter(p) => p.available_models(),
             Self::Cli(p) => p.available_models(),
             Self::Custom(p) => p.available_models(),
             Self::Chain { primary, .. } => primary.available_models(),
@@ -744,6 +777,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.complete(request).await,
             Self::Groq(p) => p.complete(request).await,
             Self::Local(p) => p.complete(request).await,
+            Self::OpenRouter(p) => p.complete(request).await,
             Self::Cli(p) => p.complete(request).await,
             Self::Custom(p) => p.complete(request).await,
             Self::Chain { primary, secondary } => {
@@ -828,6 +862,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.complete_stream(request).await,
             Self::Groq(p) => p.complete_stream(request).await,
             Self::Local(p) => p.complete_stream(request).await,
+            Self::OpenRouter(p) => p.complete_stream(request).await,
             Self::Cli(p) => p.complete_stream(request).await,
             Self::Custom(p) => p.complete_stream(request).await,
             Self::Chain { primary, secondary } => {
@@ -912,6 +947,7 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.health_check().await,
             Self::Groq(p) => p.health_check().await,
             Self::Local(p) => p.health_check().await,
+            Self::OpenRouter(p) => p.health_check().await,
             Self::Cli(p) => p.health_check().await,
             Self::Custom(p) => p.health_check().await,
             Self::Chain { primary, secondary } => {

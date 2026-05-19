@@ -304,6 +304,12 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             required: false,
             description: "Local LLM base URL (defaults to http://localhost:11434/v1 for Ollama)",
         }],
+        LlmProviderType::OpenRouter => vec![EnvValidation {
+            name: "OPENROUTER_API_KEY",
+            value: env::var("OPENROUTER_API_KEY").ok(),
+            required,
+            description: "OpenRouter API key (get one at https://openrouter.ai/keys)",
+        }],
         LlmProviderType::ClaudeCode
         | LlmProviderType::Copilot
         | LlmProviderType::CursorAgent
