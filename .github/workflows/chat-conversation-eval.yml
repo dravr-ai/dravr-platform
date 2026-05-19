@@ -111,7 +111,7 @@ jobs:
       # P3 follow-up: the live driver consumes these to pick its
       # provider. Today the test self-skips when the env is set but
       # the driver isn't wired (see `live_driver_executes_every_scenario`).
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_GEMINI_API_KEY }}
       PIERRE_LLM_MODEL: "gemini-2.0-flash-exp"
 
     steps:
