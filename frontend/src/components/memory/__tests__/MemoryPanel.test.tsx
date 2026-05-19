@@ -113,6 +113,47 @@ describe('MemoryPanel', () => {
     });
   });
 
+  it('drops the "you" subject and capitalizes the predicate so the line never reads "you has connected X"', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
+      facts: [
+        sampleFact({
+          id: 'fact-broken',
+          kind: 'equipment',
+          subject: 'you',
+          predicate: 'has connected',
+          object: 'WHOOP',
+        }),
+      ],
+      total: 1,
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText(/WHOOP/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/you has connected/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Has connected/)).toBeInTheDocument();
+  });
+
+  it('keeps the literal subject for facts whose subject is a named entity', async () => {
+    vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
+      facts: [
+        sampleFact({
+          id: 'fact-coach',
+          kind: 'other',
+          subject: 'Coach Sarah',
+          predicate: 'recommends',
+          object: 'cadence drills weekly',
+        }),
+      ],
+      total: 1,
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText(/Coach Sarah/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/recommends/)).toBeInTheDocument();
+  });
+
   it('passes the kind filter into the API call', async () => {
     vi.mocked(userApi.listMemoryFacts).mockResolvedValue({
       facts: [],

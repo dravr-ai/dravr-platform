@@ -44,6 +44,19 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+// The memory-extraction prompt models predicates as third-person verbs
+// ("has", "is", "wants"), so a literal {subject} {predicate} {object}
+// render produces "you has connected WHOOP". When the subject is the
+// "you" pronoun we drop it and capitalize the predicate so the line
+// reads as a sentence the user already knows is about themselves.
+function isUserSubject(subject: string): boolean {
+  return subject.trim().toLowerCase() === 'you';
+}
+
+function capitalizeFirst(text: string): string {
+  return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function MemoryScreen(): React.JSX.Element {
   const colors = useThemeColors();
   const queryClient = useQueryClient();
@@ -285,13 +298,24 @@ export function MemoryScreen(): React.JSX.Element {
                         fontSize: fontSize.sm,
                       }}
                     >
-                      <Text style={{ fontWeight: fontWeight.semibold }}>
-                        {fact.subject}
-                      </Text>{' '}
-                      {fact.predicate}{' '}
-                      <Text style={{ fontWeight: fontWeight.semibold }}>
-                        {fact.object}
-                      </Text>
+                      {isUserSubject(fact.subject) ? (
+                        <>
+                          {capitalizeFirst(fact.predicate)}{' '}
+                          <Text style={{ fontWeight: fontWeight.semibold }}>
+                            {fact.object}
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={{ fontWeight: fontWeight.semibold }}>
+                            {fact.subject}
+                          </Text>{' '}
+                          {fact.predicate}{' '}
+                          <Text style={{ fontWeight: fontWeight.semibold }}>
+                            {fact.object}
+                          </Text>
+                        </>
+                      )}
                     </Text>
                     <Text
                       style={{
@@ -306,7 +330,7 @@ export function MemoryScreen(): React.JSX.Element {
                   </View>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={`Forget ${fact.subject} ${fact.predicate} ${fact.object}`}
+                    accessibilityLabel={`Forget ${isUserSubject(fact.subject) ? `${capitalizeFirst(fact.predicate)} ${fact.object}` : `${fact.subject} ${fact.predicate} ${fact.object}`}`}
                     onPress={() => handleForget(fact)}
                     disabled={forgetMutation.isPending}
                     style={{

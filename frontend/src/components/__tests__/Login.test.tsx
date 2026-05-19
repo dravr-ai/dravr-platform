@@ -41,13 +41,13 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-async function renderLogin() {
+async function renderLogin(props: { prefilledEmail?: string } = {}) {
   let result;
   await act(async () => {
     result = render(
       <ThemeProvider>
         <AuthProvider>
-          <Login />
+          <Login prefilledEmail={props.prefilledEmail} />
         </AuthProvider>
       </ThemeProvider>
     );
@@ -175,6 +175,29 @@ describe('Login Component', () => {
     await waitFor(() => {
       expect(screen.getByText('Login failed')).toBeInTheDocument()
     })
+  })
+
+  it('should prefill the email field when prefilledEmail prop is supplied', async () => {
+    await renderLogin({ prefilledEmail: 'alice@acme.com' })
+
+    const emailInput = screen.getByLabelText(/email address/i)
+    expect(emailInput).toHaveValue('alice@acme.com')
+  })
+
+  it('should leave the email field empty when no prefilledEmail is supplied', async () => {
+    await renderLogin()
+
+    const emailInput = screen.getByLabelText(/email address/i)
+    expect(emailInput).toHaveValue('')
+  })
+
+  it('should use a synthetic placeholder that cannot be mistaken for a pre-filled value', async () => {
+    await renderLogin()
+
+    const emailInput = screen.getByLabelText(/email address/i)
+    // RFC 2606 reserves example.com for documentation; this prevents
+    // users from thinking their own email has already been entered.
+    expect(emailInput).toHaveAttribute('placeholder', 'name@example.com')
   })
 
   it('should have proper accessibility attributes', async () => {

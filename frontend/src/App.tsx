@@ -55,6 +55,7 @@ function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [authView, setAuthView] = useState<AuthView>('login');
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+  const [registeredEmail, setRegisteredEmail] = useState<string>('');
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
@@ -142,8 +143,9 @@ function AppContent() {
             setAuthView('login');
             setRegistrationMessage(null);
           }}
-          onRegistrationSuccess={(message) => {
+          onRegistrationSuccess={(message, email) => {
             setRegistrationMessage(message);
+            setRegisteredEmail(email);
             setAuthView('login');
           }}
         />
@@ -198,6 +200,7 @@ function AppContent() {
         <Login
           onNavigateToRegister={() => setAuthView('register')}
           onNavigateToForgotPassword={() => setAuthView('forgot-password')}
+          prefilledEmail={registeredEmail || undefined}
         />
       </div>
     );

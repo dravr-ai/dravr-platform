@@ -96,6 +96,27 @@ describe('MemoryScreen', () => {
     expect(getAllByText('Injuries').length).toBeGreaterThan(0);
   });
 
+  it('does not render the "you has connected X" pattern when the LLM emits a third-person predicate for a "you" subject', async () => {
+    mockListMemoryFacts.mockResolvedValueOnce({
+      facts: [
+        createFact({
+          id: 'fact-broken',
+          kind: 'equipment',
+          subject: 'you',
+          predicate: 'has connected',
+          object: 'WHOOP',
+        }),
+      ],
+      total: 1,
+    });
+    const { queryByText, getByText } = renderScreen();
+    await waitFor(() => {
+      expect(getByText('WHOOP')).toBeTruthy();
+    });
+    expect(queryByText(/you has connected/i)).toBeNull();
+    expect(getByText(/Has connected/)).toBeTruthy();
+  });
+
   it('fires forget mutation when Alert confirm is tapped', async () => {
     mockListMemoryFacts.mockResolvedValue({
       facts: [createFact()],
@@ -113,10 +134,14 @@ describe('MemoryScreen', () => {
       });
 
     const { getByLabelText } = renderScreen();
+    // The "You" subject is dropped at render time and the predicate is
+    // capitalized to avoid grammatically-broken renders like
+    // "you has connected WHOOP". So the accessibility label reads
+    // "Forget Targeting sub-3:30 marathon..." rather than "Forget You targeting...".
     await waitFor(() => {
-      expect(getByLabelText(/Forget You targeting/i)).toBeTruthy();
+      expect(getByLabelText(/Forget Targeting sub-3:30 marathon/i)).toBeTruthy();
     });
-    fireEvent.press(getByLabelText(/Forget You targeting/i));
+    fireEvent.press(getByLabelText(/Forget Targeting sub-3:30 marathon/i));
     await waitFor(() => {
       expect(mockForgetMemoryFact).toHaveBeenCalledWith('fact-1');
     });

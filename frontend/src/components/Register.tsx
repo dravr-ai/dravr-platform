@@ -55,7 +55,7 @@ function PierreLogo() {
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
-  onRegistrationSuccess: (message: string) => void;
+  onRegistrationSuccess: (message: string, email: string) => void;
 }
 
 export default function Register({ onNavigateToLogin, onRegistrationSuccess }: RegisterProps) {
@@ -87,7 +87,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
 
     try {
       const response = await authApi.register({ email, password, display_name: displayName || undefined });
-      onRegistrationSuccess(response.message);
+      onRegistrationSuccess(response.message, email);
     } catch (err: unknown) {
       const apiError = err as { response?: { data?: { message?: string; error?: string } } };
       setError(apiError.response?.data?.message || apiError.response?.data?.error || 'Registration failed. Please try again.');
