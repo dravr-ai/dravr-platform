@@ -38,7 +38,7 @@ use pierre_mcp_server::llm::{
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Returns true when the test should actually run (CI provisions Ollama and
 /// sets `RUN_LOCAL_LLM_TESTS=1`). On developer machines this defaults to false
@@ -608,12 +608,15 @@ fn registry_tools(names: &[&str]) -> Vec<Tool> {
 }
 
 // qwen2.5:14b-instruct is non-deterministic about whether it issues a tool
-// call vs. answers in prose, even with imperative wording. The two
-// `test_real_tool_registry_calling_*` tests below retry the request once
-// before failing, which is enough to absorb single-roll variance without
-// hiding a real regression (a broken tool schema would fail both attempts
-// every time). The multi-tool test below stays single-shot because it has
-// three valid tools and is already much less prone to flake.
+// call vs. answers in prose, even with imperative wording. The
+// `test_real_tool_registry_calling_*` tests below retry up to three times
+// to absorb single-roll variance without hiding a real regression — a
+// broken tool schema would fail every attempt. The multi-tool test below
+// uses a similar retry against transient Ollama connection drops
+// (qwen2.5:14b is ~9GB on a ~14GB runner; first-load OOM blips happen).
+
+const TOOL_CALL_RETRY_ATTEMPTS: usize = 3;
+const OLLAMA_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 
 async fn assert_tool_called_with_retry(tool_name: &str, user_prompt: &str) {
     let provider = create_ollama_provider();
@@ -621,7 +624,7 @@ async fn assert_tool_called_with_retry(tool_name: &str, user_prompt: &str) {
     let request = ChatRequest::new(vec![ChatMessage::user(user_prompt)]);
 
     let mut last_calls: Option<Vec<String>> = None;
-    for attempt in 0..2 {
+    for attempt in 0..TOOL_CALL_RETRY_ATTEMPTS {
         let response = provider
             .complete_with_tools(&request, Some(tools.clone()))
             .await
@@ -642,7 +645,7 @@ async fn assert_tool_called_with_retry(tool_name: &str, user_prompt: &str) {
     }
 
     panic!(
-        "model failed to request the '{tool_name}' tool after 2 attempts; last calls: {last_calls:?}"
+        "model failed to request the '{tool_name}' tool after {TOOL_CALL_RETRY_ATTEMPTS} attempts; last calls: {last_calls:?}"
     );
 }
 
@@ -651,8 +654,9 @@ async fn test_real_tool_registry_calling_get_activities() {
     require_local_llm!();
     assert_tool_called_with_retry(
         "get_activities",
-        "Call the get_activities tool to fetch my last 5 activities. \
-         You must call the tool — do not answer in prose.",
+        "Call the get_activities tool now to fetch my last 5 activities. \
+         The tool fetches the data on its own — do not ask me for activities \
+         first and do not answer in prose. Issue the tool call.",
     )
     .await;
 }
@@ -686,10 +690,28 @@ async fn test_multi_tool_real_registry_query() {
          my training load, and compute my current fitness score.",
     )]);
 
-    let response = provider
-        .complete_with_tools(&request, Some(tools))
-        .await
-        .expect("multi-tool query should succeed");
+    // Retry once on a transient Ollama connection drop. qwen2.5:14b loads
+    // ~9GB into RAM; the GitHub runner has ~14GB total. First-call OOM
+    // blips have been observed when Ollama needs to swap the model in.
+    let mut last_err: Option<String> = None;
+    let response = 'outer: {
+        for attempt in 0..2 {
+            match provider
+                .complete_with_tools(&request, Some(tools.clone()))
+                .await
+            {
+                Ok(r) => break 'outer r,
+                Err(e) => {
+                    eprintln!(
+                        "multi-tool attempt {attempt} failed: {e} — sleeping {OLLAMA_RETRY_BACKOFF:?} before retry"
+                    );
+                    last_err = Some(e.to_string());
+                    tokio::time::sleep(OLLAMA_RETRY_BACKOFF).await;
+                }
+            }
+        }
+        panic!("multi-tool query should succeed; last error: {last_err:?}");
+    };
 
     // Assert SOME tool was called — local 14B models are inconsistent about
     // chaining all three in one round, but should reliably pick at least one.
