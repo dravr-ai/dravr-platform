@@ -213,15 +213,20 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
           )}
         </button>
 
-        {/* Mobile-only brand mark (hidden on desktop where the hero shows it) */}
-        <div className="lg:hidden absolute top-6 left-6 flex items-center gap-3">
-          <DravrLogo />
-          <span className="font-display font-semibold text-xl tracking-brand text-on-surface">
-            DRAVR
-          </span>
-        </div>
+        <div className="w-full max-w-sm space-y-8 lg:space-y-10">
+          {/* Mobile-only brand mark. Was previously `absolute top-6 left-6`,
+              which collided with the vertically-centered "Sign in" heading
+              at narrow viewports (logo dots overlapped the heading
+              ascenders). Now it sits inline above the heading on mobile
+              and stays hidden at lg where the editorial hero column owns
+              the brand moment. */}
+          <div className="lg:hidden flex items-center gap-3">
+            <DravrLogo />
+            <span className="font-display font-semibold text-xl tracking-brand text-on-surface">
+              DRAVR
+            </span>
+          </div>
 
-        <div className="w-full max-w-sm space-y-10">
           <div>
             <h1 className="font-display font-semibold text-3xl text-on-surface">
               Sign in
