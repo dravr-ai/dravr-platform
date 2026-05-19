@@ -248,6 +248,7 @@ impl LlmSettingsRoutes {
                 LlmProviderType::GeminiCli => "Gemini CLI",
                 LlmProviderType::Groq => "Groq",
                 LlmProviderType::Local => "Local LLM",
+                LlmProviderType::OpenRouter => "OpenRouter",
                 LlmProviderType::OpenAiApi => "OpenAI API",
                 _ => &name,
             };
