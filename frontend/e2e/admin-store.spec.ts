@@ -372,7 +372,9 @@ test.describe('Admin Review Queue', () => {
       });
     });
 
-    await page.route('**/api/admin/store/coaches?status=pending_review', async (route) => {
+    // CoachReviewQueue now hits /api/admin/store/review-queue (renamed
+    // from the legacy /api/admin/store/coaches?status=pending_review).
+    await page.route('**/api/admin/store/review-queue', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

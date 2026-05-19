@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { test, expect } from '@playwright/test';
+import { applyTestStubs } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
 interface MockOptions {
@@ -12,6 +13,7 @@ interface MockOptions {
 }
 
 async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false, options: MockOptions = {}) {
+  await applyTestStubs(page);
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
       status: 200,
