@@ -1,4 +1,4 @@
-# ABOUTME: Main backend CI pipeline — fast-gate catches fmt in 15s, then clippy + doc-tests + release-binary run in parallel on every push.
+# ABOUTME: Main backend CI pipeline — fmt + per-crate clippy + full clippy + deadlock + audit + doc-tests fire in parallel from the start on every push.
 # ABOUTME: SQLite test shards (backend-tests job) run daily at 04:00 EDT via cron and on workflow_dispatch; per-push DB coverage comes from ci-postgres.yml.
 name: "CI: Backend (Rust)"
 
@@ -44,7 +44,15 @@ env:
 
 jobs:
   # ============================================================================
-  # PHASE 0: Instant gate — no compilation, catches fmt/architecture/secrets (~15s)
+  # PHASE 0 (parallel, no inter-dependencies):
+  #   fast-gate            — fmt + architectural + secret patterns (~30s, no compile)
+  #   preflight-clippy     — per-crate clippy on changed leaf crates (~3-5 min)
+  #   clippy               — full-workspace clippy (~10-12 min, gates release-binary)
+  #   deadlock-analysis    — lockbud static deadlock detection (~10 min)
+  #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
+  #   doc-tests            — cargo test --doc (~5 min)
+  #   backend-tests        — SQLite shards, cron / workflow_dispatch only
+  # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
 
   detect-changes:
@@ -115,14 +123,84 @@ jobs:
       - name: Secret Pattern Validation
         run: ./scripts/ci/validate-no-secrets.sh
 
-  # ============================================================================
-  # PHASE 1: All jobs run in parallel after fast-gate
-  # ============================================================================
+  preflight-clippy:
+    name: Preflight Clippy (per-crate, fast feedback)
+    runs-on: ubuntu-latest
+    # No `needs` — fires immediately in parallel with fast-gate / clippy / deadlock.
+    # Mirrors scripts/ci/pre-push-validate.sh Tier 2: per-crate clippy on the leaf
+    # crates that actually changed in this push, skipping pierre-server (whose
+    # per-crate clippy is as slow as the full-workspace run and is handled by the
+    # `clippy` job). Designed to fail in 3–5 min on the most common error class.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: git submodule update --init --recursive vendor/contremaitre
+
+      - name: Detect changed leaf crates
+        id: detect
+        run: |
+          if git rev-parse --verify "origin/main" &>/dev/null; then
+              BASE=$(git merge-base "origin/main" HEAD 2>/dev/null || echo "origin/main")
+          else
+              BASE="HEAD~1"
+          fi
+          CRATES=$(git diff --name-only "$BASE" HEAD 2>/dev/null \
+              | grep '^crates/' \
+              | sed 's|^crates/||; s|/.*||' \
+              | sort -u \
+              | grep -v '^pierre-server$' \
+              || true)
+          if [ -z "$CRATES" ]; then
+              echo "No leaf-crate changes — preflight clippy will skip"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "Leaf crates changed:"
+              echo "$CRATES"
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              {
+                  echo "crates<<CRATES_EOF"
+                  echo "$CRATES"
+                  echo "CRATES_EOF"
+              } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Rust environment
+        if: steps.detect.outputs.skip != 'true'
+        uses: ./.github/actions/rust-setup
+        with:
+          components: clippy
+
+      - name: Per-crate clippy
+        if: steps.detect.outputs.skip != 'true'
+        run: |
+          # Folder name == package name for every workspace crate except pierre-server,
+          # which is excluded above. Pass the folder name straight to `-p`.
+          FAILED=0
+          while IFS= read -r crate; do
+              [ -z "$crate" ] && continue
+              echo "::group::cargo clippy -p $crate --all-targets --all-features"
+              if ! cargo clippy -p "$crate" --all-targets --all-features -- -D warnings; then
+                  echo "::error::clippy failed for $crate"
+                  FAILED=1
+              fi
+              echo "::endgroup::"
+          done <<< "${{ steps.detect.outputs.crates }}"
+          exit "$FAILED"
 
   clippy:
-    name: Clippy Linting
+    name: Clippy Linting (full workspace)
     runs-on: ubuntu-latest
-    needs: fast-gate
+    # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy /
+    # deadlock. The release-binary job downstream still gates on this job so the
+    # release artifact is only produced after full-workspace clippy passes.
 
     steps:
       - name: Checkout code
@@ -142,6 +220,59 @@ jobs:
 
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  deadlock-analysis:
+    name: Static Deadlock Analysis (lockbud)
+    runs-on: ubuntu-latest
+    # No `needs` — fires immediately in parallel with the other linting gates.
+    # Migrated from the standalone deadlock-detection.yml workflow so all
+    # static-analysis gates report under a single Backend CI status.
+    container:
+      image: burtonqin/lockbud
+
+    steps:
+      - name: Install git
+        run: apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Init contremaitre submodule
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive vendor/contremaitre
+
+      - name: Run lockbud deadlock detection
+        run: |
+          echo "Running static deadlock analysis with lockbud..."
+          echo "Analyzing: std::sync::{Mutex, RwLock}, parking_lot, spin locks"
+          cargo lockbud -k deadlock 2>&1 | tee deadlock-report.txt
+          if grep -q "Double Lock\|Conflicting Lock Order" deadlock-report.txt; then
+            echo "Potential deadlock issues detected! Review the report above."
+            # Warnings only — do not fail the build on deadlock findings.
+            exit 0
+          else
+            echo "No deadlock issues detected"
+          fi
+
+      - name: Run atomicity violation detection
+        run: |
+          echo "Running atomicity violation analysis..."
+          cargo lockbud -k atomicity_violation 2>&1 | tee atomicity-report.txt || true
+          echo "Atomicity analysis complete"
+
+      - name: Upload analysis reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lockbud-reports
+          path: |
+            deadlock-report.txt
+            atomicity-report.txt
+          retention-days: 30
 
   security-audit:
     name: Security Audit

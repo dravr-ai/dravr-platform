@@ -125,11 +125,9 @@ When you need an API key or credential for any service:
 ### MCP-First Rule
 
 When a service is configured in `.mcp.json`, **always use its MCP tools first** instead of CLI alternatives or web APIs. For example:
-- **Linear** — use `mcp__linear-server__*` tools, not manual API calls
 - **GitHub** — use `mcp__github__*` tools, not `gh` CLI (unless MCP lacks the needed operation)
 
 ### Key credentials in `.envrc`:
-- `LINEAR_API_KEY` — Linear API key for session/issue tracking
 - `GITHUB_PERSONAL_ACCESS_TOKEN` — GitHub PAT for MCP and API access
 - `EXPO_TOKEN` — Expo MCP server token
 - `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` — Strava OAuth credentials
@@ -277,21 +275,38 @@ bun run test:e2e
 
 The pre-push hook uses a **marker-based validation**. The script `./scripts/ci/pre-push-validate.sh` creates a `.git/validation-passed` marker (valid 15 minutes). The hook checks the marker exists, is fresh, and matches the current commit.
 
+### Local validation is intentionally lightweight
+
+`pre-push-validate.sh` runs ONLY non-compiling checks:
+- `cargo fmt --all -- --check` (Tier 0)
+- `scripts/ci/architectural-validation.sh` (Tier 1)
+- `scripts/ci/check-vendor-contremaitre-readonly.sh` (Tier 1b)
+- Frontend / SDK / mobile tier scripts only when those trees changed
+
+**All heavy compilation moved to CI.** Per-crate clippy, full-workspace clippy, deadlock analysis, schema test, and targeted test selection all run as parallel jobs in `ci-backend.yml` (and `ci-postgres.yml` / `integration-tests.yml`). Each fires immediately on push with no cross-job dependency — first failure is visible within 3–5 minutes for the most common error class.
+
 ### NEVER
 
-- Run `cargo clippy --all-targets --all-features` locally as a pre-push gate — too slow to iterate on. Per-crate clippy during dev is fine and encouraged; the full-workspace variant is CI's job.
-- Manually create `.git/validation-passed` marker
-- Skip validation by creating a fake marker — CI will catch issues and main will break
-- Bypass with `git push --no-verify` unless explicitly asked
+- Run `cargo clippy --all-targets --all-features` locally as a pre-push gate — too slow to iterate on, and CI's `clippy` job already runs it on every push.
+- Run `cargo test` without `--test <file>` targeting — see "Test Targeting Patterns" below.
+- Manually create `.git/validation-passed` marker.
+- Skip validation by creating a fake marker — CI will catch the regression and main will break.
+- Bypass with `git push --no-verify` unless explicitly asked.
 
 ### Before Pushing
 
-1. Run `./scripts/ci/pre-push-validate.sh` to create the validation marker
-2. Check CI status to avoid queueing redundant workflows (see "CI Monitoring" below)
+1. Run `./scripts/ci/pre-push-validate.sh` to create the validation marker (this is the only required local step).
+2. Confirm CI isn't already running an obsolete attempt — `cancel-in-progress: true` is set on all test/check workflows, so your push automatically cancels older runs on the same ref.
 
-### After Pushing
+### After Pushing — MANDATORY CI MONITORING
 
-**CRITICAL: Monitor CI until green.** After every push of Rust code, watch the "CI: Backend (Rust)" workflow using `gh run watch`. If clippy or any check fails, fix immediately and push again. Do not move on to the next task until CI is green.
+**The Agent MUST treat "push" as the start of validation, not the end.** Local pre-push only catches fmt/architecture/secret regressions. Clippy, deadlock, schema, and the test suite live in CI.
+
+Rules:
+- After every push, the Agent MUST watch CI for the pushed commit until *all* relevant workflows reach a terminal status (success, failure, cancelled).
+- If any workflow fails, fix the underlying issue and re-push in the same session. Do not move on to the next task.
+- The Agent does NOT consider work "done" until CI is green on the head commit (`cancelled` workflows for older commits don't count).
+- See the "CI Monitoring" subsection below for the right tool — burning GitHub quota with `gh run watch` is a separate rule violation.
 
 ### CI Monitoring
 
@@ -299,11 +314,18 @@ Use the first available method. **NEVER ask the user for a GitHub token** — fa
 
 | Priority | Method | When to use |
 |----------|--------|-------------|
-| 1 | `gh run list --branch main` / `gh run watch` | `gh` CLI is installed and authenticated (session hook says `CI_MONITORING=gh`) |
-| 2 | GitHub MCP tools (`mcp__github__*`) | `gh` unavailable but GitHub MCP server is configured |
-| 3 | WebFetch | Neither `gh` nor GitHub MCP is available — fetch `https://github.com/dravr-ai/dravr-platform/actions` |
+| 1 | **WebFetch** on `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` | Default — does not consume any GitHub PAT rate-limit budget. |
+| 2 | `gh run list --branch <branch>` / single targeted `gh run view <id>` calls | Only when WebFetch can't surface the information you need (rare). Each call costs one quota slot from the shared 5000/hr `core` bucket. |
+| 3 | GitHub MCP tools (`mcp__github__*`) | When the operation isn't a list/status check (e.g., commenting on a failure). |
 
-The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` to tell you which path to take.
+**Forbidden during monitoring:**
+- `gh run watch` — polls every few seconds and burns quota fast.
+- Background `while :; do gh run list; sleep 60; done` loops — caused multi-day quota exhaustion in past sessions.
+- Any polling cadence under 60s.
+
+For waiting on long-running workflows, prefer `ScheduleWakeup` to re-check after a fixed delay rather than polling.
+
+The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` to tell you which path is available.
 
 # Writing code
 
@@ -426,20 +448,34 @@ NEVER write structured docs only to chat — chat history is not durable.
 
 ## Validation: One Script, One Command
 
-**CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY validation command you need.**
+**CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY local validation command you need. Everything heavier lives in CI — see "After Pushing" above.**
 
-Do NOT run `cargo fmt`, `cargo check`, or `cargo clippy` ad-hoc. The script runs them with the correct flags and scopes. Running individual commands wastes time and risks using wrong flags.
+Do NOT run `cargo fmt`, `cargo check`, or `cargo clippy` ad-hoc as a pre-push gate. The script runs the lightweight checks with the correct flags and scopes; the heavy gates are CI's job by design.
 
-### What the script runs
+### What the script runs (local, non-compiling)
 
 The script only touches tiers whose files actually changed on the branch:
 
 1. **Tier 0** — `cargo fmt --all -- --check`
 2. **Tier 1** — architectural validation (`scripts/ci/architectural-validation.sh`)
-3. **Tier 2** — **per-crate clippy** for *only* the small changed crates: `cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`. **`pierre-server` is explicitly skipped** — the `pierre_mcp_server` crate is large enough that per-crate clippy is as slow as the full workspace run (13+ minutes). For pierre-server changes, Tier 4 targeted tests are the local feedback loop and CI's `ci-backend.yml` handles workspace clippy. Full-workspace clippy locally is never the right answer.
-4. **Tier 3** — schema consistency (`cargo test --test schema_completeness_test`)
-5. **Tier 4** — **targeted tests**: the script maps each changed `.rs` file to a small set of test binaries and runs only those with `cargo test --test <file>`
-6. **Tiers 5–7** — frontend / SDK / mobile sub-scripts (only if those trees changed)
+3. **Tier 1b** — vendor/contremaitre read-only guardrail
+4. **Tier 5** — frontend sub-script (only when `frontend/` changed)
+5. **Tier 6** — SDK sub-script (only when `sdk/` changed)
+6. **Tier 7** — mobile sub-script (only when `frontend-mobile/` changed)
+
+### What runs in CI (heavy, compiling) — parallel jobs, fire immediately on push
+
+In `ci-backend.yml`:
+- **`fast-gate`** — fmt + architectural + secret patterns (~30s)
+- **`preflight-clippy`** — per-crate clippy on changed leaf crates (~3–5 min, first failure for most regressions)
+- **`clippy`** — full-workspace clippy (~10–12 min, gates `release-binary`)
+- **`deadlock-analysis`** — lockbud static analysis (~10 min)
+- **`security-audit`** — cargo deny + dravr-* duplicate check (~3 min)
+- **`doc-tests`** — `cargo test --doc` (~5 min)
+- **`backend-tests`** — SQLite shards (cron / workflow_dispatch only; per-push DB coverage comes from `ci-postgres.yml`)
+- **`release-binary`** — release build + size check + smoke test (after `clippy`)
+
+Separately on every push: `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, etc. — each scoped to its own paths filter.
 
 ### Workflow
 
@@ -448,9 +484,10 @@ The script only touches tiers whose files actually changed on the branch:
    ```bash
    ./scripts/ci/pre-push-validate.sh
    ```
-3. **Push**: `git push` (the pre-push hook verifies the validation marker)
+3. **Push**: `git push` (the pre-push hook verifies the validation marker).
+4. **After pushing**: monitor CI until green — see the "After Pushing" subsection above. The push is not done until CI confirms it.
 
-**Full-workspace clippy and the full 13-minute test suite run in CI with 4-shard parallelism. Do not run them locally — monitor CI after pushing instead.**
+**Full-workspace clippy + the full test suite + deadlock analysis run in CI in parallel. Do not run them locally — monitor CI after pushing instead.**
 
 ### Test Suite Timing Context
 - Full test suite: ~13 minutes across 325 test binaries
