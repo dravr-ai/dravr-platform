@@ -7,8 +7,10 @@
 import { useState, lazy, Suspense, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
+import { useIsMobile } from '../hooks/useBreakpoint';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
+import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
@@ -368,6 +370,42 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
 
+  // Mobile navigation state — bottom tab bar pins the high-traffic destinations
+  // and the rest fall into the off-canvas drawer. Active <768px only.
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // For regular users, pin Chat / Coaches / Insights / Groups to the bottom bar
+  // and route the rest through the drawer. For admin users we use the first 4
+  // tabs (Users / Coaches / Coach Store / Groups) as the primary slots.
+  const primaryTabIds = useMemo<string[]>(() => {
+    if (isAdminUser) {
+      return ['users', 'coaches', 'coach-store', 'groups'];
+    }
+    return ['chat', 'my-coaches', 'insights', 'groups'];
+  }, [isAdminUser]);
+  const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
+    return primaryTabIds
+      .map((id) => tabs.find((t) => t.id === id))
+      .filter((t): t is TabDefinition => Boolean(t))
+      .map((t) => ({ id: t.id, name: t.name, icon: t.icon, badge: t.badge }));
+  }, [primaryTabIds, tabs]);
+  const secondaryMobileTabs: MobileNavTab[] = useMemo(() => {
+    const primary = new Set(primaryTabIds);
+    return tabs
+      .filter((t) => !primary.has(t.id))
+      .map((t) => ({ id: t.id, name: t.name, icon: t.icon, badge: t.badge }));
+  }, [primaryTabIds, tabs]);
+  const drawerHasBadge = useMemo(
+    () => secondaryMobileTabs.some((t) => t.badge !== undefined && t.badge > 0),
+    [secondaryMobileTabs],
+  );
+
+  // Close the drawer whenever the user picks a tab (selection handles it
+  // itself, but also defend against external state changes like deep links).
+  useEffect(() => {
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
+
   // Admin user view: Full sidebar with tabs - Dark Theme
   return (
     <div className="min-h-screen bg-surface flex">
@@ -377,7 +415,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           so the cursor tracks the edge in real time. */}
       <aside
         className={clsx(
-          'fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex flex-col z-40 overflow-hidden',
+          'hidden md:flex fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex-col z-40 overflow-hidden',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
         style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
@@ -553,14 +591,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           </div>
         </div>
 
-        {/* Collapse Toggle Button */}
+        {/* Collapse Toggle Button — desktop only; the sidebar itself is
+            md:hidden, but this button sits in absolute coords so it would
+            still escape the parent if rendered. */}
         <button
           onClick={() => {
             const next = !sidebarCollapsed;
             localStorage.setItem('pierre.sidebar_collapsed', String(next));
             setSidebarCollapsed(next);
           }}
-          className="absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full flex items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-[60]"
+          className="hidden md:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-[60]"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -595,20 +635,25 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
       </aside>
 
-      {/* Main Content Area — margin tracks the sidebar's live width. */}
+      {/* Main Content Area — margin tracks the sidebar's live width on
+          desktop; on mobile the sidebar is hidden so we collapse the gutter
+          and let the bottom tab bar own the chrome. */}
       <main
         className={clsx(
-          'flex-1 h-screen flex flex-col',
+          // `min-w-0` is load-bearing: without it, any descendant with an
+          // intrinsic content width (long admin tables, wide settings
+          // forms) lets <main> blow past the viewport on mobile.
+          'flex-1 min-w-0 h-screen flex flex-col',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
-        style={{ marginLeft: sidebarCollapsed ? 72 : sidebarWidth }}
+        style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 72 : sidebarWidth) }}
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
           <header className="bg-surface-container-low/80 backdrop-blur-lg shadow-sm border-b ghost-border sticky top-0 z-30 flex-shrink-0">
-            <div className="px-6 py-4 flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-medium text-on-surface">
+            <div className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
+              <div className="min-w-0">
+                <h1 className="text-lg md:text-xl font-medium text-on-surface truncate">
                   {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? 'Settings' : '')}
                 </h1>
               </div>
@@ -617,10 +662,18 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
 
         {/* Content Area - full height, no extra padding for user tabs that manage their own layout */}
-        <div className={clsx(
-          'flex-1 overflow-auto',
-          isAdminUser && activeTab !== 'chat' ? 'p-6' : ''
-        )}>
+        <div
+          className={clsx(
+            'flex-1 overflow-auto',
+            isAdminUser && activeTab !== 'chat' ? 'p-4 md:p-6' : ''
+          )}
+          style={{
+            // Reserve space for the mobile bottom tab bar (56px) plus the
+            // iOS safe-area home indicator. No-op on >=md where the bar is
+            // hidden.
+            paddingBottom: isMobile ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : undefined,
+          }}
+        >
 
           {/* Content */}
         {/* Overview tab removed — admin lands directly on Users */}
@@ -804,6 +857,42 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         </div>
       </main>
+
+      {/* Mobile chrome: bottom tab bar + off-canvas drawer. Gated at the
+          React level on `isMobile` so the desktop DOM stays unchanged and
+          doesn't ship the drawer's slide-in slab as hidden offscreen
+          markup. */}
+      {isMobile && (
+        <>
+          <MobileDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            secondary={secondaryMobileTabs}
+            activeTab={activeTab}
+            onSelect={(id) => {
+              setActiveTab(id);
+              if (id === 'chat') setSelectedConversation(null);
+              if (id === 'insights') setInsightsView('feed');
+            }}
+            userLabel={user?.display_name || user?.email || ''}
+            userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
+            userRole={user?.role === 'super_admin' ? 'Super Admin' : user?.role === 'admin' ? 'Admin' : 'User'}
+            onOpenSettings={() => setActiveTab('settings')}
+            onSignOut={logout}
+          />
+          <BottomTabBar
+            primary={primaryMobileTabs}
+            activeTab={activeTab}
+            onSelect={(id) => {
+              setActiveTab(id);
+              if (id === 'chat') setSelectedConversation(null);
+              if (id === 'insights') setInsightsView('feed');
+            }}
+            onOpenDrawer={() => setDrawerOpen(true)}
+            drawerHasBadge={drawerHasBadge}
+          />
+        </>
+      )}
     </div>
   );
 }

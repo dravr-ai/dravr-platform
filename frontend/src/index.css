@@ -202,7 +202,7 @@ html.dark {
      ========================================================================== */
 
   .card {
-    @apply bg-surface-container-lowest rounded-lg p-6 transition-all duration-base;
+    @apply bg-surface-container-lowest rounded-lg p-4 md:p-6 transition-all duration-base;
   }
 
   .card-header {
@@ -211,7 +211,7 @@ html.dark {
   }
 
   .stat-card {
-    @apply bg-surface-container-lowest rounded-lg p-6 text-center transition-all duration-base relative overflow-hidden;
+    @apply bg-surface-container-lowest rounded-lg p-4 md:p-6 text-center transition-all duration-base relative overflow-hidden;
   }
 
   .stat-card::before {

@@ -157,6 +157,13 @@ module.exports = {
         '2xl': '1.5rem',
         '3xl': '1.875rem',
         '4xl': '2.25rem',
+        // Mobile-first responsive scale — use with `text-h1-mobile md:text-3xl`
+        // to step up at the md breakpoint. See ADR / plan
+        // "Web Frontend Mobile-Friendly Redesign".
+        'h1-mobile': ['1.5rem', { lineHeight: '1.2', fontWeight: '600' }],
+        'h2-mobile': ['1.25rem', { lineHeight: '1.3', fontWeight: '600' }],
+        'h3-mobile': ['1.125rem', { lineHeight: '1.35', fontWeight: '600' }],
+        'body-mobile': ['0.9375rem', { lineHeight: '1.5' }],
       },
       letterSpacing: {
         brand: '0.15em',   // DRAVR wordmark

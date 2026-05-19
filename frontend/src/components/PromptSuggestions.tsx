@@ -229,10 +229,10 @@ function CoachesSection({
         <button
           type="button"
           onClick={() => setShowHelp(!showHelp)}
-          className="w-5 h-5 rounded-full bg-surface-container-high hover:bg-surface-container-highest flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors"
+          className="min-w-[44px] min-h-[44px] -my-2 inline-flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors"
           aria-label="What are coaches?"
         >
-          <span className="text-xs font-medium">?</span>
+          <span className="w-5 h-5 rounded-full bg-surface-container-high hover:bg-surface-container-highest inline-flex items-center justify-center text-xs font-medium">?</span>
         </button>
         <HelpTooltip isVisible={showHelp} onClose={() => setShowHelp(false)} />
 
@@ -382,7 +382,9 @@ const CoachCard = memo(function CoachCard({
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
-        {/* Hide button for system coaches */}
+        {/* Hide button for system coaches. The visible glyph stays 14px so
+            the chip card doesn't grow, but the hit area extends to 44x44 to
+            satisfy touch guidelines. */}
         {coach.is_system && (
           <button
             type="button"
@@ -391,7 +393,7 @@ const CoachCard = memo(function CoachCard({
               onHideCoach(coach);
             }}
             disabled={isHiding}
-            className="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded transition-colors disabled:opacity-50"
+            className="min-w-[44px] min-h-[44px] -m-2 inline-flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded transition-colors disabled:opacity-50"
             title="Hide coach"
             aria-label="Hide coach"
           >

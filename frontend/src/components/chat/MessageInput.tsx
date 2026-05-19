@@ -70,7 +70,7 @@ export default function MessageInput({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message Dravr..."
-            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors overflow-hidden"
+            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors overflow-hidden"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -79,7 +79,7 @@ export default function MessageInput({
             disabled={!value.trim() || isStreaming || disabled}
             aria-label="Send message"
             className={clsx(
-              'absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+              'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors',
               value.trim() && !isStreaming && !disabled
                 ? 'bg-pierre-violet text-on-primary hover:bg-pierre-violet/90 shadow-ambient'
                 : 'text-on-surface-variant cursor-not-allowed'

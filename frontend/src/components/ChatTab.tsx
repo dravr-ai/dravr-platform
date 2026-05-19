@@ -913,7 +913,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 <button
                   onClick={() => createConversation.mutate()}
                   disabled={createConversation.isPending}
-                  className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[36px] min-h-[36px] flex items-center justify-center"
+                  className="rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="New Chat"
                   aria-label="New Chat"
                 >
@@ -923,9 +923,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             />
 
             <div className="flex-1 overflow-y-auto">
-              <div className="w-full max-w-5xl mx-auto px-6 py-8">
-                <div className="text-center mb-8">
-                  <h2 className="text-2xl font-semibold text-on-surface mb-2">Ready to analyze your fitness</h2>
+              <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+                <div className="text-center mb-6 sm:mb-8">
+                  <h2 className="text-h2-mobile sm:text-2xl text-on-surface mb-2 text-balance">Ready to analyze your fitness</h2>
                   <p className="text-on-surface-variant text-sm">
                     {hasConnectedProvider
                       ? 'Get personalized insights from your activity data'
@@ -940,27 +940,29 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                       createConversation.mutate();
                     }
                   }}
-                  className="relative mt-6 max-w-2xl mx-auto"
+                  className="relative mt-6 max-w-2xl mx-auto flex items-stretch gap-2 min-w-0"
                 >
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Message Dravr..."
-                    className="w-full rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-24 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
+                    aria-label="Message Dravr"
+                    className="flex-1 min-w-0 rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
                     disabled={createConversation.isPending}
                   />
                   <button
                     type="submit"
+                    aria-label="Send message"
                     disabled={!newMessage.trim() || createConversation.isPending}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-pierre-violet text-on-primary text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    className="flex-shrink-0 min-w-[44px] min-h-[44px] px-3 sm:px-4 bg-pierre-violet text-on-primary text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
                   >
                     {createConversation.isPending ? (
                       <div className="pierre-spinner w-4 h-4 border-white border-t-transparent" />
                     ) : (
                       <>
-                        Send
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <span className="hidden sm:inline">Send</span>
+                        <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                         </svg>
                       </>
@@ -985,7 +987,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
           {/* Conversation Header with Create Coach button */}
           {(messagesData?.messages?.length ?? 0) >= 2 && (
-            <div className="border-b ghost-border px-6 py-3 flex items-center justify-end">
+            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-end">
               <button
                 onClick={() => setShowCreateCoachFromConversation(true)}
                 disabled={isStreaming}
@@ -998,7 +1000,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             </div>
           )}
           <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="max-w-3xl mx-auto py-6 px-6">
+            <div className="max-w-3xl mx-auto py-4 md:py-6 px-4 md:px-6">
               <MessageList
                 messages={messagesData?.messages || []}
                 messageMetadata={messageMetadata}

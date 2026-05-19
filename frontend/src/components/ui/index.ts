@@ -6,6 +6,7 @@
 
 // Core components
 export { Button } from './Button';
+export { IconButton } from './IconButton';
 export { Card, CardHeader } from './Card';
 export { Badge } from './Badge';
 export { StatusIndicator } from './StatusIndicator';
