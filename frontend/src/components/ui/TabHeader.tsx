@@ -19,20 +19,20 @@ export interface TabHeaderProps {
 
 export function TabHeader({ icon, gradient, description, actions }: TabHeaderProps) {
   return (
-    <div className="p-6 border-b ghost-border flex items-center justify-between flex-shrink-0">
-      <div className="flex items-center gap-3">
+    <div className="p-4 md:p-6 border-b ghost-border flex items-center justify-between gap-3 flex-shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
         <div
           className={clsx(
-            'w-10 h-10 flex items-center justify-center rounded-xl text-on-surface shadow-ambient bg-gradient-to-br',
+            'w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl text-on-surface shadow-ambient bg-gradient-to-br',
             gradient
           )}
         >
           {icon}
         </div>
-        <p className="text-sm text-on-surface-variant">{description}</p>
+        <p className="text-sm text-on-surface-variant min-w-0 truncate">{description}</p>
       </div>
       {actions && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {actions}
         </div>
       )}

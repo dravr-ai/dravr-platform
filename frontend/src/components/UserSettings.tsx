@@ -519,15 +519,21 @@ export default function UserSettings() {
 
   return (
     <div className="space-y-6">
-      {/* Horizontal Tab Navigation */}
-      <div className="border-b ghost-border">
-        <nav className="flex gap-1 -mb-px overflow-x-auto" aria-label="Settings tabs">
+      {/* Horizontal Tab Navigation. On mobile the strip overflows
+          horizontally with scroll-snap so the active tab always lands at
+          a clean offset; a right-edge gradient fade hints that more tabs
+          live off-screen. */}
+      <div className="relative border-b ghost-border">
+        <nav
+          className="flex gap-1 -mb-px overflow-x-auto scroll-smooth snap-x snap-mandatory"
+          aria-label="Settings tabs"
+        >
           {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={clsx(
-                'flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2',
+                'snap-start flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2 min-h-[44px]',
                 activeTab === tab.id
                   ? 'border-pierre-violet text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:ghost-border'
@@ -538,6 +544,12 @@ export default function UserSettings() {
             </button>
           ))}
         </nav>
+        {/* Right-edge fade: 24px linear gradient from transparent to surface,
+            hides under tabs at >=md so only mobile sees it. */}
+        <div
+          aria-hidden="true"
+          className="md:hidden pointer-events-none absolute top-0 bottom-0 right-0 w-6 bg-gradient-to-l from-surface to-transparent"
+        />
       </div>
 
       {/* Settings Content */}
@@ -548,10 +560,11 @@ export default function UserSettings() {
             <Card variant="dark">
               <h2 className="text-lg font-semibold text-on-surface mb-4">Profile Information</h2>
               <div className="space-y-4">
-                {/* Gradient ring avatar */}
-                <div className="flex items-center gap-4 pb-4 border-b ghost-border">
-                  <div className="relative flex-shrink-0">
-                    <div className="w-24 h-24 rounded-full p-[3px] bg-gradient-to-br boreal-hero-gradient">
+                {/* Gradient ring avatar — stacks on mobile so the email
+                    field (frequently long) doesn't get squeezed. */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pb-4 border-b ghost-border">
+                  <div className="relative flex-shrink-0 self-start sm:self-auto">
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full p-[3px] bg-gradient-to-br boreal-hero-gradient">
                       <div className="w-full h-full bg-surface-container-low rounded-full flex items-center justify-center">
                         <span className="text-3xl font-bold text-on-surface">
                           {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
@@ -559,9 +572,9 @@ export default function UserSettings() {
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <p className="text-xl font-semibold text-on-surface">{user?.display_name || 'No name set'}</p>
-                    <p className="text-sm text-on-surface-variant">{user?.email}</p>
+                  <div className="min-w-0">
+                    <p className="text-xl font-semibold text-on-surface break-words">{user?.display_name || 'No name set'}</p>
+                    <p className="text-sm text-on-surface-variant break-all">{user?.email}</p>
                     <Badge variant={user?.user_status === 'active' ? 'success' : 'warning'} className="mt-1">
                       {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
                     </Badge>
