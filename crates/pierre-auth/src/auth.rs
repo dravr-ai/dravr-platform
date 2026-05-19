@@ -133,6 +133,22 @@ impl Display for JwtValidationError {
 
 impl Error for JwtValidationError {}
 
+impl JwtValidationError {
+    /// Returns `true` when the failure is a plain expiration — the
+    /// token was well-formed and signed, it just aged out. Used by
+    /// auth call sites (notably SSE reconnect endpoints) to log at
+    /// DEBUG instead of WARN, because a client looping with a
+    /// long-expired token can otherwise generate dozens of identical
+    /// warnings per minute without conveying actionable signal.
+    ///
+    /// `TokenInvalid` / `TokenMalformed` keep WARN-level treatment —
+    /// those are signature or shape failures that warrant attention.
+    #[must_use]
+    pub const fn is_routine_expiration(&self) -> bool {
+        matches!(self, Self::TokenExpired { .. })
+    }
+}
+
 /// `JWT` claims for user authentication
 ///
 /// The `active_tenant_id` field represents the currently active tenant context

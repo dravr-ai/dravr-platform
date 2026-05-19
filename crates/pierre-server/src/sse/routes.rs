@@ -81,7 +81,12 @@ impl SseRoutes {
             .authenticate_request(Some(&format!("Bearer {token}")))
             .await
             .map_err(|e| {
-                warn!(user_id = %user_uuid, error = %e, "Failed to authenticate JWT token for SSE");
+                // DEBUG instead of WARN: SSE clients reconnect on a
+                // tight loop when the network blips or the page
+                // refreshes; a single stale-token client otherwise
+                // generates dozens of identical warnings per minute.
+                // The 401 response is the actionable signal.
+                debug!(user_id = %user_uuid, error = %e, "Failed to authenticate JWT token for SSE");
                 AppError::auth_invalid(format!("Authentication failed: {e}"))
             })?;
 
@@ -208,7 +213,9 @@ impl SseRoutes {
                 .authenticate_request(Some(&format!("Bearer {token}")))
                 .await
                 .map_err(|e| {
-                    warn!(session_id = %redact_session_id(&session_id), error = %e, "Failed to authenticate JWT token for MCP SSE");
+                    // DEBUG: same SSE reconnect-loop rationale as the
+                    // user SSE handler above.
+                    debug!(session_id = %redact_session_id(&session_id), error = %e, "Failed to authenticate JWT token for MCP SSE");
                     AppError::auth_invalid(format!("Authentication failed: {e}"))
                 })?;
         } else {
@@ -309,7 +316,9 @@ impl SseRoutes {
             .authenticate_request(Some(&format!("Bearer {token}")))
             .await
             .map_err(|e| {
-                warn!(task_id = %task_id, error = %e, "Failed to authenticate JWT token for A2A SSE");
+                // DEBUG: same SSE reconnect-loop rationale as the
+                // user SSE handler above.
+                debug!(task_id = %task_id, error = %e, "Failed to authenticate JWT token for A2A SSE");
                 AppError::auth_invalid(format!("Authentication failed: {e}"))
             })?;
 

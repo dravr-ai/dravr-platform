@@ -65,7 +65,7 @@ use axum::{
 use futures_util::stream::Stream;
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// AG-UI SSE routes mounted at `/api/agui/*`.
 pub struct AgUiRoutes;
@@ -247,7 +247,10 @@ async fn authenticate_caller(
         .authenticate_request(Some(&format!("Bearer {token}")))
         .await
         .map_err(|e| {
-            warn!(error = %e, "Failed to authenticate JWT token for AG-UI SSE");
+            // DEBUG: AG-UI SSE clients reconnect on a tight loop;
+            // stale-token logs would otherwise drown the path. The
+            // 401 reply is the actionable signal.
+            debug!(error = %e, "Failed to authenticate JWT token for AG-UI SSE");
             AppError::auth_invalid(format!("Authentication failed: {e}"))
         })?;
 
