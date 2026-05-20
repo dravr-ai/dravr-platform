@@ -37,6 +37,7 @@ import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
 import { WebSocketProvider } from '../src/contexts/WebSocketContext';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
+import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -102,18 +103,54 @@ function RootLayoutNav() {
     };
   }, [user?.id, user?.analytics_consent]);
 
+  // Onboarding gate: refuse to land the user on the chat tabs until they
+  // have at least one connected fitness provider. The same source of truth
+  // (`provider_connections`) drives the backend's 403 on chat/coach/messaging,
+  // so the gate and the redirect can never drift.
+  const needsOnboardingFetch =
+    isAuthenticated && user?.user_status === 'active';
+  const { data: onboardingStatus, isLoading: onboardingLoading } =
+    useOnboardingStatus(needsOnboardingFetch);
+
   React.useEffect(() => {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const inOnboardingGroup = segments[0] === '(onboarding)';
     const showAuth = !isAuthenticated || user?.user_status === 'pending';
 
-    if (showAuth && !inAuthGroup) {
-      router.replace('/(auth)/login');
-    } else if (!showAuth && inAuthGroup) {
+    if (showAuth) {
+      if (!inAuthGroup) {
+        router.replace('/(auth)/login');
+      }
+      return;
+    }
+
+    // Authenticated + active. Don't make a routing decision while the
+    // onboarding-status fetch is still in flight — letting the user briefly
+    // land on the chat tab and then yanking them to onboarding would flicker.
+    if (needsOnboardingFetch && onboardingLoading) return;
+
+    if (onboardingStatus?.needs_provider_connection) {
+      if (!inOnboardingGroup) {
+        router.replace('/(onboarding)/connect');
+      }
+      return;
+    }
+
+    if (inAuthGroup || inOnboardingGroup) {
       router.replace('/(app)/(tabs)/(chat)');
     }
-  }, [isAuthenticated, isLoading, segments, router, user?.user_status]);
+  }, [
+    isAuthenticated,
+    isLoading,
+    segments,
+    router,
+    user?.user_status,
+    needsOnboardingFetch,
+    onboardingLoading,
+    onboardingStatus?.needs_provider_connection,
+  ]);
 
   if (isLoading || !fontsLoaded) {
     return (

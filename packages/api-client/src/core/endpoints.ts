@@ -250,6 +250,8 @@ export const ENDPOINTS = {
     OAUTH_APPS: '/api/users/oauth-apps',
     /** Specific OAuth app */
     OAUTH_APP: (provider: string) => `/api/users/oauth-apps/${provider}`,
+    /** Onboarding status — cheap self-read used by web + mobile to gate routing right after login */
+    ONBOARDING_STATUS: '/api/me/onboarding-status',
   },
 } as const;
 

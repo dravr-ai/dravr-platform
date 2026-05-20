@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
+import OnboardingConnectProvider from './components/OnboardingConnectProvider';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import ConnectionBanner from './components/ConnectionBanner';
 import OAuthCallback from './components/OAuthCallback';
@@ -19,6 +20,7 @@ import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
+import { userApi } from './services/api';
 import './App.css';
 
 const queryClient = new QueryClient();
@@ -61,6 +63,21 @@ function AppContent() {
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const localQueryClient = useQueryClient();
 
+  // Onboarding gate: a fresh account with zero `provider_connections` rows
+  // cannot reach chat/coach without the server returning a 403, so route
+  // those users to the connect-provider screen instead of the dashboard.
+  // The query only fires once the user is active — pending / suspended
+  // states get their own screens upstream of this check.
+  const onboardingActive = isAuthenticated && user?.user_status === 'active';
+  const { data: onboardingStatus, isLoading: onboardingLoading } = useQuery({
+    queryKey: QUERY_KEYS.user.onboardingStatus(),
+    queryFn: () => userApi.getOnboardingStatus(),
+    enabled: onboardingActive,
+    // Keep this fresh during the OAuth round-trip so the redirect flips as
+    // soon as the provider connection lands.
+    staleTime: 5_000,
+  });
+
   // Boot/teardown PostHog analytics in lockstep with the user's
   // analytics_consent flag. Default is opt-out so this is a no-op
   // until the user enables it under Privacy & Data.
@@ -85,9 +102,14 @@ function AppContent() {
     const params = getOAuthCallbackParams();
     if (params) {
       setOauthCallback(params);
-      // Invalidate OAuth status queries to refresh connection state
+      // Invalidate OAuth status queries to refresh connection state.
+      // Also invalidate onboarding-status so a first-run connect flips the
+      // route guard from `<OnboardingConnectProvider>` to `<Dashboard>`
+      // without a page reload.
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.status() });
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connections() });
+      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     }
   }, [localQueryClient]);
 
@@ -227,6 +249,34 @@ function AppContent() {
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Authenticated, active, but the onboarding-status fetch is still in flight.
+  // Keep the same spinner shape as the upstream `isLoading` branch so users
+  // don't see a flash of dashboard chrome before being redirected.
+  if (onboardingLoading) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-on-surface-variant">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated, active, but no connected provider yet — force the
+  // connect-provider screen. The server enforces the same rule on every
+  // chat/coach/messaging endpoint, so this is the friendlier surfacing of
+  // a 403 the user would otherwise hit on their first message.
+  if (onboardingStatus?.needs_provider_connection) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <ConnectionBanner />
+        <ImpersonationBanner />
+        <OnboardingConnectProvider userDisplayName={user?.display_name} />
       </div>
     );
   }

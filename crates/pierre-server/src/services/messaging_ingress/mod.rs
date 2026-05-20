@@ -507,10 +507,29 @@ async fn resolve_or_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) -> Result<Option<(AuthResult, ResolvedSession)>, ()> {
-    let auth_outcome = resources
+    let mut auth_outcome = resources
         .auth_middleware
         .authenticate_channel(tenant_id, channel, &message.sender_id)
         .await;
+    // Onboarding gate: once the channel resolves to an active user, require
+    // at least one connected fitness provider before we let the turn reach
+    // the LLM. Without provider data the model hallucinates specifics; the
+    // structured `NoProviderConnected` error flows through the same denial
+    // pipeline as `AccountPending` / `AccountSuspended` and surfaces a
+    // localized "connect a provider" reply via `KEY_NO_PROVIDER_CONNECTED`.
+    if let Ok(auth_result) = &auth_outcome {
+        let has_provider = crate::services::onboarding_gate::user_has_connected_provider(
+            &resources.repos.provider_connections,
+            auth_result.user_id,
+        )
+        .await
+        .unwrap_or(true); // On query failure, fail open — same posture as
+                          // user_status checks (transient DB errors mustn't
+                          // lock real users out of an otherwise valid turn).
+        if !has_provider {
+            auth_outcome = Err(AppError::no_provider_connected());
+        }
+    }
     let Some(auth_result) = handle_channel_auth_outcome(ChannelAuthOutcomeInputs {
         resources,
         db,
@@ -736,6 +755,7 @@ async fn handle_channel_auth_outcome(
                 ErrorCode::AccountPending
                     | ErrorCode::AccountSuspended
                     | ErrorCode::RateLimitExceeded
+                    | ErrorCode::NoProviderConnected
             ) =>
         {
             let reply = build_auth_denial_reply(AuthDenialReplyInputs {

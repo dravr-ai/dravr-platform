@@ -69,6 +69,12 @@ pub enum ErrorCode {
     /// the user a one-time link to complete the (re)auth flow without a generic
     /// refusal. Distinct from `AuthExpired`, which is about the Pierre session.
     ProviderAuthRequired,
+    /// User has not connected any fitness provider yet. Distinct from
+    /// `ProviderAuthRequired` (which is "a specific provider's session lapsed");
+    /// this means zero rows in `provider_connections` for the user. Used by the
+    /// onboarding gate on chat/coach/MCP-tool entry points so the LLM never sees
+    /// empty provider data and hallucinates.
+    NoProviderConnected,
     /// User lacks permission for the requested operation
     PermissionDenied,
     /// User account is pending admin approval
@@ -151,7 +157,8 @@ impl ErrorCode {
             | Self::PermissionDenied
             | Self::AccountPending
             | Self::AccountSuspended
-            | Self::ProviderAuthRequired => FORBIDDEN,
+            | Self::ProviderAuthRequired
+            | Self::NoProviderConnected => FORBIDDEN,
 
             // 404 Not Found
             Self::ResourceNotFound => NOT_FOUND,
@@ -191,6 +198,9 @@ impl ErrorCode {
             Self::AuthMalformed => "The authentication token is malformed or corrupted",
             Self::ProviderAuthRequired => {
                 "A connected fitness provider needs to be (re)authenticated"
+            }
+            Self::NoProviderConnected => {
+                "Connect a fitness provider before using messaging features"
             }
             Self::PermissionDenied => "You do not have permission to perform this action",
             Self::RateLimitExceeded => "Rate limit exceeded. Please slow down your requests",
@@ -242,6 +252,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "AuthExpired" => Ok(Self::AuthExpired),
             "AuthMalformed" => Ok(Self::AuthMalformed),
             "ProviderAuthRequired" => Ok(Self::ProviderAuthRequired),
+            "NoProviderConnected" => Ok(Self::NoProviderConnected),
             "PermissionDenied" => Ok(Self::PermissionDenied),
             "AccountPending" => Ok(Self::AccountPending),
             "AccountSuspended" => Ok(Self::AccountSuspended),
@@ -323,7 +334,8 @@ impl AppError {
             | ErrorCode::ValueOutOfRange
             | ErrorCode::RateLimitExceeded
             | ErrorCode::QuotaExceeded
-            | ErrorCode::ExternalRateLimited => self.message.clone(),
+            | ErrorCode::ExternalRateLimited
+            | ErrorCode::NoProviderConnected => self.message.clone(),
             // JWT validation errors: expose details to help with troubleshooting
             // (key mismatches, expiry, etc. don't contain sensitive data)
             ErrorCode::AuthInvalid if self.message.contains("JWT") => self.message.clone(),
@@ -448,6 +460,22 @@ impl AppError {
             .get("provider")?
             .as_str()
             .map(ToOwned::to_owned)
+    }
+
+    /// User has not connected any fitness provider yet. Frontends should redirect
+    /// to the onboarding flow rather than render a generic error.
+    /// `details.action = "connect_provider"` lets web/mobile clients react without
+    /// string-matching the message.
+    #[must_use]
+    pub fn no_provider_connected() -> Self {
+        let mut err = Self::new(
+            ErrorCode::NoProviderConnected,
+            "Connect a fitness provider before using messaging features",
+        );
+        err.details = Some(Box::new(serde_json::json!({
+            "action": "connect_provider",
+        })));
+        err
     }
 
     /// Rate limit exceeded

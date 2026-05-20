@@ -176,6 +176,17 @@ pub const KEY_ACCOUNT_PENDING: &str = "messaging.account.pending";
 /// [`pierre_core::models::UserStatus::Suspended`].
 pub const KEY_ACCOUNT_SUSPENDED: &str = "messaging.account.suspended";
 
+/// Key: user has not connected any fitness provider yet.
+///
+/// Surfaced by [`super::super::services::onboarding_gate`] when a messaging
+/// channel resolves to a user with zero rows in `provider_connections`. The
+/// LLM has no activity data to reason about, so we refuse the turn rather
+/// than let the model hallucinate specifics from the user's message. The web
+/// and mobile clients hit a structured 403 + redirect instead — this template
+/// is for channels (Slack/Telegram/Discord/Messenger/WhatsApp) where the only
+/// surface is the chat itself.
+pub const KEY_NO_PROVIDER_CONNECTED: &str = "messaging.account.no_provider";
+
 /// Key: a connected fitness provider needs to be (re)authenticated.
 ///
 /// Surfaced deterministically by the chat pipeline's auth-recovery
@@ -383,6 +394,7 @@ pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu pe
 pub(crate) const FR_ACCOUNT_PENDING: &str = "Ton compte est lié à ce canal, mais il est en attente d'approbation par un administrateur. Tu pourras discuter avec Dravr dès qu'il sera activé — on te préviendra ici.";
 pub(crate) const FR_ACCOUNT_SUSPENDED: &str =
     "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès.";
+pub(crate) const FR_NO_PROVIDER_CONNECTED: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Fitbit, Whoop, …) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.";
 
 pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 20 minutes) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
 
@@ -522,6 +534,7 @@ pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfu
 pub(crate) const EN_ACCOUNT_PENDING: &str = "Your account is linked to this channel, but it's still waiting for admin approval. You'll be able to chat with Dravr as soon as it's activated — you'll get a heads-up here.";
 pub(crate) const EN_ACCOUNT_SUSPENDED: &str =
     "Your Dravr account is suspended. Contact support to restore access.";
+pub(crate) const EN_NO_PROVIDER_CONNECTED: &str = "Before we chat, connect a fitness service (Strava, Garmin, Fitbit, Whoop, …) from the Dravr app — without one I have no activity data to coach you on.";
 
 pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 20 minutes):\n\n{1}\n\nOnce reconnected, ask me again.";
 
@@ -652,6 +665,7 @@ pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctame
 pub(crate) const ES_ACCOUNT_PENDING: &str = "Tu cuenta está vinculada a este canal, pero aún espera la aprobación de un administrador. Podrás hablar con Dravr en cuanto se active — te avisaremos por aquí.";
 pub(crate) const ES_ACCOUNT_SUSPENDED: &str =
     "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso.";
+pub(crate) const ES_NO_PROVIDER_CONNECTED: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Fitbit, Whoop, …) desde la app Dravr — sin él no tengo datos de actividad para orientarte.";
 
 pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 20 minutos):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
 
@@ -782,6 +796,7 @@ pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du ka
 pub(crate) const DE_ACCOUNT_PENDING: &str = "Dein Konto ist mit diesem Kanal verknüpft, wartet aber noch auf die Freigabe durch einen Admin. Sobald es aktiviert ist, kannst du mit Dravr chatten — du wirst hier benachrichtigt.";
 pub(crate) const DE_ACCOUNT_SUSPENDED: &str =
     "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen.";
+pub(crate) const DE_NO_PROVIDER_CONNECTED: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Fitbit, Whoop, …) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.";
 
 pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 20 Minuten gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
 
@@ -914,6 +929,7 @@ pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! J�
 pub(crate) const PT_ACCOUNT_PENDING: &str = "A tua conta está ligada a este canal, mas ainda aguarda aprovação de um administrador. Vais poder falar com o Dravr assim que for ativada — avisamos-te por aqui.";
 pub(crate) const PT_ACCOUNT_SUSPENDED: &str =
     "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso.";
+pub(crate) const PT_NO_PROVIDER_CONNECTED: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Fitbit, Whoop, …) na app Dravr — sem ele não tenho dados de atividade para te ajudar.";
 
 pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 20 minutos):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
 
@@ -1031,6 +1047,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "fr", FR_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "fr", FR_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "fr", FR_ACCOUNT_SUSPENDED),
+    (KEY_NO_PROVIDER_CONNECTED, "fr", FR_NO_PROVIDER_CONNECTED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "fr", FR_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "fr", FR_STATUS_PROVIDERS_NONE),
@@ -1126,6 +1143,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "en", EN_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "en", EN_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "en", EN_ACCOUNT_SUSPENDED),
+    (KEY_NO_PROVIDER_CONNECTED, "en", EN_NO_PROVIDER_CONNECTED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "en", EN_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "en", EN_STATUS_PROVIDERS_NONE),
@@ -1221,6 +1239,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "es", ES_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "es", ES_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "es", ES_ACCOUNT_SUSPENDED),
+    (KEY_NO_PROVIDER_CONNECTED, "es", ES_NO_PROVIDER_CONNECTED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "es", ES_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "es", ES_STATUS_PROVIDERS_NONE),
@@ -1316,6 +1335,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "de", DE_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "de", DE_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "de", DE_ACCOUNT_SUSPENDED),
+    (KEY_NO_PROVIDER_CONNECTED, "de", DE_NO_PROVIDER_CONNECTED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "de", DE_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "de", DE_STATUS_PROVIDERS_NONE),
@@ -1411,6 +1431,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "pt", PT_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "pt", PT_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "pt", PT_ACCOUNT_SUSPENDED),
+    (KEY_NO_PROVIDER_CONNECTED, "pt", PT_NO_PROVIDER_CONNECTED),
     (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "pt", PT_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "pt", PT_STATUS_PROVIDERS_NONE),
