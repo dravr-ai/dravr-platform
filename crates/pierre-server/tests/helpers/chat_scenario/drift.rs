@@ -65,10 +65,16 @@ impl ClaimTimeline {
 
     /// Walk every category and flag inconsistencies.
     ///
-    /// A category drifts when the most recent value differs from an
-    /// earlier value by more than `tolerance`. We flag the *first*
-    /// drift per category — the goal is to surface the bug, not to
-    /// drown the operator in noise.
+    /// A category drifts when a value stated in a LATER turn differs
+    /// from a value stated in an EARLIER turn by more than `tolerance`.
+    /// Within-turn multiplicity is intentionally ignored — a single
+    /// reply that mentions both "8 km run" and "25 km bike" can have
+    /// the regex capture both numbers under the "run" sport when the
+    /// model uses the word "course" more than once; that's a regex
+    /// limitation, not a drift event. Only cross-turn deltas count.
+    ///
+    /// We flag the *first* drift per category to surface the bug
+    /// without drowning the operator in noise.
     #[must_use]
     pub fn detect_drift(&self, tolerance: f64) -> Vec<DriftFinding> {
         let mut findings = Vec::new();
@@ -76,15 +82,28 @@ impl ClaimTimeline {
             if records.len() < 2 {
                 continue;
             }
-            let last = records.last().expect("len >= 2 guarded above");
-            for prev in &records[..records.len() - 1] {
-                if (prev.value - last.value).abs() > tolerance {
+            let latest_turn = records.last().expect("len >= 2 guarded above").turn_index;
+            // Collapse same-turn duplicates to the FIRST claim for that
+            // turn — within-turn extras are regex noise, not signal.
+            let mut per_turn: BTreeMap<usize, f64> = BTreeMap::new();
+            for record in records {
+                per_turn.entry(record.turn_index).or_insert(record.value);
+            }
+            if per_turn.len() < 2 {
+                continue;
+            }
+            let last_value = per_turn[&latest_turn];
+            for (turn_index, value) in &per_turn {
+                if *turn_index == latest_turn {
+                    continue;
+                }
+                if (value - last_value).abs() > tolerance {
                     findings.push(DriftFinding {
                         claim: claim.clone(),
-                        earlier_turn: prev.turn_index,
-                        earlier_value: prev.value,
-                        latest_turn: last.turn_index,
-                        latest_value: last.value,
+                        earlier_turn: *turn_index,
+                        earlier_value: *value,
+                        latest_turn,
+                        latest_value: last_value,
                     });
                     break;
                 }
@@ -187,6 +206,34 @@ mod tests {
         );
         // Tolerance 0.5 → 7.0 vs 7.4 is within budget, no finding.
         assert!(t.detect_drift(0.5).is_empty());
+    }
+
+    #[test]
+    fn same_turn_multiplicity_is_not_drift() {
+        // Regex limitation: a single reply can mention both
+        // "8 km de course" and "25 km de vélo" while the run-keyword
+        // capture binds BOTH numbers under sport=run because the
+        // model used the word "course" twice. That's noise, not
+        // cross-turn drift.
+        let mut t = ClaimTimeline::new();
+        t.record(
+            AggregateClaim::Distance {
+                sport: "run".to_owned(),
+            },
+            3,
+            8.0,
+        );
+        t.record(
+            AggregateClaim::Distance {
+                sport: "run".to_owned(),
+            },
+            3,
+            25.0,
+        );
+        assert!(
+            t.detect_drift(0.5).is_empty(),
+            "within-turn duplicates must not be flagged as drift"
+        );
     }
 
     #[test]
