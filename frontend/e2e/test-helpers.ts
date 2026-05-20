@@ -57,6 +57,16 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ rows: [], known: [] }),
     });
   });
+  // Default onboarding status for spec-local login helpers that skip
+  // `setupDashboardMocks`. Specs exercising the forced-onboarding flow
+  // override with `needs_provider_connection: true` before calling login.
+  await page.route('**/api/me/onboarding-status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ needs_provider_connection: false }),
+    });
+  });
 }
 
 /**
@@ -312,6 +322,18 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ providers: [] }),
+    });
+  });
+
+  // Default onboarding status: a fully onboarded user. Specs exercising the
+  // forced-onboarding flow override this with `needs_provider_connection: true`
+  // via their own `page.route('**/api/me/onboarding-status', …)` call placed
+  // BEFORE `loginToDashboard` so the override wins.
+  await page.route('**/api/me/onboarding-status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ needs_provider_connection: false }),
     });
   });
 

@@ -1,0 +1,37 @@
+# ABOUTME: Maestro flow asserting a fresh user with zero provider connections lands on the onboarding screen
+# ABOUTME: NOT registered in config.yaml because the seeded mobiletest@pierre.dev already has providers connected
+#
+# To run this flow:
+#   1. Seed a fresh user with NO provider connections, e.g. `mobiletest_fresh@pierre.dev`
+#   2. Either:
+#      a) Update bin/setup-db-with-seeds-and-oauth-and-start-servers.sh to create that user, or
+#      b) Use the admin console / CLI to disconnect every provider for an existing test user
+#   3. Run: `maestro test --env TEST_EMAIL=mobiletest_fresh@pierre.dev .maestro/onboarding/01-forced-onboarding.yaml`
+#
+# The backend onboarding gate (see crates/pierre-server/tests/onboarding_gate_test.rs) is the
+# integration-level proof. This Maestro flow is the UI-level proof that the mobile route guard
+# routes the user to /(onboarding)/connect instead of /(app)/(tabs)/(chat).
+
+appId: host.exp.Exponent
+tags:
+  - onboarding
+  - first-run
+
+---
+- runFlow: ../helpers/launch-app.yaml
+- runFlow: ../helpers/login.yaml
+
+# After login, RootLayoutNav resolves the user's onboarding-status and the
+# route guard redirects a zero-provider user to the connect screen. The chat
+# screen MUST NOT be reachable; the onboarding screen MUST be visible.
+- assertVisible:
+    id: "onboarding-screen"
+
+# The welcome heading is unique to OnboardingConnectScreen — assert it to
+# guard against accidental renaming of the screen wrapper.
+- assertVisible: "Welcome"
+
+# Chat is NOT reachable: testID="chat-screen" would be the canonical anchor
+# of the main app stack. Its absence proves the guard fired.
+- assertNotVisible:
+    id: "chat-screen"

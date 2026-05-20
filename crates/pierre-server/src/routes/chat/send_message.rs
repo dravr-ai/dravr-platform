@@ -142,6 +142,17 @@ pub async fn send_message(
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
 
+    // Onboarding gate: refuse messaging until the user has at least one
+    // connected fitness provider. Without a provider the LLM has no activity
+    // data to reason about and hallucinates specifics ("nice 12 km ride
+    // yesterday!"); the 403 lets the frontend redirect to the connect-provider
+    // screen instead of rendering an empty answer.
+    crate::services::onboarding_gate::require_connected_provider(
+        &resources.repos.provider_connections,
+        auth.user_id,
+    )
+    .await?;
+
     // Populate the parent span so downstream pipeline log lines (already
     // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the
     // resolved tenant + user without each callee needing to re-record them.

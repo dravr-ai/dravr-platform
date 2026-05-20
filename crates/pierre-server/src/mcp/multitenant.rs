@@ -34,6 +34,7 @@ use crate::protocols::universal::types::{CancellationToken, ProgressReporter};
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::providers::ProviderRegistry;
 use crate::routes::feature_flags::FeatureFlagsRoutes;
+use crate::routes::onboarding::OnboardingRoutes;
 use crate::types::json_schemas;
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
@@ -1186,6 +1187,10 @@ impl MultiTenantMcpServer {
         // Runtime feature flags — self-read endpoint (admin endpoints are
         // mounted alongside the cookie-admin middleware in `web_admin`).
         let app = app.merge(FeatureFlagsRoutes::routes(Arc::clone(resources)));
+
+        // Onboarding state — cheap self-read used by web + mobile to gate
+        // routing right after login.
+        let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-coaches")]
         let app = app

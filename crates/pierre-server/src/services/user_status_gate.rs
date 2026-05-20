@@ -31,7 +31,9 @@
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::UserStatus;
 
-use crate::contremaitre::messaging_strings::{KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED};
+use crate::contremaitre::messaging_strings::{
+    KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED, KEY_NO_PROVIDER_CONNECTED,
+};
 
 /// Enforce the global account-status policy.
 ///
@@ -67,6 +69,7 @@ pub const fn messaging_key_for_status(code: ErrorCode) -> Option<&'static str> {
     match code {
         ErrorCode::AccountPending => Some(KEY_ACCOUNT_PENDING),
         ErrorCode::AccountSuspended => Some(KEY_ACCOUNT_SUSPENDED),
+        ErrorCode::NoProviderConnected => Some(KEY_NO_PROVIDER_CONNECTED),
         _ => None,
     }
 }

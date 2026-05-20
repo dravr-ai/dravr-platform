@@ -132,6 +132,10 @@ pub mod admin_rate_limit_override;
 /// and per-user overrides.
 pub mod feature_flags;
 
+/// Onboarding state — self-read endpoint that tells the frontend whether
+/// the user still needs to connect a fitness provider.
+pub mod onboarding;
+
 /// API key management routes
 #[cfg(feature = "client-api-keys")]
 pub mod api_keys;

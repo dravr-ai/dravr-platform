@@ -33,6 +33,7 @@ export const QUERY_KEYS = {
     stats: () => ['userStats'] as const,
     oauthApps: () => ['user-oauth-apps'] as const,
     providerConnections: () => ['provider-connections'] as const,
+    onboardingStatus: () => ['user-onboarding-status'] as const,
   },
 
   // ==================== OAUTH ====================

@@ -90,6 +90,17 @@ export interface UpdateProfileResponse {
 }
 
 /**
+ * Response from `GET /api/me/onboarding-status`.
+ *
+ * `needs_provider_connection` is `true` when the caller has zero rows in
+ * `provider_connections` and must complete the onboarding flow before the
+ * messaging endpoints will accept their requests.
+ */
+export interface OnboardingStatusResponse {
+  needs_provider_connection: boolean;
+}
+
+/**
  * Creates the user API methods bound to an axios instance.
  */
 export function createUserApi(axios: AxiosInstance) {
@@ -313,6 +324,21 @@ export function createUserApi(axios: AxiosInstance) {
     async forgetMemoryFact(factId: string): Promise<ForgetMemoryFactResponse> {
       const response = await axios.delete<ForgetMemoryFactResponse>(
         `/api/memory/facts/${encodeURIComponent(factId)}`,
+      );
+      return response.data;
+    },
+
+    /**
+     * Cheap self-read used by web + mobile to decide, right after login,
+     * whether to render the onboarding screen or route to the main UI.
+     *
+     * Returns `{ needs_provider_connection: true }` when the caller has zero
+     * rows in `provider_connections` — the same source of truth the messaging
+     * endpoints use, so the gate and the redirect can never drift.
+     */
+    async getOnboardingStatus(): Promise<OnboardingStatusResponse> {
+      const response = await axios.get<OnboardingStatusResponse>(
+        ENDPOINTS.USER.ONBOARDING_STATUS,
       );
       return response.data;
     },
