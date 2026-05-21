@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId};
+use pierre_database::repositories::ProviderConnectionRepository;
 use pierre_mcp_server::services::onboarding_gate;
 
 mod common;
@@ -85,8 +86,7 @@ async fn user_has_connected_provider_reflects_table_state() {
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
 
-    let repo: Arc<dyn pierre_database::repositories::ProviderConnectionRepository> =
-        repos.provider_connections.clone();
+    let repo: Arc<dyn ProviderConnectionRepository> = repos.provider_connections.clone();
 
     assert!(
         !onboarding_gate::user_has_connected_provider(&repo, user_id)
