@@ -68,7 +68,16 @@ function AppContent() {
   // those users to the connect-provider screen instead of the dashboard.
   // The query only fires once the user is active — pending / suspended
   // states get their own screens upstream of this check.
-  const onboardingActive = isAuthenticated && user?.user_status === 'active';
+  //
+  // Admins are exempt: their primary intent is administering, not chatting,
+  // so a missing provider on the admin account must not block them from
+  // the dashboard / settings / admin panels. The backend 403 still applies
+  // if an admin tries to chat without a provider — same hallucination guard,
+  // just no forced redirect off the entire UI.
+  // (See `feedback_spa_gate_on_role_not_is_admin`: gate on `user.role`.)
+  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
+  const onboardingActive =
+    isAuthenticated && user?.user_status === 'active' && !isAdminRole;
   const { data: onboardingStatus, isLoading: onboardingLoading } = useQuery({
     queryKey: QUERY_KEYS.user.onboardingStatus(),
     queryFn: () => userApi.getOnboardingStatus(),

@@ -24,6 +24,7 @@ mod conversation_turn_e2e_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
+    use pierre_core::models::ConnectionType;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -170,6 +171,24 @@ mod conversation_turn_e2e_tests {
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
+            .await
+            .unwrap();
+
+        // Register a synthetic provider so the onboarding gate
+        // (`services::onboarding_gate::require_connected_provider`) lets the
+        // Slack-webhook turn reach the LLM pipeline. The pipeline still uses
+        // the mock provider for the actual data fetch; the gate just needs
+        // any row in `provider_connections` to pass.
+        resources
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
             .await
             .unwrap();
 

@@ -107,8 +107,13 @@ function RootLayoutNav() {
   // have at least one connected fitness provider. The same source of truth
   // (`provider_connections`) drives the backend's 403 on chat/coach/messaging,
   // so the gate and the redirect can never drift.
+  //
+  // Admins are exempt — their primary intent is administering, not chatting,
+  // so a missing provider must not block them out of the app entirely. The
+  // backend 403 still applies if an admin posts a chat without a provider.
+  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
   const needsOnboardingFetch =
-    isAuthenticated && user?.user_status === 'active';
+    isAuthenticated && user?.user_status === 'active' && !isAdminRole;
   const { data: onboardingStatus, isLoading: onboardingLoading } =
     useOnboardingStatus(needsOnboardingFetch);
 
