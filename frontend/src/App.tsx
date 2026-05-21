@@ -78,7 +78,7 @@ function AppContent() {
   const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
   const onboardingActive =
     isAuthenticated && user?.user_status === 'active' && !isAdminRole;
-  const { data: onboardingStatus, isLoading: onboardingLoading } = useQuery({
+  const { data: onboardingStatus } = useQuery({
     queryKey: QUERY_KEYS.user.onboardingStatus(),
     queryFn: () => userApi.getOnboardingStatus(),
     enabled: onboardingActive,
@@ -262,25 +262,13 @@ function AppContent() {
     );
   }
 
-  // Authenticated, active, but the onboarding-status fetch is still in flight.
-  // Keep the same spinner shape as the upstream `isLoading` branch so users
-  // don't see a flash of dashboard chrome before being redirected.
-  if (onboardingLoading) {
-    return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-on-surface-variant">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Authenticated, active, but no connected provider yet — force the
-  // connect-provider screen. The server enforces the same rule on every
-  // chat/coach/messaging endpoint, so this is the friendlier surfacing of
-  // a 403 the user would otherwise hit on their first message.
-  if (onboardingStatus?.needs_provider_connection) {
+  // Render the dashboard immediately while onboarding-status is in flight.
+  // Only switch to the connect-provider screen when the server explicitly
+  // confirms `needs_provider_connection: true` — flashing a full-screen
+  // spinner first races E2E tests against UI elements that don't render
+  // until the query resolves, and a one-frame flash of dashboard chrome
+  // before a redirect is acceptable on the first-login edge case.
+  if (onboardingStatus?.needs_provider_connection === true) {
     return (
       <div className="min-h-screen bg-surface">
         <ConnectionBanner />
