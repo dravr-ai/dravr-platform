@@ -6,10 +6,6 @@
 
 missing_tokens=()
 
-if [ -z "$LINEAR_API_KEY" ]; then
-  missing_tokens+=("LINEAR_API_KEY (Linear MCP - for issue tracking)")
-fi
-
 if [ -z "$GITHUB_PERSONAL_ACCESS_TOKEN" ]; then
   missing_tokens+=("GITHUB_PERSONAL_ACCESS_TOKEN (GitHub MCP - for repo operations)")
 fi
@@ -19,7 +15,7 @@ if [ ${#missing_tokens[@]} -gt 0 ]; then
   for token in "${missing_tokens[@]}"; do
     echo "  - $token"
   done
-  echo "NOTE: DO NOT ask the user for these tokens. MCP tools that require them will be unavailable — use fallback methods instead (e.g., WebFetch for GitHub, direct file reads for Linear issues). Only mention missing tokens if the user explicitly tries to use a feature that requires them."
+  echo "NOTE: DO NOT ask the user for these tokens. MCP tools that require them will be unavailable — use fallback methods instead (e.g., WebFetch for GitHub). Only mention missing tokens if the user explicitly tries to use a feature that requires them."
 fi
 
 # Check Fougere/Copilot CLI availability
