@@ -589,6 +589,7 @@ async fn test_get_activities_with_expired_token() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -682,6 +683,7 @@ async fn test_connection_status_with_oauth_manager() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -764,6 +766,7 @@ async fn test_analyze_activity_token_refresh() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -866,6 +869,7 @@ async fn test_concurrent_token_operations() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -952,6 +956,7 @@ async fn test_oauth_provider_init_failure() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

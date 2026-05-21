@@ -135,6 +135,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     let user_id = database.repositories().users.create(&test_user).await?;
@@ -537,6 +538,7 @@ async fn create_test_pending_user(database: &Database) -> Result<uuid::Uuid> {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     database.repositories().users.create(&test_user).await?;
     Ok(test_user_id)

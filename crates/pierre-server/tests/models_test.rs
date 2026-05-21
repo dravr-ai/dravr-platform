@@ -306,6 +306,7 @@ fn test_user_creation_with_required_fields() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     assert_eq!(user.id, user_id);
@@ -354,6 +355,7 @@ fn test_user_serialization_roundtrip() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     let json = serde_json::to_string(&original_user).unwrap();
@@ -526,6 +528,7 @@ fn test_user_with_encrypted_tokens() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     // Verify tokens are present

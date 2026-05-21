@@ -203,6 +203,15 @@ pub trait UserRepository: Send + Sync {
     /// UI / API surface. Independent from `coaching_persona` — see
     /// `Coaching Persona Architecture.md` §8 for the rationale.
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()>;
+    /// Persist the user's IANA timezone (e.g. `"America/Toronto"`).
+    ///
+    /// Captured client-side via `Intl.DateTimeFormat().resolvedOptions().timeZone`
+    /// on each authenticated request via the `X-User-Timezone` header. The
+    /// auth middleware calls this only when the header differs from the
+    /// stored value, so steady-state cost is one write per genuine
+    /// timezone change (travel, DST tooling glitches). Reading code
+    /// treats `None` as UTC at prompt-assembly time.
+    async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()>;
     /// Set the user's billing tier (Starter / Professional / Enterprise).
     ///
     /// Called by Stripe webhook handlers on `customer.subscription.updated`

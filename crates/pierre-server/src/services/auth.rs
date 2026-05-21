@@ -512,6 +512,7 @@ impl AuthService {
             default_coach_id: None,
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
+            timezone: None,
         };
 
         self.data.repos().users.create(&new_user).await?;

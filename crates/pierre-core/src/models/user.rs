@@ -275,6 +275,19 @@ pub struct User {
     /// Coach persona).
     #[serde(default)]
     pub manages_roster: bool,
+    /// IANA timezone database name (e.g. `"America/Toronto"`,
+    /// `"Europe/Paris"`). Captured client-side via
+    /// `Intl.DateTimeFormat().resolvedOptions().timeZone` on each
+    /// authenticated request and forwarded via the `X-User-Timezone`
+    /// header. Server middleware updates this column only when the
+    /// header differs from the stored value, so steady-state cost is
+    /// one write per genuine TZ change. `None` means no client has
+    /// reported yet — readers fall back to UTC. Used by the chat
+    /// prompt-assembly stage to resolve `{{CURRENT_DATE}}` to the
+    /// user's local calendar day so the coach interprets "today"
+    /// correctly.
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 /// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
@@ -318,6 +331,7 @@ impl User {
             default_coach_id: None,
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
+            timezone: None,
         }
     }
 

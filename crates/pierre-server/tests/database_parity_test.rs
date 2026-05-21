@@ -621,6 +621,7 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     repos

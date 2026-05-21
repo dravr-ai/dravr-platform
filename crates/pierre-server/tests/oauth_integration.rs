@@ -265,6 +265,7 @@ async fn test_oauth_authorization_url_generation() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let admin_id = database
         .repositories()
@@ -768,6 +769,7 @@ async fn test_connection_status_no_providers() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     database.repositories().users.create(&user).await.unwrap();
 
@@ -1239,6 +1241,7 @@ async fn test_disconnect_provider() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     server_resources.repos.users.create(&user).await.unwrap();
 
@@ -1323,6 +1326,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     let admin_id = database
         .repositories()

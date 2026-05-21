@@ -743,6 +743,7 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     db.repositories()
