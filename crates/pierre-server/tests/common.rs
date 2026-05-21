@@ -987,9 +987,7 @@ pub async fn create_test_tenant_with_provider(
             None,
         )
         .await
-        .map_err(|e| {
-            anyhow::Error::msg(format!("Failed to register synthetic provider: {e}"))
-        })?;
+        .map_err(|e| anyhow::Error::msg(format!("Failed to register synthetic provider: {e}")))?;
     Ok((user, token))
 }
 

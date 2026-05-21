@@ -69,7 +69,13 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     resources
         .repos
         .provider_connections
-        .register_connection(user_id, tenant_id, "synthetic", &ConnectionType::Synthetic, None)
+        .register_connection(
+            user_id,
+            tenant_id,
+            "synthetic",
+            &ConnectionType::Synthetic,
+            None,
+        )
         .await
         .unwrap();
 
