@@ -14,7 +14,7 @@ use axum::http::StatusCode;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::models::{Tenant, User, UserStatus};
 use pierre_mcp_server::routes::chat::{ChatCompletionResponse, ChatRoutes, ConversationResponse};
@@ -59,6 +59,17 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
+        .await
+        .unwrap();
+
+    // Register a synthetic provider so the onboarding gate
+    // (`services::onboarding_gate::require_connected_provider`) doesn't 403
+    // before the slash dispatcher even runs. Slash commands don't consume
+    // provider data, but the gate fires upstream of dispatch.
+    resources
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "synthetic", &ConnectionType::Synthetic, None)
         .await
         .unwrap();
 
