@@ -252,6 +252,8 @@ export const ENDPOINTS = {
     OAUTH_APP: (provider: string) => `/api/users/oauth-apps/${provider}`,
     /** Onboarding status — cheap self-read used by web + mobile to gate routing right after login */
     ONBOARDING_STATUS: '/api/me/onboarding-status',
+    /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
+    TIMEZONE: '/api/users/me/timezone',
   },
 } as const;
 

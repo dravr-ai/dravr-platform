@@ -1,0 +1,59 @@
+# Scenario: Bug — coach must use the current calendar date as "today",
+# not the latest date it happens to see in activity history.
+#
+# Origin: ChefFamille's Telegram session 2026-05-20. The bot answered
+# "Msa journée uniquement. Dis moi ce que j'ai fait" (today only) with
+# a recap of 2026-05-17 because that was the freshest date it had in
+# context — without an explicit current-date anchor it defaulted to
+# "latest known date" as "today". User pushback ("On est le 20!!!")
+# got a refusal ("can't trigger Strava sync from this chat") instead
+# of a tool call. Fix landed in commits 4-7 on
+# feature/data-freshness-uniform-2: {{CURRENT_DATE}} placeholder in
+# pierre_system.md, TZ-aware resolver in prompt_assembly.rs, stale-
+# data tool-call directive in build_coach_hint.
+#
+# This scenario pins the behavior: when the user asks about "today"
+# but the freshest activities are days old, the coach must (a) invoke
+# get_activities to confirm there is no fresher data, and (b) NOT
+# attribute the stale activities to "today" in its reply.
+name: "Coach uses current date as 'today' even when activity history predates it"
+locales: ["fr"]
+notes: "Regression pin for 2026-05-20 Telegram drift — date anchor + tool call"
+provider_state:
+  providers:
+    strava:
+      # Seed activities that are clearly NOT today (using a 2025 date
+      # so the assertion holds whenever the test runs in 2026+). The
+      # exact date doesn't matter — what matters is "this is not the
+      # day the test runs".
+      initial_activities:
+        - { name: "Vieille sortie 1", sport: trail_run, distance_km: 10.0, date: "2025-11-15" }
+        - { name: "Vieille sortie 2", sport: trail_run, distance_km: 12.0, date: "2025-11-14" }
+        - { name: "Vieille sortie 3", sport: ride, distance_km: 35.0, date: "2025-11-13" }
+      appears_after_sync: []
+turns:
+  - user: "Qu'est-ce que j'ai fait aujourd'hui?"
+    assertions:
+      # The coach MUST invoke get_activities before claiming what was
+      # done today — relying on the seeded list alone would mis-label
+      # the November 2025 activities as today's.
+      - kind: tool_called
+        name: get_activities
+      # Acceptable phrasings: "no activity today" / "rien aujourd'hui"
+      # / "aucune activité" / "today nothing logged". The any_of
+      # asserter checks at least one substring matches case-insensitively.
+      # We do NOT pin no_substring on the seed dates ("2025-11-15"
+      # etc.) — a coach can legitimately mention the last known
+      # activity ("ta dernière sortie remonte au 15 novembre") without
+      # mis-attributing it to today. The OLD bug surfaced as
+      # "Aujourd'hui tu as fait <stale-date>'s activity"; the any_of
+      # below pins the corrected behavior, which is sufficient.
+      - kind: any_of
+        values:
+          - "aucune activité"
+          - "aucune sortie"
+          - "rien aujourd'hui"
+          - "pas d'activité aujourd'hui"
+          - "rien fait aujourd'hui"
+          - "no activity today"
+          - "nothing logged"

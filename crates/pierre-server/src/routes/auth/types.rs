@@ -44,6 +44,13 @@ pub struct LoginRequest {
     pub email: String,
     /// User's password
     pub password: String,
+    /// Optional IANA timezone (e.g. `"America/Toronto"`). Captured
+    /// client-side via `Intl.DateTimeFormat().resolvedOptions().timeZone`
+    /// and forwarded on each successful login so the chat prompt can
+    /// resolve `{{CURRENT_DATE}}` to the user's local calendar day.
+    /// Persisted via `UserRepository::set_timezone` when present.
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 /// Firebase login request - authenticate with Firebase ID token
@@ -51,6 +58,9 @@ pub struct LoginRequest {
 pub struct FirebaseLoginRequest {
     /// Firebase ID token from client-side Firebase SDK
     pub id_token: String,
+    /// Optional IANA timezone — see [`LoginRequest::timezone`].
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 /// User info for login response

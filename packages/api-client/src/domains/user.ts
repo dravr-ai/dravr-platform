@@ -130,6 +130,21 @@ export function createUserApi(axios: AxiosInstance) {
     },
 
     /**
+     * Persist the user's IANA timezone so the chat prompt can render
+     * `{{CURRENT_DATE}}` in their local calendar day. Callers pass
+     * `Intl.DateTimeFormat().resolvedOptions().timeZone`; the server
+     * validates the string parses as a known timezone before storing
+     * it. Best-effort — non-fatal failures (e.g. timezone column
+     * absent on an older deploy) should not block login flows.
+     */
+    async setTimezone(timezone: string): Promise<{ timezone: string }> {
+      const response = await axios.put<{ timezone: string }>(ENDPOINTS.USER.TIMEZONE, {
+        timezone,
+      });
+      return response.data;
+    },
+
+    /**
      * Change password.
      */
     async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {

@@ -2,7 +2,7 @@
 // ABOUTME: Manages user auth state, login/logout, and persists tokens with AsyncStorage
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import { authApi, onAuthFailure } from '../services/api';
+import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import type { User, FirebaseLoginResponse } from '../types';
 
@@ -21,6 +21,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
   children: ReactNode;
+}
+
+/**
+ * Read the device's IANA timezone via `Intl.DateTimeFormat` and PUT it
+ * to the server so the chat prompt can render `{{CURRENT_DATE}}` in
+ * the user's local calendar day. Best-effort: errors are swallowed so
+ * login flows never break on a transient PUT failure.
+ */
+async function captureUserTimezone(): Promise<void> {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz) {
+      await userApi.setTimezone(tz);
+    }
+  } catch (err) {
+    console.warn('Failed to persist user timezone:', err);
+  }
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
@@ -70,6 +87,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     await authApi.storeAuth(response.access_token, response.csrf_token || '', loginUser);
     setUser(loginUser);
+
+    // Best-effort: persist the device's IANA timezone so the chat
+    // prompt resolves {{CURRENT_DATE}} in the user's local calendar.
+    // Failures don't block login — UTC fallback keeps chat usable.
+    void captureUserTimezone();
   }, []);
 
   const loginWithFirebase = useCallback(async (idToken: string): Promise<FirebaseLoginResponse> => {
@@ -78,6 +100,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Store auth tokens and user info
     await authApi.storeAuth(response.jwt_token, response.csrf_token, response.user);
     setUser(response.user);
+
+    void captureUserTimezone();
 
     return response;
   }, []);

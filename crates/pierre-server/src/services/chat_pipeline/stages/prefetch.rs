@@ -127,10 +127,23 @@ pub async fn prefetch_activity_context(
         params["sport_type"] = serde_json::Value::String(String::clone(sport_type));
     }
 
-    // Add time_frame as 'after' timestamp
+    // Add time_frame as paired (after, before) timestamps.
+    //
+    // Strava silently flips activity ordering to oldest-first when only
+    // `after` is set — see the safety note in
+    // `fitness_api.rs:1314-1319` and memory feedback
+    // `strava-after-only-returns-ascending`. With `count=10` and a 7-day
+    // window, an active athlete who logged 10 sessions on a single day
+    // (e.g. ChefFamille's 2026-05-17 block) ends up with the 10 oldest
+    // activities in the window, and everything from the next three days
+    // gets dropped. Pairing `before = now` with `after` keeps the
+    // default newest-first ordering, so the prefetched batch shows the
+    // most recent activities up to `count`.
     if let Some(seconds) = activities_req.time_frame_seconds() {
-        let after = chrono::Utc::now().timestamp() - seconds;
+        let now = chrono::Utc::now().timestamp();
+        let after = now - seconds;
         params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
+        params["before"] = serde_json::Value::Number(serde_json::Number::from(now));
     }
 
     let request = UniversalRequest {

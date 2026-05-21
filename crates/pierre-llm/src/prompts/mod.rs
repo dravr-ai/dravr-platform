@@ -252,6 +252,7 @@ pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[(
         "{{CAPABILITY_REFUSAL}}",
         "{{COACH_SCOPE_CARVE_OUT}}",
         "{{COACHING_PERSONA_RULES}}",
+        "{{CURRENT_DATE}}",
     ],
 )];
 

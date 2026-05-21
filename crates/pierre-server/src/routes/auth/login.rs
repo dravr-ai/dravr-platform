@@ -778,6 +778,11 @@ pub(super) async fn handle_oauth2_token(
     let login_request = LoginRequest {
         email: request.username,
         password: request.password,
+        // OAuth2 ROPC bridge does not carry a timezone — the
+        // password-flow client (web/mobile) sends it on its own
+        // /auth/login call; ROPC callers are server-to-server and
+        // typically agnostic.
+        timezone: None,
     };
 
     let auth_service = AuthService::new(resources.auth(), resources.config(), resources.data());

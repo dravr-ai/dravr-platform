@@ -63,6 +63,7 @@ use crate::routes::billing;
 use crate::routes::endurance;
 #[cfg(feature = "oauth")]
 use crate::routes::oauth2::OAuth2Context;
+use crate::routes::user_profile::routes as user_profile_routes;
 use axum::middleware;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
@@ -1157,7 +1158,8 @@ impl MultiTenantMcpServer {
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(HealthDataRoutes::routes(Arc::clone(resources)))
             .merge(billing::billing_routes().with_state(Arc::clone(resources)))
-            .merge(endurance::endurance_routes().with_state(Arc::clone(resources)));
+            .merge(endurance::endurance_routes().with_state(Arc::clone(resources)))
+            .merge(user_profile_routes().with_state(Arc::clone(resources)));
 
         // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)
         #[cfg(feature = "health-sync")]

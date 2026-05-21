@@ -295,6 +295,23 @@ impl RefreshService {
             let _ = writeln!(hint, "- {}: {} ({})", pf.provider, pf.freshness, age_str);
         }
 
+        // Provider-agnostic tool-call directive. The freshness lines
+        // above are read-only — they tell the LLM "data may be stale"
+        // but don't push it to act. Without this directive the model
+        // happily answers from the prior turn's baked-in context (see
+        // 2026-05-21 incident where the coach said "Le 17 mai" for the
+        // user's "today only" question on the 20th because it never
+        // re-fetched). The instruction below applies to every
+        // connected provider via the same `get_activities` tool, so
+        // it scales without per-provider plumbing.
+        hint.push_str(
+            "\nBefore answering any question that depends on recent activities, sleep, recovery, or workouts \
+             (e.g. \"today only\", \"this week\", \"aujourd'hui\", \"hier\", \"recent sessions\"), invoke \
+             `get_activities` with `before=<unix-now>` and no `after` to pull the newest records from each \
+             stale provider. Do not rely on data baked into earlier turns when the freshness hint above lists \
+             a stale provider.",
+        );
+
         Some(hint)
     }
 

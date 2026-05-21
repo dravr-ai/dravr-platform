@@ -55,6 +55,7 @@ mod phase_1_integration {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
+    use pierre_core::models::ConnectionType;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -192,6 +193,22 @@ mod phase_1_integration {
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
+            .await
+            .unwrap();
+
+        // Onboarding gate: register a synthetic provider so the messaging
+        // pipeline reaches the LLM step. The mock provider serves the actual
+        // data fetch; the gate just needs any row in `provider_connections`.
+        resources
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
             .await
             .unwrap();
 

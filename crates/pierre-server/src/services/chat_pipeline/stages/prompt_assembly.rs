@@ -58,7 +58,7 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 
 /// Rewrite the prompt-template placeholders with their runtime values.
 ///
-/// Handles four placeholders:
+/// Handles five placeholders:
 ///
 /// - `{{SCOPE_REFUSAL}}` → canonical off-scope refusal sentence
 /// - `{{CAPABILITY_REFUSAL}}` → canonical missing-capability refusal sentence
@@ -71,6 +71,12 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 ///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
 ///   the chosen coach personality — it controls structure / citation
 ///   density / verbosity, not voice or domain.
+/// - `{{CURRENT_DATE}}` → today's calendar date in the user's IANA
+///   timezone, formatted `YYYY-MM-DD (Continent/City)`. Falls back to UTC
+///   when the user has no timezone on file. Without this anchor the LLM
+///   defaults to the latest date it sees in activity history when the
+///   user says "today" / "aujourd'hui", which fails the moment data
+///   goes stale.
 ///
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
@@ -80,36 +86,41 @@ fn interpolate_prompt_placeholders(
     input: &TurnInput,
     coach_ctx: Option<&CoachRuntimeContext>,
     persona: CoachingPersona,
+    user_timezone: Option<&str>,
     prompt: &str,
 ) -> String {
     let has_scope = prompt.contains("{{SCOPE_REFUSAL}}");
     let has_capability = prompt.contains("{{CAPABILITY_REFUSAL}}");
     let has_carve_out = prompt.contains("{{COACH_SCOPE_CARVE_OUT}}");
     let has_persona = prompt.contains("{{COACHING_PERSONA_RULES}}");
-    let assembled = if !has_scope && !has_capability && !has_carve_out && !has_persona {
-        prompt.to_owned()
-    } else {
-        let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
-        let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
-        let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
-        let carve_out = coach_ctx
-            .and_then(|c| coach_scope_carve_out_key(c.category))
-            .map_or_else(String::new, |key| {
-                messaging_strings_registry.get(key, locale)
-            });
-        // Read the persona block from the prompt registry so a hot-reload
-        // from contremaitre takes effect on the very next turn — no
-        // redeploy needed. The registry seeds itself with the compiled-in
-        // `include_str!()` content at startup, so chat works before the
-        // first sync completes; once contremaitre lands a newer version
-        // via webhook → selective_sync, the same lookup here picks it up.
-        let persona_block = prompt_registry.coaching_persona_prompt(persona);
-        prompt
-            .replace("{{SCOPE_REFUSAL}}", &scope)
-            .replace("{{CAPABILITY_REFUSAL}}", &capability)
-            .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
-            .replace("{{COACHING_PERSONA_RULES}}", &persona_block)
-    };
+    let has_current_date = prompt.contains("{{CURRENT_DATE}}");
+    let assembled =
+        if !has_scope && !has_capability && !has_carve_out && !has_persona && !has_current_date {
+            prompt.to_owned()
+        } else {
+            let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
+            let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
+            let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
+            let carve_out = coach_ctx
+                .and_then(|c| coach_scope_carve_out_key(c.category))
+                .map_or_else(String::new, |key| {
+                    messaging_strings_registry.get(key, locale)
+                });
+            // Read the persona block from the prompt registry so a hot-reload
+            // from contremaitre takes effect on the very next turn — no
+            // redeploy needed. The registry seeds itself with the compiled-in
+            // `include_str!()` content at startup, so chat works before the
+            // first sync completes; once contremaitre lands a newer version
+            // via webhook → selective_sync, the same lookup here picks it up.
+            let persona_block = prompt_registry.coaching_persona_prompt(persona);
+            let current_date = format_current_date(user_timezone);
+            prompt
+                .replace("{{SCOPE_REFUSAL}}", &scope)
+                .replace("{{CAPABILITY_REFUSAL}}", &capability)
+                .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
+                .replace("{{COACHING_PERSONA_RULES}}", &persona_block)
+                .replace("{{CURRENT_DATE}}", &current_date)
+        };
     let stray = unsubstituted_placeholders(&assembled);
     if !stray.is_empty() {
         error!(
@@ -118,6 +129,33 @@ fn interpolate_prompt_placeholders(
         );
     }
     assembled
+}
+
+/// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
+///
+/// Output shape: `YYYY-MM-DD (Continent/City)` when the user has a valid
+/// IANA timezone, e.g. `2026-05-21 (America/Toronto)`. Falls back to
+/// `YYYY-MM-DD (UTC)` when the timezone is `None` (no client has reported
+/// yet) or fails to parse (e.g. a malformed string somehow landed in the
+/// column). The date is *local* to the user's tz, not the server's UTC
+/// day — that's the whole point of the anchor: when the user says "today"
+/// at 23:30 EDT, the prompt must say 2026-05-21, not the 2026-05-22 the
+/// server clock has already rolled over to.
+fn format_current_date(user_timezone: Option<&str>) -> String {
+    use chrono::Utc;
+    let now_utc = Utc::now();
+    let (date_str, label) = user_timezone
+        .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
+        .map_or_else(
+            || (now_utc.format("%Y-%m-%d").to_string(), "UTC".to_owned()),
+            |tz| {
+                (
+                    now_utc.with_timezone(&tz).format("%Y-%m-%d").to_string(),
+                    tz.name().to_owned(),
+                )
+            },
+        );
+    format!("{date_str} ({label})")
 }
 
 /// Look up the user's selected coaching persona, falling back to the
@@ -132,12 +170,25 @@ pub(in crate::services::chat_pipeline) async fn resolve_user_persona(
     users: &dyn UserRepository,
     user_id: &str,
 ) -> CoachingPersona {
+    resolve_user_persona_and_timezone(users, user_id).await.0
+}
+
+/// Look up the user's coaching persona and timezone in a single read.
+///
+/// Reading both in one query keeps the caller-side cost the same as the
+/// persona-only version. Timezone is an IANA name (`"America/Toronto"`)
+/// or `None` when the client has never reported one — readers fall back
+/// to UTC.
+pub(in crate::services::chat_pipeline) async fn resolve_user_persona_and_timezone(
+    users: &dyn UserRepository,
+    user_id: &str,
+) -> (CoachingPersona, Option<String>) {
     let Some(user_uuid) = parse_uuid(user_id).ok() else {
-        return CoachingPersona::default();
+        return (CoachingPersona::default(), None);
     };
     match users.get_global(user_uuid).await {
-        Ok(Some(user)) => user.coaching_persona,
-        Ok(None) | Err(_) => CoachingPersona::default(),
+        Ok(Some(user)) => (user.coaching_persona, user.timezone),
+        Ok(None) | Err(_) => (CoachingPersona::default(), None),
     }
 }
 
@@ -189,13 +240,15 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // from the user's `coaching_persona` column and controls output
     // format (structure, citation density, length) orthogonally to the
     // coach personality.
-    let persona = resolve_user_persona(resources.repos.users.as_ref(), &input.user_id).await;
+    let (persona, user_timezone) =
+        resolve_user_persona_and_timezone(resources.repos.users.as_ref(), &input.user_id).await;
     let base_prompt = interpolate_prompt_placeholders(
         &resources.messaging_strings_registry,
         &resources.prompt_registry,
         input,
         coach_ctx,
         persona,
+        user_timezone.as_deref(),
         &base_prompt,
     );
 

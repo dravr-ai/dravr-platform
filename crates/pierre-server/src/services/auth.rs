@@ -198,6 +198,21 @@ impl AuthService {
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
 
+        // Persist the user's IANA timezone if the client reported one
+        // that differs from the stored value. The web/mobile clients
+        // capture this via Intl.DateTimeFormat().resolvedOptions().
+        // timeZone on every login attempt; the chat prompt-assembly
+        // stage reads it back to resolve `{{CURRENT_DATE}}` to the
+        // user's local calendar day. Same-value writes are skipped to
+        // avoid pointless DB churn on every login.
+        if let Some(ref tz) = request.timezone {
+            if !tz.is_empty() && user.timezone.as_deref() != Some(tz.as_str()) {
+                if let Err(e) = self.data.repos().users.set_timezone(user.id, tz).await {
+                    warn!(user_id = %user.id, error = %e, "Failed to persist user timezone");
+                }
+            }
+        }
+
         // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
         let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
         let tenant_id_for_response = active_tenant_id.clone();
