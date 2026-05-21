@@ -216,9 +216,10 @@ async fn chat_handler_emits_agui_events_for_real_request() {
     let _env = force_dispatch_failure_via_env();
 
     let (resources, base_url) = spawn_server().await;
-    let (user, token) = common::create_test_tenant(&resources, "agui-handler@example.com")
-        .await
-        .expect("create user + token");
+    let (user, token) =
+        common::create_test_tenant_with_provider(&resources, "agui-handler@example.com")
+            .await
+            .expect("create user + token + provider");
 
     let client = Client::builder().no_gzip().build().expect("client");
     let conversation_id = create_conversation(&client, &base_url, &token).await;
@@ -324,9 +325,10 @@ async fn chat_handler_emits_agui_events_for_real_request() {
 #[serial_test::serial]
 async fn chat_handler_rejects_non_uuid_agui_run_id() {
     let (resources, base_url) = spawn_server().await;
-    let (_user, token) = common::create_test_tenant(&resources, "agui-uuid-reject@example.com")
-        .await
-        .expect("create user + token");
+    let (_user, token) =
+        common::create_test_tenant_with_provider(&resources, "agui-uuid-reject@example.com")
+            .await
+            .expect("create user + token + provider");
 
     let client = Client::builder().no_gzip().build().expect("client");
     let conversation_id = create_conversation(&client, &base_url, &token).await;

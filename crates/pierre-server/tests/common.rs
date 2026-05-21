@@ -949,6 +949,50 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
     Ok((user, token))
 }
 
+/// Same shape as [`create_test_tenant`] but also registers a `Synthetic`
+/// provider connection so the user can reach chat / coach / messaging
+/// endpoints past the onboarding gate
+/// (see `pierre_mcp_server::services::onboarding_gate`).
+///
+/// Use this whenever a test posts to `/api/chat/conversations/.../messages`
+/// or any other endpoint guarded by `require_connected_provider`. Tests that
+/// exercise the gate itself should keep using [`create_test_tenant`] (no
+/// provider).
+///
+/// # Errors
+/// Returns error if user/tenant creation, provider registration, or token
+/// generation fails.
+pub async fn create_test_tenant_with_provider(
+    resources: &ServerContext,
+    email: &str,
+) -> Result<(User, String)> {
+    let (user, token) = create_test_tenant(resources, email).await?;
+    let repos = resources.database.repositories();
+    let tenants = repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .map_err(|e| anyhow::Error::msg(format!("Failed to get user tenants: {e}")))?;
+    let tenant_id = tenants
+        .first()
+        .ok_or_else(|| anyhow::Error::msg("expected tenant for user"))?
+        .id;
+    repos
+        .provider_connections
+        .register_connection(
+            user.id,
+            tenant_id,
+            "synthetic",
+            &pierre_core::models::ConnectionType::Synthetic,
+            None,
+        )
+        .await
+        .map_err(|e| {
+            anyhow::Error::msg(format!("Failed to register synthetic provider: {e}"))
+        })?;
+    Ok((user, token))
+}
+
 /// Handle for HTTP MCP server that cleans up automatically on drop
 pub struct HttpServerHandle {
     task_handle: JoinHandle<()>,
