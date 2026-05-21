@@ -33,6 +33,7 @@ use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_core::models::ConnectionType;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
     config::{
@@ -949,10 +950,11 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
     Ok((user, token))
 }
 
-/// Same shape as [`create_test_tenant`] but also registers a `Synthetic`
-/// provider connection so the user can reach chat / coach / messaging
-/// endpoints past the onboarding gate
-/// (see `pierre_mcp_server::services::onboarding_gate`).
+/// Test tenant + a registered synthetic provider connection.
+///
+/// Same shape as [`create_test_tenant`] but additionally registers the
+/// connection so the user can reach chat / coach / messaging endpoints past
+/// the onboarding gate (see `pierre_mcp_server::services::onboarding_gate`).
 ///
 /// Use this whenever a test posts to `/api/chat/conversations/.../messages`
 /// or any other endpoint guarded by `require_connected_provider`. Tests that
@@ -983,7 +985,7 @@ pub async fn create_test_tenant_with_provider(
             user.id,
             tenant_id,
             "synthetic",
-            &pierre_core::models::ConnectionType::Synthetic,
+            &ConnectionType::Synthetic,
             None,
         )
         .await
