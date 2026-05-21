@@ -27,6 +27,7 @@ use crate::models::TenantId;
 use crate::services::chat_pipeline::{self as pipeline};
 use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use crate::services::messaging_ingress::detect_turn_locale;
+use crate::services::onboarding_gate::require_connected_provider;
 #[cfg(feature = "client-notifications")]
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
@@ -147,11 +148,7 @@ pub async fn send_message(
     // data to reason about and hallucinates specifics ("nice 12 km ride
     // yesterday!"); the 403 lets the frontend redirect to the connect-provider
     // screen instead of rendering an empty answer.
-    crate::services::onboarding_gate::require_connected_provider(
-        &resources.repos.provider_connections,
-        auth.user_id,
-    )
-    .await?;
+    require_connected_provider(&resources.repos.provider_connections, auth.user_id).await?;
 
     // Populate the parent span so downstream pipeline log lines (already
     // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the

@@ -22,6 +22,7 @@ mod slash;
 
 pub use locale::{detect_turn_locale, resolve_messaging_locale};
 
+use crate::services::onboarding_gate::user_has_connected_provider;
 pub(crate) use dispatch::dispatch_and_respond;
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
@@ -518,14 +519,12 @@ async fn resolve_or_prompt(
     // pipeline as `AccountPending` / `AccountSuspended` and surfaces a
     // localized "connect a provider" reply via `KEY_NO_PROVIDER_CONNECTED`.
     if let Ok(auth_result) = &auth_outcome {
-        let has_provider = crate::services::onboarding_gate::user_has_connected_provider(
-            &resources.repos.provider_connections,
-            auth_result.user_id,
-        )
-        .await
-        .unwrap_or(true); // On query failure, fail open — same posture as
-                          // user_status checks (transient DB errors mustn't
-                          // lock real users out of an otherwise valid turn).
+        let has_provider =
+            user_has_connected_provider(&resources.repos.provider_connections, auth_result.user_id)
+                .await
+                .unwrap_or(true); // On query failure, fail open — same posture as
+                                  // user_status checks (transient DB errors mustn't
+                                  // lock real users out of an otherwise valid turn).
         if !has_provider {
             auth_outcome = Err(AppError::no_provider_connected());
         }
