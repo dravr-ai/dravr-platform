@@ -112,6 +112,7 @@ async fn update_existing_admin_user(
         default_coach_id: existing_user.default_coach_id.clone(),
         coaching_persona: existing_user.coaching_persona,
         manages_roster: existing_user.manages_roster,
+        timezone: existing_user.timezone.clone(),
     };
 
     repos.users.create(&updated_user).await?;
@@ -226,6 +227,7 @@ fn build_admin_user(
         default_coach_id: None,
         coaching_persona: CoachingPersona::default(),
         manages_roster: false,
+        timezone: None,
     }
 }
 

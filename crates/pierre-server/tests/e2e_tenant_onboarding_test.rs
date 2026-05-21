@@ -104,6 +104,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     let beta_admin = User {
@@ -130,6 +131,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     database.repositories().users.create(&acme_admin).await?;
@@ -476,6 +478,7 @@ async fn setup_multitenant_scenario(
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     database.repositories().users.create(&user).await?;

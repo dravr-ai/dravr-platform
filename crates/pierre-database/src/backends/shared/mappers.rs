@@ -142,6 +142,10 @@ where
             .unwrap_or_default(),
         // manages_roster — defaults to false when column is absent.
         manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
+        // timezone — IANA name; NULL when no client has reported yet.
+        // Prompt assembly falls back to UTC at read time so this stays
+        // optional through the whole stack.
+        timezone: row.try_get("timezone").ok().flatten(),
     })
 }
 

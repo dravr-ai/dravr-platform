@@ -434,6 +434,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     repos.users.create(&admin_user).await?;
 

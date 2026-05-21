@@ -950,11 +950,12 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
     Ok((user, token))
 }
 
-/// Test tenant + a registered synthetic provider connection.
+/// Test tenant + user pre-registered with a `Synthetic` provider connection.
 ///
-/// Same shape as [`create_test_tenant`] but additionally registers the
-/// connection so the user can reach chat / coach / messaging endpoints past
-/// the onboarding gate (see `pierre_mcp_server::services::onboarding_gate`).
+/// Same shape as [`create_test_tenant`] but also registers a `Synthetic`
+/// provider connection so the user can reach chat / coach / messaging
+/// endpoints past the onboarding gate
+/// (see `pierre_mcp_server::services::onboarding_gate`).
 ///
 /// Use this whenever a test posts to `/api/chat/conversations/.../messages`
 /// or any other endpoint guarded by `require_connected_provider`. Tests that

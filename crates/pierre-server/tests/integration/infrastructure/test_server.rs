@@ -193,6 +193,7 @@ impl IntegrationTestServer {
             default_coach_id: None,
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
+            timezone: None,
         };
 
         let repos = self.resources.database.repositories();
@@ -261,6 +262,7 @@ impl IntegrationTestServer {
             default_coach_id: None,
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
+            timezone: None,
         };
 
         let repos = self.resources.database.repositories();

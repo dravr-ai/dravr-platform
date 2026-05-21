@@ -174,7 +174,7 @@ contremaitre = []  # GitHub-backed prompt registry with webhook hot-reload
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
 server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync", "contremaitre", "analytics-posthog"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon", "contremaitre", "analytics-posthog"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon", "health-sync", "contremaitre", "analytics-posthog"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
@@ -301,6 +301,7 @@ tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
+toml = "0.8"
 # Messaging transport test dependencies (crypto verification)
 hmac = "0.12"
 sha2 = "0.10"

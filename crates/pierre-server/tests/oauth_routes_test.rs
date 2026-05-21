@@ -849,6 +849,7 @@ async fn test_login_with_correct_credentials() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
     server_resources
         .repos

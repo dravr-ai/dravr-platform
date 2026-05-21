@@ -48,6 +48,7 @@ async fn test_strava_token_storage() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     UserRepository::create(&db, &user)
@@ -155,6 +156,7 @@ async fn test_fitbit_token_storage() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     UserRepository::create(&db, &user)

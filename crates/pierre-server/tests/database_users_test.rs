@@ -49,6 +49,7 @@ async fn test_create_and_get_user() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     // Create user
@@ -107,6 +108,7 @@ async fn test_last_active_update() {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     UserRepository::create(&db, &user)
@@ -162,6 +164,7 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     }
 }
 

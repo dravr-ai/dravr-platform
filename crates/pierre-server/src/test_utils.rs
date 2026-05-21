@@ -36,6 +36,7 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     }
 }
 
@@ -66,6 +67,7 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     }
 }
 
@@ -96,6 +98,7 @@ pub fn create_test_pending_user(email: &str, display_name: Option<String>) -> Us
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     }
 }
 
@@ -141,5 +144,6 @@ pub fn create_test_user_with_fields(
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     }
 }

@@ -242,6 +242,7 @@ impl MultiTenantMcpClient {
             default_coach_id: None,
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
+            timezone: None,
         };
         let repos = database.repositories();
         repos.users.create(&test_user).await?;

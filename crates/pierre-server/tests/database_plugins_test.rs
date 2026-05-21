@@ -73,6 +73,7 @@ async fn create_test_user(db: &Database) -> Uuid {
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     db.repositories()
@@ -367,6 +368,7 @@ async fn test_database_trait_abstraction() {
                 default_coach_id: None,
                 coaching_persona: CoachingPersona::Casual,
                 manages_roster: false,
+                timezone: None,
             };
 
             db_clone.repositories().users.create(&user).await
@@ -423,6 +425,7 @@ async fn test_system_stats() {
             default_coach_id: None,
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
+            timezone: None,
         };
 
         db.repositories()

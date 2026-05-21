@@ -130,6 +130,7 @@ impl TestServer {
             default_coach_id: None,
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
+            timezone: None,
         };
 
         self.database.repositories().users.create(&user).await?;

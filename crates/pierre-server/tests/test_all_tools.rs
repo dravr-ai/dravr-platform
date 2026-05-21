@@ -344,6 +344,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
+        timezone: None,
     };
 
     executor.resources.repos.users.create(&user).await?;

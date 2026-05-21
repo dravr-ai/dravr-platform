@@ -3240,6 +3240,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.24.0",
+ "toml",
  "toon-format",
  "tower",
  "tower-http",

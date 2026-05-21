@@ -138,7 +138,7 @@ impl Database {
                    u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
                    u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
-                   u.coaching_persona, u.manages_roster
+                   u.coaching_persona, u.manages_roster, u.timezone
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -199,7 +199,7 @@ impl Database {
                    is_active, user_status, is_admin, role, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
                    analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster
+                   coaching_persona, manages_roster, timezone
             FROM users WHERE {field} = $1
             "
         );
@@ -259,6 +259,10 @@ impl Database {
             .unwrap_or_default();
         // manages_roster — defaults to false when column is absent.
         let manages_roster: bool = row.try_get("manages_roster").ok().unwrap_or(false);
+        // timezone — IANA name; NULL when client never reported. Prompt
+        // assembly falls back to UTC at read time so the field stays
+        // optional all the way through.
+        let timezone: Option<String> = row.try_get("timezone").ok().flatten();
 
         // Derive role from explicit role column if present, otherwise from is_admin.
         // If is_admin is true but role says 'user' (e.g. seeder omitted role column
@@ -315,6 +319,7 @@ impl Database {
             default_coach_id,
             coaching_persona,
             manages_roster,
+            timezone,
         })
     }
 
@@ -1317,6 +1322,18 @@ impl UserRepository for Database {
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to set manages_roster: {e}")))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+        Ok(())
+    }
+    async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()> {
+        let result = sqlx::query("UPDATE users SET timezone = ?1 WHERE id = ?2")
+            .bind(timezone)
+            .bind(user_id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to set timezone: {e}")))?;
         if result.rows_affected() == 0 {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));
         }
