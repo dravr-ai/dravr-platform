@@ -114,8 +114,7 @@ function RootLayoutNav() {
   const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
   const needsOnboardingFetch =
     isAuthenticated && user?.user_status === 'active' && !isAdminRole;
-  const { data: onboardingStatus, isLoading: onboardingLoading } =
-    useOnboardingStatus(needsOnboardingFetch);
+  const { data: onboardingStatus } = useOnboardingStatus(needsOnboardingFetch);
 
   React.useEffect(() => {
     if (isLoading) return;
@@ -131,12 +130,11 @@ function RootLayoutNav() {
       return;
     }
 
-    // Authenticated + active. Don't make a routing decision while the
-    // onboarding-status fetch is still in flight — letting the user briefly
-    // land on the chat tab and then yanking them to onboarding would flicker.
-    if (needsOnboardingFetch && onboardingLoading) return;
-
-    if (onboardingStatus?.needs_provider_connection) {
+    // Authenticated + active. Land the user on the chat stack by default and
+    // only divert to onboarding when the server explicitly confirms
+    // `needs_provider_connection: true`. Holding routing on the in-flight
+    // query produced a flicker / hung-spinner on slow networks.
+    if (onboardingStatus?.needs_provider_connection === true) {
       if (!inOnboardingGroup) {
         router.replace('/(onboarding)/connect');
       }
@@ -152,8 +150,6 @@ function RootLayoutNav() {
     segments,
     router,
     user?.user_status,
-    needsOnboardingFetch,
-    onboardingLoading,
     onboardingStatus?.needs_provider_connection,
   ]);
 

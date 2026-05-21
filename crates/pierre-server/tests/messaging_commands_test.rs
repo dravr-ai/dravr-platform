@@ -26,6 +26,7 @@ mod command_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use pierre_core::models::ConnectionType;
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, InsertMessageParams, MessagingRepository,
         UpsertChannelConfigParams,
@@ -76,6 +77,22 @@ mod command_tests {
             updated_at: Utc::now(),
         };
         resources.repos.tenants.create(&tenant).await.unwrap();
+
+        // Onboarding gate: register a synthetic provider so messaging-ingress
+        // (`services::onboarding_gate::require_connected_provider`) lets the
+        // turn through. Test exercises command dispatch, not provider data.
+        resources
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
 
         (user_id, tenant_id)
     }
