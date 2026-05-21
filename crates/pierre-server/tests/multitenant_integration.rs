@@ -448,6 +448,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     let login_request = LoginRequest {
         email: "test@multitenant.com".to_owned(),
         password: "securepassword123".to_owned(),
+        timezone: None,
     };
 
     let login_response = auth_routes.login(login_request).await?;
@@ -488,6 +489,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     let wrong_password_request = LoginRequest {
         email: "test@multitenant.com".to_owned(),
         password: "wrongpassword".to_owned(),
+        timezone: None,
     };
 
     let wrong_password_result = auth_routes.login(wrong_password_request).await;

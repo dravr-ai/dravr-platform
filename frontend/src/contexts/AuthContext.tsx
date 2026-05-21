@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { authApi, adminApi, pierreApi } from '../services/api';
+import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
 import type { User, ImpersonationState } from './auth';
 
@@ -17,6 +17,26 @@ const defaultImpersonationState: ImpersonationState = {
   sessionId: null,
   originalUser: null,
 };
+
+/**
+ * Read the browser's IANA timezone via `Intl.DateTimeFormat` and PUT it
+ * to the server so the chat prompt can resolve `{{CURRENT_DATE}}`
+ * locally. Best-effort: failures are logged to the console but never
+ * surfaced as errors, since the date anchor's UTC fallback keeps chat
+ * working when the timezone capture path is unavailable.
+ */
+async function captureUserTimezone(): Promise<void> {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz) {
+      await userApi.setTimezone(tz);
+    }
+  } catch (err) {
+    // Non-fatal: log and continue. The next login attempt will retry.
+    // eslint-disable-next-line no-console
+    console.warn('Failed to persist user timezone:', err);
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -94,6 +114,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Store user info in state and localStorage (for instant UI render on refresh)
     setUser(userData);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
+
+    // Best-effort: forward the browser's IANA timezone so the chat
+    // prompt can render {{CURRENT_DATE}} in the user's local calendar
+    // day (otherwise the resolver falls back to UTC and the coach
+    // misreads "today"). A failure here must not break login — swallow
+    // it and log to the browser console.
+    void captureUserTimezone();
   };
 
   const loginWithFirebase = async (idToken: string) => {
@@ -111,6 +138,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Store user info in state and localStorage (for instant UI render on refresh)
     setUser(userData);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
+
+    // Best-effort: capture the browser's IANA timezone (see notes in
+    // the password-login branch above).
+    void captureUserTimezone();
 
     return response;
   };

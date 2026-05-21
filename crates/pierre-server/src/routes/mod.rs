@@ -299,6 +299,13 @@ pub type OAuthRoutes = OAuthService;
 pub mod billing;
 /// Endurance Phase 1 read-side endpoints (`GET /api/v1/endurance/{latest,dossier}`).
 pub mod endurance;
+/// User profile self-service routes (`/api/users/me/*`).
+///
+/// Currently houses the `timezone` setter that web + mobile clients
+/// call after login so the chat prompt can resolve `{{CURRENT_DATE}}`
+/// to the user's local calendar day. Kept separate from billing so
+/// neither module accumulates unrelated endpoints.
+pub mod user_profile;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).
 #[cfg(feature = "health-sync")]
 pub mod webhooks;

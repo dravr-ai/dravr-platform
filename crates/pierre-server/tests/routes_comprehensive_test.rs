@@ -682,6 +682,7 @@ async fn test_user_login_success() -> Result<()> {
     let login_request = LoginRequest {
         email: "login@example.com".to_owned(),
         password: "loginpassword123".to_owned(),
+        timezone: None,
     };
 
     let response = auth_routes.login(login_request).await?;
@@ -702,6 +703,7 @@ async fn test_user_login_invalid_email() -> Result<()> {
     let login_request = LoginRequest {
         email: "nonexistent@example.com".to_owned(),
         password: "anypassword".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -733,6 +735,7 @@ async fn test_user_login_invalid_password() -> Result<()> {
     let login_request = LoginRequest {
         email: "password_test@example.com".to_owned(),
         password: "wrongpassword".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -764,6 +767,7 @@ async fn test_user_login_case_sensitivity() -> Result<()> {
     let login_request = LoginRequest {
         email: "CASE@EXAMPLE.COM".to_owned(),
         password: "casepassword123".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -981,6 +985,7 @@ async fn test_token_refresh_success() -> Result<()> {
     let login_request = LoginRequest {
         email: "refresh@example.com".to_owned(),
         password: "refreshpassword123".to_owned(),
+        timezone: None,
     };
 
     let login_response = auth_routes.login(login_request).await?;
@@ -1227,6 +1232,7 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
     let login_request = LoginRequest {
         email: "mismatch@example.com".to_owned(),
         password: "mismatchpassword123".to_owned(),
+        timezone: None,
     };
 
     let login_response = auth_routes.login(login_request).await?;
@@ -1770,6 +1776,7 @@ async fn test_complete_auth_flow() -> Result<()> {
     let login_request = LoginRequest {
         email: "integration@example.com".to_owned(),
         password: "integrationpass123".to_owned(),
+        timezone: None,
     };
 
     let login_response = auth_routes.login(login_request).await?;
@@ -2104,6 +2111,7 @@ async fn test_concurrent_logins() -> Result<()> {
             let request = LoginRequest {
                 email: format!("login_concurrent{i}@example.com"),
                 password: "loginpass123".to_owned(),
+                timezone: None,
             };
 
             routes.login(request).await

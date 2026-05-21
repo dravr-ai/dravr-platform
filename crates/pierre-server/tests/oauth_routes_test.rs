@@ -869,6 +869,7 @@ async fn test_login_with_correct_credentials() {
     let login_request = LoginRequest {
         email: "login_test@example.com".to_owned(),
         password: "password123".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -1065,6 +1066,7 @@ async fn test_login_with_wrong_password() {
     let login_request = LoginRequest {
         email: "wrong_pass@example.com".to_owned(),
         password: "wrongpassword".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -1250,6 +1252,7 @@ async fn test_login_with_non_existent_user() {
     let login_request = LoginRequest {
         email: "nonexistent@example.com".to_owned(),
         password: "password123".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;

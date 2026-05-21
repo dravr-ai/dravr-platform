@@ -387,6 +387,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
         .login(LoginRequest {
             email: "sdk_test@example.com".to_owned(),
             password: "TestPassword123".to_owned(),
+            timezone: None,
         })
         .await?;
     assert!(
@@ -412,6 +413,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
         .login(LoginRequest {
             email: "sdk_test@example.com".to_owned(),
             password: "TestPassword123".to_owned(),
+            timezone: None,
         })
         .await?;
     assert!(
@@ -544,6 +546,7 @@ async fn test_sdk_error_handling() -> Result<()> {
     let login_request = LoginRequest {
         email: "nonexistent@example.com".to_owned(),
         password: "TestPassword123".to_owned(),
+        timezone: None,
     };
 
     let result = auth_routes.login(login_request).await;
@@ -598,6 +601,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
     let login_request = LoginRequest {
         email: "complete_test@example.com".to_owned(),
         password: "CompleteTest123".to_owned(),
+        timezone: None,
     };
 
     let login_response = auth_routes.login(login_request).await?;
