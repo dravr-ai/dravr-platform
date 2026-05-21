@@ -1,0 +1,129 @@
+# ABOUTME: Weekly cron + manual-dispatch job that deletes workflow artifacts older
+# ABOUTME: than N days across the dravr-* org to keep us under GitHub's storage quota.
+
+name: "Purge: Old Artifacts (org-wide)"
+
+on:
+  schedule:
+    # Sundays 02:00 UTC — low-traffic window.
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Delete artifacts older than this many days"
+        required: false
+        default: "14"
+        type: string
+      dry_run:
+        description: "List candidates without deleting"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    name: Purge artifacts
+    runs-on: ubuntu-latest
+    env:
+      # RELEASE_PAT must have actions:write across the dravr-* repos listed
+      # in REPOS below. The same token is used by other cross-repo workflows
+      # (embacle release.yml → homebrew-tap).
+      GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+      DAYS: ${{ inputs.days || '14' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+    steps:
+      - name: Sanity-check token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::RELEASE_PAT secret is empty"
+            exit 1
+          fi
+          gh auth status
+
+      - name: Delete artifacts older than ${{ env.DAYS }} days
+        run: |
+          set -euo pipefail
+
+          # Repos with workflow artifacts that contribute to the org quota.
+          # Keep this list in sync with new dravr-* repos that publish artifacts.
+          REPOS=(
+            dravr-ai/dravr-platform
+            dravr-ai/dravr-canot
+            dravr-ai/dravr-embacle
+            dravr-ai/dravr-sciotte
+            dravr-ai/dravr-enforme
+            dravr-ai/dravr-equilibre
+            dravr-ai/dravr-riviere
+            dravr-ai/dravr-tronc
+            dravr-ai/dravr-cageux
+            dravr-ai/dravr-commere
+          )
+
+          # Cut-off as ISO-8601 UTC (artifact created_at < CUTOFF → delete).
+          CUTOFF=$(date -u -d "${DAYS} days ago" +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Cutoff: $CUTOFF (delete artifacts created before this)"
+          echo "Dry run: $DRY_RUN"
+          echo
+
+          total_deleted=0
+          total_freed_bytes=0
+
+          for repo in "${REPOS[@]}"; do
+            echo "::group::$repo"
+
+            # Pull all artifact IDs + created_at + size in one paginated sweep.
+            mapfile -t rows < <(gh api \
+              --paginate \
+              "repos/${repo}/actions/artifacts?per_page=100" \
+              --jq '.artifacts[] | "\(.id)\t\(.created_at)\t\(.size_in_bytes)\t\(.name)"' || true)
+
+            repo_deleted=0
+            repo_freed=0
+
+            for row in "${rows[@]}"; do
+              [ -z "$row" ] && continue
+              id=$(echo "$row" | cut -f1)
+              created=$(echo "$row" | cut -f2)
+              size=$(echo "$row" | cut -f3)
+              name=$(echo "$row" | cut -f4)
+
+              if [[ "$created" < "$CUTOFF" ]]; then
+                if [ "$DRY_RUN" = "true" ]; then
+                  echo "DRY: would delete $id ($name, ${size} bytes, $created)"
+                else
+                  if gh api -X DELETE "repos/${repo}/actions/artifacts/${id}" >/dev/null 2>&1; then
+                    repo_deleted=$((repo_deleted + 1))
+                    repo_freed=$((repo_freed + size))
+                  else
+                    echo "::warning::failed to delete artifact ${id} in ${repo}"
+                  fi
+                fi
+              fi
+            done
+
+            echo "$repo: deleted $repo_deleted artifacts, freed $repo_freed bytes"
+            total_deleted=$((total_deleted + repo_deleted))
+            total_freed_bytes=$((total_freed_bytes + repo_freed))
+            echo "::endgroup::"
+          done
+
+          total_freed_mb=$((total_freed_bytes / 1024 / 1024))
+          echo
+          echo "===== Summary ====="
+          echo "Deleted: $total_deleted artifacts"
+          echo "Freed:   ${total_freed_bytes} bytes (~${total_freed_mb} MB)"
+
+          {
+            echo "## Purge summary"
+            echo
+            echo "- Cutoff: \`$CUTOFF\`"
+            echo "- Dry run: \`$DRY_RUN\`"
+            echo "- Deleted: **$total_deleted** artifacts"
+            echo "- Freed: **${total_freed_mb} MB** (${total_freed_bytes} bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"
