@@ -919,7 +919,8 @@ fn test_warn_suffix_is_localized_header_for_flagged_claims() {
 #[test]
 fn test_validator_accepts_pierre_system_with_all_placeholders() {
     let content = "preamble {{SCOPE_REFUSAL}} body {{CAPABILITY_REFUSAL}} \
-                   carve {{COACH_SCOPE_CARVE_OUT}} persona {{COACHING_PERSONA_RULES}} end";
+                   carve {{COACH_SCOPE_CARVE_OUT}} persona {{COACHING_PERSONA_RULES}} \
+                   today {{CURRENT_DATE}} end";
     assert!(system_prompt_content_is_valid(
         "pierre_system",
         "prompts/system/pierre_system.md",
