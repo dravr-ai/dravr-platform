@@ -714,8 +714,8 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
   const handleConnectProvider = async (provider: string) => {
     // Mobile Safari requires window.open to fire inside the synchronous
-    // user-gesture call stack. Awaiting the authorize-URL fetch first leaves
-    // Connect spinning to its safety timeout.
+    // user-gesture call stack. Pre-open a blank window so the popup permission
+    // is captured before the async authorize-URL fetch.
     const popup = window.open('about:blank', '_blank');
     setConnectingProvider(provider);
     if (selectedConversation) {
@@ -727,7 +727,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         popup.location.href = authUrl;
       } else {
         window.location.href = authUrl;
+        return;
       }
+      // Clear the per-card spinner once the OAuth tab is loading. The chat
+      // OAuth handler resolves the eventual success through localStorage;
+      // holding the spinner here would strand the card if the user closes
+      // the OAuth tab without finishing.
+      setConnectingProvider(null);
     } catch (error) {
       if (popup && !popup.closed) {
         popup.close();
