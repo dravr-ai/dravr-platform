@@ -150,7 +150,7 @@ pub(in crate::services::chat_pipeline) async fn dispatch_llm_with_tools(
             input.conversation_id.clone(),
             input.user_id.clone(),
         )));
-    let tools = build_mcp_tools();
+    let tools = build_mcp_tools(&resources.tool_registry);
     let tool_params = ToolLoopParams {
         provider,
         executor,

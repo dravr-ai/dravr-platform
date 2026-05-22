@@ -33,6 +33,7 @@ use crate::models::TenantId;
 use crate::protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::services::analytics::analytics;
 use crate::services::chat_pipeline::{ChatStreamEvent, ChatStreamSink};
+use crate::tools::registry::ToolRegistry;
 
 // ============================================================================
 // Shared Types
@@ -1399,207 +1400,31 @@ async fn run_headless_streaming(
 
 /// Build the LLM tool definition set for chat-mode function calling.
 ///
-/// Returns the provider-agnostic `Tool` struct consumed by `ToolLoopParams`.
-/// Lives here instead of the routes layer because tool definitions are
-/// business logic (what capabilities the LLM sees), not transport concerns.
+/// Derives function declarations from the registry's chat-callable schemas
+/// so the surface stays in lockstep with what the prose "Available Tools"
+/// section of the system prompt advertises. The previous hand-curated 15-tool
+/// list drifted from the registry — newer tools (endurance dossier/history,
+/// nutrition, mobility) ended up advertised in prose but missing from the
+/// function-calling surface, producing "no callable tool" refusals when
+/// coach prompts referenced them.
+///
+/// Tool descriptions and parameter schemas come from each `McpTool`
+/// implementation's `description()` / `input_schema()` methods, with any
+/// contremaitre overlay already applied by `ToolRegistry::build_schema`.
 #[must_use]
-pub fn build_mcp_tools() -> Tool {
-    let mut declarations = Vec::with_capacity(14);
-    declarations.extend(build_connection_tools());
-    declarations.extend(build_activity_tools());
-    declarations.extend(build_analysis_tools());
-    declarations.extend(build_recovery_tools());
+pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
+    let schemas = tool_registry.chat_callable_schemas();
+    let function_declarations = schemas
+        .into_iter()
+        .map(|schema| FunctionDeclaration {
+            name: schema.name,
+            description: schema.description,
+            parameters: serde_json::to_value(&schema.input_schema).ok(),
+        })
+        .collect();
     Tool {
-        function_declarations: declarations,
+        function_declarations,
     }
-}
-
-fn build_connection_tools() -> Vec<FunctionDeclaration> {
-    vec![
-        FunctionDeclaration {
-            name: "get_connection_status".to_owned(),
-            description: "Check which fitness providers are connected".to_owned(),
-            parameters: Some(serde_json::json!({"type": "object", "properties": {}})),
-        },
-        FunctionDeclaration {
-            name: "connect_provider".to_owned(),
-            description: "Connect to a fitness provider via OAuth".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {"provider": {"type": "string"}},
-                "required": ["provider"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "disconnect_provider".to_owned(),
-            description: "Disconnect a fitness provider".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {"provider": {"type": "string"}},
-                "required": ["provider"]
-            })),
-        },
-    ]
-}
-
-fn build_activity_tools() -> Vec<FunctionDeclaration> {
-    vec![
-        FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "Get user's recent fitness activities".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "limit": {"type": "integer"},
-                    "offset": {"type": "integer"}
-                },
-                "required": ["provider"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "get_athlete".to_owned(),
-            description: "Get user's athlete profile information".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {"provider": {"type": "string"}},
-                "required": ["provider"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "get_stats".to_owned(),
-            description: "Get user's overall fitness statistics".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {"provider": {"type": "string"}},
-                "required": ["provider"]
-            })),
-        },
-    ]
-}
-
-fn build_analysis_tools() -> Vec<FunctionDeclaration> {
-    vec![
-        FunctionDeclaration {
-            name: "analyze_activity".to_owned(),
-            description: "Deep analysis of a specific activity".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "activity_id": {"type": "string"}
-                },
-                "required": ["provider", "activity_id"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "get_activity_intelligence".to_owned(),
-            description: "AI-powered insights including location and weather".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "activity_id": {"type": "string"},
-                    "include_location": {"type": "boolean"},
-                    "include_weather": {"type": "boolean"}
-                },
-                "required": ["provider", "activity_id"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "analyze_performance_trends".to_owned(),
-            description: "Analyze performance trends over time".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "timeframe": {"type": "string"},
-                    "metric": {"type": "string"},
-                    "sport_type": {"type": "string"}
-                },
-                "required": ["provider", "timeframe", "metric"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "compare_activities".to_owned(),
-            description: "Compare activity against similar or personal bests".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "activity_id": {"type": "string"},
-                    "compare_type": {"type": "string"}
-                },
-                "required": ["provider", "activity_id"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "calculate_fitness_score".to_owned(),
-            description: "Calculate overall fitness score and trends".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "timeframe": {"type": "string"},
-                    "sleep_provider": {"type": "string"}
-                },
-                "required": ["provider"]
-            })),
-        },
-        FunctionDeclaration {
-            name: "analyze_training_load".to_owned(),
-            description: "Analyze training load and recovery needs".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "timeframe": {"type": "string"},
-                    "sleep_provider": {"type": "string"}
-                },
-                "required": ["provider"]
-            })),
-        },
-    ]
-}
-
-fn build_recovery_tools() -> Vec<FunctionDeclaration> {
-    vec![
-        FunctionDeclaration {
-            name: "calculate_recovery_score".to_owned(),
-            description: "Calculate recovery score with daily strain (WHOOP cycles), HRV, sleep quality, and TSB. Use when user asks about recovery, daily strain, WHOOP cycles, or training readiness.".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "activity_provider": {"type": "string"},
-                    "sleep_provider": {"type": "string"}
-                }
-            })),
-        },
-        FunctionDeclaration {
-            name: "suggest_rest_day".to_owned(),
-            description: "AI recommendation for rest day".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "activity_provider": {"type": "string"},
-                    "sleep_provider": {"type": "string"}
-                }
-            })),
-        },
-        FunctionDeclaration {
-            name: "generate_recommendations".to_owned(),
-            description: "Get personalized training recommendations".to_owned(),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "provider": {"type": "string"},
-                    "recommendation_type": {"type": "string"},
-                    "activity_id": {"type": "string"}
-                },
-                "required": ["provider"]
-            })),
-        },
-    ]
 }
 
 // ============================================================================

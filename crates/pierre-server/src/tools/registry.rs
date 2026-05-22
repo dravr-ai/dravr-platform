@@ -253,6 +253,53 @@ impl ToolRegistry {
         self.list_schemas_for_role(false)
     }
 
+    /// List schemas for tools the LLM is allowed to call during chat-mode
+    /// function calling.
+    ///
+    /// Chat-callable categories cover what coaches genuinely need mid-turn:
+    /// activity/athlete/stats reads, analytics, recovery, nutrition, sleep,
+    /// recipes, mobility, goals, and coach-authored memory writes. Provider
+    /// connection toggles are included so the LLM can offer to reconnect a
+    /// dropped provider rather than refusing the turn.
+    ///
+    /// Excluded categories are UI surfaces or operator workflows that should
+    /// not fire on natural-language inputs: coach create/delete/assign,
+    /// store install/uninstall, config write/delete, claim verification, and
+    /// admin operations.
+    ///
+    /// The set replaces a hand-curated 15-tool list that drifted from the
+    /// registry — endurance dossier/history tools registered after the list
+    /// was written ended up advertised in the prose "Available Tools" section
+    /// but missing from the function-calling surface, so coach prompts that
+    /// referenced them got truthful "no callable tool" refusals.
+    #[must_use]
+    pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
+        const CHAT_CALLABLE_CATEGORIES: &[&str] = &[
+            "connection",
+            "data",
+            "analytics",
+            "goals",
+            "nutrition",
+            "sleep",
+            "recipes",
+            "mobility",
+            "memory",
+        ];
+
+        let allowed_names: HashSet<&str> = CHAT_CALLABLE_CATEGORIES
+            .iter()
+            .flat_map(|cat| self.tools_in_category(cat))
+            .collect();
+
+        self.tools
+            .iter()
+            .filter(|(name, tool)| {
+                allowed_names.contains(name.as_str()) && !tool.capabilities().is_admin_only()
+            })
+            .map(|(_, tool)| self.build_schema(tool))
+            .collect()
+    }
+
     /// List schemas for admin tools only
     #[must_use]
     pub fn admin_tool_schemas(&self) -> Vec<ToolSchema> {

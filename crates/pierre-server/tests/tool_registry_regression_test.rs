@@ -98,6 +98,116 @@ fn test_all_transports_return_consistent_tool_list() {
 }
 
 #[test]
+fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
+    // Coach prompts in vendor/contremaitre/prompts/coaches/training/ reference
+    // these tool names. They must all be in chat_callable_schemas(), otherwise
+    // the LLM gets the prose name advertised in "Available Tools" but no
+    // matching function declaration — producing truthful "no callable tool"
+    // refusals (the bug fixed in this commit).
+    let mut registry = ToolRegistry::new();
+    registry.register_builtin_tools();
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    // These names appear in coach prompts and must be callable at chat time.
+    // The list is conservative — add new names as coaches reference new tools.
+    let required = [
+        // Endurance dossier/history (drove the regression that motivated this test)
+        "export_dossier",
+        "export_latest_snapshot",
+        "get_training_history",
+        "compute_training_history",
+        // Endurance workout templates / prescription
+        "list_workout_templates",
+        "prescribe_workout",
+        // Endurance per-activity exports
+        "export_intervals",
+        "export_routes",
+        "extract_activity_streams",
+        // Legacy 15 — must stay callable
+        "get_connection_status",
+        "connect_provider",
+        "disconnect_provider",
+        "get_activities",
+        "get_athlete",
+        "get_stats",
+        "analyze_activity",
+        "get_activity_intelligence",
+        "analyze_performance_trends",
+        "compare_activities",
+        "calculate_fitness_score",
+        "analyze_training_load",
+        "calculate_recovery_score",
+        "suggest_rest_day",
+        "generate_recommendations",
+    ];
+
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|name| !chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "chat_callable_schemas() is missing {} tool(s) referenced by coach prompts: {:?}\n\
+         If a tool was intentionally moved off the chat surface, audit \
+         vendor/contremaitre/prompts/coaches/ for prose that still says \
+         `call \\`{{name}}\\`` and update those prompts in the same commit.",
+        missing.len(),
+        missing
+    );
+
+    println!(
+        "chat_callable surface ({} tools) covers all {} coach-prompt tool references",
+        chat_surface.len(),
+        required.len()
+    );
+}
+
+#[test]
+fn test_chat_callable_surface_excludes_admin_and_management_tools() {
+    // Tools that should NOT be callable from chat: coach create/delete/assign
+    // (UI actions), store install/uninstall (UI actions), admin_* (operator),
+    // config write/delete (admin-ish), verify_claim (debug). The LLM should
+    // not fire these on natural-language input.
+    let mut registry = ToolRegistry::new();
+    registry.register_builtin_tools();
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    let forbidden = [
+        "create_coach",
+        "delete_coach",
+        "update_coach",
+        "admin_assign_coach",
+        "admin_create_system_coach",
+        "verify_claim",
+    ];
+
+    let leaked: Vec<&str> = forbidden
+        .iter()
+        .copied()
+        .filter(|name| chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        leaked.is_empty(),
+        "Management/admin tool(s) leaked into the chat-callable surface: {leaked:?}\n\
+         These categories must stay off function-calling: coaches, admin, store, \
+         verification, configuration, fitness_config."
+    );
+}
+
+#[test]
 fn test_five_analytics_tools_are_registered() {
     let mut registry = ToolRegistry::new();
     registry.register_builtin_tools();
