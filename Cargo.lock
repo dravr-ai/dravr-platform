@@ -1347,7 +1347,6 @@ dependencies = [
 [[package]]
 name = "dravr-sciotte"
 version = "0.5.14"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.14#4ebe29dadc4655df6304bb816d4c25045de9126d"
 dependencies = [
  "async-trait",
  "base64",
@@ -2124,7 +2123,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3408,7 +3407,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3445,7 +3444,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
