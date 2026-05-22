@@ -76,6 +76,10 @@ export function useOAuthHandler(): UseOAuthHandlerReturn {
 
   // Handle connecting to a provider
   const handleConnectProvider = useCallback(async (providerName: string) => {
+    // Mobile Safari requires window.open to fire inside the synchronous
+    // user-gesture call stack. Pre-open a blank window here so the popup
+    // permission is captured before the async authorize-URL fetch.
+    const popup = window.open('about:blank', '_blank');
     setConnectingProvider(providerName);
 
     // If we have a pending coach action, store it for after OAuth completes
@@ -86,10 +90,19 @@ export function useOAuthHandler(): UseOAuthHandlerReturn {
     try {
       const providerId = providerName.toLowerCase();
       const authUrl = await oauthApi.getAuthorizeUrl(providerId);
-      // Open OAuth in new tab with noopener,noreferrer to prevent tabnabbing
-      window.open(authUrl, '_blank');
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+      } else {
+        // Popup blocked even synchronously — fall back to same-tab navigation.
+        // OAuthCallback writes pierre_oauth_result; the storage listener
+        // resumes the chat flow when the user returns to this tab.
+        window.location.href = authUrl;
+      }
       setConnectingProvider(null);
     } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       console.error('Failed to get OAuth authorization URL:', error);
       setConnectingProvider(null);
     }

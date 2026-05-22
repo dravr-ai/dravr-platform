@@ -440,14 +440,29 @@ export default function UserSettings() {
     return false;
   };
 
-  const handleConnectProvider = async (providerId: string) => {
+  const handleConnectProvider = async (providerId: string, preopenedPopup?: Window | null) => {
+    // Mobile Safari requires window.open to fire inside the synchronous
+    // user-gesture call stack. Awaiting before window.open silently drops the
+    // popup, leaving the spinner running until its 5-minute safety timeout.
+    // Callers in flows that already burned the gesture (e.g. the Switch-Provider
+    // dialog) pre-open a blank window and pass it in via preopenedPopup.
+    const popup = preopenedPopup ?? window.open('about:blank', '_blank');
+
     try {
       setConnectingProvider(providerId);
       setProviderMessage(null);
       const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerId);
 
-      // Open OAuth in a new tab (not a popup window)
-      window.open(authUrl, '_blank');
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+      } else {
+        // Popup was blocked even when opened synchronously (strict mobile
+        // Safari). Fall back to same-tab navigation. OAuthCallback writes
+        // pierre_oauth_result to localStorage regardless of tab, so the
+        // storage-event listener picks the result up when the user returns.
+        window.location.href = authUrl;
+        return;
+      }
 
       // Listen for the OAuth callback result stored in localStorage by OAuthCallback
       const checkInterval = setInterval(() => {
@@ -480,6 +495,9 @@ export default function UserSettings() {
         setConnectingProvider(null);
       }, 300000);
     } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       setConnectingProvider(null);
       setProviderMessage({
         type: 'error',
@@ -1548,12 +1566,18 @@ Authorization: Bearer <your-token-here>`}
           if (!providerConflict) return;
           const disconnecting = providerConflict.disconnecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
           const connecting = providerConflict.connecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
+          // Pre-open the OAuth popup synchronously here, before the disconnect
+          // await consumes the click's user gesture. Mobile Safari otherwise
+          // silently blocks the popup and the connect spinner runs to timeout.
+          // Sciotte uses a credential modal, not an OAuth popup — skip the
+          // preopen in that branch.
+          const preopenedPopup = connecting === 'sciotte' ? null : window.open('about:blank', '_blank');
           await handleDisconnectProvider(disconnecting);
           setProviderConflict(null);
           if (connecting === 'sciotte') {
             setSciotteModalTarget('strava');
           } else {
-            handleConnectProvider(connecting);
+            handleConnectProvider(connecting, preopenedPopup);
           }
         }}
         title="Switch Provider"
