@@ -179,12 +179,22 @@ export default function ProviderConnectionCards({
       return;
     }
 
-    // Fallback: Navigate directly to OAuth authorization endpoint
+    // Fallback: Navigate directly to OAuth authorization endpoint.
+    // Pre-open a blank window synchronously so mobile Safari preserves the
+    // user gesture across the authorize-URL await; otherwise the popup is
+    // silently blocked and the card sits in a stuck loading state.
+    const popup = window.open('about:blank', '_blank');
     try {
       const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider.provider);
-      // Open OAuth in new tab with noopener,noreferrer to prevent tabnabbing
-      window.open(authUrl, '_blank');
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+      } else {
+        window.location.href = authUrl;
+      }
     } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       console.error('Failed to get OAuth authorization URL:', error);
     }
   };
