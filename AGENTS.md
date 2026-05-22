@@ -271,62 +271,6 @@ bun run test:e2e
 - **State**: React Query for server state, React Context for app state
 - **Components**: Follow existing patterns in `src/components/`
 
-## Pre-Push Hook Details
-
-The pre-push hook uses a **marker-based validation**. The script `./scripts/ci/pre-push-validate.sh` creates a `.git/validation-passed` marker (valid 15 minutes). The hook checks the marker exists, is fresh, and matches the current commit.
-
-### Local validation is intentionally lightweight
-
-`pre-push-validate.sh` runs ONLY non-compiling checks:
-- `cargo fmt --all -- --check` (Tier 0)
-- `scripts/ci/architectural-validation.sh` (Tier 1)
-- `scripts/ci/check-vendor-contremaitre-readonly.sh` (Tier 1b)
-- Frontend / SDK / mobile tier scripts only when those trees changed
-
-**All heavy compilation moved to CI.** Per-crate clippy, full-workspace clippy, deadlock analysis, schema test, and targeted test selection all run as parallel jobs in `ci-backend.yml` (and `ci-postgres.yml` / `integration-tests.yml`). Each fires immediately on push with no cross-job dependency — first failure is visible within 3–5 minutes for the most common error class.
-
-### NEVER
-
-- Run `cargo clippy --all-targets --all-features` locally as a pre-push gate — too slow to iterate on, and CI's `clippy` job already runs it on every push.
-- Run `cargo test` without `--test <file>` targeting — see "Test Targeting Patterns" below.
-- Manually create `.git/validation-passed` marker.
-- Skip validation by creating a fake marker — CI will catch the regression and main will break.
-- Bypass with `git push --no-verify` unless explicitly asked.
-
-### Before Pushing
-
-1. Run `./scripts/ci/pre-push-validate.sh` to create the validation marker (this is the only required local step).
-2. Confirm CI isn't already running an obsolete attempt — `cancel-in-progress: true` is set on all test/check workflows, so your push automatically cancels older runs on the same ref.
-
-### After Pushing — MANDATORY CI MONITORING
-
-**The Agent MUST treat "push" as the start of validation, not the end.** Local pre-push only catches fmt/architecture/secret regressions. Clippy, deadlock, schema, and the test suite live in CI.
-
-Rules:
-- After every push, the Agent MUST watch CI for the pushed commit until *all* relevant workflows reach a terminal status (success, failure, cancelled).
-- If any workflow fails, fix the underlying issue and re-push in the same session. Do not move on to the next task.
-- The Agent does NOT consider work "done" until CI is green on the head commit (`cancelled` workflows for older commits don't count).
-- See the "CI Monitoring" subsection below for the right tool — burning GitHub quota with `gh run watch` is a separate rule violation.
-
-### CI Monitoring
-
-Use the first available method. **NEVER ask the user for a GitHub token** — fall back instead.
-
-| Priority | Method | When to use |
-|----------|--------|-------------|
-| 1 | **WebFetch** on `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` | Default — does not consume any GitHub PAT rate-limit budget. |
-| 2 | `gh run list --branch <branch>` / single targeted `gh run view <id>` calls | Only when WebFetch can't surface the information you need (rare). Each call costs one quota slot from the shared 5000/hr `core` bucket. |
-| 3 | GitHub MCP tools (`mcp__github__*`) | When the operation isn't a list/status check (e.g., commenting on a failure). |
-
-**Forbidden during monitoring:**
-- `gh run watch` — polls every few seconds and burns quota fast.
-- Background `while :; do gh run list; sleep 60; done` loops — caused multi-day quota exhaustion in past sessions.
-- Any polling cadence under 60s.
-
-For waiting on long-running workflows, prefer `ScheduleWakeup` to re-check after a fixed delay rather than polling.
-
-The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` to tell you which path is available.
-
 # Writing code
 
 - CRITICAL: NEVER USE --no-verify WHEN COMMITTING CODE
@@ -343,9 +287,7 @@ The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` 
 - Be RUST idiomatic
 - Do not hard code magic value
 - Do not leave implementation with "In future versions" or "Implement the code" or "Fall back". Always implement the real thing.
-- Commit without AI assistant-related commit messages. Do not reference AI assistance in git commits.
-- Do not add AI-generated commit text in commit messages
-- Always create a branch when adding new features. Bug fixes go directly to main branch.
+- Do not reference AI assistance in git commits.
 - avoid #[cfg(test)] in the src code. Only in tests
 
 ## Security Engineering Rules
@@ -446,19 +388,19 @@ doesn't belong in any single repo's vault, ephemeral share-with-stranger artifac
 
 NEVER write structured docs only to chat — chat history is not durable.
 
-## Validation: One Script, One Command
+## Pre-Push Validation & CI Monitoring
 
-**CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY local validation command you need. Everything heavier lives in CI — see "After Pushing" above.**
+`./scripts/ci/pre-push-validate.sh` is the ONLY local validation command you need. It creates a `.git/validation-passed` marker (valid 15 minutes) that the pre-push hook checks against the current commit. All heavy compilation lives in CI.
 
 Do NOT run `cargo fmt`, `cargo check`, or `cargo clippy` ad-hoc as a pre-push gate. The script runs the lightweight checks with the correct flags and scopes; the heavy gates are CI's job by design.
 
-### What the script runs (local, non-compiling)
+### What runs locally (non-compiling, tier-scoped)
 
-The script only touches tiers whose files actually changed on the branch:
+Only tiers whose files actually changed on the branch run:
 
 1. **Tier 0** — `cargo fmt --all -- --check`
-2. **Tier 1** — architectural validation (`scripts/ci/architectural-validation.sh`)
-3. **Tier 1b** — vendor/contremaitre read-only guardrail
+2. **Tier 1** — `scripts/ci/architectural-validation.sh`
+3. **Tier 1b** — `scripts/ci/check-vendor-contremaitre-readonly.sh`
 4. **Tier 5** — frontend sub-script (only when `frontend/` changed)
 5. **Tier 6** — SDK sub-script (only when `sdk/` changed)
 6. **Tier 7** — mobile sub-script (only when `frontend-mobile/` changed)
@@ -475,92 +417,88 @@ In `ci-backend.yml`:
 - **`backend-tests`** — SQLite shards (cron / workflow_dispatch only; per-push DB coverage comes from `ci-postgres.yml`)
 - **`release-binary`** — release build + size check + smoke test (after `clippy`)
 
-Separately on every push: `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, etc. — each scoped to its own paths filter.
+Separately on every push: `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml` — each scoped to its own paths filter.
+
+### NEVER
+
+- Run `cargo clippy --all-targets --all-features` (or full `cargo fmt`/`cargo check`) locally as a pre-push gate — CI's `clippy` job already runs it on every push.
+- Run `cargo test` without `--test <file>` targeting — see "Test Targeting Patterns" below.
+- Manually create or fake the `.git/validation-passed` marker — CI will catch the regression and main will break.
+- Bypass with `git push --no-verify` unless explicitly asked.
 
 ### Workflow
 
 1. **During development**: write code, run targeted tests (`cargo test --test <test_file>`), run per-crate clippy on the crate you're in (`cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`).
-2. **Before pushing**: `git add` your changes, commit, then run:
-   ```bash
-   ./scripts/ci/pre-push-validate.sh
-   ```
+2. **Before pushing**: `git add` your changes, commit, then run `./scripts/ci/pre-push-validate.sh`. `cancel-in-progress: true` is set on all workflows, so your push automatically cancels older runs on the same ref.
 3. **Push**: `git push` (the pre-push hook verifies the validation marker).
-4. **After pushing**: monitor CI until green — see the "After Pushing" subsection above. The push is not done until CI confirms it.
+4. **After pushing**: monitor CI until green — see "CI Monitoring" below.
 
-**Full-workspace clippy + the full test suite + deadlock analysis run in CI in parallel. Do not run them locally — monitor CI after pushing instead.**
+### After Pushing — MANDATORY CI MONITORING
 
-### Test Suite Timing Context
-- Full test suite: ~13 minutes across 325 test binaries
-- **DO NOT run `cargo test` without targeting** — use targeted tests during development
+**The Agent MUST treat "push" as the start of validation, not the end.** Local pre-push only catches fmt/architecture/secret regressions. Clippy, deadlock, schema, and the test suite live in CI.
+
+- After every push, the Agent MUST watch CI for the pushed commit until *all* relevant workflows reach a terminal status (success, failure, cancelled).
+- If any workflow fails, fix the underlying issue and re-push in the same session. Do not move on to the next task.
+- The Agent does NOT consider work "done" until CI is green on the head commit (`cancelled` workflows for older commits don't count).
+
+### CI Monitoring
+
+Use the first available method. **NEVER ask the user for a GitHub token** — fall back instead.
+
+| Priority | Method | When to use |
+|----------|--------|-------------|
+| 1 | **WebFetch** on `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` | Default — does not consume any GitHub PAT rate-limit budget. |
+| 2 | `gh run list --branch <branch>` / single targeted `gh run view <id>` calls | Only when WebFetch can't surface the information you need. Each call costs one quota slot from the shared 5000/hr `core` bucket. |
+| 3 | GitHub MCP tools (`mcp__github__*`) | When the operation isn't a list/status check (e.g., commenting on a failure). |
+
+**Forbidden during monitoring:**
+- `gh run watch` — polls every few seconds and burns quota fast.
+- Background `while :; do gh run list; sleep 60; done` loops — caused multi-day quota exhaustion in past sessions.
+- Any polling cadence under 60s.
+
+For waiting on long-running workflows, prefer `ScheduleWakeup` to re-check after a fixed delay. The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` to tell you which path is available.
 
 ### Test Targeting Patterns
 
-**CRITICAL: Always use `--test <file>` to avoid compiling all 325 test files!**
+Full test suite is ~13 min across 325 test binaries. **Always use `--test <file>`** to compile only the targeted test file:
 
 ```bash
-# ❌ SLOW - Compiles ALL 325 test files looking for a match
+# ❌ SLOW — compiles ALL 325 test files
 cargo test test_browse_store_with_cursor_pagination
 
-# ✅ FAST - Only compiles the specific test file
-cargo test --test store_routes_test test_browse_store_with_cursor_pagination
-```
-
-**Always specify the test file:**
-```bash
-# Format: cargo test --test <test_file_name> <test_name_pattern> -- --nocapture
-cargo test --test intelligence_test test_training_load -- --nocapture
-cargo test --test oauth_test test_oauth_flow -- --nocapture
-cargo test --test store_routes_test test_browse -- --nocapture
+# ✅ FAST — only compiles the specific test file
+cargo test --test store_routes_test test_browse_store_with_cursor_pagination -- --nocapture
 
 # Run all tests in a specific file
 cargo test --test intelligence_test -- --nocapture
 
-# List tests in a specific test file (to find test names)
+# List tests in a specific test file
 cargo test --test <test_file> -- --list
 ```
 
-### Finding the Right Test File
-When you need to run a test, first find which file contains it:
+Find which file contains a test: `rg "test_name" tests/ --files-with-matches`.
+
+### Test Output Verification — MANDATORY
+
+After running ANY test command, you MUST verify tests actually ran. Exit code alone is NOT sufficient — `cargo test` exits 0 even when 0 tests run.
+
+Red flags — STOP and investigate:
+- `running 0 tests` — wrong target or flag used
+- `0 passed; 0 failed` — no tests executed
+- `filtered out` with 0 passed — filter pattern too restrictive
+
+Verify: `running N tests` where N > 0, AND `N passed` in the summary. If 0 tests ran, the validation FAILED — do not proceed.
+
+Common mistakes that run 0 tests:
 ```bash
-# Find test files mentioning your test or module
-rg "test_name" tests/ --files-with-matches
-rg "mod_name" tests/ --files-with-matches
-
-# Example: find where test_browse_store lives
-rg "test_browse_store" tests/ --files-with-matches
-# Output: tests/store_routes_test.rs
-# Then run: cargo test --test store_routes_test test_browse_store
-```
-
-### Test Output Verification - MANDATORY
-
-**After running ANY test command, you MUST verify tests actually ran.**
-
-The exit code alone is NOT sufficient - `cargo test` exits 0 even when 0 tests run.
-
-**Red Flags - STOP and investigate if you see:**
-- `running 0 tests` - Wrong target or flag used
-- `0 passed; 0 failed` - No tests executed
-- `filtered out` with 0 passed - Filter pattern too restrictive
-
-**Verification checklist:**
-1. Look for `running N tests` where N > 0
-2. Confirm `N passed` in the summary where N > 0
-3. If 0 tests ran, the validation FAILED - do not proceed
-
-**Common mistakes that run 0 tests:**
-```bash
-# ❌ BAD: --lib only runs doc tests in src/, usually 0
+# ❌ --lib only runs doc tests in src/, usually 0
 cargo test --lib
 
-# ❌ BAD: Typo in test name matches nothing
-cargo test --test store_test test_brwose  # typo: brwose
-
-# ✅ GOOD: Targeted test with correct name
-cargo test --test store_routes_test test_browse
+# ❌ Typo in test name matches nothing
+cargo test --test store_test test_brwose
 ```
 
-**Never claim "tests pass" if 0 tests ran - that is a failure, not a success.**
+Never claim "tests pass" if 0 tests ran.
 
 ## Error Handling Requirements
 
@@ -580,12 +518,9 @@ cargo test --test store_routes_test test_browse
   - Environment setup in main(): `env::var("DATABASE_URL").expect("DATABASE_URL must be set")`
   - NEVER use expect() for runtime errors that could legitimately occur
 - `panic!()` - Only in test assertions or unrecoverable binary errors
-- **`anyhow!()` macro** - ABSOLUTELY FORBIDDEN in all production code (src/)
-- **`anyhow::anyhow!()` macro** - ABSOLUTELY FORBIDDEN in all production code (src/)
-- **ANY form of `anyhow!` macro** - ZERO TOLERANCE - CI will fail on detection
+- **Any form of `anyhow!` / `anyhow::anyhow!` / `anyhow::Error::msg`** — ABSOLUTELY FORBIDDEN in all production code (src/). ZERO TOLERANCE — CI fails on detection. Use structured error types instead (see below).
 
 ### Structured Error Type Requirements
-**CRITICAL: All errors MUST use structured error types, NOT `anyhow::anyhow!()`**
 
 When creating errors, you MUST:
 1. **Use project-specific error enums** (e.g., `AppError`, `DatabaseError`, `ProviderError`)
