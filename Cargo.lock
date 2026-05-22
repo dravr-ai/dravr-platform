@@ -1282,8 +1282,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.11"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.11#e6ea90a403753cc201a0285f1c556ef0ac1d1bb5"
+version = "0.1.12"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.12#396c73998d3ce8e14aae3d2fc3e89966544d5309"
 dependencies = [
  "async-trait",
  "axum",
@@ -1346,7 +1346,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.14"
+version = "0.5.16"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.16#623b5c5388b231dd5e888667cba6de69f7da36d9"
 dependencies = [
  "async-trait",
  "base64",
