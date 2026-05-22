@@ -282,7 +282,13 @@ mod pipeline_tool_loop {
             .expect("test fixture runs against SQLite");
         let tenant_str = tenant_id.to_string();
 
-        for _ in 0..50 {
+        // 150 iterations × 200ms = 30s. Was 50 × 200ms = 10s; the user-
+        // timezone lookup added to prompt_assembly (2026-05-21) added
+        // one extra await to every turn and pushed contended CI runners
+        // past the 10s threshold (PG/Code-Coverage/Messaging-Eval all
+        // failed here despite the test using a mock LLM). 30s is
+        // comfortable for any happy-path tool dispatch.
+        for _ in 0..150 {
             let row: Option<(String,)> = sqlx::query_as(
                 "SELECT turn_id FROM llm_usage WHERE tenant_id = ?1 AND tools_called IS NOT NULL AND tools_called != '[]' ORDER BY created_at DESC LIMIT 1",
             )
