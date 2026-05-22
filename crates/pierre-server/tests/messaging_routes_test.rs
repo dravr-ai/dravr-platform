@@ -826,6 +826,22 @@ mod messaging_routes_tests {
         };
         messaging_db.create_channel_link(&link).await.unwrap();
 
+        // Register a synthetic provider for user_b so the inbound webhook
+        // gets past the onboarding gate (c3afc87e). Without this the
+        // chat dispatch silently 403s and the self-heal flow never runs.
+        resources
+            .repos
+            .provider_connections
+            .register_connection(
+                user_b.id,
+                tenant_id,
+                "synthetic",
+                &pierre_core::models::ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
+
         // Real conversation owned by user_a — the prior linker. The FK
         // resolves; the row exists; but `get_conversation(id, user_b,
         // tenant)` returns None because of the user_id filter.
