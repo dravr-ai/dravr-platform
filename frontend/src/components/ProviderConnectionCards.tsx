@@ -209,20 +209,19 @@ export default function ProviderConnectionCards({
 
   if (isLoading) {
     return (
-      <div className="w-full">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Card key={i} variant="dark" className="p-5 animate-pulse">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-surface-container-high" />
-                <div className="flex-1">
-                  <div className="h-4 w-24 bg-surface-container-high rounded mb-2" />
-                  <div className="h-3 w-32 bg-surface-container-low rounded" />
-                </div>
+      <div className="w-full space-y-2">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Card key={i} variant="dark" className="px-5 py-4 animate-pulse">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-surface-container-high flex-shrink-0" />
+              <div className="flex-1">
+                <div className="h-4 w-32 bg-surface-container-high rounded mb-2" />
+                <div className="h-3 w-48 bg-surface-container-low rounded" />
               </div>
-            </Card>
-          ))}
-        </div>
+              <div className="h-4 w-16 bg-surface-container-low rounded flex-shrink-0" />
+            </div>
+          </Card>
+        ))}
       </div>
     );
   }
@@ -230,124 +229,138 @@ export default function ProviderConnectionCards({
   const providers = providersData?.providers ?? [];
 
   return (
-    <div className="w-full">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {providers.map((provider) => {
-          const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
-          const isConnecting = connectingProvider === provider.provider;
-          const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte');
+    <div className="w-full space-y-2">
+      {providers.map((provider) => {
+        const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
+        const isConnecting = connectingProvider === provider.provider;
+        const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte');
+        const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte'));
 
-          return (
-            <button
-              key={provider.provider}
-              type="button"
-              onClick={() => handleConnect(provider)}
-              disabled={provider.connected || isConnecting || !!connectingProvider}
-              className="text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl disabled:cursor-default group"
-              aria-label={
+        return (
+          <button
+            key={provider.provider}
+            type="button"
+            onClick={() => handleConnect(provider)}
+            disabled={provider.connected || isConnecting || !!connectingProvider}
+            className="w-full text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl disabled:cursor-default group"
+            aria-label={
+              provider.connected
+                ? `${provider.display_name} is connected`
+                : isNonOAuth
+                  ? `${provider.display_name} - ${getProviderDescription(provider)}`
+                  : `Connect to ${provider.display_name}`
+            }
+          >
+            <Card
+              variant="dark"
+              className={`px-5 py-4 transition-all duration-200 border ${
                 provider.connected
-                  ? `${provider.display_name} is connected`
-                  : isNonOAuth
-                    ? `${provider.display_name} - ${getProviderDescription(provider)}`
-                    : `Connect to ${provider.display_name}`
-              }
+                  ? 'border-emerald-500/40'
+                  : isConnecting
+                    ? 'border-primary'
+                    : isNonOAuth
+                      ? 'border-outline-variant/20 opacity-60'
+                      : `border-outline-variant/30 ${style.hoverColor} hover:shadow-md`
+              }`}
             >
-              <Card
-                variant="dark"
-                className={`p-5 transition-all duration-200 h-full border-2 ${
-                  provider.connected
-                    ? 'border-emerald-500/50'
-                    : isConnecting
-                      ? 'border-primary'
-                      : isNonOAuth
-                        ? 'border-transparent opacity-60'
-                        : `border-transparent ${style.hoverColor} hover:shadow-lg hover:-translate-y-0.5`
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface shadow-sm`}
-                  >
-                    {isConnecting ? (
-                      <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
-                    ) : (
-                      <ProviderIcon providerId={provider.provider} className="w-6 h-6" />
-                    )}
+              <div className="flex items-center gap-4">
+                <div
+                  className={`flex-shrink-0 w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface shadow-sm`}
+                >
+                  {isConnecting ? (
+                    <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
+                  ) : (
+                    <ProviderIcon providerId={provider.provider} className="w-6 h-6" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-on-surface text-base leading-tight">{provider.display_name}</span>
+                    {provider.connected && <Badge variant="success">Connected</Badge>}
+                    {isNonOAuth && !provider.connected && <Badge variant="secondary">Demo</Badge>}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-on-surface text-sm">{provider.display_name}</span>
-                      {provider.connected && (
-                        <Badge variant="success">
-                          Connected
-                        </Badge>
-                      )}
-                      {isNonOAuth && !provider.connected && (
-                        <Badge variant="secondary">
-                          Demo
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-on-surface-variant mt-0.5">{getProviderDescription(provider)}</p>
-                  </div>
-                  {!provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte')) && (
+                  <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
+                    {getProviderDescription(provider)}
+                  </p>
+                </div>
+                {isActionable && (
+                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
+                    Connect
                     <svg
-                      className="w-4 h-4 text-outline group-hover:text-on-surface transition-colors"
+                      className="w-4 h-4"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                  )}
-                </div>
-              </Card>
-            </button>
-          );
-        })}
-
-        {/* Skip and start chatting - last card */}
-        {onSkip && (
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={isSkipPending}
-            className="text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl group"
-            aria-label="Skip and start chatting"
-          >
-            <Card
-              variant="dark"
-              className="p-5 transition-all duration-200 h-full border-2 border-transparent hover:border-primary hover:shadow-lg hover:-translate-y-0.5"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl boreal-hero-gradient flex items-center justify-center text-on-primary shadow-sm">
-                  {isSkipPending ? (
-                    <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
-                  ) : (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="font-semibold text-on-surface text-sm">
-                    {isSkipPending ? 'Starting...' : 'Start chatting'}
                   </span>
-                  <p className="text-xs text-on-surface-variant mt-0.5">Connect providers later</p>
-                </div>
-                <svg
-                  className="w-4 h-4 text-outline group-hover:text-primary transition-colors"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                )}
+                {isActionable && (
+                  <svg
+                    className="flex-shrink-0 sm:hidden w-4 h-4 text-outline group-hover:text-on-surface transition-colors"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                )}
               </div>
             </Card>
           </button>
-        )}
-      </div>
+        );
+      })}
+
+      {/* Skip and start chatting - last row */}
+      {onSkip && (
+        <button
+          type="button"
+          onClick={onSkip}
+          disabled={isSkipPending}
+          className="w-full text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl group"
+          aria-label="Skip and start chatting"
+        >
+          <Card
+            variant="dark"
+            className="px-5 py-4 transition-all duration-200 border border-outline-variant/30 hover:border-primary hover:shadow-md"
+          >
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0 w-12 h-12 rounded-xl boreal-hero-gradient flex items-center justify-center text-on-primary shadow-sm">
+                {isSkipPending ? (
+                  <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
+                ) : (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-on-surface text-base leading-tight">
+                  {isSkipPending ? 'Starting…' : 'Start chatting'}
+                </span>
+                <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
+                  Connect providers later
+                </p>
+              </div>
+              <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
+                Skip
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </span>
+              <svg
+                className="flex-shrink-0 sm:hidden w-4 h-4 text-outline group-hover:text-primary transition-colors"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </Card>
+        </button>
+      )}
 
       {/* Sciotte login modal */}
       <SciotteLoginModal
