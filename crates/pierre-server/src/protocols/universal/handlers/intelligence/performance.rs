@@ -11,6 +11,7 @@ use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
 use std::future::Future;
@@ -265,7 +266,13 @@ pub fn handle_predict_performance(
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
                 {
-                    Ok(activities) => {
+                    Ok(raw_activities) => {
+                        // VDOT race-time prediction relies on best-effort
+                        // samples; collapsing fragments to one row per session
+                        // keeps the predictor from picking a doubled-recording
+                        // PR as the canonical performance sample.
+                        let (activities, _fragment_report) =
+                            dedupe_and_report(&raw_activities, &DedupConfig::default());
                         // Report progress before prediction
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(

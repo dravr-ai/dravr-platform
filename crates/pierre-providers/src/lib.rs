@@ -22,6 +22,8 @@ pub mod activity_iterator;
 pub mod circuit_breaker;
 /// Core provider traits and interfaces
 pub mod core;
+/// Fragment-aware activity deduplication for overlapping GPS recordings
+pub mod deduplication;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
 /// Service Provider Interface for external providers

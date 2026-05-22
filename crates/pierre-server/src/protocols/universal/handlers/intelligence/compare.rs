@@ -13,6 +13,7 @@ use crate::protocols::universal::handlers::{apply_format_to_response, extract_ou
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::FitnessProvider;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -41,10 +42,15 @@ async fn execute_activity_comparison(
                 );
             }
 
-            let all_activities = provider
+            let raw_activities = provider
                 .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                 .await
                 .unwrap_or_default();
+            // Compare against canonical sessions only — comparing a workout
+            // against its own fragments is degenerate and surfaces "0% delta"
+            // noise.
+            let (all_activities, _fragment_report) =
+                dedupe_and_report(&raw_activities, &DedupConfig::default());
 
             let comparison = compare_activity_logic(
                 &target_activity,

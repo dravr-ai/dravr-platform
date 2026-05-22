@@ -10,11 +10,12 @@ use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use tracing::warn;
+use tracing::{debug, warn};
 #[cfg(feature = "client-notifications")]
 use {
     crate::mcp::resources::ServerContext, pierre_notifications::triggers as notification_triggers,
@@ -448,7 +449,23 @@ pub fn handle_analyze_training_load(
 
                 let activity_limit = executor.resources.config.activity_fetch_limit;
                 match provider.get_activities(Some(activity_limit), None).await {
-                    Ok(activities) => {
+                    Ok(raw_activities) => {
+                        // Collapse overlapping GPS recordings (Garmin auto-split,
+                        // dual-device, Strava re-upload) into canonical sessions
+                        // before TSS / CTL / ATL are computed; otherwise the
+                        // chronic load curve double-counts every fragmented
+                        // workout and trips overtraining notifications on
+                        // synthetic volume.
+                        let (activities, fragment_report) =
+                            dedupe_and_report(&raw_activities, &DedupConfig::default());
+                        if fragment_report.has_fragments() {
+                            debug!(
+                                raw = fragment_report.raw_count,
+                                sessions = fragment_report.session_count,
+                                groups = fragment_report.groups.len(),
+                                "training_load: applied fragment dedup",
+                            );
+                        }
                         // Report progress before analysis
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(
