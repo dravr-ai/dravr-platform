@@ -16,6 +16,7 @@ use crate::intelligence::{
 use crate::mcp::resources::ServerContext;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 
 const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 const RECOMMENDATION_TYPE_PLACEHOLDER: &str = "{recommendation_type}";
@@ -969,7 +970,12 @@ pub fn handle_generate_recommendations(
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
                 {
-                    Ok(activities) => {
+                    Ok(raw_activities) => {
+                        // Recommendations are sensitive to consistency + volume
+                        // — both are inflated by fragment duplicates. Collapse
+                        // before recommendation logic runs.
+                        let (activities, _fragment_report) =
+                            dedupe_and_report(&raw_activities, &DedupConfig::default());
                         // Report progress before generating recommendations
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(

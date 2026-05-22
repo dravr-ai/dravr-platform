@@ -15,6 +15,7 @@ use crate::protocols::universal::handlers::{apply_format_to_response, extract_ou
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::FitnessProvider;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
 use std::future::Future;
@@ -43,7 +44,11 @@ async fn fetch_and_detect_patterns(
         .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
         .await
     {
-        Ok(activities) => {
+        Ok(raw_activities) => {
+            // Collapse fragments so the overtraining detector doesn't trip on
+            // synthetic activity-density signals from re-uploaded GPS files.
+            let (activities, _fragment_report) =
+                dedupe_and_report(&raw_activities, &DedupConfig::default());
             let analysis = detect_activity_patterns(&activities, pattern_type);
 
             UniversalResponse {

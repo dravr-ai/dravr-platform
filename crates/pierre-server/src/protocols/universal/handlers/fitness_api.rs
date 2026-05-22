@@ -22,6 +22,7 @@ use crate::models::{
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
+use crate::providers::deduplication::{detect_fragments, DedupConfig, FragmentReport};
 use crate::services::weather_backfill;
 use crate::utils::uuid::parse_user_id_for_protocol;
 use pierre_weather::WeatherProvider;
@@ -151,13 +152,44 @@ impl From<&Activity> for ActivitySummary {
 /// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
 /// used when the provider didn't surface ambient temp on the row itself
 /// (sciotte / Whoop / Fitbit / Terra all leave it empty).
+///
+/// `fragment_report` carries fragment-deduplication metadata when overlapping
+/// recordings of the same workout were detected; when `Some` and at least one
+/// group is present, a header note is prepended so the LLM sees the
+/// session-vs-row distinction inline with the list (smaller models that skip
+/// the structured `retrieval_context` JSON still get the cue from the prose).
 fn format_activities_as_list(
     activities: &[Activity],
     backfill_temps: &HashMap<String, f32>,
+    fragment_report: Option<&FragmentReport>,
 ) -> String {
-    let mut lines = Vec::with_capacity(activities.len() + 2);
+    let mut lines = Vec::with_capacity(activities.len() + 6);
     lines.push("Your Activities:".to_owned());
     lines.push(String::new());
+    if let Some(report) = fragment_report {
+        if report.has_fragments() {
+            lines.push(format!(
+                "[Note] {raw} GPS recordings detected, representing ~{sessions} distinct training sessions.",
+                raw = report.raw_count,
+                sessions = report.session_count,
+            ));
+            lines.push(
+                "[Note] The following appear to be fragments of the same workout (count sessions, not rows):"
+                    .to_owned(),
+            );
+            for group in &report.groups {
+                let ids = group.fragment_ids.join(", ");
+                lines.push(format!(
+                    "       - canonical {canon}; group: [{ids}] ({sport:?}, {start} → {end})",
+                    canon = group.canonical_id,
+                    sport = group.sport_type,
+                    start = group.window_start.format("%Y-%m-%d %H:%M UTC"),
+                    end = group.window_end.format("%Y-%m-%d %H:%M UTC"),
+                ));
+            }
+            lines.push(String::new());
+        }
+    }
 
     // Sort activities by start_date descending (newest first)
     let mut sorted_activities: Vec<_> = activities.iter().collect();
@@ -402,6 +434,89 @@ pub struct ActivityRetrievalContext {
     /// (auto-promoted queries).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advice: Option<String>,
+    /// Fragment-deduplication summary when overlapping recordings of the same
+    /// workout were detected. `None` when the activity slice contained no
+    /// fragment groups — most queries land here. When `Some`, the LLM MUST
+    /// report `session_count` to the user, not `raw_count`: the raw rows
+    /// include Garmin auto-splits, dual-device captures, and Strava
+    /// re-uploads that describe the same physical workout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragment_dedup: Option<FragmentDedupSummary>,
+}
+
+/// LLM-facing summary of fragment-group detection over an activity slice.
+///
+/// Counterpart of [`pierre_providers::deduplication::FragmentReport`] — the
+/// provider-side type carries `chrono::DateTime` values and the full sport
+/// enum, this serializes them to strings so the JSON shape stays portable
+/// across MCP / A2A / REST consumers and stable across cageux upgrades.
+#[derive(Debug, Clone, Serialize)]
+pub struct FragmentDedupSummary {
+    /// Total activities the detector saw (one per row returned by the provider).
+    pub raw_count: usize,
+    /// Distinct training sessions after collapsing fragment groups.
+    pub session_count: usize,
+    /// One entry per multi-row group; absent when no fragments were detected
+    /// even though `fragment_dedup` itself is present.
+    pub groups: Vec<FragmentGroupSummary>,
+    /// Pre-formatted human-readable advice line the LLM should echo to the
+    /// user when reporting counts. Example: "20 GPS recordings represent 12
+    /// distinct sessions; the rest are likely re-uploads or auto-splits".
+    pub advice: String,
+}
+
+/// A single overlapping-recording group surfaced to the LLM.
+#[derive(Debug, Clone, Serialize)]
+pub struct FragmentGroupSummary {
+    /// Activity id selected as the canonical session for this group.
+    pub canonical_id: String,
+    /// All member ids, canonical included — preserved for callers that want
+    /// to render or audit the grouping decision.
+    pub fragment_ids: Vec<String>,
+    /// Sport type shared by every member (RFC-safe rendering of the enum).
+    pub sport_type: String,
+    /// Earliest start time across the group, ISO 8601.
+    pub window_start: String,
+    /// Latest end time across the group, ISO 8601.
+    pub window_end: String,
+}
+
+impl FragmentDedupSummary {
+    /// Build an LLM-facing summary from a provider-side [`FragmentReport`].
+    /// Returns `None` when the report contains no fragment groups — the
+    /// caller skips serializing `fragment_dedup` in that case so the JSON
+    /// shape stays compact for the 95% of queries that have no fragments.
+    fn from_report(report: &FragmentReport) -> Option<Self> {
+        if !report.has_fragments() {
+            return None;
+        }
+        let groups = report
+            .groups
+            .iter()
+            .map(|g| FragmentGroupSummary {
+                canonical_id: g.canonical_id.clone(),
+                fragment_ids: g.fragment_ids.clone(),
+                sport_type: format!("{:?}", g.sport_type),
+                window_start: g.window_start.to_rfc3339(),
+                window_end: g.window_end.to_rfc3339(),
+            })
+            .collect();
+        let advice = format!(
+            "Fragment deduplication: {raw} GPS recordings collapse into {sessions} distinct \
+             training sessions after grouping overlapping captures (Garmin auto-splits, \
+             dual-device recordings, or Strava re-uploads). When reporting counts to the user, \
+             cite session_count ({sessions}), not raw_count ({raw}). The fragment_groups list \
+             names which rows belong together.",
+            raw = report.raw_count,
+            sessions = report.session_count,
+        );
+        Some(Self {
+            raw_count: report.raw_count,
+            session_count: report.session_count,
+            groups,
+            advice,
+        })
+    }
 }
 
 /// Date range for activity retrieval
@@ -416,8 +531,27 @@ pub struct DateRange {
 }
 
 impl ActivityRetrievalContext {
-    /// Create retrieval context from activities and analysis type
-    /// Calculates date range, sufficiency, and provides recommendation.
+    /// Create retrieval context from activities and analysis type without
+    /// fragment-deduplication metadata. Equivalent to
+    /// [`Self::from_activities_with_dedup`] with `fragment_report = None`.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn from_activities(
+        activities: &[Activity],
+        analysis_type: AnalysisType,
+        mode_used: &str,
+    ) -> Self {
+        Self::from_activities_with_dedup(activities, analysis_type, mode_used, None)
+    }
+
+    /// Create retrieval context with optional fragment-deduplication metadata.
+    ///
+    /// When `fragment_report` is `Some` AND it contains at least one fragment
+    /// group, the resulting context surfaces a `fragment_dedup` field whose
+    /// `advice` string instructs the LLM to report `session_count` to the
+    /// user (the deduplicated training-session count) rather than the raw
+    /// row count. Empty reports — no groups — pass through with
+    /// `fragment_dedup = None` to keep the JSON shape compact.
     ///
     /// `mode_used` lets the caller tell the LLM when the response is
     /// summary-mode (limit > threshold): the `advice` field is populated
@@ -425,10 +559,11 @@ impl ActivityRetrievalContext {
     /// cadence, power, calories) and how to narrow for splits/laps.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
-    pub fn from_activities(
+    pub fn from_activities_with_dedup(
         activities: &[Activity],
         analysis_type: AnalysisType,
         mode_used: &str,
+        fragment_report: Option<&FragmentReport>,
     ) -> Self {
         let date_range = Self::calculate_date_range(activities);
         let weeks_covered = date_range.days_spanned / 7;
@@ -459,6 +594,8 @@ impl ActivityRetrievalContext {
                 .to_owned()
         });
 
+        let fragment_dedup = fragment_report.and_then(FragmentDedupSummary::from_report);
+
         Self {
             analysis_type,
             date_range,
@@ -470,6 +607,7 @@ impl ActivityRetrievalContext {
                 recommendation,
             },
             advice,
+            fragment_dedup,
         }
     }
 
@@ -1036,15 +1174,27 @@ fn build_activities_success_response(params: ActivitiesResponseParams<'_>) -> Un
         }
     };
 
+    // Detect fragment groups across the activity slice so the LLM (and any
+    // downstream telemetry) can distinguish raw GPS recordings from distinct
+    // training sessions. Computed once here, threaded into both the prose
+    // list and the structured retrieval context — the LLM sees the same
+    // signal whether it reads the inline note or the JSON sidecar.
+    let fragment_report = detect_fragments(activities, &DedupConfig::default());
+
     // Create pre-formatted activity list for LLM output (helps models include the list)
-    let activity_list = format_activities_as_list(activities, backfill_temps);
+    let activity_list =
+        format_activities_as_list(activities, backfill_temps, Some(&fragment_report));
 
     // Calculate token estimate for context management
     let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);
 
     // Calculate retrieval context for LLM data sufficiency guidance
-    let retrieval_context =
-        ActivityRetrievalContext::from_activities(activities, analysis_type, mode_used);
+    let retrieval_context = ActivityRetrievalContext::from_activities_with_dedup(
+        activities,
+        analysis_type,
+        mode_used,
+        Some(&fragment_report),
+    );
 
     // Format the activities data according to the requested format
     let (result_json, format_used) = match output_format {

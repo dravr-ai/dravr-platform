@@ -14,6 +14,7 @@ use crate::protocols::universal::handlers::{apply_format_to_response, extract_ou
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::FitnessProvider;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
 use std::future::Future;
@@ -44,7 +45,12 @@ async fn fetch_and_analyze_trends(
         .get_activities(Some(MAX_ACTIVITY_LIMIT), None)
         .await
     {
-        Ok(activities) => {
+        Ok(raw_activities) => {
+            // Trend regression must see one row per session, otherwise duplicate
+            // captures bias slope estimates toward the days that were
+            // double-recorded.
+            let (activities, _fragment_report) =
+                dedupe_and_report(&raw_activities, &DedupConfig::default());
             let analysis = analyze_performance_trend(&activities, metric, timeframe);
 
             UniversalResponse {

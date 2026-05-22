@@ -11,6 +11,7 @@ use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::providers::deduplication::{dedupe_and_report, DedupConfig};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
 use std::future::Future;
@@ -449,7 +450,12 @@ pub fn handle_calculate_fitness_score(
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
                 {
-                    Ok(activities) => {
+                    Ok(raw_activities) => {
+                        // Collapse fragments before scoring so CTL/ATL and the
+                        // consistency component aren't inflated by re-uploads
+                        // or auto-split GPS recordings of the same workout.
+                        let (activities, _fragment_report) =
+                            dedupe_and_report(&raw_activities, &DedupConfig::default());
                         // Report progress before calculation
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(
