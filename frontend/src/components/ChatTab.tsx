@@ -713,14 +713,25 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   };
 
   const handleConnectProvider = async (provider: string) => {
+    // Mobile Safari requires window.open to fire inside the synchronous
+    // user-gesture call stack. Awaiting the authorize-URL fetch first leaves
+    // Connect spinning to its safety timeout.
+    const popup = window.open('about:blank', '_blank');
     setConnectingProvider(provider);
     if (selectedConversation) {
       sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
     }
     try {
       const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider);
-      window.open(authUrl, '_blank');
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+      } else {
+        window.location.href = authUrl;
+      }
     } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       console.error(`Failed to get OAuth URL for ${provider}:`, error);
       setConnectingProvider(null);
     }

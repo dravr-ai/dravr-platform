@@ -80,11 +80,24 @@ export default function OnboardingConnectProvider({
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
 
   const handleConnectProvider = async (provider: string) => {
+    // Mobile Safari requires window.open to fire inside the synchronous
+    // user-gesture call stack. Pre-open a blank window so the popup permission
+    // is captured before the async authorize-URL fetch; awaiting first leaves
+    // the connect button spinning to its safety timeout.
+    const popup = window.open('about:blank', '_blank');
     setConnectingProvider(provider);
     try {
       const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider);
-      window.open(authUrl, '_blank');
+      if (popup && !popup.closed) {
+        popup.location.href = authUrl;
+      } else {
+        // Popup blocked even synchronously — fall back to same-tab navigation.
+        window.location.href = authUrl;
+      }
     } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       console.error(`Failed to get OAuth URL for ${provider}:`, error);
       setConnectingProvider(null);
     }
