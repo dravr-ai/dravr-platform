@@ -18,6 +18,7 @@ mod messaging_user_status_gate_tests {
     use chrono::Utc;
     use hmac::{Hmac, Mac};
     use pierre_core::errors::ErrorCode;
+    use pierre_core::models::ConnectionType;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -91,6 +92,26 @@ mod messaging_user_status_gate_tests {
             updated_at: Utc::now(),
         };
         resources.repos.tenants.create(&tenant).await.unwrap();
+
+        // Register a synthetic provider for Active users so the
+        // inbound chat dispatch gets past the onboarding gate
+        // (c3afc87e). Pending/Suspended users are stopped earlier at
+        // the status gate so they don't need a provider connection;
+        // adding one for them too is harmless but unnecessary.
+        if status == UserStatus::Active {
+            resources
+                .repos
+                .provider_connections
+                .register_connection(
+                    user_id,
+                    tenant_id,
+                    "synthetic",
+                    &ConnectionType::Synthetic,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
 
         (user_id, tenant_id)
     }
