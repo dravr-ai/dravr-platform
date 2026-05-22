@@ -26,6 +26,7 @@ mod messaging_routes_tests {
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
     use std::sync::Arc;
@@ -836,7 +837,7 @@ mod messaging_routes_tests {
                 user_b.id,
                 tenant_id,
                 "synthetic",
-                &pierre_core::models::ConnectionType::Synthetic,
+                &ConnectionType::Synthetic,
                 None,
             )
             .await
