@@ -99,7 +99,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         ChatMessage::user(analysis_content),
     ];
 
-    let tools = build_mcp_tools();
+    let tools = build_mcp_tools(&resources);
     let provider = get_llm_provider(&resources).await?;
     let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 

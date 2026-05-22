@@ -64,8 +64,8 @@ pub(super) async fn get_llm_provider(
 }
 
 /// Build LLM tool definitions for chat-mode function calling.
-pub(crate) fn build_mcp_tools() -> Tool {
-    services_build_mcp_tools()
+pub(crate) fn build_mcp_tools(resources: &Arc<ServerContext>) -> Tool {
+    services_build_mcp_tools(&resources.tool_registry)
 }
 
 /// Chat routes handler.
