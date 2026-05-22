@@ -54,6 +54,7 @@ mod pipeline_tool_loop {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
+    use pierre_core::models::ConnectionType;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -258,6 +259,25 @@ mod pipeline_tool_loop {
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
+            .await
+            .unwrap();
+
+        // Register a synthetic provider connection so this admin can
+        // reach messaging-ingress past the onboarding gate that
+        // c3afc87e introduced. Without this the slack webhook returns
+        // OK at the transport layer but the chat dispatch 403s
+        // silently, so no turn_summary row is ever written and the
+        // poll below times out.
+        resources
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
             .await
             .unwrap();
 
