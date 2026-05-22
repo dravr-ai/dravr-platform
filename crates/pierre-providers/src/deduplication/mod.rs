@@ -44,10 +44,11 @@ pub use detection::{detect_fragments, FragmentGroup, FragmentReport};
 
 use pierre_core::models::Activity;
 
-/// Convenience helper for intelligence handlers: detect fragments, then
-/// collapse the slice to canonical rows. Returns the canonical-only `Vec`
-/// alongside the full report so the caller can log dedup metrics or surface
-/// the grouping decision in its own response envelope.
+/// Detect fragments and collapse the slice to canonical rows.
+///
+/// Convenience helper for intelligence handlers: returns the canonical-only
+/// `Vec` alongside the full report so the caller can log dedup metrics or
+/// surface the grouping decision in its own response envelope.
 ///
 /// Equivalent to:
 /// ```text
