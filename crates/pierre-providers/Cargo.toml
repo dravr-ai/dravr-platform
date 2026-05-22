@@ -54,13 +54,7 @@ ring = "0.17"
 subtle = "2.6"
 hex = "0.4"
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
-# Temporary: pinned to commit SHA because the v0.5.15 release workflow is blocked
-# on GitHub Actions artifact storage quota. Re-pin to `tag = "v0.5.15"` once the
-# release publishes. The commit ships /challenge/dp digit scrape +
-# Try-Another-Way debounce (Strava-Google 2FA chooser surfacing) and removes the
-# WebGL/plugins JS spoofs that 427'd headless Chrome on Cloudflare (Garmin
-# headless restored to working baseline).
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", rev = "0508a4b6474f3638fbd5117ed64862c79e9c3492", optional = true }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.16", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
