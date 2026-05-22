@@ -82,8 +82,7 @@ export default function OnboardingConnectProvider({
   const handleConnectProvider = async (provider: string) => {
     // Mobile Safari requires window.open to fire inside the synchronous
     // user-gesture call stack. Pre-open a blank window so the popup permission
-    // is captured before the async authorize-URL fetch; awaiting first leaves
-    // the connect button spinning to its safety timeout.
+    // is captured before the async authorize-URL fetch.
     const popup = window.open('about:blank', '_blank');
     setConnectingProvider(provider);
     try {
@@ -93,7 +92,13 @@ export default function OnboardingConnectProvider({
       } else {
         // Popup blocked even synchronously — fall back to same-tab navigation.
         window.location.href = authUrl;
+        return;
       }
+      // Clear the per-card spinner now that the OAuth tab is loading. Success
+      // is observed at the App level (onboarding-status invalidation flips to
+      // the dashboard); keeping the spinner held here strands the card if the
+      // user closes the OAuth tab without finishing.
+      setConnectingProvider(null);
     } catch (error) {
       if (popup && !popup.closed) {
         popup.close();
