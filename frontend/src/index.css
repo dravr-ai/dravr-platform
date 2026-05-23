@@ -321,25 +321,48 @@ html.dark {
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* Glass input variant — rarely used, only over boreal-overlay imagery. */
+  /* Input variant for dark modal surfaces (Sciotte login, etc.). Reads
+     correctly on `bg-surface-container-highest` and similar dark cards.
+     The :-webkit-autofill rules override Chrome's autofill which would
+     otherwise paint a light yellow/white background and dark text,
+     making the input unreadable on the dark modal. */
   .input-glass {
     @apply w-full px-4 py-3 rounded-md text-sm font-sans text-on-surface transition-all duration-base;
-    background: rgba(249, 249, 246, 0.85);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(192, 200, 195, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--ghost-border);
+    caret-color: currentColor;
   }
 
   .input-glass::placeholder {
-    color: rgba(26, 28, 27, 0.4);
+    color: rgba(192, 200, 195, 0.5);
+  }
+
+  .input-glass:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--ghost-border-strong);
   }
 
   .input-glass:focus {
     outline: none;
-    border-color: rgba(0, 36, 26, 0.6);
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
   }
 
   .input-glass:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* Chrome/Safari autofill override — without this the password field
+     shows white-on-white when 1Password / Chrome / Keychain fills it. */
+  .input-glass:-webkit-autofill,
+  .input-glass:-webkit-autofill:hover,
+  .input-glass:-webkit-autofill:focus,
+  .input-glass:-webkit-autofill:active {
+    -webkit-text-fill-color: var(--color-on-surface) !important;
+    -webkit-box-shadow: 0 0 0 1000px rgba(40, 42, 41, 1) inset !important;
+    caret-color: var(--color-on-surface) !important;
+    transition: background-color 9999s ease-in-out 0s;
   }
 
   .label {
