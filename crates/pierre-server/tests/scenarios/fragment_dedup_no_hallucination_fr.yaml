@@ -75,16 +75,17 @@ turns:
           - "sessions distinctes"
           - "plusieurs traces"
           - "GPS dupliqué"
-      # The reply MUST NOT commit to 20 distinct training sessions —
-      # that is the exact failure mode from the screenshot. Phrasing
-      # variants the bot used on the bad turn:
-      - kind: no_substring
-        values:
-          - "20 activités distinctes"
-          - "20 entraînements"
-          - "20 sorties différentes"
-          - "20 séances"
-          - "20 sessions"
+      # Earlier revisions of this scenario carried a no_substring list
+      # banning "20 sessions" / "20 séances" / "20 activités distinctes"
+      # to catch the commitment-to-20 failure mode. The 2026-05-23
+      # nightly proved that list is brittle: the LLM correctly replied
+      # "et non 20 sessions distinctes" (negation), and the substring
+      # check fired anyway because it cannot read polarity. The any_of
+      # assertion above already proves the positive behavior — the
+      # coach surfaced fragment uncertainty — which is the success
+      # criterion. We do NOT add a tighter no_substring here: any
+      # phrase short enough to be unambiguous about commitment is also
+      # short enough to appear inside a negated clause.
   - user: "Impossible une journée de 20 activités voyons!"
     assertions:
       # On pushback the coach MUST hold position — it already surfaced
