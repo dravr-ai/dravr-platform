@@ -1131,7 +1131,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
                 FROM provider_connections
                 WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY connected_at DESC
@@ -1144,7 +1144,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
                 FROM provider_connections
                 WHERE user_id = $1
                 ORDER BY connected_at DESC
@@ -1159,6 +1159,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         for row in rows {
             let conn_type_str: String = row.get("connection_type");
             let connected_at: DateTime<Utc> = row.get("connected_at");
+            let last_used_at: Option<DateTime<Utc>> = row.try_get("last_used_at").ok().flatten();
 
             let user_id_from_db: String = row.get("user_id");
             let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
@@ -1171,6 +1172,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
                 connection_type: ConnectionType::from_str_value(&conn_type_str)
                     .unwrap_or(ConnectionType::Manual),
                 connected_at,
+                last_used_at,
                 metadata: row.get("metadata"),
             });
         }
@@ -1188,6 +1190,86 @@ impl ProviderConnectionRepository for PostgresDatabase {
         .await?;
 
         Ok(count > 0)
+    }
+
+    async fn touch_last_used(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET last_used_at = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+            ",
+        )
+        .bind(Utc::now())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn resolve_most_recent(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<ProviderConnection>> {
+        let row_opt = if let Some(tid) = tenant_id {
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                  FROM provider_connections
+                 WHERE user_id = $1 AND tenant_id = $2
+                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 LIMIT 1
+                ",
+            )
+            .bind(user_id.to_string())
+            .bind(tid.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                  FROM provider_connections
+                 WHERE user_id = $1
+                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 LIMIT 1
+                ",
+            )
+            .bind(user_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+        };
+
+        let Some(row) = row_opt else {
+            return Ok(None);
+        };
+
+        let conn_type_str: String = row.get("connection_type");
+        let connected_at: DateTime<Utc> = row.get("connected_at");
+        let last_used_at: Option<DateTime<Utc>> = row.try_get("last_used_at").ok().flatten();
+        let user_id_from_db: String = row.get("user_id");
+        let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+
+        Ok(Some(ProviderConnection {
+            id: row.get("id"),
+            user_id: parsed_user_id,
+            tenant_id: row.get("tenant_id"),
+            provider: row.get("provider"),
+            connection_type: ConnectionType::from_str_value(&conn_type_str)
+                .unwrap_or(ConnectionType::Manual),
+            connected_at,
+            last_used_at,
+            metadata: row.get("metadata"),
+        }))
     }
 }
 

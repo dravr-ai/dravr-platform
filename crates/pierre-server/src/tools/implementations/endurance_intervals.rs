@@ -56,7 +56,18 @@ async fn fetch_activity(
     user_id: uuid::Uuid,
     activity_id: &str,
 ) -> AppResult<Activity> {
-    let provider_name = default_provider();
+    let provider_name = match default_provider() {
+        Some(p) => p,
+        None => match resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(user_id, Some(tenant_id))
+            .await?
+        {
+            Some(conn) => conn.provider,
+            None => return Err(AppError::no_provider_connected()),
+        },
+    };
     let tenant_str = tenant_id.to_string();
     let activities = SocialRoutes::fetch_activities_from_provider(
         resources,

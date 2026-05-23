@@ -63,6 +63,8 @@ pub struct Args {
 }
 
 fn main() -> Result<()> {
+    assert_no_synthetic_provider_in_release();
+
     let args = parse_args_or_default();
 
     // Load runtime config first to build the Tokio runtime
@@ -74,6 +76,25 @@ fn main() -> Result<()> {
         let config = setup_configuration(&args)?;
         bootstrap_server(config, args.stdio).await
     })
+}
+
+/// Defense in depth — refuse to boot a release binary that has `provider-synthetic`
+/// compiled in. Synthetic-provider data is fixture/seed material safe only for local
+/// development; on 2026-05-23 a user-report traced an LLM hallucination to a release
+/// build silently binding untargeted tool calls to synthetic seed data when the
+/// resolver fell back. The `production-providers` Cargo feature already excludes
+/// `provider-synthetic`, so a tripped assertion here means the build was assembled
+/// with the wrong feature set — fail loudly at boot rather than serve garbage
+/// rides to the LLM.
+fn assert_no_synthetic_provider_in_release() {
+    #[cfg(all(feature = "provider-synthetic", not(debug_assertions)))]
+    {
+        panic!(
+            "REFUSING TO BOOT: provider-synthetic feature is compiled into a release \
+             binary. Rebuild with --no-default-features --features server-production. \
+             See vault: Claude Outputs/Synthetic-Provider Silent Fallback Bug Analysis (2026-05-23)."
+        );
+    }
 }
 
 /// Build a Tokio runtime with configurable worker threads

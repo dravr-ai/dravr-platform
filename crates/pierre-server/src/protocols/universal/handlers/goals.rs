@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::environment::default_provider;
 use crate::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
 use crate::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
 use crate::constants::limits::{
@@ -30,6 +29,7 @@ use crate::intelligence::physiological_constants::goal_feasibility::{
 use crate::intelligence::seasonality::build_seasonal_context;
 use crate::intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
 use crate::models::Activity;
+use crate::protocols::universal::handlers::provider_helpers::resolve_provider_for_request;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::types::json_schemas::{AnalyzeGoalFeasibilityParams, SetGoalParams};
@@ -466,12 +466,18 @@ pub fn handle_suggest_goals(
             }
         }
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Fetch activities and load user profile
         let activities = fetch_suggestion_activities(
@@ -598,12 +604,18 @@ pub fn handle_analyze_goal_feasibility(
         }
 
         let (goal_type, target_value, effective_timeframe) = extract_feasibility_params(&request)?;
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Get historical activities
         let activities = fetch_feasibility_activities(
@@ -1266,12 +1278,18 @@ pub fn handle_track_progress(
             .ok_or_else(|| ProtocolError::InvalidParameters("goal_id is required".into()))?
             .to_owned();
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Fetch and validate goal
         let details = match fetch_and_validate_goal(

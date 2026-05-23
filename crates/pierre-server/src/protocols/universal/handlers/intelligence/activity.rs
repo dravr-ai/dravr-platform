@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::environment::default_provider;
 use crate::constants::limits::METERS_PER_KILOMETER;
 use crate::errors::{AppResult, ErrorCode};
 use crate::intelligence::physiological_constants::business_thresholds::{
@@ -14,6 +13,7 @@ use crate::intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_
 use crate::mcp::resources::ServerContext;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
+use crate::protocols::universal::handlers::provider_helpers::resolve_provider_for_request;
 
 const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 use crate::models::Activity;
@@ -419,12 +419,18 @@ pub fn handle_get_activity_intelligence(
                 ProtocolError::InvalidRequest("Missing required parameter: activity_id".to_owned())
             })?;
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);

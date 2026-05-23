@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::cache::{factory::Cache, CacheKey, CacheResource};
-use crate::config::environment::default_provider;
 use crate::config::fitness::activity_detail_threshold;
 use crate::formatters::{format_output, OutputFormat};
 use crate::intelligence::physiological_constants::api_limits::{
@@ -19,6 +18,7 @@ use crate::intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
 use crate::models::{
     resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId, ZoneDistribution,
 };
+use crate::protocols::universal::handlers::provider_helpers::resolve_provider_for_request;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
@@ -1394,12 +1394,20 @@ pub fn handle_get_activities(
         // Parse user ID from request
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Extract provider from request parameters
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
+        // Resolve provider: explicit arg → env override → user's most-recently-used
+        // connection. Returns a reconnect-signal UniversalResponse when the user
+        // has no provider connections at all.
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Extract mode parameter: "summary" (default) or "detailed"
         // Parse mode/format FIRST to determine format-aware default limit.
@@ -1782,12 +1790,20 @@ pub fn handle_get_athlete(
         // Parse user ID from request
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Extract provider from request parameters
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
+        // Resolve provider: explicit arg → env override → user's most-recently-used
+        // connection. Returns a reconnect-signal UniversalResponse when the user
+        // has no provider connections at all.
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
@@ -2078,12 +2094,20 @@ pub fn handle_get_stats(
         // Parse user ID from request
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Extract provider from request parameters
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
+        // Resolve provider: explicit arg → env override → user's most-recently-used
+        // connection. Returns a reconnect-signal UniversalResponse when the user
+        // has no provider connections at all.
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
@@ -2235,12 +2259,20 @@ pub fn handle_analyze_activity(
         // Parse user ID and extract activity ID from request
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Extract provider from request parameters
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
+        // Resolve provider: explicit arg → env override → user's most-recently-used
+        // connection. Returns a reconnect-signal UniversalResponse when the user
+        // has no provider connections at all.
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
 
         let activity_id = request
             .parameters

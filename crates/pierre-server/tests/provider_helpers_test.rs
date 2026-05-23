@@ -15,15 +15,23 @@ use pierre_mcp_server::protocols::universal::handlers::provider_helpers::{
 fn test_extract_provider_with_value() {
     let mut params = serde_json::Map::new();
     params.insert("provider".to_owned(), serde_json::json!("garmin"));
-    assert_eq!(extract_provider(&params), "garmin");
+    assert_eq!(extract_provider(&params), Some("garmin".to_owned()));
 }
 
 #[test]
-fn test_extract_provider_default() {
+fn test_extract_provider_default_returns_none() {
+    // The 2026-05-23 fix: no implicit fallback to synthetic. Callers receive
+    // None and must resolve via the user's provider_connections (or surface
+    // a reconnect signal). See `resolve_provider_for_request`.
     let params = serde_json::Map::new();
-    // Default is "synthetic" unless PIERRE_DEFAULT_PROVIDER is set
-    let result = extract_provider(&params);
-    assert!(!result.is_empty());
+    assert!(extract_provider(&params).is_none());
+}
+
+#[test]
+fn test_extract_provider_empty_string_returns_none() {
+    let mut params = serde_json::Map::new();
+    params.insert("provider".to_owned(), serde_json::json!(""));
+    assert!(extract_provider(&params).is_none());
 }
 
 #[test]
@@ -193,7 +201,7 @@ fn test_extract_provider_different_providers() {
     for provider in providers {
         let mut params = serde_json::Map::new();
         params.insert("provider".to_owned(), serde_json::json!(provider));
-        assert_eq!(extract_provider(&params), provider);
+        assert_eq!(extract_provider(&params), Some(provider.to_owned()));
     }
 }
 

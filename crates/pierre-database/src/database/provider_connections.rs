@@ -104,7 +104,7 @@ impl Database {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
                 FROM provider_connections
                 WHERE user_id = ? AND tenant_id = ?
                 ORDER BY connected_at DESC
@@ -117,7 +117,7 @@ impl Database {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
                 FROM provider_connections
                 WHERE user_id = ?
                 ORDER BY connected_at DESC
@@ -134,6 +134,12 @@ impl Database {
             let connected_at_str: String = row.get("connected_at");
             let connected_at = DateTime::parse_from_rfc3339(&connected_at_str)
                 .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+            let last_used_at: Option<String> = row.try_get("last_used_at").ok();
+            let last_used_at = last_used_at.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            });
 
             let user_id_from_db: String = row.get("user_id");
             let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
@@ -146,11 +152,121 @@ impl Database {
                 connection_type: ConnectionType::from_str_value(&conn_type_str)
                     .unwrap_or(ConnectionType::Manual),
                 connected_at,
+                last_used_at,
                 metadata: row.get("metadata"),
             });
         }
 
         Ok(connections)
+    }
+
+    /// Mark a provider connection as just-used.
+    ///
+    /// Updates `last_used_at = now()` for the matching row. Returns `Ok(())` when no
+    /// row matches — touch-on-read is best-effort and absence is not an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn touch_provider_connection_last_used_impl(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        let user_id_str = user_id.to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET last_used_at = ?
+             WHERE user_id = ? AND tenant_id = ? AND provider = ?
+            ",
+        )
+        .bind(&now)
+        .bind(&user_id_str)
+        .bind(tenant_id)
+        .bind(provider)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Resolve the user's most-recently-used provider connection.
+    ///
+    /// Orders by `last_used_at DESC NULLS LAST, connected_at DESC` so a freshly-added
+    /// connection without a touch yet sits behind any connection that has actually
+    /// served data. Returns `None` when the user has no connections at all.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn resolve_most_recent_provider_connection_impl(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<ProviderConnection>> {
+        let user_id_str = user_id.to_string();
+
+        let row_opt = if let Some(tid) = tenant_id {
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                  FROM provider_connections
+                 WHERE user_id = ? AND tenant_id = ?
+                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 LIMIT 1
+                ",
+            )
+            .bind(&user_id_str)
+            .bind(tid)
+            .fetch_optional(self.pool())
+            .await?
+        } else {
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                  FROM provider_connections
+                 WHERE user_id = ?
+                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 LIMIT 1
+                ",
+            )
+            .bind(&user_id_str)
+            .fetch_optional(self.pool())
+            .await?
+        };
+
+        let Some(row) = row_opt else {
+            return Ok(None);
+        };
+
+        let conn_type_str: String = row.get("connection_type");
+        let connected_at_str: String = row.get("connected_at");
+        let connected_at = DateTime::parse_from_rfc3339(&connected_at_str)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let last_used_at: Option<String> = row.try_get("last_used_at").ok();
+        let last_used_at = last_used_at.and_then(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
+        let user_id_from_db: String = row.get("user_id");
+        let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+
+        Ok(Some(ProviderConnection {
+            id: row.get("id"),
+            user_id: parsed_user_id,
+            tenant_id: row.get("tenant_id"),
+            provider: row.get("provider"),
+            connection_type: ConnectionType::from_str_value(&conn_type_str)
+                .unwrap_or(ConnectionType::Manual),
+            connected_at,
+            last_used_at,
+            metadata: row.get("metadata"),
+        }))
     }
 
     /// Check if a specific provider is connected for a user
@@ -216,5 +332,20 @@ impl ProviderConnectionRepository for Database {
     }
     async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
         Self::is_provider_connected_impl(self, user_id, provider).await
+    }
+    async fn touch_last_used(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        Self::touch_provider_connection_last_used_impl(self, user_id, tenant_id, provider).await
+    }
+    async fn resolve_most_recent(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<ProviderConnection>> {
+        Self::resolve_most_recent_provider_connection_impl(self, user_id, tenant_id).await
     }
 }

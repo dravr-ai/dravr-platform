@@ -341,29 +341,36 @@ impl FirebaseConfig {
     }
 }
 
-/// Get the default provider from environment or use synthetic as fallback
+/// Get the deployment-wide default provider, if one is configured.
 ///
-/// Reads the `PIERRE_DEFAULT_PROVIDER` environment variable.
-/// Falls back to "synthetic" if not set, making it ideal for development.
+/// Reads the `PIERRE_DEFAULT_PROVIDER` environment variable. Returns `None`
+/// when the variable is unset or empty. **There is no static fallback** —
+/// historical behavior fell back to `oauth_providers::SYNTHETIC`, which
+/// silently bound untargeted tool calls to seed data in production (the LLM
+/// hallucinated over it because production builds don't even compile
+/// `provider-synthetic` in).
+///
+/// Per-request callers should resolve via
+/// `ProviderConnectionRepository::resolve_most_recent` to pick the user's
+/// most-recently-active backend, and surface `AppError::no_provider_connected`
+/// when the user has no provider connections at all — the existing
+/// `auth_recovery` chat-pipeline stage mints a hosted-login URL and renders
+/// the FR/EN reconnect copy from that error.
 ///
 /// # Examples
 ///
 /// ```bash
-/// # Use Strava as default
+/// # Pin a global default at the deployment level
 /// export PIERRE_DEFAULT_PROVIDER=strava
-///
-/// # Use synthetic (no export needed, this is the default)
-/// # PIERRE_DEFAULT_PROVIDER=synthetic
 /// ```
 #[must_use]
-pub fn default_provider() -> String {
+pub fn default_provider() -> Option<String> {
     let provider = env::var("PIERRE_DEFAULT_PROVIDER")
         .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| oauth_providers::SYNTHETIC.to_owned());
+        .filter(|s| !s.is_empty())?;
 
-    info!("Default provider configured: {}", provider);
-    provider
+    info!("Default provider configured (env override): {}", provider);
+    Some(provider)
 }
 
 /// Get OAuth provider configuration by provider name

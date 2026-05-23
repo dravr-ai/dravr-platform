@@ -40,6 +40,7 @@ use crate::tools::context::ToolExecutionContext;
 use crate::tools::dispatch::dispatch_handler;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_core::models::TenantId;
 use pierre_weather::WeatherQuery;
 
 /// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
@@ -358,10 +359,34 @@ impl McpTool for AnalyzeWeatherImpactTool {
             })));
         };
 
-        let provider_name = args
+        let provider_name = match args
             .get("provider")
             .and_then(Value::as_str)
-            .map_or_else(default_provider, String::from);
+            .filter(|s| !s.is_empty())
+        {
+            Some(p) => p.to_owned(),
+            None => match default_provider() {
+                Some(env_p) => env_p,
+                None => {
+                    let tenant = context.tenant_id.map(TenantId::from_uuid);
+                    match context
+                        .resources
+                        .repos
+                        .provider_connections
+                        .resolve_most_recent(context.user_id, tenant)
+                        .await
+                    {
+                        Ok(Some(conn)) => conn.provider,
+                        Ok(None) | Err(_) => {
+                            return Ok(ToolResult::error(json!({
+                                "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
+                                "auth_required_provider": "sciotte"
+                            })));
+                        }
+                    }
+                }
+            },
+        };
 
         let units = args
             .get("units")
