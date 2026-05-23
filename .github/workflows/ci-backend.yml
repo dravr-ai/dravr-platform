@@ -526,4 +526,4 @@ jobs:
         with:
           name: pierre-mcp-server-release-ubuntu
           path: target/release/pierre-mcp-server
-          retention-days: 7
+          retention-days: 3

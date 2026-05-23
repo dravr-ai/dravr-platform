@@ -73,7 +73,7 @@ jobs:
         with:
           name: frontend-build
           path: frontend/dist/
-          retention-days: 7
+          retention-days: 3
 
   e2e-tests:
     name: Playwright E2E Tests
