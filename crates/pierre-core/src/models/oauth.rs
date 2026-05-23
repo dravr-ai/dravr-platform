@@ -426,6 +426,12 @@ pub struct ProviderConnection {
     pub connection_type: ConnectionType,
     /// When the connection was established
     pub connected_at: DateTime<Utc>,
+    /// Most recent time this provider actually served data for the user (chat tool reads,
+    /// REST activity fetches). Distinct from `connected_at` (one-time registration) and
+    /// from `user_oauth_tokens.last_sync` (background sync orchestrator). Drives the
+    /// per-user resolver that picks the active backend when an LLM tool call omits the
+    /// provider argument.
+    pub last_used_at: Option<DateTime<Utc>>,
     /// Optional JSON metadata (e.g., {"source": "seed-synthetic-activities"})
     pub metadata: Option<String>,
 }
@@ -446,6 +452,7 @@ impl ProviderConnection {
             provider,
             connection_type,
             connected_at: Utc::now(),
+            last_used_at: None,
             metadata: None,
         }
     }

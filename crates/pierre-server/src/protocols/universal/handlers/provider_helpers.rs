@@ -10,12 +10,13 @@ use crate::protocols::universal::auth_service::TokenData;
 use crate::protocols::universal::{UniversalResponse, UniversalToolExecutor};
 use crate::providers::core::FitnessProvider;
 use crate::providers::{OAuth2Credentials, ProviderRegistry};
+use crate::services::tool_execution::META_AUTH_REQUIRED_PROVIDER;
 use pierre_auth::tenant::TenantOAuthClient;
 use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Context for resolving tenant-scoped OAuth credentials
@@ -38,16 +39,121 @@ pub struct TenantCredentialContext<'a> {
     pub user_id: Uuid,
 }
 
-/// Extract provider name from request parameters, falling back to default provider
+/// Extract the literal `provider` argument from request parameters, when present.
 ///
-/// Returns the provider name from request parameters if specified, otherwise returns
-/// the configured default provider (from `PIERRE_DEFAULT_PROVIDER` env var or "synthetic").
+/// Returns `None` when the caller didn't pass `provider` (or passed an empty string).
+/// **Does not fall back to a synthetic-or-strava-default;** that historical behavior
+/// silently bound untargeted tool calls to seed data in production. Use
+/// [`resolve_provider_for_request`] to do the full priority chain (explicit arg →
+/// env override → user's most-recently-used connection → reconnect signal).
 #[must_use]
-pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> String {
+pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Option<String> {
     parameters
         .get("provider")
         .and_then(JsonValue::as_str)
-        .map_or_else(default_provider, String::from)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+/// Resolve which fitness provider to serve a tool call from.
+///
+/// Priority chain — matches the user mental model of "what data are we looking at":
+/// 1. Explicit `provider` argument in request parameters.
+/// 2. Deployment-wide `PIERRE_DEFAULT_PROVIDER` env override.
+/// 3. The user's most-recently-used connection from `provider_connections`
+///    (ordered by `last_used_at DESC NULLS LAST, connected_at DESC`).
+/// 4. Returns a `UniversalResponse` carrying `META_AUTH_REQUIRED_PROVIDER` so the
+///    tool loop short-circuits and the chat-pipeline `auth_recovery` stage mints
+///    a hosted-login URL and renders the localized reconnect copy.
+///
+/// Replaces the historical `.and_then(|v| v.as_str()).map_or_else(default_provider, String::from)`
+/// pattern duplicated across every fitness-API handler, which silently bound
+/// untargeted calls to the synthetic seed provider in production.
+///
+/// # Errors
+///
+/// Returns `Err(UniversalResponse)` when the user has no provider connections at
+/// all. The returned response carries the canonical reconnect-required metadata
+/// the tool loop scans for.
+pub async fn resolve_provider_for_request(
+    parameters: &JsonValue,
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+) -> Result<String, UniversalResponse> {
+    // 1. Explicit arg
+    if let Some(p) = parameters
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(p.to_owned());
+    }
+
+    // 2. Env override
+    if let Some(env_p) = default_provider() {
+        return Ok(env_p);
+    }
+
+    // 3. User's most-recently-used connection
+    let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+    match executor
+        .resources
+        .repos
+        .provider_connections
+        .resolve_most_recent(user_uuid, tenant)
+        .await
+    {
+        Ok(Some(conn)) => {
+            info!(
+                target: "notify",
+                user_id = %user_uuid,
+                provider = %conn.provider,
+                "resolved provider from user's most-recent connection"
+            );
+            Ok(conn.provider)
+        }
+        Ok(None) => {
+            warn!(
+                user_id = %user_uuid,
+                "no fitness provider connected for user — surfacing reconnect signal"
+            );
+            // Mint a UniversalResponse the tool loop will detect and propagate as
+            // `ToolLoopResult::pending_provider_auth_required`. The auth_recovery
+            // stage downstream mints a hosted-login URL targeting Strava (the
+            // most common starting point) and renders localized copy.
+            let mut metadata: HashMap<String, JsonValue> = HashMap::new();
+            metadata.insert(
+                META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                JsonValue::String("sciotte".to_owned()),
+            );
+            Err(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(
+                    "No fitness provider connected. Connect Strava, Garmin, or another \
+                     provider before asking for activity data."
+                        .to_owned(),
+                ),
+                metadata: Some(metadata),
+            })
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_uuid,
+                error = %e,
+                "provider_connections lookup failed during resolution"
+            );
+            Err(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Failed to resolve fitness provider for this request: {e}"
+                )),
+                metadata: None,
+            })
+        }
+    }
 }
 
 /// Create and configure a provider with OAuth credentials

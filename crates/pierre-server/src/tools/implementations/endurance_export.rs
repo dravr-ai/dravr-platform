@@ -22,6 +22,7 @@ use crate::routes::social::SocialRoutes;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use tracing::warn;
 
 /// Lower bound on the analysis window. Mirrors the constant in
 /// `routes/endurance.rs` so HTTP and MCP clamp the same way.
@@ -54,7 +55,7 @@ async fn fetch_window_activities(
     user_id: uuid::Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {
-    let provider_name = default_provider();
+    let provider_name = resolve_provider_for_user(resources, user_id, tenant_id).await?;
     let tenant_str = tenant_id.to_string();
     SocialRoutes::fetch_activities_from_provider(
         resources,
@@ -64,6 +65,37 @@ async fn fetch_window_activities(
         Some(MAX_ACTIVITIES_PER_CALL),
     )
     .await
+}
+
+/// Resolve the user's active provider for non-LLM read paths (REST routes, MCP
+/// tools that don't accept a `provider` argument). Mirrors the chat-side
+/// `resolve_provider_for_request` priority chain minus the explicit-arg step:
+/// env override → user's most-recently-used connection → `AppError::no_provider_connected()`.
+async fn resolve_provider_for_user(
+    resources: &Arc<ServerContext>,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+) -> AppResult<String> {
+    if let Some(env_p) = default_provider() {
+        return Ok(env_p);
+    }
+    match resources
+        .repos
+        .provider_connections
+        .resolve_most_recent(user_id, Some(tenant_id))
+        .await
+    {
+        Ok(Some(conn)) => Ok(conn.provider),
+        Ok(None) => {
+            warn!(
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                "endurance_export: no provider connected for user — surfacing reconnect signal"
+            );
+            Err(AppError::no_provider_connected())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// `export_latest_snapshot` — IF / EF / VI / decoupling / zone-distribution

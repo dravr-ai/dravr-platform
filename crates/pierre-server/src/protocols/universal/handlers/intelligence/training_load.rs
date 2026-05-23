@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::environment::default_provider;
 use crate::intelligence::{SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 use crate::models::Activity;
+use crate::protocols::universal::handlers::provider_helpers::resolve_provider_for_request;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -384,12 +384,18 @@ pub fn handle_analyze_training_load(
             }
         }
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map_or_else(default_provider, String::from);
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(response) => return Ok(response),
+        };
         let timeframe = request
             .parameters
             .get("timeframe")

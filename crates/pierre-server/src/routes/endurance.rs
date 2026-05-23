@@ -245,7 +245,18 @@ async fn fetch_activity_by_id(
     // The activity-fetch helper is per-list in the social routes; for a
     // single id we pull a wide window and filter. Acceptable cost given
     // Endurance endpoints are coach-driven, low-cardinality reads.
-    let provider_name = default_provider();
+    let provider_name = match default_provider() {
+        Some(p) => p,
+        None => match resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(user_id, Some(tenant_id))
+            .await?
+        {
+            Some(conn) => conn.provider,
+            None => return Err(AppError::no_provider_connected()),
+        },
+    };
     let tenant_str = tenant_id.to_string();
     let activities = SocialRoutes::fetch_activities_from_provider(
         resources,
@@ -374,7 +385,18 @@ async fn fetch_window_activities(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {
-    let provider_name = default_provider();
+    let provider_name = match default_provider() {
+        Some(p) => p,
+        None => match resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(user_id, Some(tenant_id))
+            .await?
+        {
+            Some(conn) => conn.provider,
+            None => return Err(AppError::no_provider_connected()),
+        },
+    };
     let tenant_str = tenant_id.to_string();
     SocialRoutes::fetch_activities_from_provider(
         resources,

@@ -1446,6 +1446,30 @@ pub trait ProviderConnectionRepository: Send + Sync {
     ) -> AppResult<Vec<ProviderConnection>>;
     /// Check if a specific provider is connected for a user (cross-tenant)
     async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool>;
+    /// Mark a provider connection as just-used, updating `last_used_at = now()`.
+    ///
+    /// Called from the read path (chat tool execution, REST activity fetches) so the
+    /// resolver can pick the most-recently-active backend when a subsequent tool call
+    /// omits the provider argument. Best-effort: a failure to write should not abort
+    /// the user's request — log and continue. No-op when the (user, tenant, provider)
+    /// row does not exist.
+    async fn touch_last_used(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()>;
+    /// Resolve the user's most-recently-used provider connection.
+    ///
+    /// Returns the connection with the freshest `last_used_at` (NULLs last), falling
+    /// back to the freshest `connected_at` when no row has been touched yet. Tenant
+    /// scope is honored when `tenant_id` is provided; otherwise the lookup is
+    /// cross-tenant. Returns `None` when the user has no provider connections at all.
+    async fn resolve_most_recent(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<ProviderConnection>>;
 }
 
 /// Password reset token management repository
