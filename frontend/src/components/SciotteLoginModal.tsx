@@ -23,6 +23,16 @@ interface SciotteLoginModalProps {
   target?: 'strava' | 'garmin';
 }
 
+// AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
+// expose { error }. Prefer message (current shape) then error, then the axios
+// error itself as a last resort.
+function extractErrorMessage(err: unknown, prefix: string): string {
+  const data = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+  const detail = data?.message || data?.error;
+  if (detail) return detail;
+  return `${prefix}: ${err}`;
+}
+
 const METHOD_LABELS: Record<LoginMethod, { title: string; emailPlaceholder: string }> = {
   email: { title: 'Strava Account', emailPlaceholder: 'Strava email' },
   google: { title: 'Google Account', emailPlaceholder: 'Google email' },
@@ -76,7 +86,7 @@ export default function SciotteLoginModal({
       setIsLoading(true);
       setError(null);
       setPhase('logging-in');
-      setStatus('Connecting to Strava...');
+      setStatus(`Connecting to ${target === 'garmin' ? 'Garmin' : 'Strava'}...`);
 
       try {
         const data = await oauthApi.sciotteLogin({ email, password, method, target });
@@ -95,18 +105,23 @@ export default function SciotteLoginModal({
           setStatus('Enter verification code');
           setOtpCode('');
         } else if (data.status === 'number_match') {
-          setMatchNumber(data.number ?? null);
-          setPhase('number-match');
-          setStatus('Tap the matching number on your phone');
+          // Defensive: only render the number-box UI when the server returned
+          // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
+          // historically passed a placeholder string here, which made the modal
+          // try to render it as a giant number and overflowed the box.
+          const raw = data.number ?? null;
+          const isRealNumber = !!raw && /^\d{2,3}$/.test(raw);
+          setMatchNumber(isRealNumber ? raw : null);
+          setPhase(isRealNumber ? 'number-match' : 'waiting-approval');
+          setStatus(isRealNumber
+            ? 'Tap the matching number on your phone'
+            : 'Check your phone and approve the sign-in');
         } else {
           setError(data.error || 'Login failed');
           setPhase('error');
         }
       } catch (err) {
-        const message =
-          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          `Login failed: ${err}`;
-        setError(message);
+        setError(extractErrorMessage(err, 'Login failed'));
         setPhase('error');
       } finally {
         setIsLoading(false);
@@ -137,18 +152,23 @@ export default function SciotteLoginModal({
           setStatus('Enter verification code');
           setOtpCode('');
         } else if (data.status === 'number_match') {
-          setMatchNumber(data.number ?? null);
-          setPhase('number-match');
-          setStatus('Tap the matching number on your phone');
+          // Defensive: only render the number-box UI when the server returned
+          // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
+          // historically passed a placeholder string here, which made the modal
+          // try to render it as a giant number and overflowed the box.
+          const raw = data.number ?? null;
+          const isRealNumber = !!raw && /^\d{2,3}$/.test(raw);
+          setMatchNumber(isRealNumber ? raw : null);
+          setPhase(isRealNumber ? 'number-match' : 'waiting-approval');
+          setStatus(isRealNumber
+            ? 'Tap the matching number on your phone'
+            : 'Check your phone and approve the sign-in');
         } else {
           setError(data.error || 'Verification failed');
           setPhase('error');
         }
       } catch (err) {
-        const message =
-          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          `Verification failed: ${err}`;
-        setError(message);
+        setError(extractErrorMessage(err, 'Verification failed'));
         setPhase('error');
       } finally {
         setIsLoading(false);
@@ -159,6 +179,8 @@ export default function SciotteLoginModal({
 
   // Auto-poll once when number-match phase is reached — the phone notification
   // arrives before the UI shows the number, so poll immediately
+  const providerLabel = target === 'garmin' ? 'Garmin' : 'Strava';
+
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
     if (phase === 'number-match' && matchNumber && !pollingStarted) {
@@ -169,6 +191,31 @@ export default function SciotteLoginModal({
       setPollingStarted(false);
     }
   }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Elapsed seconds + cycling status text while the sciotte browser runs.
+  // The single-shot POST gives no real-time progress; this keeps the modal
+  // visibly alive so it doesn't look frozen during the ~30s Chrome flow.
+  const [elapsedSecs, setElapsedSecs] = useState(0);
+  useEffect(() => {
+    if (phase !== 'logging-in') {
+      setElapsedSecs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      setElapsedSecs(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  const progressLabel = (() => {
+    if (phase !== 'logging-in') return status;
+    if (elapsedSecs < 4) return 'Launching headless browser…';
+    if (elapsedSecs < 10) return `Navigating to ${providerLabel}…`;
+    if (elapsedSecs < 18) return 'Submitting credentials…';
+    if (elapsedSecs < 28) return `Waiting for ${providerLabel} to respond…`;
+    return `Still working… provider login can be slow. ${elapsedSecs}s`;
+  })();
 
   // OTP submission
   const handleOtpSubmit = useCallback(
@@ -196,7 +243,7 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } catch (err) {
-        setError(`Verification failed: ${err}`);
+        setError(extractErrorMessage(err, 'Verification failed'));
         setPhase('error');
       } finally {
         setIsLoading(false);
@@ -224,8 +271,8 @@ export default function SciotteLoginModal({
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-on-surface">Connect to {target === 'garmin' ? 'Garmin' : 'Strava'}</h2>
-              {status && <p className="text-xs text-on-surface/50">{status}</p>}
+              <h2 className="text-lg font-semibold text-on-surface">Connect to {providerLabel}</h2>
+              {progressLabel && <p className="text-xs text-on-surface/50">{progressLabel}</p>}
             </div>
           </div>
           <button
@@ -359,9 +406,11 @@ export default function SciotteLoginModal({
           {phase === 'logging-in' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="pierre-spinner w-12 h-12 mx-auto mb-4 border-2 ghost-border border-t-pierre-nutrition" />
-                <p className="text-on-surface/60 text-sm">{status}</p>
-                <p className="text-on-surface/30 text-xs mt-2">This may take up to 30 seconds</p>
+                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px] ghost-border border-t-on-surface" />
+                <p className="text-on-surface/80 text-sm font-medium">{progressLabel}</p>
+                <p className="text-on-surface/40 text-xs mt-2">
+                  {elapsedSecs > 0 ? `${elapsedSecs}s elapsed — this may take up to 30 seconds` : 'This may take up to 30 seconds'}
+                </p>
               </div>
             </div>
           )}
@@ -448,7 +497,7 @@ export default function SciotteLoginModal({
                   <svg className="w-8 h-8 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <p className="text-pierre-activity text-lg font-medium">Connected!</p>
-                <p className="text-on-surface/50 text-sm mt-1">Your Strava data is now available</p>
+                <p className="text-on-surface/50 text-sm mt-1">Your {providerLabel} data is now available</p>
               </div>
             </div>
           )}
