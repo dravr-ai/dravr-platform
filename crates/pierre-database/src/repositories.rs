@@ -50,7 +50,7 @@ use pierre_core::models::{
 };
 use pierre_core::models::{
     AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, Subscription,
-    SubscriptionStatus, TenantId, TenantOAuthCredentials,
+    SubscriptionStatus, TenantId, TenantOAuthCredentials, UserId,
 };
 use pierre_core::models::{
     CoachAthleteAssignment, DailyTrainingState, Dossier, StoredHealthMetrics,
@@ -107,13 +107,20 @@ pub struct SyncCursorRow {
     pub next_retry_at: Option<String>,
 }
 
-/// Connected user info for sync scheduling
+/// Connected user info for sync scheduling.
+///
+/// Fields use the [`UserId`] and [`TenantId`] newtypes (defined in
+/// `pierre-core`) so the SQLite (TEXT) vs PostgreSQL (UUID) column-type split
+/// is handled by the sqlx `Decode` impl, not by ad-hoc `r.get::<String, _>`
+/// calls in each backend's row mapper. This is the canonical pattern for new
+/// row structs — adding more `pub field: String` columns that hold UUIDs
+/// reintroduces the panic surface that this struct replaced.
 #[derive(Debug, Clone)]
 pub struct ConnectedUserRow {
     /// User identifier
-    pub user_id: String,
+    pub user_id: UserId,
     /// Tenant identifier
-    pub tenant_id: String,
+    pub tenant_id: TenantId,
 }
 
 // ================================

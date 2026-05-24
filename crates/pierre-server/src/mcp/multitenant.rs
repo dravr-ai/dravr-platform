@@ -49,6 +49,7 @@ use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::{debug, error, info, warn, Level};
@@ -902,6 +903,51 @@ impl MultiTenantMcpServer {
             .await
     }
 
+    /// Panic handler for the outermost [`CatchPanicLayer`].
+    ///
+    /// A panic in any handler (sqlx column-type mismatch, integer overflow,
+    /// `unwrap` on `None`, etc.) used to propagate out of tokio's task and
+    /// terminate the Cloud Run container via SIGSEGV/SIGABRT, killing every
+    /// in-flight sibling request on the same instance. With this layer:
+    ///
+    /// - The panicking request returns HTTP 500 with a redacted JSON body.
+    /// - The container stays alive; sibling requests complete normally.
+    /// - The panic is logged at `ERROR` level with the extracted message so
+    ///   the dravr-tronc error-notifier surfaces it on Slack within seconds
+    ///   instead of disappearing into Cloud Run logs as a SIGSEGV exit.
+    ///
+    /// This is defense in depth — the structural fix is the typed-newtype
+    /// migration (see [`pierre_core::models::UserId`]) that eliminates the
+    /// sqlx panic class at compile time. New panic sources (logic bugs,
+    /// overflow, unwrap-on-None) will keep appearing and this catches them.
+    fn handle_request_panic(
+        panic_payload: Box<dyn std::any::Any + Send + 'static>,
+    ) -> axum::response::Response<axum::body::Body> {
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse;
+
+        let message = panic_payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .map(ToOwned::to_owned)
+            .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string panic payload".to_owned());
+
+        error!(
+            panic_message = %message,
+            "handler panicked — returning 500 and keeping container alive"
+        );
+
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": "internal_server_error",
+                "message": "An internal error occurred. The incident has been recorded.",
+            })),
+        )
+            .into_response()
+    }
+
     /// Run HTTP server with Axum framework
     ///
     /// This method provides the Axum-based server implementation.
@@ -918,7 +964,11 @@ impl MultiTenantMcpServer {
         // Build the main router with all routes
         let app = Self::setup_axum_router(&resources);
 
-        // Apply middleware layers (order matters - applied bottom-up)
+        // Apply middleware layers (order matters - applied bottom-up).
+        // CatchPanicLayer is added LAST so it wraps every other layer; a
+        // panic in TraceLayer span machinery, the request-id middleware, or
+        // any handler converts to a 500 response instead of unwinding past
+        // tokio and killing the container.
         let app = app
             .layer(
                 TraceLayer::new_for_http()
@@ -935,7 +985,8 @@ impl MultiTenantMcpServer {
             )
             .layer(middleware::from_fn(request_id_middleware))
             .layer(setup_cors(&resources.config))
-            .layer(Self::create_security_headers_layer(&resources.config));
+            .layer(Self::create_security_headers_layer(&resources.config))
+            .layer(CatchPanicLayer::custom(Self::handle_request_panic));
 
         // Create server address using host from config (defaults to localhost, can be 0.0.0.0 for network access)
         let host = &resources.config.host;

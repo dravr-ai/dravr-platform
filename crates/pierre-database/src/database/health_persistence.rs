@@ -963,13 +963,18 @@ impl SyncCursorRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list connected provider users: {e}")))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| ConnectedUserRow {
-                user_id: r.get("user_id"),
-                tenant_id: r.get("tenant_id"),
+        rows.into_iter()
+            .map(|r| {
+                Ok(ConnectedUserRow {
+                    user_id: r.try_get("user_id").map_err(|e| {
+                        AppError::database(format!("decode user_id as UserId: {e}"))
+                    })?,
+                    tenant_id: r.try_get("tenant_id").map_err(|e| {
+                        AppError::database(format!("decode tenant_id as TenantId: {e}"))
+                    })?,
+                })
             })
-            .collect())
+            .collect()
     }
 }
 
