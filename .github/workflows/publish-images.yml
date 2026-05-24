@@ -16,6 +16,7 @@ on:
     paths:
       - 'docker/**'
       - '.github/workflows/publish-images.yml'
+      - '.trivyignore'
     tags:
       - 'v*.*.*'
 
