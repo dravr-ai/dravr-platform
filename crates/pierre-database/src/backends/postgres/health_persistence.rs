@@ -925,9 +925,14 @@ impl SyncCursorRepository for PostgresDatabase {
         &self,
         provider: &str,
     ) -> AppResult<Vec<ConnectedUserRow>> {
+        // user_oauth_tokens.user_id is UUID in Postgres but ConnectedUserRow.user_id
+        // is String (the SQLite schema stores user_id as TEXT). Cast to text in SQL
+        // so the sqlx decoder reads it directly without a panic on type mismatch.
+        // See vault: feedback_pg_column_type_migrations — UUID/TEXT mismatches at bind
+        // sites are the most common class of PG runtime panic in this codebase.
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT user_id, tenant_id
+            SELECT DISTINCT user_id::text AS user_id, tenant_id
             FROM user_oauth_tokens
             WHERE provider = $1
             ",
