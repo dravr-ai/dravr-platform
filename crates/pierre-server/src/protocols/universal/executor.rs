@@ -238,7 +238,10 @@ fn app_error_to_protocol_error(tool_name: &str, e: &AppError) -> ProtocolError {
         ErrorCode::InvalidInput
         | ErrorCode::AuthRequired
         | ErrorCode::AuthInvalid
-        | ErrorCode::AuthExpired => ProtocolError::InvalidRequest(format!("{tool_name}: {e}")),
+        | ErrorCode::AuthExpired
+        | ErrorCode::NoProviderConnected => {
+            ProtocolError::InvalidRequest(format!("{tool_name}: {e}"))
+        }
         _ => ProtocolError::InternalError(format!("{tool_name}: {e}")),
     }
 }
