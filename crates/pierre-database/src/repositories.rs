@@ -110,7 +110,7 @@ pub struct SyncCursorRow {
 /// Connected user info for sync scheduling.
 ///
 /// Fields use the [`UserId`] and [`TenantId`] newtypes (defined in
-/// `pierre-core`) so the SQLite (TEXT) vs PostgreSQL (UUID) column-type split
+/// `pierre-core`) so the `SQLite` (TEXT) vs `PostgreSQL` (UUID) column-type split
 /// is handled by the sqlx `Decode` impl, not by ad-hoc `r.get::<String, _>`
 /// calls in each backend's row mapper. This is the canonical pattern for new
 /// row structs — adding more `pub field: String` columns that hold UUIDs
