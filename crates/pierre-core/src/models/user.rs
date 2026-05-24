@@ -23,11 +23,11 @@ use super::{EncryptedToken, SportType};
 /// Type-safe wrapper for user identifiers.
 ///
 /// Provides compile-time distinction between user IDs and other UUIDs and
-/// bridges the SQLite (TEXT) vs PostgreSQL (UUID) column-type split that has
+/// bridges the `SQLite` (TEXT) vs `PostgreSQL` (UUID) column-type split that has
 /// historically caused `r.get("user_id")` to panic when a row mapper expected
 /// `String` but the column was native UUID (or vice versa). The sqlx
-/// `Type`/`Encode`/`Decode` impls below encode as hyphenated TEXT for SQLite
-/// and as native UUID for PostgreSQL, so callers never see the backend split.
+/// `Type`/`Encode`/`Decode` impls below encode as hyphenated TEXT for `SQLite`
+/// and as native UUID for `PostgreSQL`, so callers never see the backend split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct UserId(pub Uuid);
