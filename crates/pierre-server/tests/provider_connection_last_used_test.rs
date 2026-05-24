@@ -17,8 +17,10 @@
 //! 2. Otherwise, most-recently-registered (`connected_at DESC`).
 //! 3. `None` when the user has zero connections.
 
+use std::time::Duration;
+
 use pierre_core::models::{ConnectionType, TenantId};
-use pierre_database::repositories::ProviderConnectionRepository;
+use tokio::time::sleep;
 
 mod common;
 
@@ -93,7 +95,7 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
         .await
         .unwrap();
     // Wait briefly so the timestamps are distinguishable in SQLite TEXT format
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    sleep(Duration::from_millis(20)).await;
     // Register sciotte SECOND (newer connected_at → would win by default)
     repos
         .provider_connections
@@ -114,7 +116,7 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
     );
 
     // Touch garmin — it should now sort ahead of sciotte (NULLS LAST clause)
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    sleep(Duration::from_millis(20)).await;
     repos
         .provider_connections
         .touch_last_used(user_id, tenant_id, "garmin")
