@@ -45,10 +45,14 @@ RUN cd frontend && bun run build
 FROM nginx:1.28-alpine3.23
 
 # Upgrade system packages to patch CVEs:
+# - nginx >= 1.28.3-r2 (CVE-2026-9256)
 # - zlib >= 1.3.2-r0 (CVE-2026-22184 critical, CVE-2026-27171 medium)
 # - libpng >= 1.6.55-r0 (CVE-2026-25646 high)
-RUN apk upgrade --no-cache && \
-    apk add --no-cache zlib>=1.3.2-r0 libpng>=1.6.55-r0
+# `apk update` is needed because the base image ships a stale APK index that
+# does not see nginx 1.28.3-r2 even with `apk upgrade --no-cache` alone.
+RUN apk update && \
+    apk upgrade --no-cache && \
+    apk add --no-cache nginx>=1.28.3-r2 zlib>=1.3.2-r0 libpng>=1.6.55-r0
 
 # Copy built assets from the builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
