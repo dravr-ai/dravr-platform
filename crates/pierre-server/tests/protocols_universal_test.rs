@@ -946,6 +946,7 @@ async fn test_suggest_goals_tool() -> Result<()> {
     let request = UniversalRequest {
         tool_name: "suggest_goals".to_owned(),
         parameters: json!({
+            "provider": "synthetic",
             "recent_activities": [
                 {
                     "distance": 5000.0,
@@ -984,6 +985,7 @@ async fn test_analyze_goal_feasibility_tool() -> Result<()> {
     let request = UniversalRequest {
         tool_name: "analyze_goal_feasibility".to_owned(),
         parameters: json!({
+            "provider": "synthetic",
             "goal_type": "distance",
             "target_value": 1000.0,
             "timeframe_days": 365,
