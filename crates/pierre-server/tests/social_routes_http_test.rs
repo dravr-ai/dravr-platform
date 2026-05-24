@@ -1179,7 +1179,8 @@ async fn test_adapt_insight_success() {
     // Adapt the insight as a different user
     let adapt_url = format!("/api/social/insights/{insight_id}/adapt");
     let adapt_body = json!({
-        "context": "I'm currently running 20 miles per week"
+        "context": "I'm currently running 20 miles per week",
+        "provider": "synthetic"
     });
 
     let response = AxumTestRequest::post(&adapt_url)
@@ -1223,9 +1224,10 @@ async fn test_adapt_insight_without_context() {
     let created: serde_json::Value = create_response.json();
     let insight_id = created["id"].as_str().unwrap();
 
-    // Adapt without context
+    // Adapt without context (provider is required for resolution, but
+    // explicit absence of `context` is what this test asserts).
     let adapt_url = format!("/api/social/insights/{insight_id}/adapt");
-    let adapt_body = json!({});
+    let adapt_body = json!({"provider": "synthetic"});
 
     let response = AxumTestRequest::post(&adapt_url)
         .header("authorization", &format!("Bearer {}", friend_token))
@@ -1246,7 +1248,7 @@ async fn test_adapt_nonexistent_insight() {
 
     let response = AxumTestRequest::post(&url)
         .header("authorization", &setup.auth_header())
-        .json(&json!({}))
+        .json(&json!({"provider": "synthetic"}))
         .send(routes)
         .await;
 
@@ -1319,7 +1321,7 @@ async fn test_update_helpful_success() {
     let adapt_url = format!("/api/social/insights/{insight_id}/adapt");
     let adapt_response = AxumTestRequest::post(&adapt_url)
         .header("authorization", &format!("Bearer {}", friend_token))
-        .json(&json!({}))
+        .json(&json!({"provider": "synthetic"}))
         .send(routes.clone())
         .await;
 
@@ -1543,7 +1545,8 @@ async fn test_full_insight_workflow() {
     // 3. Friend adapts the insight
     let adapt_url = format!("/api/social/insights/{}/adapt", insight_id);
     let adapt_body = json!({
-        "context": "I'm aiming for 80 miles this month"
+        "context": "I'm aiming for 80 miles this month",
+        "provider": "synthetic"
     });
 
     let adapt_response = AxumTestRequest::post(&adapt_url)

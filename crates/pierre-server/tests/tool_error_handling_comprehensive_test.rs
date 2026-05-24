@@ -149,7 +149,10 @@ async fn test_get_activities_huge_limit() -> Result<()> {
 async fn test_analyze_activity_missing_id() -> Result<()> {
     let executor = create_error_test_executor().await?;
 
-    let request = create_request("analyze_activity", json!({}));
+    // provider:"synthetic" satisfies the provider-resolution step so the
+    // handler proceeds to the activity_id parameter check (which is what
+    // this test is actually validating).
+    let request = create_request("analyze_activity", json!({"provider": "synthetic"}));
 
     let result = executor.execute_tool(request).await;
     assert_error_contains(&result, "activity_id");
