@@ -925,14 +925,12 @@ impl SyncCursorRepository for PostgresDatabase {
         &self,
         provider: &str,
     ) -> AppResult<Vec<ConnectedUserRow>> {
-        // user_oauth_tokens.user_id is UUID in Postgres but ConnectedUserRow.user_id
-        // is String (the SQLite schema stores user_id as TEXT). Cast to text in SQL
-        // so the sqlx decoder reads it directly without a panic on type mismatch.
-        // See vault: feedback_pg_column_type_migrations — UUID/TEXT mismatches at bind
-        // sites are the most common class of PG runtime panic in this codebase.
+        // ConnectedUserRow.{user_id,tenant_id} are UserId/TenantId newtypes with
+        // native Postgres UUID Decode impls, so we SELECT the raw columns —
+        // no ::text cast, no String round-trip, no r.get() panic surface.
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT user_id::text AS user_id, tenant_id
+            SELECT DISTINCT user_id, tenant_id
             FROM user_oauth_tokens
             WHERE provider = $1
             ",
@@ -942,13 +940,18 @@ impl SyncCursorRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to list connected provider users: {e}")))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| ConnectedUserRow {
-                user_id: r.get("user_id"),
-                tenant_id: r.get("tenant_id"),
+        rows.into_iter()
+            .map(|r| {
+                Ok(ConnectedUserRow {
+                    user_id: r.try_get("user_id").map_err(|e| {
+                        AppError::database(format!("decode user_id as UserId: {e}"))
+                    })?,
+                    tenant_id: r.try_get("tenant_id").map_err(|e| {
+                        AppError::database(format!("decode tenant_id as TenantId: {e}"))
+                    })?,
+                })
             })
-            .collect())
+            .collect()
     }
 }
 

@@ -20,6 +20,157 @@ use crate::permissions::UserRole;
 use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{EncryptedToken, SportType};
 
+/// Type-safe wrapper for user identifiers.
+///
+/// Provides compile-time distinction between user IDs and other UUIDs and
+/// bridges the SQLite (TEXT) vs PostgreSQL (UUID) column-type split that has
+/// historically caused `r.get("user_id")` to panic when a row mapper expected
+/// `String` but the column was native UUID (or vice versa). The sqlx
+/// `Type`/`Encode`/`Decode` impls below encode as hyphenated TEXT for SQLite
+/// and as native UUID for PostgreSQL, so callers never see the backend split.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UserId(pub Uuid);
+
+impl UserId {
+    /// Create a new random `UserId`.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Create a `UserId` from a UUID.
+    #[must_use]
+    pub const fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+
+    /// Get the inner UUID value.
+    #[must_use]
+    pub const fn as_uuid(&self) -> Uuid {
+        self.0
+    }
+
+    /// Create a nil (all zeros) `UserId`.
+    #[must_use]
+    pub const fn nil() -> Self {
+        Self(Uuid::nil())
+    }
+
+    /// Check if this is a nil `UserId`.
+    #[must_use]
+    pub fn is_nil(&self) -> bool {
+        self.0.is_nil()
+    }
+}
+
+impl Default for UserId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Uuid> for UserId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<UserId> for Uuid {
+    fn from(user_id: UserId) -> Self {
+        user_id.0
+    }
+}
+
+impl Display for UserId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for UserId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(s).map(Self)
+    }
+}
+
+impl AsRef<Uuid> for UserId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+// SQLite stores UUIDs as TEXT. Mirror the TenantId bridge so callers can write
+// `r.get::<UserId, _>("user_id")` against a TEXT column without panicking.
+#[cfg(feature = "sqlx-sqlite")]
+mod sqlite_user_impl {
+    use sqlx::encode::IsNull;
+    use sqlx::error::BoxDynError;
+    use sqlx::sqlite::{Sqlite, SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
+    use sqlx::{Decode, Encode, Type};
+    use uuid::Uuid;
+
+    use super::UserId;
+
+    impl Type<Sqlite> for UserId {
+        fn type_info() -> SqliteTypeInfo {
+            <String as Type<Sqlite>>::type_info()
+        }
+    }
+
+    impl<'q> Encode<'q, Sqlite> for UserId {
+        fn encode_by_ref(
+            &self,
+            buf: &mut Vec<SqliteArgumentValue<'q>>,
+        ) -> Result<IsNull, BoxDynError> {
+            let text = self.0.to_string();
+            <String as Encode<'q, Sqlite>>::encode(text, buf)
+        }
+    }
+
+    impl<'r> Decode<'r, Sqlite> for UserId {
+        fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+            let text = <String as Decode<'r, Sqlite>>::decode(value)?;
+            let uuid = Uuid::parse_str(&text)?;
+            Ok(Self(uuid))
+        }
+    }
+}
+
+// PostgreSQL stores UUIDs natively. Decode reads the binary UUID directly so
+// `r.get::<UserId, _>("user_id")` does NOT need a `::text` cast in the SQL.
+#[cfg(feature = "sqlx-postgres")]
+mod postgres_user_impl {
+    use sqlx::encode::IsNull;
+    use sqlx::error::BoxDynError;
+    use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo, PgValueRef, Postgres};
+    use sqlx::{Decode, Encode, Type};
+    use uuid::Uuid;
+
+    use super::UserId;
+
+    impl Type<Postgres> for UserId {
+        fn type_info() -> PgTypeInfo {
+            <Uuid as Type<Postgres>>::type_info()
+        }
+    }
+
+    impl<'q> Encode<'q, Postgres> for UserId {
+        fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> Result<IsNull, BoxDynError> {
+            <Uuid as Encode<'q, Postgres>>::encode_by_ref(&self.0, buf)
+        }
+    }
+
+    impl<'r> Decode<'r, Postgres> for UserId {
+        fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
+            let uuid = <Uuid as Decode<'r, Postgres>>::decode(value)?;
+            Ok(Self(uuid))
+        }
+    }
+}
+
 /// User tier for rate limiting - same as `API` key tiers for consistency
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

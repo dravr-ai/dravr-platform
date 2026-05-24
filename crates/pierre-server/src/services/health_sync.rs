@@ -401,10 +401,13 @@ impl UserConnectionStore for PierreSyncStorage {
             .await
             .map_err(|e| EnformeError::store(format!("Failed to list connected users: {e}")))?;
 
+        // dravr-enforme's ConnectedUser.user_id is `String` (leaf-dep API).
+        // ConnectedUserRow.user_id is the UserId newtype, so we render to the
+        // canonical hyphenated form via Display at the boundary.
         Ok(rows
             .into_iter()
             .map(|r| ConnectedUser {
-                user_id: r.user_id,
+                user_id: r.user_id.to_string(),
                 provider: provider.to_owned(),
                 connected_at: Utc::now(),
                 is_active: true,
