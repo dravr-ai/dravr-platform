@@ -65,11 +65,14 @@ use crate::routes::endurance;
 #[cfg(feature = "oauth")]
 use crate::routes::oauth2::OAuth2Context;
 use crate::routes::user_profile::routes as user_profile_routes;
+use axum::body::Body;
 use axum::middleware;
+use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
 use pierre_database::RepositoryRegistry;
+use std::any::Any;
 use tokio::net::TcpListener;
 use tower::layer::util::Identity;
 
@@ -920,18 +923,21 @@ impl MultiTenantMcpServer {
     /// migration (see [`pierre_core::models::UserId`]) that eliminates the
     /// sqlx panic class at compile time. New panic sources (logic bugs,
     /// overflow, unwrap-on-None) will keep appearing and this catches them.
-    fn handle_request_panic(
-        panic_payload: Box<dyn std::any::Any + Send + 'static>,
-    ) -> axum::response::Response<axum::body::Body> {
+    fn handle_request_panic(panic_payload: Box<dyn Any + Send + 'static>) -> Response<Body> {
         use axum::http::StatusCode;
         use axum::response::IntoResponse;
 
+        // Consume the Box by attempting downcast::<String>() — Box<dyn Any>'s
+        // downcast is the by-value method. Both legs of the chain fall back to
+        // a literal label when the panic payload isn't a string. By-value
+        // consumption is required by tower_http::catch_panic::CatchPanicLayer's
+        // F: Fn(Box<dyn Any + Send + 'static>) -> Response signature, so we
+        // consume here explicitly rather than borrow.
         let message = panic_payload
-            .downcast_ref::<&'static str>()
-            .copied()
-            .map(ToOwned::to_owned)
-            .or_else(|| panic_payload.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-string panic payload".to_owned());
+            .downcast::<String>()
+            .map(|b| *b)
+            .or_else(|payload| payload.downcast::<&'static str>().map(|b| (*b).to_owned()))
+            .unwrap_or_else(|_| "non-string panic payload".to_owned());
 
         error!(
             panic_message = %message,
