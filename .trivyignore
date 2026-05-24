@@ -1,0 +1,30 @@
+# Trivy CVE allowlist for dravr-platform image scans.
+#
+# Each entry MUST include:
+#   - the CVE ID alone on a line
+#   - a leading comment block explaining: which image, why ignored, when to remove
+#
+# Entries here suppress Trivy's exit-code 1 in scripts/CI (publish-images.yml)
+# while still surfacing the finding in GitHub Code Scanning. Remove an entry as
+# soon as the upstream fix lands so the alert closes itself.
+
+# CVE-2026-9256 — nginx 1.28.3-r1 (frontend image)
+#
+# Status as of 2026-05-24:
+#   - Fix is published as nginx 1.28.3-r2 in alpine 3.23 main repo CDN
+#     (https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz
+#     confirms V:1.28.3-r2).
+#   - The official `nginx:1.28-alpine3.23` Docker image installs nginx from
+#     nginx.org's apk repo, not alpine's main repo, and nginx.org has not yet
+#     republished r2. `apk add nginx>=1.28.3-r2` from alpine main is a no-op
+#     because apk's repo-priority resolver keeps the nginx.org-sourced package.
+#   - SARIF-side severity is "note" (MEDIUM) but Trivy CLI's internal
+#     vendor-severity merge tags it HIGH, which triggers exit-code 1 with
+#     `severity: CRITICAL,HIGH`.
+#
+# Remove when EITHER:
+#   - The official nginx Docker image is rebuilt with nginx 1.28.3-r2 (check
+#     `docker pull nginx:1.28-alpine3.23 && docker run --rm <image> nginx -v`).
+#   - We switch the frontend runtime stage to a non-nginx base or to alpine's
+#     own nginx package.
+CVE-2026-9256
