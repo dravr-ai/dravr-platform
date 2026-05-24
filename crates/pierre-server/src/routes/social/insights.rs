@@ -740,17 +740,17 @@ impl SocialRoutes {
             .tenant_id
             .as_deref()
             .and_then(|t| t.parse::<TenantId>().ok());
-        let provider_name = match query.provider.clone().or_else(default_provider) {
-            Some(p) => p,
-            None => match resources
-                .repos
-                .provider_connections
-                .resolve_most_recent(auth.user_id, tenant_for_lookup)
-                .await?
-            {
-                Some(conn) => conn.provider,
-                None => return Err(AppError::no_provider_connected()),
-            },
+        let provider_name = if let Some(p) = query.provider.clone().or_else(default_provider) {
+            p
+        } else if let Some(conn) = resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(auth.user_id, tenant_for_lookup)
+            .await?
+        {
+            conn.provider
+        } else {
+            return Err(AppError::no_provider_connected());
         };
 
         // Build insight generation context from user's activities
@@ -836,17 +836,17 @@ impl SocialRoutes {
             .tenant_id
             .as_deref()
             .and_then(|t| t.parse::<TenantId>().ok());
-        let provider_name = match body.provider.clone().or_else(default_provider) {
-            Some(p) => p,
-            None => match resources
-                .repos
-                .provider_connections
-                .resolve_most_recent(auth.user_id, tenant_for_lookup)
-                .await?
-            {
-                Some(conn) => conn.provider,
-                None => return Err(AppError::no_provider_connected()),
-            },
+        let provider_name = if let Some(p) = body.provider.clone().or_else(default_provider) {
+            p
+        } else if let Some(conn) = resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(auth.user_id, tenant_for_lookup)
+            .await?
+        {
+            conn.provider
+        } else {
+            return Err(AppError::no_provider_connected());
         };
 
         // Default message when we can't generate coach content
@@ -1376,17 +1376,17 @@ impl SocialRoutes {
             .tenant_id
             .as_deref()
             .and_then(|t| t.parse::<TenantId>().ok());
-        let provider_name = match body.provider.clone().or_else(default_provider) {
-            Some(p) => p,
-            None => match resources
-                .repos
-                .provider_connections
-                .resolve_most_recent(auth.user_id, tenant_for_lookup)
-                .await?
-            {
-                Some(conn) => conn.provider,
-                None => return Err(AppError::no_provider_connected()),
-            },
+        let provider_name = if let Some(p) = body.provider.clone().or_else(default_provider) {
+            p
+        } else if let Some(conn) = resources
+            .repos
+            .provider_connections
+            .resolve_most_recent(auth.user_id, tenant_for_lookup)
+            .await?
+        {
+            conn.provider
+        } else {
+            return Err(AppError::no_provider_connected());
         };
 
         // Build user training context from their activities
