@@ -54,17 +54,17 @@ pub async fn compute_and_persist_history(
         )));
     }
 
-    let provider_name = match default_provider() {
-        Some(p) => p,
-        None => match resources
-            .repos
-            .provider_connections
-            .resolve_most_recent(user_id, Some(tenant_id))
-            .await?
-        {
-            Some(conn) => conn.provider,
-            None => return Err(AppError::no_provider_connected()),
-        },
+    let provider_name = if let Some(p) = default_provider() {
+        p
+    } else if let Some(conn) = resources
+        .repos
+        .provider_connections
+        .resolve_most_recent(user_id, Some(tenant_id))
+        .await?
+    {
+        conn.provider
+    } else {
+        return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
     let activities = SocialRoutes::fetch_activities_from_provider(

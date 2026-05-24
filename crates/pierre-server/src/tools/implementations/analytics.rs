@@ -359,33 +359,31 @@ impl McpTool for AnalyzeWeatherImpactTool {
             })));
         };
 
-        let provider_name = match args
+        let provider_name = if let Some(p) = args
             .get("provider")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
         {
-            Some(p) => p.to_owned(),
-            None => match default_provider() {
-                Some(env_p) => env_p,
-                None => {
-                    let tenant = context.tenant_id.map(TenantId::from_uuid);
-                    match context
-                        .resources
-                        .repos
-                        .provider_connections
-                        .resolve_most_recent(context.user_id, tenant)
-                        .await
-                    {
-                        Ok(Some(conn)) => conn.provider,
-                        Ok(None) | Err(_) => {
-                            return Ok(ToolResult::error(json!({
-                                "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
-                                "auth_required_provider": "sciotte"
-                            })));
-                        }
-                    }
+            p.to_owned()
+        } else if let Some(env_p) = default_provider() {
+            env_p
+        } else {
+            let tenant = context.tenant_id.map(TenantId::from_uuid);
+            match context
+                .resources
+                .repos
+                .provider_connections
+                .resolve_most_recent(context.user_id, tenant)
+                .await
+            {
+                Ok(Some(conn)) => conn.provider,
+                Ok(None) | Err(_) => {
+                    return Ok(ToolResult::error(json!({
+                        "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
+                        "auth_required_provider": "sciotte"
+                    })));
                 }
-            },
+            }
         };
 
         let units = args
