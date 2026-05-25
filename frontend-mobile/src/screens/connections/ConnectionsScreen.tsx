@@ -1,5 +1,5 @@
 // ABOUTME: Provider connections screen for fitness data sources
-// ABOUTME: Displays connection status and OAuth flow for Strava, Garmin, Fitbit, WHOOP, Terra
+// ABOUTME: Displays connection status and OAuth flow for Strava, Garmin, WHOOP
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -150,19 +150,15 @@ export function ConnectionsScreen() {
     );
   };
 
-  // Provider display config (colors, icons, descriptions)
+  // Provider display config (colors, icons, descriptions). After the 2026-Q2
+  // provider cleanup the API surfaces only three: `sciotte` (Strava-branded),
+  // `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown ids fall back to a
+  // neutral slate tile so the screen never crashes on an unexpected payload.
   const getProviderConfig = (providerId: string) => {
     const configs: Record<string, { color: string; icon: string; description: string }> = {
-      strava: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
-      garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
-      fitbit: { color: PROVIDER_COLORS.fitbit, icon: 'F', description: 'Activity, sleep, and heart rate data' },
+      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
+      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, and sleep metrics' },
-      terra: { color: PROVIDER_COLORS.terra, icon: 'T', description: 'Aggregate data from multiple fitness platforms' },
-      coros: { color: '#E91E63', icon: 'C', description: 'Training and performance data from COROS devices' },
-      synthetic: { color: '#9C27B0', icon: '🧪', description: 'Synthetic test data for development' },
-      synthetic_sleep: { color: '#673AB7', icon: '😴', description: 'Synthetic sleep data for development' },
-      sciotte: { color: '#F97316', icon: 'S', description: 'Running, cycling, and swimming activities' },
-      sciotte_garmin: { color: '#007CC3', icon: 'G', description: 'Activities and health metrics from Garmin devices' },
     };
     return configs[providerId] || { color: '#607D8B', icon: '?', description: 'Fitness data provider' };
   };

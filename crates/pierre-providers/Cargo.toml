@@ -11,6 +11,7 @@ repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
 [features]
+default = ["provider-whoop", "provider-strava", "provider-sciotte"]
 provider-strava = []
 provider-garmin = []
 provider-terra = []

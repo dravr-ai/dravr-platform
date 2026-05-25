@@ -56,8 +56,9 @@ The interesting bit isn't "an LLM that talks fitness." It's the architecture tha
                 ▼                  ▼             ▼
        Provider abstraction   LLM abstraction   Repository abstraction
         Strava, Garmin,        Gemini, Groq,    SQLite | PostgreSQL
-        WHOOP, Fitbit,         OpenAI, Ollama,  every query is
-        COROS, Terra, ...      Copilot ACP      tenant_id-scoped
+        WHOOP                  OpenAI, Ollama,  every query is
+        (via Sciotte +         Copilot ACP      tenant_id-scoped
+         OAuth)
                 │                  │
                 └─── activity ─────┘
                      streams,

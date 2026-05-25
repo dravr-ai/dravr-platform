@@ -7,15 +7,13 @@ import type { ViewStyle } from 'react-native';
 import { PRIMARY_PALETTE, spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import type { ExtendedProviderStatus } from '../../types';
 
+// After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
+// (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown ids
+// fall through to the link emoji default in the row renderer below.
 const PROVIDER_ICONS: Record<string, string> = {
-  strava: '🚴',
-  fitbit: '⌚',
-  garmin: '⌚',
+  sciotte: '🚴',
+  sciotte_garmin: '⌚',
   whoop: '💪',
-  coros: '🏃',
-  terra: '🌍',
-  synthetic: '🧪',
-  synthetic_sleep: '😴',
 };
 
 interface ProviderModalProps {

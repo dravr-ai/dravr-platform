@@ -43,12 +43,11 @@ interface McpToken {
   created_at: string;
 }
 
+// BYO-OAuth-app credentials are only collected for WHOOP. Strava and Garmin
+// use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
+// and have no developer-app registration step the user controls.
 const PROVIDERS = [
-  { id: 'strava', name: 'Strava', color: 'bg-pierre-nutrition' },
-  { id: 'fitbit', name: 'Fitbit', color: 'bg-primary-container' },
-  { id: 'garmin', name: 'Garmin', color: 'bg-pierre-blue-600' },
   { id: 'whoop', name: 'WHOOP', color: 'bg-black' },
-  { id: 'terra', name: 'Terra', color: 'bg-pierre-green-600' },
 ];
 
 const MIN_PASSWORD_LENGTH = 8;

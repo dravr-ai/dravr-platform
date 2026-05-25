@@ -39,7 +39,7 @@ export DATABASE_URL="sqlite:./data/users.db"
 export PIERRE_MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 ```
 
-Optional provider oauth (connect to strava/garmin/fitbit/whoop):
+Optional provider oauth (default build connects to strava/garmin/whoop; fitbit/terra/coros are opt-in via the `provider-fitbit`/`provider-terra`/`provider-coros` Cargo features):
 ```bash
 # local development only
 export STRAVA_CLIENT_ID=your_id

@@ -231,7 +231,14 @@ export const SEMANTIC_COLORS = {
   info: '#3c6658',     // surface_tint sage
 } as const;
 
-/** OAuth provider brand colors — unchanged, they belong to third parties. */
+/**
+ * OAuth provider brand colors — unchanged, they belong to third parties. The
+ * `sciotte` / `sciotte_garmin` keys mirror the corresponding Strava/Garmin
+ * brand colors: after the 2026-Q2 provider cleanup the API surfaces those
+ * internal ids, but the UI still presents them with Strava and Garmin branding.
+ * Legacy keys (fitbit/terra/google) are retained for tests and any
+ * still-referencing call sites; they are not surfaced by the API.
+ */
 export const PROVIDER_COLORS = {
   strava: '#FC4C02',
   garmin: '#007CC3',
@@ -239,6 +246,8 @@ export const PROVIDER_COLORS = {
   whoop: '#00D46A',
   terra: '#6366F1',
   google: '#4285F4',
+  sciotte: '#FC4C02',
+  sciotte_garmin: '#007CC3',
 } as const;
 
 // ========== GRADIENTS ==========

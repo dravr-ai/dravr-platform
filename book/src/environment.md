@@ -72,7 +72,9 @@ Configure the async runtime for performance tuning:
 ### Default Provider
 
 ```bash
-export PIERRE_DEFAULT_PROVIDER=strava  # strava, garmin, fitbit, whoop, coros, synthetic
+# default build: strava, garmin, whoop, synthetic
+# opt-in via Cargo features: fitbit (provider-fitbit), coros (provider-coros), terra (provider-terra)
+export PIERRE_DEFAULT_PROVIDER=strava
 ```
 
 ### Strava
@@ -93,6 +95,8 @@ export PIERRE_GARMIN_CLIENT_SECRET=your-consumer-secret
 
 ### Fitbit
 
+> Opt-in via the `provider-fitbit` Cargo feature; these env vars are only required when the feature is enabled.
+
 ```bash
 export PIERRE_FITBIT_CLIENT_ID=your-client-id
 export PIERRE_FITBIT_CLIENT_SECRET=your-client-secret
@@ -107,6 +111,8 @@ export PIERRE_WHOOP_CLIENT_SECRET=your-client-secret
 
 ### COROS
 
+> Opt-in via the `provider-coros` Cargo feature; these env vars are only required when the feature is enabled.
+
 ```bash
 # required for coros oauth (apply for API access first)
 export PIERRE_COROS_CLIENT_ID=your-client-id
@@ -118,6 +124,8 @@ export PIERRE_COROS_CLIENT_SECRET=your-client-secret
 **Note:** COROS API documentation is private. Apply at [COROS Developer Portal](https://support.coros.com/hc/en-us/articles/17085887816340).
 
 ### Terra (150+ Wearables)
+
+> Opt-in via the `provider-terra` Cargo feature; these env vars are only required when the feature is enabled.
 
 ```bash
 export TERRA_API_KEY=your-api-key
