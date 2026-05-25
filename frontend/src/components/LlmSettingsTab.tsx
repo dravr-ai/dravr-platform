@@ -21,6 +21,10 @@ const PROVIDER_INFO: Record<string, { description: string; docsUrl: string }> = 
     description: 'Groq cloud for fast inference with Llama, Mixtral, and other open-source models',
     docsUrl: 'https://console.groq.com/docs',
   },
+  cohere: {
+    description: 'Cohere Command A and Command R family — 256K context, agentic tool use',
+    docsUrl: 'https://docs.cohere.com/docs/command-a',
+  },
   local: {
     description: 'Local LLM server via OpenAI-compatible API (Ollama, vLLM, LocalAI)',
     docsUrl: 'https://github.com/ollama/ollama',
@@ -356,7 +360,9 @@ export default function LlmSettingsTab() {
                   ? 'gemini-1.5-flash'
                   : selectedProvider === 'groq'
                     ? 'llama-3.3-70b-versatile'
-                    : 'qwen2.5:14b-instruct'
+                    : selectedProvider === 'cohere'
+                      ? 'command-a-03-2025'
+                      : 'qwen2.5:14b-instruct'
               }
               helpText="Override the default model for this provider"
             />

@@ -179,6 +179,58 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
             output_per_million: 4.0,
         },
     ),
+    // Cohere — Command A and Command R family.
+    // Entries are ordered longest-prefix-first so `command-a-reasoning` and
+    // `command-a-vision` match before the bare `command-a` prefix and the
+    // R-family entries don't accidentally swallow R+ / R7B.
+    (
+        "cohere",
+        "command-a-reasoning",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "cohere",
+        "command-a-vision",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "cohere",
+        "command-a",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "cohere",
+        "command-r-plus",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "cohere",
+        "command-r7b",
+        ModelPricing {
+            input_per_million: 0.0375,
+            output_per_million: 0.15,
+        },
+    ),
+    (
+        "cohere",
+        "command-r",
+        ModelPricing {
+            input_per_million: 0.15,
+            output_per_million: 0.60,
+        },
+    ),
     // OpenAI API models
     (
         "openai_api",

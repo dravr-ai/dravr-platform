@@ -75,6 +75,13 @@ pub fn chat_provider_from_credentials(
             Ok(ChatProvider::Gemini(provider))
         }
         TenantLlmProvider::Groq => Ok(ChatProvider::Groq(GroqProvider::new(credentials.api_key))),
+        TenantLlmProvider::Cohere => {
+            let mut provider = CohereProvider::new(credentials.api_key);
+            if let Some(model) = credentials.default_model {
+                provider = provider.with_default_model(model);
+            }
+            Ok(ChatProvider::Cohere(provider))
+        }
         TenantLlmProvider::Local => {
             let base_url = credentials
                 .base_url
@@ -101,7 +108,7 @@ pub fn chat_provider_from_credentials(
             Ok(ChatProvider::Local(provider))
         }
         TenantLlmProvider::OpenAi | TenantLlmProvider::Anthropic => Err(AppError::config(format!(
-            "{} provider is not yet supported. Use Gemini, Groq, or Local.",
+            "{} provider is not yet supported. Use Gemini, Groq, Cohere, or Local.",
             credentials.provider
         ))),
     }
