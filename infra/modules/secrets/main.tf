@@ -202,6 +202,32 @@ resource "google_secret_manager_secret_version" "gemini_api_key_placeholder" {
   }
 }
 
+# Cohere Command A / Command R family. Third-tier fallback in the
+# Copilot -> Gemini -> Cohere chain (PIERRE_LLM_TERTIARY_PROVIDER=cohere)
+# wired in infra/environments/dev/main.tf. Real value lives in Secret
+# Manager; this Terraform only manages the container. The placeholder
+# is ignored by lifecycle so re-apply doesn't overwrite the gcloud-set
+# value (same pattern as gemini_api_key and the OAuth credentials above).
+resource "google_secret_manager_secret" "cohere_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-cohere-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "cohere_api_key_placeholder" {
+  secret      = google_secret_manager_secret.cohere_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "usda_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-usda-api-key"
