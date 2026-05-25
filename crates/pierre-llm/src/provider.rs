@@ -139,12 +139,199 @@ impl ChatProvider {
         }
 
         let secondary_result = Self::create_fallback_provider(fallback_type).await;
+
+        // Optional tertiary: when PIERRE_LLM_TERTIARY_PROVIDER is set, wrap
+        // the secondary into a nested Chain so the chain becomes
+        // primary -> {secondary, tertiary}. The secondary path keeps the
+        // same retry-classification rules — a retryable error inside the
+        // nested chain cascades to the tertiary before bubbling back up.
+        let tertiary_pair = Self::maybe_build_tertiary(primary_type, fallback_type).await;
+        let secondary_result =
+            Self::compose_secondary_with_tertiary(secondary_result, tertiary_pair, fallback_type);
+
         Self::resolve_runtime_chain(
             primary_result,
             secondary_result,
             primary_type,
             fallback_type,
         )
+    }
+
+    /// Resolve the tertiary provider configuration (if any) and build it.
+    ///
+    /// Returns `Some((type, result))` when [`LlmProviderType::TERTIARY_PROVIDER_ENV_VAR`]
+    /// is set and resolves to a different type than both primary and
+    /// secondary (so the chain doesn't degenerate). Returns `None`
+    /// otherwise — the chain stays two-tier with original behavior.
+    async fn maybe_build_tertiary(
+        primary_type: LlmProviderType,
+        fallback_type: LlmProviderType,
+    ) -> Option<(LlmProviderType, Result<Self, AppError>)> {
+        let tertiary_type = LlmProviderType::tertiary_provider_from_env()?;
+
+        if tertiary_type == primary_type || tertiary_type == fallback_type {
+            warn!(
+                "{} ({tertiary_type}) matches an existing tier — tertiary fallback disabled",
+                LlmProviderType::TERTIARY_PROVIDER_ENV_VAR,
+            );
+            return None;
+        }
+
+        Some((
+            tertiary_type,
+            Self::create_tertiary_provider(tertiary_type).await,
+        ))
+    }
+
+    /// Build the tertiary provider, applying the dedicated tertiary model
+    /// override env var. Same dispatch logic as
+    /// [`Self::create_fallback_provider`] but reading the tertiary's env
+    /// vars so each tier can target a different model namespace
+    /// (e.g. Copilot's `claude-opus-4.7`, Gemini's
+    /// `gemini-flash-lite-latest`, Cohere's `command-a-03-2025`).
+    async fn create_tertiary_provider(tertiary_type: LlmProviderType) -> Result<Self, AppError> {
+        let model_override = LlmProviderType::tertiary_provider_model_from_env();
+
+        if let Some(runner_type) = cli_runner_type_for(tertiary_type) {
+            return Ok(Self::Cli(CliLlmProvider::from_runner_type_with_model(
+                runner_type,
+                model_override.as_deref(),
+            )?));
+        }
+
+        let provider = Self::create_provider(tertiary_type).await?;
+        Ok(match model_override {
+            Some(m) => provider.with_model(&m),
+            None => provider,
+        })
+    }
+
+    /// Compose the secondary with an optional tertiary into a nested chain.
+    ///
+    /// Possible outcomes:
+    /// - No tertiary configured -> pass `secondary_result` through unchanged.
+    /// - Both secondary and tertiary built -> wrap them in
+    ///   `Chain { primary: secondary, secondary: tertiary }`.
+    /// - Secondary failed, tertiary built -> use the tertiary in place of
+    ///   the secondary (graceful degradation; `resolve_runtime_chain` still
+    ///   sees an `Ok(provider)` and builds a two-tier chain
+    ///   primary -> tertiary).
+    /// - Secondary built, tertiary failed -> log the tertiary failure and
+    ///   fall back to the original two-tier chain.
+    /// - Both failed -> bubble the secondary's error up so
+    ///   `resolve_runtime_chain` can degrade to primary-only.
+    ///
+    /// Each branch delegates to a dedicated helper (`compose_*`) so the
+    /// match itself stays below the workspace cognitive-complexity budget.
+    fn compose_secondary_with_tertiary(
+        secondary_result: Result<Self, AppError>,
+        tertiary_pair: Option<(LlmProviderType, Result<Self, AppError>)>,
+        fallback_type: LlmProviderType,
+    ) -> Result<Self, AppError> {
+        let Some((tertiary_type, tertiary_result)) = tertiary_pair else {
+            return secondary_result;
+        };
+
+        match (secondary_result, tertiary_result) {
+            (Ok(secondary), Ok(tertiary)) => Ok(Self::compose_both_built(
+                secondary,
+                tertiary,
+                fallback_type,
+                tertiary_type,
+            )),
+            (Err(secondary_err), Ok(tertiary)) => Ok(Self::compose_promote_tertiary(
+                tertiary,
+                fallback_type,
+                tertiary_type,
+                &secondary_err,
+            )),
+            (Ok(secondary), Err(tertiary_err)) => Ok(Self::compose_keep_secondary(
+                secondary,
+                fallback_type,
+                tertiary_type,
+                &tertiary_err,
+            )),
+            (Err(secondary_err), Err(tertiary_err)) => Err(Self::compose_both_failed(
+                fallback_type,
+                tertiary_type,
+                &tertiary_err,
+                secondary_err,
+            )),
+        }
+    }
+
+    /// Build the nested `Chain { secondary, tertiary }` when both providers
+    /// initialized cleanly.
+    fn compose_both_built(
+        secondary: Self,
+        tertiary: Self,
+        fallback_type: LlmProviderType,
+        tertiary_type: LlmProviderType,
+    ) -> Self {
+        info!(
+            secondary = %fallback_type,
+            tertiary = %tertiary_type,
+            "Tertiary LLM fallback initialized; chain is primary -> {{secondary, tertiary}}"
+        );
+        validate_model_for_provider(&tertiary);
+        Self::Chain {
+            primary: Box::new(secondary),
+            secondary: Box::new(tertiary),
+        }
+    }
+
+    /// Promote the tertiary into the secondary slot when the secondary
+    /// failed to initialize. The outer chain stays two-tier
+    /// (primary -> tertiary) so the caller still gets a usable chain.
+    fn compose_promote_tertiary(
+        tertiary: Self,
+        fallback_type: LlmProviderType,
+        tertiary_type: LlmProviderType,
+        secondary_err: &AppError,
+    ) -> Self {
+        warn!(
+            secondary = %fallback_type,
+            tertiary = %tertiary_type,
+            error = %secondary_err,
+            "Secondary provider failed to initialize; promoting tertiary"
+        );
+        validate_model_for_provider(&tertiary);
+        tertiary
+    }
+
+    /// Keep the secondary as-is when only the tertiary failed to
+    /// initialize. The chain degrades to the original two-tier shape.
+    fn compose_keep_secondary(
+        secondary: Self,
+        fallback_type: LlmProviderType,
+        tertiary_type: LlmProviderType,
+        tertiary_err: &AppError,
+    ) -> Self {
+        warn!(
+            secondary = %fallback_type,
+            tertiary = %tertiary_type,
+            error = %tertiary_err,
+            "Tertiary provider failed to initialize; running two-tier chain"
+        );
+        secondary
+    }
+
+    /// Bubble the secondary error when both providers failed —
+    /// `resolve_runtime_chain` will degrade to primary-only.
+    fn compose_both_failed(
+        fallback_type: LlmProviderType,
+        tertiary_type: LlmProviderType,
+        tertiary_err: &AppError,
+        secondary_err: AppError,
+    ) -> AppError {
+        warn!(
+            secondary = %fallback_type,
+            tertiary = %tertiary_type,
+            secondary_error = %secondary_err,
+            tertiary_error = %tertiary_err,
+            "Both secondary and tertiary failed; falling back to primary-only"
+        );
+        secondary_err
     }
 
     /// Build the runtime chain's secondary provider.
@@ -993,5 +1180,94 @@ impl LlmProvider for ChatProvider {
                 secondary.health_check().await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::GroqProvider;
+
+    /// `compose_secondary_with_tertiary` is the pure-sync core of the
+    /// 3-tier chain assembly. Direct testing of `build_runtime_chain`
+    /// requires real env vars + real API keys + real network — these
+    /// tests cover the composition logic in isolation so the chain
+    /// shape is exercised without external dependencies.
+    fn mk_groq() -> ChatProvider {
+        ChatProvider::Groq(GroqProvider::new("test-key".to_owned()))
+    }
+
+    fn mk_cohere() -> ChatProvider {
+        ChatProvider::Cohere(CohereProvider::new("test-key".to_owned()))
+    }
+
+    #[test]
+    fn compose_returns_secondary_unchanged_when_tertiary_unset() {
+        let secondary = mk_groq();
+        let composed = ChatProvider::compose_secondary_with_tertiary(
+            Ok(secondary),
+            None,
+            LlmProviderType::Groq,
+        );
+        assert!(matches!(composed, Ok(ChatProvider::Groq(_))));
+    }
+
+    #[test]
+    fn compose_builds_nested_chain_when_both_succeed() -> Result<(), AppError> {
+        let secondary = mk_groq();
+        let tertiary = mk_cohere();
+        let composed = ChatProvider::compose_secondary_with_tertiary(
+            Ok(secondary),
+            Some((LlmProviderType::Cohere, Ok(tertiary))),
+            LlmProviderType::Groq,
+        )?;
+        let ChatProvider::Chain {
+            primary,
+            secondary: inner,
+        } = composed
+        else {
+            return Err(AppError::internal(format!(
+                "expected nested Chain, got {composed:?}"
+            )));
+        };
+        assert!(matches!(*primary, ChatProvider::Groq(_)));
+        assert!(matches!(*inner, ChatProvider::Cohere(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn compose_promotes_tertiary_when_secondary_init_fails() {
+        let composed = ChatProvider::compose_secondary_with_tertiary(
+            Err(AppError::config("secondary boom")),
+            Some((LlmProviderType::Cohere, Ok(mk_cohere()))),
+            LlmProviderType::Groq,
+        );
+        assert!(matches!(composed, Ok(ChatProvider::Cohere(_))));
+    }
+
+    #[test]
+    fn compose_keeps_secondary_when_tertiary_init_fails() {
+        let composed = ChatProvider::compose_secondary_with_tertiary(
+            Ok(mk_groq()),
+            Some((
+                LlmProviderType::Cohere,
+                Err(AppError::config("tertiary boom")),
+            )),
+            LlmProviderType::Groq,
+        );
+        assert!(matches!(composed, Ok(ChatProvider::Groq(_))));
+    }
+
+    #[test]
+    fn compose_returns_secondary_error_when_both_fail() {
+        let composed = ChatProvider::compose_secondary_with_tertiary(
+            Err(AppError::config("secondary boom")),
+            Some((
+                LlmProviderType::Cohere,
+                Err(AppError::config("tertiary boom")),
+            )),
+            LlmProviderType::Groq,
+        );
+        assert!(composed.is_err());
     }
 }

@@ -311,13 +311,23 @@ module "backend" {
       # notify events for operator awareness, and the chat route returns 503
       # with retry-after when LlmHealthState reports Unhealthy.
       # Entitlement verified 2026-04-16 against the dev PAT (Copilot side).
-      PIERRE_LLM_PROVIDER                = "copilot_headless"
-      PIERRE_LLM_MODEL                   = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.7"
-      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
-      PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
+      #
+      # Tertiary = Cohere Command A. Added 2026-05-25 to give the chain a
+      # paid third tier (Copilot -> Gemini -> Cohere). When Gemini itself
+      # hits a retryable error (quota exhaustion on the free tier is the
+      # common case), Cohere's production rate limit (10k rpm chat) keeps
+      # the service answering. PIERRE_LLM_TERTIARY_PROVIDER turns the
+      # secondary into a nested Chain{Gemini, Cohere}, so retry
+      # classification cascades the same way at each tier.
+      PIERRE_LLM_PROVIDER                 = "copilot_headless"
+      PIERRE_LLM_MODEL                    = "claude-opus-4.7"
+      PIERRE_LLM_DEFAULT_MODEL            = "claude-opus-4.7"
+      PIERRE_LLM_FALLBACK_MODEL           = "claude-sonnet-4.6"
+      PIERRE_LLM_RUNTIME_FALLBACK         = "true"
+      PIERRE_LLM_FALLBACK_PROVIDER        = "gemini"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL  = "gemini-flash-lite-latest"
+      PIERRE_LLM_TERTIARY_PROVIDER        = "cohere"
+      PIERRE_LLM_TERTIARY_PROVIDER_MODEL  = "command-a-03-2025"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
@@ -388,6 +398,7 @@ module "backend" {
     STRAVA_CLIENT_SECRET         = module.secrets.secret_ids["strava_client_secret"]
     USDA_API_KEY                 = module.secrets.secret_ids["usda_api_key"]
     GEMINI_API_KEY               = module.secrets.secret_ids["gemini_api_key"]
+    COHERE_API_KEY               = module.secrets.secret_ids["cohere_api_key"]
     COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN      = module.secrets.secret_ids["claude_code_oauth_token"]
     OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]

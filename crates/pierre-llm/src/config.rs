@@ -119,6 +119,26 @@ impl LlmProviderType {
     /// primary and Anthropic returns 404 on every fallback call.
     pub const FALLBACK_PROVIDER_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_PROVIDER_MODEL";
 
+    /// Environment variable for the tertiary provider in the runtime chain.
+    ///
+    /// When set alongside [`Self::RUNTIME_FALLBACK_ENV_VAR`]=true, the chain
+    /// becomes three-tier: primary -> secondary -> tertiary. The secondary
+    /// itself becomes a nested [`ChatProvider::Chain`] of (secondary,
+    /// tertiary), so a retryable error in the secondary cascades to the
+    /// tertiary using the same retry-classification rules already used at
+    /// the outer chain.
+    ///
+    /// Without this env var set, the chain stays two-tier and behavior is
+    /// unchanged.
+    pub const TERTIARY_PROVIDER_ENV_VAR: &'static str = "PIERRE_LLM_TERTIARY_PROVIDER";
+
+    /// Environment variable for the tertiary provider's model. Same role as
+    /// [`Self::FALLBACK_PROVIDER_MODEL_ENV_VAR`], applied to the tertiary
+    /// when its API uses a different model namespace than the primary or
+    /// secondary (e.g. Cohere's `command-a-03-2025` vs Gemini's
+    /// `gemini-flash-lite-latest`).
+    pub const TERTIARY_PROVIDER_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_TERTIARY_PROVIDER_MODEL";
+
     /// Environment variable for fallback wait time in seconds
     pub const FALLBACK_WAIT_SECS_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_WAIT_SECS";
 
@@ -256,6 +276,27 @@ impl LlmProviderType {
     #[must_use]
     pub fn fallback_provider_model_from_env() -> Option<String> {
         env::var(Self::FALLBACK_PROVIDER_MODEL_ENV_VAR)
+            .ok()
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Get the tertiary provider from environment, parsed as an
+    /// [`LlmProviderType`]. Returns None when the env var is unset or
+    /// empty, leaving the chain at the existing two-tier
+    /// primary/secondary shape.
+    #[must_use]
+    pub fn tertiary_provider_from_env() -> Option<Self> {
+        env::var(Self::TERTIARY_PROVIDER_ENV_VAR)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| Self::from_str_or_default(&s))
+    }
+
+    /// Get the tertiary provider's model from environment, mirroring
+    /// [`Self::fallback_provider_model_from_env`] for the third tier.
+    #[must_use]
+    pub fn tertiary_provider_model_from_env() -> Option<String> {
+        env::var(Self::TERTIARY_PROVIDER_MODEL_ENV_VAR)
             .ok()
             .filter(|s| !s.is_empty())
     }

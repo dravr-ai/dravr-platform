@@ -25,6 +25,7 @@ output "secret_ids" {
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.secret_id
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.secret_id
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.secret_id
+    cohere_api_key                   = google_secret_manager_secret.cohere_api_key.secret_id
     usda_api_key                     = google_secret_manager_secret.usda_api_key.secret_id
     resend_api_key                   = google_secret_manager_secret.resend_api_key.secret_id
     copilot_github_token             = google_secret_manager_secret.copilot_github_token.secret_id
@@ -59,6 +60,7 @@ output "secret_names" {
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.name
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.name
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.name
+    cohere_api_key                   = google_secret_manager_secret.cohere_api_key.name
     usda_api_key                     = google_secret_manager_secret.usda_api_key.name
     resend_api_key                   = google_secret_manager_secret.resend_api_key.name
     copilot_github_token             = google_secret_manager_secret.copilot_github_token.name
