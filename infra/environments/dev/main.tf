@@ -319,15 +319,15 @@ module "backend" {
       # the service answering. PIERRE_LLM_TERTIARY_PROVIDER turns the
       # secondary into a nested Chain{Gemini, Cohere}, so retry
       # classification cascades the same way at each tier.
-      PIERRE_LLM_PROVIDER                 = "copilot_headless"
-      PIERRE_LLM_MODEL                    = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL            = "claude-opus-4.7"
-      PIERRE_LLM_FALLBACK_MODEL           = "claude-sonnet-4.6"
-      PIERRE_LLM_RUNTIME_FALLBACK         = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER        = "gemini"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL  = "gemini-flash-lite-latest"
-      PIERRE_LLM_TERTIARY_PROVIDER        = "cohere"
-      PIERRE_LLM_TERTIARY_PROVIDER_MODEL  = "command-a-03-2025"
+      PIERRE_LLM_PROVIDER                = "copilot_headless"
+      PIERRE_LLM_MODEL                   = "claude-opus-4.7"
+      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.7"
+      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
+      PIERRE_LLM_RUNTIME_FALLBACK        = "true"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
+      PIERRE_LLM_TERTIARY_PROVIDER       = "cohere"
+      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "command-a-03-2025"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
@@ -438,14 +438,17 @@ module "backend" {
 
 locals {
   seed_env_vars = var.enable_database ? {
-    DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
-    DATABASE_NAME = module.database[0].database_name
-    DATABASE_USER = module.database[0].database_user
-    RUST_LOG      = "info"
+    DATABASE_HOST       = "/cloudsql/${module.database[0].connection_name}"
+    DATABASE_NAME       = module.database[0].database_name
+    DATABASE_USER       = module.database[0].database_user
+    RUST_LOG            = "info"
+    CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
+    CONTREMAITRE_BRANCH = "main"
   } : {}
 
   seed_secret_env_vars = {
-    DB_PASSWORD = module.secrets.secret_ids["db_password"]
+    DB_PASSWORD             = module.secrets.secret_ids["db_password"]
+    CONTREMAITRE_GITHUB_PAT = module.secrets.secret_ids["contremaitre_github_pat"]
   }
 
   seed_common = {
