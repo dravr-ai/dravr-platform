@@ -22,6 +22,8 @@ pub enum LlmProviderType {
     Local,
     /// `OpenRouter` provider - unified gateway to 200+ models via openrouter.ai
     OpenRouter,
+    /// Cohere provider - Command A and Command R family via Cohere v2 chat API
+    Cohere,
     /// Claude Code CLI provider - subprocess-based Anthropic Claude
     ClaudeCode,
     /// Cursor Agent CLI provider - subprocess-based Cursor AI
@@ -63,6 +65,7 @@ impl LlmProviderType {
             "groq" => Self::Groq,
             "local" | "ollama" | "vllm" | "localai" => Self::Local,
             "openrouter" | "open_router" | "open-router" => Self::OpenRouter,
+            "cohere" | "command" | "command-a" => Self::Cohere,
             "claude_code" | "claude-code" => Self::ClaudeCode,
             "cursor_agent" | "cursor-agent" => Self::CursorAgent,
             "opencode" | "open_code" => Self::OpenCode,
@@ -168,7 +171,9 @@ impl LlmProviderType {
     #[must_use]
     fn embacle_model_from_env(self) -> Option<String> {
         match self {
-            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter => return None,
+            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => {
+                return None
+            }
             _ => {}
         }
 
@@ -204,7 +209,9 @@ impl LlmProviderType {
                     .filter(|m| !m.is_empty())
                     .unwrap_or_else(|| "gpt-5.4".to_owned()),
             ),
-            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter => unreachable!(),
+            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => {
+                unreachable!()
+            }
         }
     }
 
@@ -284,6 +291,7 @@ impl Display for LlmProviderType {
             Self::Gemini => write!(f, "gemini"),
             Self::Local => write!(f, "local"),
             Self::OpenRouter => write!(f, "openrouter"),
+            Self::Cohere => write!(f, "cohere"),
             Self::ClaudeCode => write!(f, "claude_code"),
             Self::CursorAgent => write!(f, "cursor_agent"),
             Self::OpenCode => write!(f, "opencode"),

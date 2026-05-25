@@ -27,7 +27,7 @@ use tracing::{debug, info, warn};
 
 use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
-    FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
+    CohereProvider, FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
     OpenAiCompatibleProvider, OpenRouterProvider, Tool,
 };
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
@@ -48,6 +48,8 @@ pub enum ChatProvider {
     Local(OpenAiCompatibleProvider),
     /// `OpenRouter` — unified gateway to 200+ frontier and open-source models
     OpenRouter(OpenRouterProvider),
+    /// Cohere — Command A and Command R family via Cohere v2 chat API
+    Cohere(CohereProvider),
     /// Embacle-based LLM provider (CLI runners and SDK runners)
     Cli(CliLlmProvider),
     /// Custom provider supplied by the caller (used by tests to inject a
@@ -304,6 +306,7 @@ impl ChatProvider {
             LlmProviderType::Gemini => Self::gemini(),
             LlmProviderType::Local => Self::local(),
             LlmProviderType::OpenRouter => Self::openrouter(),
+            LlmProviderType::Cohere => Self::cohere(),
             LlmProviderType::ClaudeCode
             | LlmProviderType::Copilot
             | LlmProviderType::CursorAgent
@@ -362,6 +365,15 @@ impl ChatProvider {
         Ok(Self::OpenRouter(OpenRouterProvider::from_env()?))
     }
 
+    /// Create a Cohere provider explicitly
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `COHERE_API_KEY` is not set.
+    pub fn cohere() -> Result<Self, AppError> {
+        Ok(Self::Cohere(CohereProvider::from_env()?))
+    }
+
     /// Create an embacle-based LLM provider explicitly
     ///
     /// Auto-detects or reads `PIERRE_LLM_PROVIDER` to select the runner
@@ -401,6 +413,14 @@ impl ChatProvider {
         Self::OpenRouter(OpenRouterProvider::new(api_key))
     }
 
+    /// Create a Cohere provider with a specific API key
+    ///
+    /// Use this when you have already resolved the API key from tenant/user credentials.
+    #[must_use]
+    pub fn cohere_with_key(api_key: String) -> Self {
+        Self::Cohere(CohereProvider::new(api_key))
+    }
+
     /// Get the provider type
     #[must_use]
     pub fn provider_type(&self) -> LlmProviderType {
@@ -411,6 +431,7 @@ impl ChatProvider {
             Self::Groq(_) => LlmProviderType::Groq,
             Self::Local(_) => LlmProviderType::Local,
             Self::OpenRouter(_) => LlmProviderType::OpenRouter,
+            Self::Cohere(_) => LlmProviderType::Cohere,
             Self::Cli(p) => p.provider_type(),
             // The chain reports as the primary — metrics and analytics
             // should attribute requests to the active first-line provider;
@@ -456,6 +477,7 @@ impl ChatProvider {
             Self::Groq(provider) => provider.complete_with_tools(request, tools).await,
             Self::Local(provider) => provider.complete_with_tools(request, tools).await,
             Self::OpenRouter(provider) => provider.complete_with_tools(request, tools).await,
+            Self::Cohere(provider) => provider.complete_with_tools(request, tools).await,
             Self::Cli(_) => Err(AppError::invalid_input(
                 "Embacle-based providers do not support structured tool calling via this path",
             )),
@@ -549,6 +571,7 @@ impl ChatProvider {
             Self::Groq(p) => Self::Groq(p.with_default_model(model)),
             Self::Local(p) => Self::Local(p.with_default_model(model)),
             Self::OpenRouter(p) => Self::OpenRouter(p.with_default_model(model)),
+            Self::Cohere(p) => Self::Cohere(p.with_default_model(model)),
             other => other,
         }
     }
@@ -635,6 +658,7 @@ fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> 
         | LlmProviderType::Groq
         | LlmProviderType::Local
         | LlmProviderType::OpenRouter
+        | LlmProviderType::Cohere
         | LlmProviderType::CopilotHeadless
         | LlmProviderType::OpenAiApi => None,
     }
@@ -678,6 +702,7 @@ impl fmt::Debug for ChatProvider {
             Self::Groq(_) => f.debug_tuple("ChatProvider::Groq").finish(),
             Self::Local(_) => f.debug_tuple("ChatProvider::Local").finish(),
             Self::OpenRouter(_) => f.debug_tuple("ChatProvider::OpenRouter").finish(),
+            Self::Cohere(_) => f.debug_tuple("ChatProvider::Cohere").finish(),
             Self::Cli(_) => f.debug_tuple("ChatProvider::Cli").finish(),
             Self::Custom(_) => f.debug_tuple("ChatProvider::Custom").finish(),
             Self::Chain { primary, secondary } => f
@@ -718,6 +743,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.name(),
             Self::Local(p) => p.name(),
             Self::OpenRouter(p) => p.name(),
+            Self::Cohere(p) => p.name(),
             Self::Cli(p) => p.name(),
             Self::Custom(p) => p.name(),
             Self::Chain { primary, .. } => primary.name(),
@@ -730,6 +756,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.display_name(),
             Self::Local(p) => p.display_name(),
             Self::OpenRouter(p) => p.display_name(),
+            Self::Cohere(p) => p.display_name(),
             Self::Cli(p) => p.display_name(),
             Self::Custom(p) => p.display_name(),
             Self::Chain { primary, .. } => primary.display_name(),
@@ -742,6 +769,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.capabilities(),
             Self::Local(p) => p.capabilities(),
             Self::OpenRouter(p) => p.capabilities(),
+            Self::Cohere(p) => p.capabilities(),
             Self::Cli(p) => p.capabilities(),
             Self::Custom(p) => p.capabilities(),
             Self::Chain { primary, .. } => primary.capabilities(),
@@ -754,6 +782,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.default_model(),
             Self::Local(p) => p.default_model(),
             Self::OpenRouter(p) => p.default_model(),
+            Self::Cohere(p) => p.default_model(),
             Self::Cli(p) => p.default_model(),
             Self::Custom(p) => p.default_model(),
             Self::Chain { primary, .. } => primary.default_model(),
@@ -766,6 +795,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.available_models(),
             Self::Local(p) => p.available_models(),
             Self::OpenRouter(p) => p.available_models(),
+            Self::Cohere(p) => p.available_models(),
             Self::Cli(p) => p.available_models(),
             Self::Custom(p) => p.available_models(),
             Self::Chain { primary, .. } => primary.available_models(),
@@ -778,6 +808,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.complete(request).await,
             Self::Local(p) => p.complete(request).await,
             Self::OpenRouter(p) => p.complete(request).await,
+            Self::Cohere(p) => p.complete(request).await,
             Self::Cli(p) => p.complete(request).await,
             Self::Custom(p) => p.complete(request).await,
             Self::Chain { primary, secondary } => {
@@ -863,6 +894,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.complete_stream(request).await,
             Self::Local(p) => p.complete_stream(request).await,
             Self::OpenRouter(p) => p.complete_stream(request).await,
+            Self::Cohere(p) => p.complete_stream(request).await,
             Self::Cli(p) => p.complete_stream(request).await,
             Self::Custom(p) => p.complete_stream(request).await,
             Self::Chain { primary, secondary } => {
@@ -948,6 +980,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.health_check().await,
             Self::Local(p) => p.health_check().await,
             Self::OpenRouter(p) => p.health_check().await,
+            Self::Cohere(p) => p.health_check().await,
             Self::Cli(p) => p.health_check().await,
             Self::Custom(p) => p.health_check().await,
             Self::Chain { primary, secondary } => {

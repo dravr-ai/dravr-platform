@@ -318,6 +318,12 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             required,
             description: "OpenRouter API key (get one at https://openrouter.ai/keys)",
         }],
+        LlmProviderType::Cohere => vec![EnvValidation {
+            name: "COHERE_API_KEY",
+            value: env::var("COHERE_API_KEY").ok(),
+            required,
+            description: "Cohere API key (get one at https://dashboard.cohere.com/api-keys)",
+        }],
         LlmProviderType::ClaudeCode
         | LlmProviderType::Copilot
         | LlmProviderType::CursorAgent

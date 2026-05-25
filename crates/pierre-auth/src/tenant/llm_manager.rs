@@ -20,6 +20,7 @@ use pierre_llm::config::LlmProviderType;
 /// Environment variable names for LLM provider API keys
 const GEMINI_API_KEY_ENV: &str = "GEMINI_API_KEY";
 const GROQ_API_KEY_ENV: &str = "GROQ_API_KEY";
+const COHERE_API_KEY_ENV: &str = "COHERE_API_KEY";
 const LOCAL_LLM_API_KEY_ENV: &str = "LOCAL_LLM_API_KEY";
 const LOCAL_LLM_BASE_URL_ENV: &str = "LOCAL_LLM_BASE_URL";
 const LOCAL_LLM_MODEL_ENV: &str = "LOCAL_LLM_MODEL";
@@ -36,6 +37,8 @@ pub enum LlmProvider {
     OpenAi,
     /// Anthropic Claude
     Anthropic,
+    /// Cohere Command A / Command R family
+    Cohere,
     /// Local LLM (Ollama, vLLM, `LocalAI`)
     Local,
 }
@@ -49,6 +52,7 @@ impl LlmProvider {
             Self::Groq => "groq",
             Self::OpenAi => "openai",
             Self::Anthropic => "anthropic",
+            Self::Cohere => "cohere",
             Self::Local => "local",
         }
     }
@@ -61,6 +65,7 @@ impl LlmProvider {
             "groq" => Some(Self::Groq),
             "openai" | "gpt" => Some(Self::OpenAi),
             "anthropic" | "claude" => Some(Self::Anthropic),
+            "cohere" | "command" | "command-a" => Some(Self::Cohere),
             "local" | "ollama" | "vllm" | "localai" => Some(Self::Local),
             _ => None,
         }
@@ -74,6 +79,7 @@ impl LlmProvider {
             Self::Groq => GROQ_API_KEY_ENV,
             Self::OpenAi => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Cohere => COHERE_API_KEY_ENV,
             Self::Local => LOCAL_LLM_API_KEY_ENV,
         }
     }
@@ -84,6 +90,7 @@ impl LlmProvider {
         match self {
             Self::Gemini => Some(LlmProviderType::Gemini),
             Self::Groq => Some(LlmProviderType::Groq),
+            Self::Cohere => Some(LlmProviderType::Cohere),
             Self::Local => Some(LlmProviderType::Local),
             // OpenAI and Anthropic not yet supported in LlmProviderType
             Self::OpenAi | Self::Anthropic => None,

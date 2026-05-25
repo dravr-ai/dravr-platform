@@ -33,7 +33,7 @@ use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 /// Request to save LLM credentials
 #[derive(Debug, Deserialize)]
 pub struct SaveLlmCredentialsRequest {
-    /// Provider name (gemini, groq, local)
+    /// Provider name (gemini, groq, cohere, local)
     pub provider: String,
     /// API key
     pub api_key: String,
@@ -55,7 +55,7 @@ fn default_scope() -> String {
 /// Request to validate LLM credentials (without saving)
 #[derive(Debug, Deserialize)]
 pub struct ValidateLlmCredentialsRequest {
-    /// Provider name (gemini, groq, local)
+    /// Provider name (gemini, groq, cohere, local)
     pub provider: String,
     /// API key to validate
     pub api_key: String,
@@ -219,6 +219,16 @@ impl LlmSettingsRoutes {
             )
             .await,
             Self::build_provider_status(
+                "cohere",
+                "Cohere (Command)",
+                LlmProvider::Cohere,
+                user_id,
+                tenant_id,
+                llm_creds,
+                security,
+            )
+            .await,
+            Self::build_provider_status(
                 "local",
                 "Local LLM (Ollama/vLLM)",
                 LlmProvider::Local,
@@ -249,6 +259,7 @@ impl LlmSettingsRoutes {
                 LlmProviderType::Groq => "Groq",
                 LlmProviderType::Local => "Local LLM",
                 LlmProviderType::OpenRouter => "OpenRouter",
+                LlmProviderType::Cohere => "Cohere (Command)",
                 LlmProviderType::OpenAiApi => "OpenAI API",
                 _ => &name,
             };
@@ -324,7 +335,7 @@ impl LlmSettingsRoutes {
         // Parse provider
         let provider = LlmProvider::parse_str(&request.provider).ok_or_else(|| {
             AppError::invalid_input(format!(
-                "Invalid provider '{}'. Use: gemini, groq, or local",
+                "Invalid provider '{}'. Use: gemini, groq, cohere, or local",
                 request.provider
             ))
         })?;
@@ -410,7 +421,7 @@ impl LlmSettingsRoutes {
         // Parse provider
         let provider = LlmProvider::parse_str(&request.provider).ok_or_else(|| {
             AppError::invalid_input(format!(
-                "Invalid provider '{}'. Use: gemini, groq, or local",
+                "Invalid provider '{}'. Use: gemini, groq, cohere, or local",
                 request.provider
             ))
         })?;
@@ -485,7 +496,7 @@ impl LlmSettingsRoutes {
         // Parse provider
         let provider = LlmProvider::parse_str(&provider_name).ok_or_else(|| {
             AppError::invalid_input(format!(
-                "Invalid provider '{provider_name}'. Use: gemini, groq, or local"
+                "Invalid provider '{provider_name}'. Use: gemini, groq, cohere, or local"
             ))
         })?;
 

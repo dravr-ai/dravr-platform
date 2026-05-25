@@ -34,6 +34,8 @@ pub use pierre_core::llm::{
 pub mod chain_guard;
 /// Embacle-based LLM provider facade wrapping CLI subprocess and SDK runners
 mod cli_llm_provider;
+/// Cohere LLM provider implementation (Command A and Command R family)
+mod cohere;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
 /// Embedding provider abstraction for the coaching harness memory pipeline
@@ -58,6 +60,7 @@ mod provider;
 pub mod sse_parser;
 
 pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
+pub use cohere::CohereProvider;
 pub use embacle::{AgentExecutor, AgentResult, FallbackProvider, MetricsProvider};
 pub use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
