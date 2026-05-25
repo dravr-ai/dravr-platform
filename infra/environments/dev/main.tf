@@ -512,7 +512,7 @@ module "seed_coaches" {
   timeout                  = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["coaches", "--coaches-dir", "/app/coaches"]
+  args    = ["coaches"]
 
   env_vars        = local.seed_env_vars
   secret_env_vars = local.seed_secret_env_vars
