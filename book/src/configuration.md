@@ -312,6 +312,8 @@ PASSWORD_HASH_ALGORITHM=argon2    # argon2 or bcrypt (default: argon2)
 
 ### Fitness Providers
 
+> **Default build providers.** Strava, Garmin, and Whoop are active in the default Cargo feature set; their env vars below are required when those providers are enabled. Terra and Fitbit are **opt-in** behind the `provider-terra` and `provider-fitbit` Cargo features — their env vars only need to be set when those features are compiled in.
+
 #### strava
 
 ```bash

@@ -697,7 +697,7 @@ impl ProviderDescriptor for SciotteDescriptor {
     }
 
     fn display_name(&self) -> &'static str {
-        "Strava — Sciotte"
+        "Strava"
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -734,7 +734,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
     }
 
     fn display_name(&self) -> &'static str {
-        "Garmin Connect — Sciotte"
+        "Garmin"
     }
 
     fn capabilities(&self) -> ProviderCapabilities {

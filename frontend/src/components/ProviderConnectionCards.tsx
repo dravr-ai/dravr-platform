@@ -5,46 +5,28 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import SciotteLoginModal from './SciotteLoginModal';
 
-// Brand colors and hover colors for known providers
+// Brand colors and hover colors for known providers. After the 2026-Q2 provider
+// cleanup the API surfaces only three: `sciotte` (Strava-branded), `sciotte_garmin`
+// (Garmin-branded), and `whoop`. Unknown ids fall back to DEFAULT_STYLE below.
 const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }> = {
-  strava: {
+  sciotte: {
     brandColor: 'bg-[#FC4C02]',
     hoverColor: 'hover:border-[#FC4C02]',
   },
-  fitbit: {
-    brandColor: 'bg-[#00B0B9]',
-    hoverColor: 'hover:border-[#00B0B9]',
-  },
-  garmin: {
+  sciotte_garmin: {
     brandColor: 'bg-[#007CC3]',
     hoverColor: 'hover:border-[#007CC3]',
   },
   whoop: {
     brandColor: 'bg-[#1A1A1A]',
     hoverColor: 'hover:border-[#1A1A1A]',
-  },
-  terra: {
-    brandColor: 'bg-[#22C55E]',
-    hoverColor: 'hover:border-[#22C55E]',
-  },
-  synthetic: {
-    brandColor: 'bg-gradient-to-br boreal-hero-gradient',
-    hoverColor: 'hover:border-primary',
-  },
-  sciotte: {
-    brandColor: 'bg-gradient-to-br from-amber-500 to-orange-600',
-    hoverColor: 'hover:border-amber-500',
-  },
-  sciotte_garmin: {
-    brandColor: 'bg-[#007CC3]',
-    hoverColor: 'hover:border-[#007CC3]',
   },
 };
 
@@ -69,30 +51,20 @@ const getProviderDescription = (provider: ProviderStatus): string => {
   return 'Fitness data';
 };
 
-// SVG icons for each provider - clean and professional
+// SVG icons for each provider - clean and professional. `sciotte` reuses the
+// Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
+// dial. Default falls back to a neutral disc.
 const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
   const baseClass = className || 'w-5 h-5';
 
   switch (providerId) {
-    case 'strava':
+    case 'sciotte':
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
           <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
         </svg>
       );
-    case 'fitbit':
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="4" r="2" />
-          <circle cx="12" cy="10" r="2" />
-          <circle cx="12" cy="16" r="2" />
-          <circle cx="6" cy="7" r="1.5" />
-          <circle cx="6" cy="13" r="1.5" />
-          <circle cx="18" cy="7" r="1.5" />
-          <circle cx="18" cy="13" r="1.5" />
-        </svg>
-      );
-    case 'garmin':
+    case 'sciotte_garmin':
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
@@ -103,24 +75,6 @@ const ProviderIcon = ({ providerId, className }: { providerId: string; className
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 4C7.58 4 4 7.58 4 12s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z" />
           <circle cx="12" cy="12" r="3" />
-        </svg>
-      );
-    case 'terra':
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-        </svg>
-      );
-    case 'sciotte':
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-        </svg>
-      );
-    case 'synthetic':
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H9V5h6v2z" />
         </svg>
       );
     default:
@@ -138,6 +92,8 @@ interface ProviderConnectionCardsProps {
   connectingProvider?: string | null;
   onSkip?: () => void;
   isSkipPending?: boolean;
+  /** Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens. */
+  onOAuthLaunched?: (provider: string) => void;
 }
 
 export default function ProviderConnectionCards({
@@ -145,9 +101,11 @@ export default function ProviderConnectionCards({
   onConnectProvider,
   connectingProvider,
   onSkip,
-  isSkipPending
+  isSkipPending,
+  onOAuthLaunched,
 }: ProviderConnectionCardsProps) {
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const queryClient = useQueryClient();
 
   // Fetch providers from server (includes OAuth and non-OAuth providers)
   const { data: providersData, isLoading, refetch } = useQuery({
@@ -226,7 +184,19 @@ export default function ProviderConnectionCards({
     );
   }
 
-  const providers = providersData?.providers ?? [];
+  // `strava` (official OAuth) is reached exclusively through the Sciotte
+  // modal's "Use my own Strava OAuth app" button, so don't render a second
+  // duplicate card here. Once the user connects via that path, the
+  // `provider_connections` row is `strava` and the `connected` badge appears
+  // on the Sciotte card via the merge below.
+  const stravaOAuthConnection = providersData?.providers?.find((p) => p.provider === 'strava' && p.connected);
+  const providers = (providersData?.providers ?? [])
+    .filter((p) => p.provider !== 'strava')
+    .map((p) =>
+      p.provider === 'sciotte' && stravaOAuthConnection && !p.connected
+        ? { ...p, connected: true }
+        : p,
+    );
 
   return (
     <div className="w-full space-y-2">
@@ -366,8 +336,14 @@ export default function ProviderConnectionCards({
       <SciotteLoginModal
         isOpen={sciotteModalTarget !== null}
         onClose={() => setSciotteModalTarget(null)}
+        onOAuthLaunched={onOAuthLaunched}
         onConnected={() => {
           refetch();
+          // Sciotte completes in-process (no OAuth callback URL), so we have to
+          // explicitly bust the onboarding-status cache here. Without this, the
+          // App-level route guard stays on OnboardingConnectProvider until the
+          // next poll tick (5s), stranding the user on the connected card.
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSciotteModalTarget(null);
           if (onProviderConnected) onProviderConnected();
         }}

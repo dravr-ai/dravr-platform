@@ -50,9 +50,9 @@ describe('OAuthCredentialsSection', () => {
     it('should display configured OAuth apps', async () => {
       const mockApps = [
         {
-          provider: 'strava',
+          provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -61,7 +61,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        expect(getByText('Strava')).toBeTruthy();
+        expect(getByText('WHOOP')).toBeTruthy();
         expect(getByText('Configured')).toBeTruthy();
         expect(getByText('Client ID: 12345678')).toBeTruthy();
       });
@@ -70,9 +70,9 @@ describe('OAuthCredentialsSection', () => {
     it('should mask long client IDs', async () => {
       const mockApps = [
         {
-          provider: 'strava',
+          provider: 'whoop',
           client_id: '1234567890abcdef',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -82,32 +82,6 @@ describe('OAuthCredentialsSection', () => {
 
       await waitFor(() => {
         expect(getByText('Client ID: 12345678...')).toBeTruthy();
-      });
-    });
-
-    it('should display multiple providers', async () => {
-      const mockApps = [
-        {
-          provider: 'strava',
-          client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
-          created_at: '2024-01-01T00:00:00Z',
-        },
-        {
-          provider: 'fitbit',
-          client_id: 'ABCD1234',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/fitbit',
-          created_at: '2024-01-02T00:00:00Z',
-        },
-      ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
-
-      const { getByText, getAllByText } = render(<OAuthCredentialsSection />);
-
-      await waitFor(() => {
-        expect(getByText('Strava')).toBeTruthy();
-        expect(getByText('Fitbit')).toBeTruthy();
-        expect(getAllByText('Configured').length).toBe(2);
       });
     });
   });
@@ -124,12 +98,9 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should hide add button when all providers are configured', async () => {
+      // After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
       const allProviders = [
-        { provider: 'strava', client_id: '1', redirect_uri: '', created_at: '' },
-        { provider: 'fitbit', client_id: '2', redirect_uri: '', created_at: '' },
-        { provider: 'garmin', client_id: '3', redirect_uri: '', created_at: '' },
-        { provider: 'whoop', client_id: '4', redirect_uri: '', created_at: '' },
-        { provider: 'terra', client_id: '5', redirect_uri: '', created_at: '' },
+        { provider: 'whoop', client_id: '1', redirect_uri: '', created_at: '' },
       ];
       (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: allProviders });
 
@@ -213,9 +184,9 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('Select a provider...'));
       });
 
-      // Select Strava
+      // Select WHOOP — BYO-OAuth-app is WHOOP-only after the 2026-Q2 cleanup.
       await waitFor(() => {
-        fireEvent.press(getByText('Strava'));
+        fireEvent.press(getByText('WHOOP'));
       });
 
       // Try to save without client ID
@@ -238,9 +209,9 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('Select a provider...'));
       });
 
-      // Select Strava
+      // Select WHOOP
       await waitFor(() => {
-        fireEvent.press(getByText('Strava'));
+        fireEvent.press(getByText('WHOOP'));
       });
 
       // Enter client ID but not secret
@@ -257,7 +228,7 @@ describe('OAuthCredentialsSection', () => {
       (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
       (userApi.registerUserOAuthApp as jest.Mock).mockResolvedValue({
         success: true,
-        provider: 'strava',
+        provider: 'whoop',
         message: 'Credentials saved',
       });
 
@@ -267,13 +238,13 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('+ Add'));
       });
 
-      // Open provider picker and select Strava
+      // Open provider picker and select WHOOP
       await waitFor(() => {
         fireEvent.press(getByText('Select a provider...'));
       });
 
       await waitFor(() => {
-        fireEvent.press(getByText('Strava'));
+        fireEvent.press(getByText('WHOOP'));
       });
 
       // Fill in the form
@@ -286,14 +257,14 @@ describe('OAuthCredentialsSection', () => {
       });
 
       expect(userApi.registerUserOAuthApp).toHaveBeenCalledWith({
-        provider: 'strava',
+        provider: 'whoop',
         client_id: 'my-client-id',
         client_secret: 'my-client-secret',
-        redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+        redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
       });
 
       await waitFor(() => {
-        expect(Alert.alert).toHaveBeenCalledWith('Success', 'Strava credentials saved successfully');
+        expect(Alert.alert).toHaveBeenCalledWith('Success', 'WHOOP credentials saved successfully');
       });
     });
 
@@ -315,7 +286,7 @@ describe('OAuthCredentialsSection', () => {
       });
 
       await waitFor(() => {
-        fireEvent.press(getByText('Strava'));
+        fireEvent.press(getByText('WHOOP'));
       });
 
       // Fill in the form
@@ -337,9 +308,9 @@ describe('OAuthCredentialsSection', () => {
     it('should show confirmation dialog when remove is pressed', async () => {
       const mockApps = [
         {
-          provider: 'strava',
+          provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -355,7 +326,7 @@ describe('OAuthCredentialsSection', () => {
 
       expect(Alert.alert).toHaveBeenCalledWith(
         'Remove Credentials',
-        expect.stringContaining('Strava'),
+        expect.stringContaining('WHOOP'),
         expect.any(Array)
       );
     });
@@ -363,9 +334,9 @@ describe('OAuthCredentialsSection', () => {
     it('should delete credentials when confirmed', async () => {
       const mockApps = [
         {
-          provider: 'strava',
+          provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -396,15 +367,15 @@ describe('OAuthCredentialsSection', () => {
         });
       }
 
-      expect(userApi.deleteUserOAuthApp).toHaveBeenCalledWith('strava');
+      expect(userApi.deleteUserOAuthApp).toHaveBeenCalledWith('whoop');
     });
 
     it('should not delete when cancel is pressed', async () => {
       const mockApps = [
         {
-          provider: 'strava',
+          provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/strava',
+          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -428,18 +399,11 @@ describe('OAuthCredentialsSection', () => {
   });
 
   describe('provider picker', () => {
-    it('should only show available providers in picker', async () => {
-      const mockApps = [
-        {
-          provider: 'strava',
-          client_id: '12345678',
-          redirect_uri: '',
-          created_at: '',
-        },
-      ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+    it('should show WHOOP in picker when no providers are configured', async () => {
+      // After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
+      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
-      const { getByText, queryByText } = render(<OAuthCredentialsSection />);
+      const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
         fireEvent.press(getByText('+ Add'));
@@ -451,12 +415,7 @@ describe('OAuthCredentialsSection', () => {
       });
 
       await waitFor(() => {
-        // Strava should NOT be in the picker since it's already configured
-        // But other providers should be available
-        expect(getByText('Fitbit')).toBeTruthy();
-        expect(getByText('Garmin')).toBeTruthy();
         expect(getByText('WHOOP')).toBeTruthy();
-        expect(getByText('Terra')).toBeTruthy();
       });
     });
 
@@ -474,14 +433,14 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('Select a provider...'));
       });
 
-      // Select Fitbit
+      // Select WHOOP
       await waitFor(() => {
-        fireEvent.press(getByText('Fitbit'));
+        fireEvent.press(getByText('WHOOP'));
       });
 
       // Check that redirect URI was updated (displayed as Text, not Input)
       await waitFor(() => {
-        expect(getByText('https://pierre.fit/api/oauth/callback/fitbit')).toBeTruthy();
+        expect(getByText('https://pierre.fit/api/oauth/callback/whoop')).toBeTruthy();
       });
     });
   });

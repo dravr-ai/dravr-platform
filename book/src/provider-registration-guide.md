@@ -3,6 +3,8 @@
 
 # provider registration guide
 
+> **Active provider set.** The default Dravr build ships with **Strava, Garmin, and Whoop** as the active providers. Fitbit, Terra, and COROS examples below are opt-in via the Cargo features `provider-fitbit`, `provider-terra`, and `provider-coros` and are **not** part of the default build. The registration mechanics shown in this guide apply identically to all of them.
+
 This guide shows how pierre's pluggable provider architecture supports **1 to x providers simultaneously** and how new providers are registered.
 
 ## provider registration flow

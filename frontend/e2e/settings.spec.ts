@@ -619,14 +619,12 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
+    // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
+    // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`.
     const testProviders = [
-      { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-      { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-      { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-      { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
@@ -635,39 +633,28 @@ test.describe('Settings Page - User Mode', () => {
 
     // Verify provider names are rendered (exact match avoids description text collisions)
     await expect(page.getByText('Strava', { exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Fitbit', { exact: true })).toBeVisible();
     await expect(page.getByText('Garmin', { exact: true })).toBeVisible();
     await expect(page.getByText('WHOOP', { exact: true })).toBeVisible();
-    await expect(page.getByText('Terra', { exact: true })).toBeVisible();
-    await expect(page.getByText('Synthetic', { exact: true })).toBeVisible();
-    await expect(page.getByText('Synthetic Sleep', { exact: true })).toBeVisible();
   });
 
-  test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
+  test('data providers tab shows Connect affordance for all surfaced providers', async ({ page }) => {
+    // After the 2026-Q2 provider cleanup all surfaced providers are connectable:
+    // sciotte / sciotte_garmin via credential login, whoop via OAuth.
     const testProviders = [
-      { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-      { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-      { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
-    // OAuth providers should have Connect buttons
+    // All three providers should have Connect buttons
     const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
     await expect(connectButtons.first()).toBeVisible({ timeout: 5000 });
     const connectCount = await connectButtons.count();
-    expect(connectCount).toBe(5);
-
-    // Manual providers should show "Manual" badge
-    const manualBadges = page.getByText('Manual', { exact: true });
-    const manualCount = await manualBadges.count();
-    expect(manualCount).toBe(2);
+    expect(connectCount).toBe(3);
   });
 
   test('tokens tab shows setup instructions button for Claude and ChatGPT', async ({ page }) => {

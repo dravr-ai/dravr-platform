@@ -93,12 +93,13 @@ export function OnboardingConnectScreen() {
   };
 
   const renderProvider = (provider: ExtendedProviderStatus) => {
+    // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
+    // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown
+    // ids fall back to a neutral slate tile.
     const config: Record<string, { color: string; icon: string; description: string }> = {
-      strava: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, swimming' },
-      garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities + health metrics' },
-      fitbit: { color: PROVIDER_COLORS.fitbit, icon: 'F', description: 'Activity, sleep, heart rate' },
+      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, swimming' },
+      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities + health metrics' },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, sleep' },
-      terra: { color: PROVIDER_COLORS.terra, icon: 'T', description: 'Multiple fitness platforms' },
     };
     const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: 'Fitness data' };
     const isConnecting = connectingProvider === provider.provider;
@@ -162,7 +163,7 @@ export function OnboardingConnectScreen() {
         )}
 
         <Text className="text-xs text-text-tertiary text-center mt-6">
-          We use the OAuth flow from your provider — Dravr never sees your username or password.
+          Your credentials are encrypted at rest and used only to fetch your activity data.
         </Text>
       </ScrollView>
     </SafeAreaView>

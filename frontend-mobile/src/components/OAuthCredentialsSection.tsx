@@ -17,11 +17,7 @@ import { userApi } from '../services/api';
 import type { OAuthApp, OAuthProvider } from '../types';
 
 const PROVIDERS: OAuthProvider[] = [
-  { id: 'strava', name: 'Strava', color: PROVIDER_COLORS.strava },
-  { id: 'fitbit', name: 'Fitbit', color: PROVIDER_COLORS.fitbit },
-  { id: 'garmin', name: 'Garmin', color: PROVIDER_COLORS.garmin },
   { id: 'whoop', name: 'WHOOP', color: PROVIDER_COLORS.whoop },
-  { id: 'terra', name: 'Terra', color: PROVIDER_COLORS.terra },
 ];
 
 const DEFAULT_REDIRECT_URI = 'https://pierre.fit/api/oauth/callback';
