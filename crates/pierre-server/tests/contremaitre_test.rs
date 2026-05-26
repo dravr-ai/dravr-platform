@@ -10,6 +10,7 @@
 #![allow(missing_docs)]
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use pierre_contremaitre::errors::ContremaitreError;
 use pierre_contremaitre::manifest::{
@@ -708,6 +709,21 @@ const EXPECTED_TOOLS: &[&str] = &[
     "verify_claim",
 ];
 
+/// Recursively collect every file path under `dir`. Pulled out of the
+/// extractor so `clippy::items_after_statements` (pedantic) doesn't fire on
+/// a nested item declaration following local `let` bindings.
+fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("read implementations dir") {
+        let entry = entry.expect("dir entry");
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_files(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
+}
+
 /// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions
 /// in all `.rs` files under the given directory (recursive).
 fn extract_tool_names_from_source(dir: &Path) -> HashSet<String> {
@@ -716,20 +732,8 @@ fn extract_tool_names_from_source(dir: &Path) -> HashSet<String> {
     )
     .expect("valid regex");
 
-    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-        for entry in fs::read_dir(dir).expect("read implementations dir") {
-            let entry = entry.expect("dir entry");
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, out);
-            } else {
-                out.push(path);
-            }
-        }
-    }
-
     let mut files = Vec::new();
-    walk(dir, &mut files);
+    collect_rs_files(dir, &mut files);
 
     let mut names = HashSet::new();
     for path in files {
