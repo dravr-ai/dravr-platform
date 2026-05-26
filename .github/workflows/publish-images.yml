@@ -337,26 +337,56 @@ jobs:
             --wait
 
       - name: Run remaining seed jobs
+        # Bash `wait $PIDS` returns the exit status of the LAST waited PID
+        # only — earlier failures are silently dropped. That's how the
+        # 2026-05-01 seed-coaches breakage (c6630e46) hid for 3.5 weeks:
+        # seed-coaches exit-1, seed-mobility exit-0, `wait` returns mobility's
+        # status, step "succeeds." Fix: `wait $PID` per PID, capture per-job
+        # exit codes, fail the step if ANY job failed.
         run: |
           REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
           SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}"
 
+          declare -A JOB_PIDS
+
           gcloud run jobs execute "${SERVICE}-seed-coaches" --region="${REGION}" --wait &
-          PID_COACHES=$!
+          JOB_PIDS[seed-coaches]=$!
 
           gcloud run jobs execute "${SERVICE}-seed-mobility" --region="${REGION}" --wait &
-          PID_MOBILITY=$!
-
-          PIDS="$PID_COACHES $PID_MOBILITY"
+          JOB_PIDS[seed-mobility]=$!
 
           if [ "${{ vars.ENABLE_SYNTHETIC_SEED }}" = "true" ]; then
             gcloud run jobs execute "${SERVICE}-seed-synthetic" --region="${REGION}" --wait &
-            PIDS="$PIDS $!"
+            JOB_PIDS[seed-synthetic]=$!
           else
             echo "Skipping seed-synthetic (ENABLE_SYNTHETIC_SEED != true)"
           fi
 
-          wait $PIDS
+          # Wait for each PID individually and capture its exit code; bash's
+          # multi-arg `wait` only returns the last status, which loses all the
+          # earlier ones. Collect failures and fail the step at the end.
+          FAILED_JOBS=()
+          for JOB in "${!JOB_PIDS[@]}"; do
+            PID="${JOB_PIDS[$JOB]}"
+            if wait "$PID"; then
+              echo "${JOB} (PID ${PID}) completed successfully"
+            else
+              EXIT_CODE=$?
+              echo "${JOB} (PID ${PID}) failed with exit code ${EXIT_CODE}"
+              FAILED_JOBS+=("${JOB}")
+            fi
+          done
+
+          if [ "${#FAILED_JOBS[@]}" -gt 0 ]; then
+            echo ""
+            echo "Seed job(s) failed: ${FAILED_JOBS[*]}"
+            echo "Inspect logs:"
+            for JOB in "${FAILED_JOBS[@]}"; do
+              echo "  gcloud run jobs executions list --job=${SERVICE}-${JOB} --region=${REGION} --limit=1"
+            done
+            exit 1
+          fi
+
           echo "All seed jobs completed successfully"
 
   # ---------------------------------------------------------------------------
