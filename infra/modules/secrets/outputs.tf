@@ -21,6 +21,8 @@ output "secret_ids" {
     admin_password                   = google_secret_manager_secret.admin_password.secret_id
     strava_client_id                 = google_secret_manager_secret.strava_client_id.secret_id
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.secret_id
+    whoop_client_id                  = google_secret_manager_secret.whoop_client_id.secret_id
+    whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.secret_id
     fitbit_client_secret             = google_secret_manager_secret.fitbit_client_secret.secret_id
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.secret_id
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.secret_id
@@ -56,6 +58,8 @@ output "secret_names" {
     admin_password                   = google_secret_manager_secret.admin_password.name
     strava_client_id                 = google_secret_manager_secret.strava_client_id.name
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.name
+    whoop_client_id                  = google_secret_manager_secret.whoop_client_id.name
+    whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.name
     fitbit_client_secret             = google_secret_manager_secret.fitbit_client_secret.name
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.name
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.name

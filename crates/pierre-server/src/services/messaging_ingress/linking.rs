@@ -6,6 +6,7 @@
 
 use std::str::FromStr;
 
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
@@ -164,7 +165,24 @@ pub(super) async fn link_time_reply(
                     .flatten()
                     .filter(|l| !l.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
-                reg.get(key, &locale)
+                // Mirror `build_auth_denial_reply`: NoProviderConnected
+                // carries a `{0}` URL placeholder, every other status code
+                // is no-arg. Keeps the two render paths in sync so a future
+                // gate addition here doesn't leak literal `{0}` to users.
+                if e.code == ErrorCode::NoProviderConnected {
+                    let connect_url = format!(
+                        "{}/providers",
+                        resources
+                            .common
+                            .config
+                            .frontend_url
+                            .as_deref()
+                            .unwrap_or(&resources.common.config.base_url)
+                    );
+                    reg.render(key, &locale, &[&connect_url])
+                } else {
+                    reg.get(key, &locale)
+                }
             } else {
                 // Operator-category failure (DB blip, etc.). Log and fall
                 // back to the link-success template — the link is real, the

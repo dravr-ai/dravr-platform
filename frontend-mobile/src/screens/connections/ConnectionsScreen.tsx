@@ -21,6 +21,7 @@ import { Modal } from 'react-native';
 import { Card, DragIndicator } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
+import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
@@ -37,6 +38,16 @@ export function ConnectionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
+  // Whoop is BYO-OAuth-app: users register their own developer app at
+  // developer.whoop.com and paste client_id/secret before the OAuth dance can
+  // run. Rather than fall through the generic credentials Settings sheet, open
+  // the provider-aware setup modal in-place so first-touch users never need to
+  // navigate elsewhere. Mirrors the web onboarding flow.
+  const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // Tracks the "Provider connected — preparing your dashboard…" state shown
+  // after a successful OAuth completes. Replaces the legacy Alert.alert success
+  // dialog and lines the UX up with the web onboarding screen.
+  const [justConnected, setJustConnected] = useState<string | null>(null);
 
   const loadConnectionStatus = useCallback(async () => {
     try {
@@ -59,6 +70,16 @@ export function ConnectionsScreen() {
       loadConnectionStatus();
     }
   }, [isAuthenticated, loadConnectionStatus]);
+
+  // Safety net: auto-clear the post-connect spinner after 6 seconds so the
+  // user is never pinned on it. The connection-status refetch normally
+  // resolves the visible state long before this fires; the timeout just
+  // prevents a hung state if anything stalls.
+  useEffect(() => {
+    if (!justConnected) return undefined;
+    const timer = setTimeout(() => setJustConnected(null), 6000);
+    return () => clearTimeout(timer);
+  }, [justConnected]);
 
   const handleConnect = async (providerId: string, providerName: string) => {
     try {
@@ -95,16 +116,19 @@ export function ConnectionsScreen() {
         const error = parsedUrl.queryParams?.error as string | undefined;
 
         if (success) {
-          // OAuth completed successfully - refresh connection status
+          // OAuth completed successfully — refresh status and show the
+          // post-connect spinner. Mirrors the web onboarding UX so the
+          // moment of triumph isn't a modal alert the user has to dismiss.
           await loadConnectionStatus();
-          Alert.alert('Success', `Connected to ${providerName} successfully!`);
+          setJustConnected(providerName);
         } else if (error) {
           console.error('OAuth error from server:', error);
           Alert.alert('Connection Failed', `Failed to connect: ${error}`);
         } else {
-          // No explicit success/error - refresh status to check
+          // No explicit success/error in the callback — refresh status to
+          // see whether the row landed anyway, and surface the spinner if so.
           await loadConnectionStatus();
-          Alert.alert('Connection Complete', `${providerName} connection flow completed.`);
+          setJustConnected(providerName);
         }
       } else if (result.type === 'cancel') {
         console.log('OAuth cancelled by user');
@@ -211,6 +235,12 @@ export function ConnectionsScreen() {
               onPress={() => {
                 if (isSciotte) {
                   setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                } else if (provider.provider === 'whoop') {
+                  // Whoop is BYO: open the setup modal first; OAuth fires once
+                  // the user saves valid client_id/secret. Skipping the
+                  // speculative OAuth attempt removes a confusing
+                  // "Configuration error" toast on first-touch.
+                  setShowWhoopSetup(true);
                 } else {
                   handleConnect(provider.provider, provider.display_name);
                 }
@@ -325,6 +355,42 @@ export function ConnectionsScreen() {
               <Text className="text-base text-text-tertiary">Close</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      </Modal>
+
+      <OAuthAppSetupModal
+        visible={showWhoopSetup}
+        onClose={() => setShowWhoopSetup(false)}
+        onSaved={() => {
+          setShowWhoopSetup(false);
+          // BYO credentials are persisted; now kick off the standard OAuth
+          // dance. handleConnect() will set justConnected on success which
+          // surfaces the post-connect spinner.
+          void handleConnect('whoop', 'WHOOP');
+        }}
+        provider="whoop"
+        displayName="WHOOP"
+        devPortalUrl="https://developer.whoop.com/"
+      />
+
+      <Modal
+        visible={justConnected !== null}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setJustConnected(null)}
+      >
+        <View className="flex-1 bg-background-primary items-center justify-center px-8">
+          <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+          <Text className="mt-4 text-base font-medium text-text-primary text-center">
+            {justConnected} connected — preparing your dashboard…
+          </Text>
+          <TouchableOpacity
+            className="mt-8 px-6 py-3"
+            onPress={() => setJustConnected(null)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text className="text-sm text-text-tertiary">Dismiss</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>

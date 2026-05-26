@@ -15,12 +15,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X } from 'lucide-react-native';
+import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key } from 'lucide-react-native';
 import { glassCard, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
+import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
+import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 
 type LoginPhase =
   | 'choose'
@@ -103,6 +108,9 @@ export function SciotteLoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Toggles the BYO Strava OAuth-app setup modal. Strava-only — Garmin doesn't
+  // expose a public OAuth app for end users (only sciotte's headless login).
+  const [showStravaBYO, setShowStravaBYO] = useState(false);
 
   const brandColor = target === 'garmin' ? BRAND_COLORS.garmin : BRAND_COLORS.strava;
   const platformName = target === 'garmin' ? 'Garmin Connect' : 'Strava';
@@ -126,6 +134,42 @@ export function SciotteLoginModal({
     setPhase('credentials');
     setError(null);
   };
+
+  // After the BYO setup modal saves, kick off the official Strava OAuth dance
+  // through ASWebAuthenticationSession. Mirrors the web flow in
+  // `SciotteLoginModal.onSaved` (see frontend/) — credentials persisted on
+  // the server, OAuth consent screen handles the rest. The Sciotte modal
+  // closes as soon as Strava redirects back with success.
+  const launchStravaOAuthFromBYO = useCallback(async () => {
+    setShowStravaBYO(false);
+    try {
+      const returnUrl = getOAuthCallbackUrl();
+      const oauthResponse = await oauthApi.initMobileOAuth('strava', returnUrl);
+      const result = await WebBrowser.openAuthSessionAsync(
+        oauthResponse.authorization_url,
+        returnUrl,
+      );
+      if (result.type === 'success' && result.url) {
+        if (!result.url.startsWith(returnUrl)) {
+          Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+          return;
+        }
+        const parsed = Linking.parse(result.url);
+        const success = parsed.queryParams?.success === 'true';
+        const oauthError = parsed.queryParams?.error as string | undefined;
+        if (success) {
+          onConnected();
+          onClose();
+        } else if (oauthError) {
+          Alert.alert('Connection Failed', `Strava error: ${oauthError}`);
+        }
+      }
+      // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to launch Strava OAuth';
+      Alert.alert('Connection Failed', message);
+    }
+  }, [onConnected, onClose]);
 
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
@@ -297,6 +341,37 @@ export function SciotteLoginModal({
               </TouchableOpacity>
             );
           })}
+
+          {target === 'strava' ? (
+            <TouchableOpacity
+              onPress={() => setShowStravaBYO(true)}
+              activeOpacity={0.7}
+              className="mt-1"
+            >
+              <View
+                className="flex-row items-center rounded-xl px-5 py-4 border"
+                style={{
+                  backgroundColor: colors.background.secondary,
+                  borderColor: colors.border.default,
+                }}
+              >
+                <View
+                  className="w-10 h-10 rounded-xl items-center justify-center mr-4"
+                  style={{ backgroundColor: `${BRAND_COLORS.strava.primary}20` }}
+                >
+                  <Key size={20} color={BRAND_COLORS.strava.primary} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-text-primary">
+                    Use my own Strava OAuth app
+                  </Text>
+                  <Text className="text-xs mt-0.5 text-text-tertiary">
+                    For users with a registered Strava developer app
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ) : null}
 
           <Text className="text-xs text-text-tertiary text-center mt-2 px-4">
             Dravr uses a secure browser session to connect your account. Your credentials are never stored.
@@ -555,6 +630,7 @@ export function SciotteLoginModal({
   };
 
   return (
+    <>
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -629,5 +705,15 @@ export function SciotteLoginModal({
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
+
+    <OAuthAppSetupModal
+      visible={showStravaBYO}
+      onClose={() => setShowStravaBYO(false)}
+      onSaved={launchStravaOAuthFromBYO}
+      provider="strava"
+      displayName="Strava"
+      devPortalUrl="https://www.strava.com/settings/api"
+    />
+    </>
   );
 }
