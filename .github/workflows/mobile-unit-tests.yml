@@ -9,7 +9,7 @@ name: "CI: Mobile Unit"
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'

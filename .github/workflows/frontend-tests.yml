@@ -2,7 +2,7 @@ name: "CI: Web Frontend"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'frontend/**'
       - 'packages/**'

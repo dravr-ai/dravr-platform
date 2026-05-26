@@ -5,7 +5,7 @@ name: "Security: MCP Tool Scan"
 
 on:
   push:
-    branches: [ "main", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - '.mcp.json'
       - '.claude/skills/**'
