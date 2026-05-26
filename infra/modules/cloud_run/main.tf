@@ -132,6 +132,19 @@ resource "google_cloud_run_v2_service" "service" {
     }
   }
 
+  # Always route 100% of traffic to the latest ready revision. Without this
+  # block, the provider preserves whatever traffic state currently exists in
+  # GCP — meaning a one-off `gcloud run services update-traffic --to-revisions=...=100`
+  # (run for diagnostics or a quick revision-pin) sticks across subsequent
+  # `terraform apply`s and across GitHub Actions deploys (which use the v1
+  # `deploy-cloudrun` API and don't touch traffic). The frontend service has
+  # always used this implicitly via `latestRevision: true`; this block
+  # codifies the same contract for every service the module produces.
+  traffic {
+    type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
+    percent = 100
+  }
+
   # Disable IAM-based invoker checks for public access (bypasses org policy restrictions on allUsers)
   invoker_iam_disabled = var.allow_unauthenticated
 
