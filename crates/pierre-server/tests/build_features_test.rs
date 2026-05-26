@@ -97,6 +97,11 @@ fn server_production_includes_runtime_dependencies() {
     //     (crates/pierre-server/src/mcp/resources.rs)
     //   - Without it, every chat turn emits the "health-sync feature
     //     not enabled" warning and provider data goes stale silently.
+    //
+    // Provider list pinned to the active production set after a3ecd1b6
+    // narrowed server-production from `production-providers` (umbrella)
+    // to the three providers actually wired into the UI: Strava, Whoop,
+    // Sciotte. Adding a new shipping provider means adding it here.
     assert_profile_contains(
         "server-production",
         &[
@@ -105,7 +110,9 @@ fn server_production_includes_runtime_dependencies() {
             "client-all",
             "client-messaging",
             "oauth",
-            "production-providers",
+            "provider-strava",
+            "provider-whoop",
+            "provider-sciotte",
             "tools-all",
             "toon",
             "health-sync",
@@ -120,12 +127,18 @@ fn server_full_includes_runtime_dependencies() {
     // server-full is the dev default; if it ever drops health-sync we
     // also want a screaming failure rather than silently degraded local
     // development.
+    //
+    // Provider list mirrors server-production after a3ecd1b6 — both
+    // ship the same Strava/Whoop/Sciotte trio rather than the broader
+    // `all-providers` umbrella the old shape used.
     assert_profile_contains(
         "server-full",
         &[
             "protocol-all",
             "transport-all",
-            "all-providers",
+            "provider-strava",
+            "provider-whoop",
+            "provider-sciotte",
             "health-sync",
             "contremaitre",
         ],
@@ -135,9 +148,9 @@ fn server_full_includes_runtime_dependencies() {
 #[test]
 fn server_production_and_server_full_share_health_sync() {
     // Regression pin: server-production was missing health-sync from
-    // 65c4cd5e (Feb 2026) until commit landing 2026-05-21. The two
-    // profiles diverge intentionally on `all-providers` vs
-    // `production-providers`, but health-sync MUST be in both.
+    // 65c4cd5e (Feb 2026) until commit landing 2026-05-21. Both
+    // profiles ship the same shipping providers post-a3ecd1b6, but
+    // health-sync MUST be in both.
     let prod = profile_features("server-production").unwrap_or_default();
     let full = profile_features("server-full").unwrap_or_default();
     assert!(
