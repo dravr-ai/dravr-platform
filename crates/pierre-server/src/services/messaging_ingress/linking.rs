@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
+    KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
 };
 use pierre_services::analytics::{analytics, hash_id};
 use pierre_services::user_status_gate::messaging_key_for_status;
@@ -166,9 +167,10 @@ pub(super) async fn link_time_reply(
                     .filter(|l| !l.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
                 // Mirror `build_auth_denial_reply`: NoProviderConnected
-                // carries a `{0}` URL placeholder, every other status code
-                // is no-arg. Keeps the two render paths in sync so a future
-                // gate addition here doesn't leak literal `{0}` to users.
+                // carries a `{0}` URL placeholder and a `{1}` email when
+                // resolvable from the channel link. Keeps the two render
+                // paths in sync so a future gate addition here doesn't
+                // leak literal `{0}`/`{1}` to users.
                 if e.code == ErrorCode::NoProviderConnected {
                     let connect_url = format!(
                         "{}/providers",
@@ -179,7 +181,17 @@ pub(super) async fn link_time_reply(
                             .as_deref()
                             .unwrap_or(&resources.common.config.base_url)
                     );
-                    reg.render(key, &locale, &[&connect_url])
+                    let email =
+                        super::resolve_channel_user_email(resources, tenant_id, channel, sender_id)
+                            .await;
+                    match email {
+                        Some(email) => reg.render(
+                            KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+                            &locale,
+                            &[&connect_url, &email],
+                        ),
+                        None => reg.render(key, &locale, &[&connect_url]),
+                    }
                 } else {
                     reg.get(key, &locale)
                 }
