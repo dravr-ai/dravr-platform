@@ -14,6 +14,7 @@ use common::{create_test_server_resources, create_test_user_with_email, generate
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_social::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_social::GroupRoutes;
 
 use axum::http::StatusCode;
@@ -49,9 +50,14 @@ async fn setup_single_user() -> (axum::Router, String, String, String) {
         .await
         .unwrap();
     let auth = format!("Bearer {}", generate_test_token(&res, &u).await);
+    // GroupAnalyticsRoutes ({stats,report,health}) mounts separately from GroupRoutes
+    // in production (multitenant.rs); tests must mirror the composition root or
+    // those three endpoints 404. See group_analytics.rs:54 — needs ToolRuntime +
+    // SocialCtx + MiddlewareCtx (ServerContext satisfies all three).
     let router = build_coaches_router::<ServerContext>()
         .with_state(Arc::clone(&res))
-        .merge(GroupRoutes::routes(Arc::clone(&res)));
+        .merge(GroupRoutes::routes(Arc::clone(&res)))
+        .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
     let cid = create_test_coach(&router, &auth).await;
     (router, auth, uid.to_string(), cid)
 }
@@ -82,7 +88,8 @@ async fn setup_two_users() -> (axum::Router, String, String, String, String, Str
     );
     let router = build_coaches_router::<ServerContext>()
         .with_state(Arc::clone(&res))
-        .merge(GroupRoutes::routes(Arc::clone(&res)));
+        .merge(GroupRoutes::routes(Arc::clone(&res)))
+        .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
     let cid = create_test_coach(&router, &a1).await;
     (router, a1, a2, u1id.to_string(), u2id.to_string(), cid)
 }
