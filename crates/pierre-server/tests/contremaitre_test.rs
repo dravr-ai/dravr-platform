@@ -709,23 +709,37 @@ const EXPECTED_TOOLS: &[&str] = &[
 ];
 
 /// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions
-/// in all `.rs` files under the given directory.
+/// in all `.rs` files under the given directory (recursive).
 fn extract_tool_names_from_source(dir: &Path) -> HashSet<String> {
     let re = regex::Regex::new(
         r#"fn\s+name\s*\(\s*&\s*self\s*\)\s*->\s*&\s*'static\s+str\s*\{\s*"([a-z_][a-z0-9_]*)"\s*\}"#,
     )
     .expect("valid regex");
 
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in fs::read_dir(dir).expect("read implementations dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    walk(dir, &mut files);
+
     let mut names = HashSet::new();
-    for entry in fs::read_dir(dir).expect("read implementations dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
+    for path in files {
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        if path.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
-            continue;
-        }
+        // NOTE: mod.rs files are scanned (unlike the pre-#13 version) because
+        // post-decomp some categories — analytics, sleep, recipes — host
+        // their McpTool impls in `<category>/mod.rs`. Skipping them missed
+        // AnalyzeActivityTool, CompareActivitiesTool, etc. entirely.
         let source = fs::read_to_string(&path).expect("read rust source");
         for cap in re.captures_iter(&source) {
             names.insert(cap[1].to_owned());
@@ -740,8 +754,19 @@ fn test_expected_tools_matches_rust_source() {
     // tools registered in pierre-server. If this fails, either:
     //   - A new tool was added: update EXPECTED_TOOLS and add a YAML to dravr-contremaitre
     //   - A tool was removed: delete from EXPECTED_TOOLS and from dravr-contremaitre
-    let impl_dir = Path::new("src/tools/implementations");
-    let found = extract_tool_names_from_source(impl_dir);
+    // Tool impls live in two places post-#8/#13 reorganization:
+    //   1. `pierre-tool-runtime/src/implementations/` — the bulk (analytics,
+    //      data, sleep, recipes, coaches, mobility, goals, nutrition,
+    //      configuration, admin, memory, fitness_config, store, sync, etc.)
+    //   2. `pierre-server/src/tools/implementations/` — endurance_*.rs tools
+    //      that stayed in pierre-server because of cross-crate coupling
+    //      (export_dossier, export_intervals, export_latest_snapshot,
+    //      export_routes, extract_activity_streams, compute_training_history,
+    //      get_training_history).
+    let runtime_dir = Path::new("../pierre-tool-runtime/src/implementations");
+    let server_dir = Path::new("src/tools/implementations");
+    let mut found = extract_tool_names_from_source(runtime_dir);
+    found.extend(extract_tool_names_from_source(server_dir));
     let expected: HashSet<String> = EXPECTED_TOOLS.iter().map(|s| (*s).to_owned()).collect();
 
     let missing_from_list: Vec<_> = found.difference(&expected).cloned().collect();
