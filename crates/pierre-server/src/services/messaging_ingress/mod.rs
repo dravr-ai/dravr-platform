@@ -828,11 +828,33 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
             .flatten()
             .filter(|l| !l.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
-        inputs
-            .resources
-            .mcp
-            .messaging_strings_registry
-            .get(key, &locale)
+        // NoProviderConnected carries a `{0}` placeholder for the dravr web
+        // connect URL — render with args so the chat reply contains a working
+        // link to the provider-connection page. Other status denials
+        // (Pending/Suspended) have no template args.
+        if inputs.err.code == ErrorCode::NoProviderConnected {
+            let connect_url = format!(
+                "{}/providers",
+                inputs
+                    .resources
+                    .common
+                    .config
+                    .frontend_url
+                    .as_deref()
+                    .unwrap_or(&inputs.resources.common.config.base_url)
+            );
+            inputs
+                .resources
+                .mcp
+                .messaging_strings_registry
+                .render(key, &locale, &[&connect_url])
+        } else {
+            inputs
+                .resources
+                .mcp
+                .messaging_strings_registry
+                .get(key, &locale)
+        }
     } else {
         inputs
             .err

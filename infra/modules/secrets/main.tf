@@ -182,6 +182,51 @@ resource "google_secret_manager_secret_version" "strava_client_id_placeholder" {
   }
 }
 
+# WHOOP central OAuth app. When real values land in the version
+# (`gcloud secrets versions add`), the platform's
+# `try_whoop_config_credentials` (crates/pierre-auth/.../oauth_manager.rs)
+# picks them up identically to Strava and Whoop becomes 1-step for every
+# user. Until then the BYO modal on web/mobile stays as the only path.
+resource "google_secret_manager_secret" "whoop_client_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-whoop-client-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "whoop_client_id_placeholder" {
+  secret      = google_secret_manager_secret.whoop_client_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "whoop_client_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-whoop-client-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "whoop_client_secret_placeholder" {
+  secret      = google_secret_manager_secret.whoop_client_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "gemini_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-gemini-api-key"

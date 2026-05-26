@@ -396,14 +396,21 @@ module "backend" {
     PIERRE_MASTER_ENCRYPTION_KEY = module.secrets.secret_ids["encryption_key"]
     STRAVA_CLIENT_ID             = module.secrets.secret_ids["strava_client_id"]
     STRAVA_CLIENT_SECRET         = module.secrets.secret_ids["strava_client_secret"]
-    USDA_API_KEY                 = module.secrets.secret_ids["usda_api_key"]
-    GEMINI_API_KEY               = module.secrets.secret_ids["gemini_api_key"]
-    COHERE_API_KEY               = module.secrets.secret_ids["cohere_api_key"]
-    COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
-    CLAUDE_CODE_OAUTH_TOKEN      = module.secrets.secret_ids["claude_code_oauth_token"]
-    OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
-    RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
-    POSTHOG_API_KEY              = module.secrets.secret_ids["posthog_api_key"]
+    # WHOOP central OAuth app credentials. Empty until secrets are populated
+    # out-of-band (`gcloud secrets versions add ...`); Cloud Run sees the
+    # placeholder string, the OAuth manager logs the "no credentials" warn,
+    # and the platform falls back to BYO (web/mobile setup modals). Once a
+    # real version lands, Whoop becomes 1-step identical to Strava.
+    WHOOP_CLIENT_ID         = module.secrets.secret_ids["whoop_client_id"]
+    WHOOP_CLIENT_SECRET     = module.secrets.secret_ids["whoop_client_secret"]
+    USDA_API_KEY            = module.secrets.secret_ids["usda_api_key"]
+    GEMINI_API_KEY          = module.secrets.secret_ids["gemini_api_key"]
+    COHERE_API_KEY          = module.secrets.secret_ids["cohere_api_key"]
+    COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
+    CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
+    OPENWEATHER_API_KEY     = module.secrets.secret_ids["openweather_api_key"]
+    RESEND_API_KEY          = module.secrets.secret_ids["resend_api_key"]
+    POSTHOG_API_KEY         = module.secrets.secret_ids["posthog_api_key"]
 
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]
