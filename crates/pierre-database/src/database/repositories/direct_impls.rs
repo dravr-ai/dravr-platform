@@ -1754,7 +1754,11 @@ impl CoachesRepository for Database {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
+        // Column order matches `CoachesManager::get_coach_runtime_context`
+        // in `coaches/versions.rs` — keep in lock-step.
         type Row = (
+            Option<String>,
+            String,
             String,
             Option<String>,
             Option<String>,
@@ -1763,7 +1767,7 @@ impl CoachesRepository for Database {
             String,
         );
         let row: Option<Row> = sqlx::query_as(
-            r"SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
+            r"SELECT slug, source, system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
             FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
         .bind(coach_id)
@@ -1773,6 +1777,8 @@ impl CoachesRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
         Ok(row.map(
             |(
+                slug,
+                source,
                 system_prompt,
                 startup_query,
                 data_requirements,
@@ -1781,6 +1787,8 @@ impl CoachesRepository for Database {
                 category,
             )| {
                 CoachRuntimeContext {
+                    slug: slug.unwrap_or_default(),
+                    source,
                     system_prompt,
                     startup_query,
                     data_requirements,

@@ -12,4 +12,5 @@ pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;
 pub mod synthetic_data;
+#[cfg(feature = "provider-synthetic")]
 pub mod test_utils;

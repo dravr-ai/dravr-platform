@@ -18,9 +18,15 @@ use super::{compute_content_hash, row_to_coach, CoachesManager};
 /// sqlx row shape for [`CoachRuntimeContext`] lookups.
 ///
 /// Ordering matches the SELECT list in [`CoachesManager::get_coach_runtime_context`]:
-/// `system_prompt`, `startup_query`, `data_requirements`, `max_tool_iterations`,
-/// `temperature`, `category`.
+/// `slug`, `source`, `system_prompt`, `startup_query`, `data_requirements`,
+/// `max_tool_iterations`, `temperature`, `category`.
+///
+/// `slug` is nullable in the schema (legacy custom coaches predate the
+/// column); the loader maps `NULL` to an empty string so the registry
+/// lookup short-circuits to the DB fallback for those rows.
 type CoachRuntimeRow = (
+    Option<String>,
+    String,
     String,
     Option<String>,
     Option<String>,
@@ -380,7 +386,7 @@ impl CoachesManager {
     ) -> AppResult<Option<CoachRuntimeContext>> {
         let row: Option<CoachRuntimeRow> = sqlx::query_as(
             r"
-            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
+            SELECT slug, source, system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = 1)
@@ -395,6 +401,8 @@ impl CoachesManager {
 
         Ok(row.map(
             |(
+                slug,
+                source,
                 system_prompt,
                 startup_query,
                 data_requirements,
@@ -403,6 +411,8 @@ impl CoachesManager {
                 category,
             )| {
                 CoachRuntimeContext {
+                    slug: slug.unwrap_or_default(),
+                    source,
                     system_prompt,
                     startup_query,
                     data_requirements,
