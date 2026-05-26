@@ -111,6 +111,17 @@ enum Command {
         action: commands::seed::SeedCommand,
     },
 
+    /// Drift detection between contremaitre source files and the prod DB
+    ///
+    /// Background: the seed-coaches Cloud Run job silently exit-1'd for 3.5
+    /// weeks after c6630e46 (2026-05-01) and nothing caught it. This command
+    /// is the daily drift gate — Cloud Run runs `check-drift coaches`,
+    /// non-zero exit triggers the `dravr-mcp-server-job-failures` alert.
+    CheckDrift {
+        #[command(subcommand)]
+        action: commands::drift::DriftCommand,
+    },
+
     /// Coaching harness operator commands (Tier 5.5 backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
@@ -253,6 +264,13 @@ async fn main() -> Result<()> {
         return commands::seed::dispatch(action, &database_url).await;
     }
 
+    // Drift check shares the same posture: only reads the coaches table,
+    // never touches encrypted columns. Skip the KeyManager bootstrap so the
+    // Cloud Run drift-check Job stays minimal.
+    if let Command::CheckDrift { action } = cli.command {
+        return commands::drift::dispatch(action, &database_url).await;
+    }
+
     // Initialize two-tier key management system
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
     info!("Two-tier key management system initialized for pierre-cli");
@@ -284,6 +302,9 @@ async fn main() -> Result<()> {
     // Execute command
     match cli.command {
         Command::Seed { .. } => unreachable!("Seed is handled in the early return above"),
+        Command::CheckDrift { .. } => {
+            unreachable!("CheckDrift is handled in the early return above")
+        }
         Command::User { action } => match action {
             UserCommand::Create {
                 email,

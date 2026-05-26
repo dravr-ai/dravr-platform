@@ -2769,6 +2769,17 @@ pub trait SeederRepository: Send + Sync {
         tenant_id: &str,
     ) -> AppResult<Option<(String, Option<String>)>>;
 
+    /// Look up `(source, content_hash)` for a coach slug across all tenants.
+    ///
+    /// Used by `pierre-cli check-drift coaches` to compare contremaitre source
+    /// files against the prod DB. System coaches are identical across tenants
+    /// by definition (the seeder upserts the same canonical content), so the
+    /// drift check ignores tenant scope and takes the first matching row.
+    async fn seed_find_coach_drift_info(
+        &self,
+        slug: &str,
+    ) -> AppResult<Option<(String, Option<String>)>>;
+
     /// Insert a coach record
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()>;
 

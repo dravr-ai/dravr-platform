@@ -30,6 +30,10 @@
 /// Coach markdown file parser with frontmatter and section extraction
 pub mod parser;
 
+/// Drift-detection primitives shared by `pierre-cli check-drift coaches`.
+pub mod drift;
+
+pub use drift::{classify_drift, DbCoachRow, DriftOutcome};
 pub use parser::{
     is_locale_code, parse_coach_content, parse_coach_file, parse_frontmatter, parse_sections,
     to_markdown, CoachDefinition, CoachFrontmatter, CoachSections, CoachStartup, RelatedCoach,

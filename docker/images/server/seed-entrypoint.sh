@@ -22,21 +22,37 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
-DOMAIN="$1"
+VERB="$1"
 shift
 
+# The drift-check verb is identical to the seed verb in setup terms: it also
+# needs a fresh contremaitre clone so the binary can compute file hashes for
+# the same set of `prompts/coaches/<category>/<slug>/en.md` files. The
+# wrapping `if` below clones for either entry point and rewrites the
+# command we exec at the end.
+case "$VERB" in
+    seed|check-drift)
+        DOMAIN="$1"
+        shift
+        ;;
+    *)
+        echo "Unknown verb '$VERB' (expected: seed | check-drift)" >&2
+        exit 64
+        ;;
+esac
+
 # Coach definitions live in the dravr-contremaitre repo as the single source
-# of truth. Clone a shallow snapshot to a temp dir and point the seeder at
+# of truth. Clone a shallow snapshot to a temp dir and point the binary at
 # its prompts/coaches subtree. CONTREMAITRE_REPO / CONTREMAITRE_BRANCH /
 # CONTREMAITRE_GITHUB_PAT are the same env vars used by the runtime
 # hot-reload client, so this seed step shares one auth surface.
 if [ "$DOMAIN" = "coaches" ]; then
-    : "${CONTREMAITRE_REPO:?CONTREMAITRE_REPO is required to seed coaches}"
-    : "${CONTREMAITRE_GITHUB_PAT:?CONTREMAITRE_GITHUB_PAT is required to seed coaches}"
+    : "${CONTREMAITRE_REPO:?CONTREMAITRE_REPO is required to ${VERB} coaches}"
+    : "${CONTREMAITRE_GITHUB_PAT:?CONTREMAITRE_GITHUB_PAT is required to ${VERB} coaches}"
     BRANCH="${CONTREMAITRE_BRANCH:-main}"
     CLONE_DIR=$(mktemp -d -t contremaitre.XXXXXX)
     trap 'rm -rf "$CLONE_DIR"' EXIT
-    echo "Cloning ${CONTREMAITRE_REPO}@${BRANCH} for coach seed"
+    echo "Cloning ${CONTREMAITRE_REPO}@${BRANCH} for coach ${VERB}"
     git clone \
         --depth 1 \
         --branch "$BRANCH" \
@@ -45,5 +61,5 @@ if [ "$DOMAIN" = "coaches" ]; then
     export PIERRE_COACHES_DIR="${CLONE_DIR}/prompts/coaches"
 fi
 
-echo "Running seeder: pierre-cli seed ${DOMAIN}"
-exec /app/pierre-cli seed "$DOMAIN" "$@"
+echo "Running: pierre-cli ${VERB} ${DOMAIN}"
+exec /app/pierre-cli "$VERB" "$DOMAIN" "$@"
