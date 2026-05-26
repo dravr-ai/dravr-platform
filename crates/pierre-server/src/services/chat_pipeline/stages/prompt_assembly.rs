@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use tracing::{field, info, trace, Span};
+use tracing::{field, info, trace, warn, Span};
 
 use crate::contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL,
@@ -192,6 +192,46 @@ pub(in crate::services::chat_pipeline) async fn resolve_user_persona_and_timezon
     }
 }
 
+/// Resolve a coach's system prompt for the current turn.
+///
+/// For `source == "contremaitre"` rows we consult
+/// [`PromptRegistry::get_coach_prompt`] first so the next chat turn picks
+/// up a webhook-driven hot-reload without waiting for the seed-coaches
+/// job to rewrite the `coaches.system_prompt` column. A registry miss
+/// falls back to the DB column and logs a `warn!` — for a contremaitre
+/// coach that miss means the registry never loaded the entry (cold start
+/// before the first sync, or hot-reload is broken).
+///
+/// Any other source (`"custom"`, `"seed"`) reads the DB column
+/// directly — those coaches are not git-managed and have no upstream
+/// source of truth.
+///
+/// `locale` is the per-turn user locale (`input.locale`); the registry
+/// keys coach prompts by `(slug, locale)` per contremaitre manifest v5.
+/// `None` defaults to `DEFAULT_LOCALE` so the registry's English entry is
+/// consulted.
+pub fn resolve_coach_base_prompt(
+    prompt_registry: &Arc<PromptRegistry>,
+    coach_ctx: &CoachRuntimeContext,
+    locale: Option<&str>,
+) -> String {
+    if coach_ctx.source != "contremaitre" {
+        return coach_ctx.system_prompt.clone();
+    }
+
+    let locale = locale.unwrap_or(DEFAULT_LOCALE);
+    if let Some(content) = prompt_registry.get_coach_prompt(&coach_ctx.slug, locale) {
+        return content;
+    }
+
+    warn!(
+        slug = %coach_ctx.slug,
+        locale = %locale,
+        "contremaitre coach prompt missing from PromptRegistry — falling back to coaches.system_prompt column. Hot-reload may be broken or the registry has not been populated for this locale.",
+    );
+    coach_ctx.system_prompt.clone()
+}
+
 /// Assemble the hardened system prompt and flatten history into an
 /// LLM-ready message list.
 ///
@@ -228,9 +268,13 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     history: &[MessageRecord],
 ) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
     // Stage 7a: Start from coach-defined or default Pierre system prompt.
+    // For contremaitre-sourced coaches we consult the in-memory
+    // `PromptRegistry` first so a webhook-driven hot-reload reaches the
+    // next chat turn without a seeder re-run. Other sources (`"custom"`,
+    // `"seed"`) read the DB `system_prompt` column as before.
     let base_prompt = coach_ctx.map_or_else(
         || resources.pierre_system_prompt(),
-        |c| c.system_prompt.clone(),
+        |c| resolve_coach_base_prompt(&resources.prompt_registry, c, input.locale.as_deref()),
     );
 
     // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}` /

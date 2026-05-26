@@ -1863,7 +1863,12 @@ impl CoachesRepository for PostgresDatabase {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
+        // Column order matches `CoachesManager::get_coach_runtime_context`
+        // in `coaches/versions.rs` and the SQLite `RepositoryRegistry` impl
+        // in `direct_impls.rs` — keep all three in lock-step.
         type Row = (
+            Option<String>,
+            String,
             String,
             Option<String>,
             Option<String>,
@@ -1873,7 +1878,7 @@ impl CoachesRepository for PostgresDatabase {
         );
         let row: Option<Row> = sqlx::query_as(
             r"
-            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
+            SELECT slug, source, system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = TRUE)
@@ -1888,6 +1893,8 @@ impl CoachesRepository for PostgresDatabase {
 
         Ok(row.map(
             |(
+                slug,
+                source,
                 system_prompt,
                 startup_query,
                 data_requirements,
@@ -1896,6 +1903,8 @@ impl CoachesRepository for PostgresDatabase {
                 category,
             )| {
                 CoachRuntimeContext {
+                    slug: slug.unwrap_or_default(),
+                    source,
                     system_prompt,
                     startup_query,
                     data_requirements,

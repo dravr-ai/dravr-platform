@@ -9,6 +9,7 @@
 //! activities from one provider and sleep data from another. Uses synthetic
 //! providers to enable testing without real OAuth authentication.
 
+#![cfg(feature = "provider-synthetic")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 // Test-specific clippy allows for synthetic test data generation

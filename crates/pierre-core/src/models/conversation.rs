@@ -150,7 +150,21 @@ pub struct ConversationRecord {
 /// single tenant-scoped lookup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoachRuntimeContext {
-    /// The coach's system prompt text (canonical source)
+    /// Stable slug identifier for the coach (matches the contremaitre
+    /// markdown filename without `.md`). Used to look up the live coach
+    /// prompt in `PromptRegistry` when `source == "contremaitre"`.
+    pub slug: String,
+    /// Origin of this coach: `"contremaitre"` (git-managed, hot-reloaded
+    /// from the dravr-contremaitre repo), `"seed"` (legacy seeded rows
+    /// from before the contremaitre migration), or `"custom"` (user/admin
+    /// authored — DB-only, no registry overlay). The prompt-assembly
+    /// stage consults [`crate::contremaitre::PromptRegistry`] for
+    /// `"contremaitre"` rows so a contremaitre prompt edit appears in the
+    /// next chat turn without a seeder re-run.
+    pub source: String,
+    /// The coach's system prompt text from the database column. Acts as
+    /// the cold-start fallback when the registry has no entry for
+    /// `(slug, locale)`.
     pub system_prompt: String,
     /// Optional startup query the coach wants injected on the first turn
     pub startup_query: Option<String>,

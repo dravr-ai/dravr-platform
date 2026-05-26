@@ -12,6 +12,7 @@
 //! - Webhook signature validation and processing
 //! - Provider trait implementation
 
+#![cfg(feature = "provider-terra")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 #![allow(missing_docs)]

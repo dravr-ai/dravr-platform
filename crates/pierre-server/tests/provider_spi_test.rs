@@ -120,7 +120,7 @@ fn test_synthetic_no_oauth_params() {
 }
 
 #[test]
-#[cfg(feature = "provider-strava")]
+#[cfg(all(feature = "provider-strava", feature = "provider-synthetic"))]
 fn test_provider_bundle_creation() {
     use pierre_mcp_server::providers::core::{FitnessProvider, ProviderConfig};
 
