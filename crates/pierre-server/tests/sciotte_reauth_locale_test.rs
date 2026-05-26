@@ -13,7 +13,7 @@
 //! `MessagingStringsRegistry` doesn't silently regress the user-visible
 //! reply path.
 
-use pierre_mcp_server::contremaitre::messaging_strings::{
+use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED,
 };
 

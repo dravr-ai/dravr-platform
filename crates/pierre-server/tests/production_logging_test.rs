@@ -14,16 +14,14 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use pierre_core::models::CoachingPersona;
-use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    logging::{LogFormat, LoggingConfig},
-    middleware::{request_id_middleware, RequestId},
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
+use pierre_logging::{LogFormat, LoggingConfig};
+use pierre_middleware::{request_id_middleware, RequestId};
 use std::error::Error;
 use tower::ServiceExt;
 

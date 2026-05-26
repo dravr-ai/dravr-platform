@@ -68,7 +68,7 @@ impl WebhookRoutes {
             "Received WHOOP webhook event"
         );
 
-        let Some(orchestrator) = resources.sync_orchestrator.clone() else {
+        let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
             tracing::warn!("WHOOP webhook received but sync orchestrator is not configured");
             return StatusCode::SERVICE_UNAVAILABLE;
         };
@@ -168,9 +168,9 @@ impl WebhookRoutes {
 
         // Look up the user by Strava athlete ID (owner_id) and trigger a sync.
         // The full activity data will be fetched by the sync process.
-        let repos = resources.repos.clone();
-        let sse = resources.sse_manager.clone();
-        let orchestrator = resources.sync_orchestrator.clone();
+        let repos = resources.common.repos.clone();
+        let sse = resources.sse.sse_manager.clone();
+        let orchestrator = resources.fitness.sync_orchestrator.clone();
         let owner_id = event.owner_id.to_string();
 
         tokio::spawn(async move {

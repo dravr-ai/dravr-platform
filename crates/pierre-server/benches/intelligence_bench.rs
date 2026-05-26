@@ -16,10 +16,10 @@ mod common;
 use chrono::{Duration, Utc};
 use common::fixtures::{generate_activities, ActivityBatchSize};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use pierre_mcp_server::intelligence::metrics::MetricsCalculator;
-use pierre_mcp_server::intelligence::sleep_analysis::SleepData;
-use pierre_mcp_server::intelligence::training_load::TrainingLoadCalculator;
-use pierre_mcp_server::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_intelligence::metrics::MetricsCalculator;
+use pierre_intelligence::sleep_analysis::SleepData;
+use pierre_intelligence::training_load::TrainingLoadCalculator;
 
 /// Large dataset size for stress testing (500 activities)
 const LARGE_DATASET_SIZE: usize = 500;

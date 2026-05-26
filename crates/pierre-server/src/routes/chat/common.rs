@@ -1,25 +1,24 @@
-// ABOUTME: Shared tenant resolution helper for chat route handlers
-// ABOUTME: Resolves the caller's tenant id, defaulting to user id when no tenant row exists
+// ABOUTME: Thin wrapper over the canonical pierre_runtime_context::resolve_tenant helper
+// ABOUTME: Chat routes use Required — no user-id fallback; errors if user has no tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::sync::Arc;
 
-use uuid::Uuid;
+use pierre_auth::auth::AuthResult;
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::models::TenantId;
 
-/// Resolve the caller's tenant id, defaulting to their user id when no
-/// tenant row is attached to the account.
+/// Resolve the caller's tenant id via the canonical resolver. Returns an
+/// auth error if the user has no tenants — never fabricates an id from
+/// the user uuid.
 pub async fn get_tenant_id(
-    user_id: Uuid,
+    auth: &AuthResult,
     resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
-    let tenants = resources.repos.tenants.list_for_user(user_id).await?;
-    Ok(tenants
-        .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id))
+    require(resolve_tenant(resources, auth, TenantMode::Required).await?)
 }

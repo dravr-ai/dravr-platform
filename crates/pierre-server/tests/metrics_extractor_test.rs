@@ -11,11 +11,11 @@
 #![allow(clippy::float_cmp)] // Test values are exact
 
 use chrono::Utc;
-use pierre_mcp_server::intelligence::{MetricType, SafeMetricExtractor};
-use pierre_mcp_server::models::{Activity, SportType};
+use pierre_core::models::{Activity, SportType};
+use pierre_intelligence::{MetricType, SafeMetricExtractor};
 
 fn create_test_activity() -> Activity {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     ActivityBuilder::new(
         "test_activity",
@@ -38,7 +38,7 @@ fn create_test_activity() -> Activity {
 }
 
 fn create_test_activity_with_distance(distance: f64) -> Activity {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     ActivityBuilder::new(
         "test_activity",

@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::services::messaging_status_bridge::{open_status_adapter, OpenStatusParams};
 use pierre_messaging::models::{ChannelConfig, ChannelType};
+use pierre_services::messaging_status_bridge::{open_status_adapter, OpenStatusParams};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

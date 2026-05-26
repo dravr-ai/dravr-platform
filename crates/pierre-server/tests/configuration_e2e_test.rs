@@ -14,20 +14,18 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::cache::{factory::Cache, CacheConfig};
+use pierre_cache::{Cache, CacheConfig};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::config::environment::{
-    AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig,
-};
-use pierre_mcp_server::intelligence::{
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
+use pierre_core::models::User;
+use pierre_database::backends::factory::Database;
+use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
-use pierre_mcp_server::models::User;
-use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;

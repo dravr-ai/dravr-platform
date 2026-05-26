@@ -155,14 +155,11 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{AuthManager, JwtValidationError},
 };
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig,
-    constants::oauth_providers,
-    mcp::multitenant::MultiTenantMcpServer,
-    middleware::McpAuthMiddleware,
-    models::{TenantId, User, UserOAuthToken, UserTier},
-};
+use pierre_mcp_server::{constants::oauth_providers, mcp::multitenant::MultiTenantMcpServer};
+use pierre_middleware::McpAuthMiddleware;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -176,8 +173,8 @@ use common::*;
 async fn create_test_multitenant_server(
 ) -> Result<(MultiTenantMcpServer, Arc<Database>, Arc<AuthManager>)> {
     let resources = create_test_server_resources().await?;
-    let database = resources.database.clone();
-    let auth_manager = resources.auth_manager.clone();
+    let database = resources.coach.database.clone();
+    let auth_manager = resources.auth.auth_manager.clone();
 
     let server = MultiTenantMcpServer::new(resources);
 

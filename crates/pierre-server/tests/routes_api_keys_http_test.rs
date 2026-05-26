@@ -17,11 +17,11 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
 use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::api_keys::ApiKeyRoutes,
 };
@@ -91,7 +91,7 @@ impl ApiKeyTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         Ok(Self {
@@ -223,7 +223,7 @@ async fn test_list_api_keys_success() {
 
     // Create an API key first
     let _key = common::create_and_store_test_api_key(
-        setup.resources.database.as_ref(),
+        setup.resources.coach.database.as_ref(),
         setup.user_id,
         "Test Key for Listing",
     )
@@ -302,7 +302,7 @@ async fn test_deactivate_api_key_success() {
 
     // Create an API key first
     let key = common::create_and_store_test_api_key(
-        setup.resources.database.as_ref(),
+        setup.resources.coach.database.as_ref(),
         setup.user_id,
         "Key to Deactivate",
     )
@@ -538,7 +538,7 @@ async fn test_user_isolation() {
 
     // User 1 creates a key
     let _key1 = common::create_and_store_test_api_key(
-        setup1.resources.database.as_ref(),
+        setup1.resources.coach.database.as_ref(),
         setup1.user_id,
         "User 1 Key",
     )

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::repositories::ProviderConnectionRepository;
-use pierre_mcp_server::services::onboarding_gate;
+use pierre_services::onboarding_gate;
 
 mod common;
 

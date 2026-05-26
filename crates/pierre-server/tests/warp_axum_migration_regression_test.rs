@@ -1,3 +1,6 @@
+// ABOUTME: Regression tests locking in the Warp → Axum HTTP-stack migration
+// ABOUTME: Verifies handler signatures, extractor behaviour, and routing parity vs the old Warp surface
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -52,7 +55,7 @@ fn test_oauth_scopes_constants_exist() {
 /// in the user approval endpoint.
 #[test]
 fn test_user_approval_supports_tenant_creation() {
-    use pierre_mcp_server::routes::admin::ApproveUserRequest;
+    use pierre_routes_admin::ApproveUserRequest;
 
     // Verify that ApproveUserRequest struct exists with all required fields
     let request = ApproveUserRequest {
@@ -76,7 +79,7 @@ fn test_user_approval_supports_tenant_creation() {
 /// This ensures the API can accept JSON requests with tenant creation parameters.
 #[test]
 fn test_approve_user_request_deserializes() {
-    use pierre_mcp_server::routes::admin::ApproveUserRequest;
+    use pierre_routes_admin::ApproveUserRequest;
 
     // Test that the struct can be deserialized from JSON (simulating API request)
     let json = r#"{
@@ -106,7 +109,7 @@ fn test_approve_user_request_deserializes() {
 /// This struct is part of the response when tenant creation is requested.
 #[test]
 fn test_tenant_created_info_struct_exists() {
-    use pierre_mcp_server::routes::admin::TenantCreatedInfo;
+    use pierre_routes_admin::TenantCreatedInfo;
 
     let tenant_info = TenantCreatedInfo {
         tenant_id: uuid::Uuid::new_v4().to_string(),
@@ -128,7 +131,7 @@ fn test_tenant_created_info_struct_exists() {
 /// This ensures the API can return JSON responses with tenant creation info.
 #[test]
 fn test_tenant_created_info_serializes() {
-    use pierre_mcp_server::routes::admin::TenantCreatedInfo;
+    use pierre_routes_admin::TenantCreatedInfo;
 
     let tenant_info = TenantCreatedInfo {
         tenant_id: uuid::Uuid::new_v4().to_string(),
@@ -156,7 +159,7 @@ fn test_tenant_created_info_serializes() {
 #[test]
 fn test_all_regressions_fixed() {
     use pierre_mcp_server::constants::oauth;
-    use pierre_mcp_server::routes::admin::{ApproveUserRequest, TenantCreatedInfo};
+    use pierre_routes_admin::{ApproveUserRequest, TenantCreatedInfo};
 
     // Regression #1 & #2: OAuth constants exist
     assert_eq!(oauth::STRAVA_DEFAULT_SCOPES, "activity:read_all");

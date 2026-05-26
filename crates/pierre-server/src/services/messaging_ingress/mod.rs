@@ -22,13 +22,13 @@ mod slash;
 
 pub use locale::{detect_turn_locale, resolve_messaging_locale};
 
-use crate::services::onboarding_gate::user_has_connected_provider;
 pub(crate) use dispatch::dispatch_and_respond;
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 use otp::{
     apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command, start_otp_flow,
 };
+use pierre_services::onboarding_gate::user_has_connected_provider;
 use session::{create_link_and_prompt, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
@@ -51,14 +51,14 @@ use uuid::Uuid;
 
 use serde_json::Value;
 
-use crate::contremaitre::messaging_strings::DEFAULT_LOCALE;
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::auth::record_jwt_usage_for_request;
-use crate::services::analytics::{analytics, hash_id};
-use crate::services::channel_error_reply::ChannelErrorReply;
-use crate::services::chat_pipeline::ChannelProfile;
-use crate::services::user_status_gate::messaging_key_for_status;
+use pierre_chat_pipeline::ChannelProfile;
+use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_core::errors::AppError;
+use pierre_middleware::auth::record_jwt_usage_for_request;
+use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::channel_error_reply::ChannelErrorReply;
+use pierre_services::user_status_gate::messaging_key_for_status;
 
 /// Outcome of persisting a single inbound message
 pub(crate) enum PersistOutcome {
@@ -118,7 +118,7 @@ pub(crate) struct PendingDispatch {
     /// Authenticated principal for the inbound turn.
     ///
     /// Produced by
-    /// [`crate::middleware::auth::McpAuthMiddleware::authenticate_channel`] at
+    /// [`pierre_middleware::auth::McpAuthMiddleware::authenticate_channel`] at
     /// the top of `persist_single_message` — same shape and semantics as the
     /// `AuthResult` the JWT middleware produces for HTTP callers. Carries the
     /// user id, rate-limit state, and the user's own `active_tenant_id` so
@@ -239,7 +239,7 @@ async fn persist_single_message(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) -> Result<PersistOutcome, ()> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
     let hashed_tenant = hash_id(&tenant_id.to_string());
@@ -450,7 +450,7 @@ async fn send_unlinked_user_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) {
-    let prompt_type = if resources.email_service.is_some() {
+    let prompt_type = if resources.common.email_service.is_some() {
         "otp"
     } else {
         "link_url"
@@ -462,7 +462,7 @@ async fn send_unlinked_user_prompt(
     let pre_link_identity = format!("{channel}:{}", message.sender_id);
     analytics().track_unlinked_prompted(channel, &hash_id(&pre_link_identity), prompt_type);
 
-    let mut prompt = if resources.email_service.is_some() {
+    let mut prompt = if resources.common.email_service.is_some() {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
         start_otp_flow(
             resources,
@@ -493,7 +493,7 @@ async fn send_unlinked_user_prompt(
 /// Resolve a linked session and authenticated principal, or send a prompt /
 /// denial reply when the channel sender cannot proceed.
 ///
-/// Calls [`crate::middleware::auth::McpAuthMiddleware::authenticate_channel`]
+/// Calls [`pierre_middleware::auth::McpAuthMiddleware::authenticate_channel`]
 /// for the unified auth/status/rate-limit gate, then resolves the session
 /// row on success. Returns `Ok(Some((auth_result, session)))` for authorized
 /// linked users, `Ok(None)` after surfacing the right reply (no link → prompt;
@@ -509,6 +509,7 @@ async fn resolve_or_prompt(
     message: &IncomingMessage,
 ) -> Result<Option<(AuthResult, ResolvedSession)>, ()> {
     let mut auth_outcome = resources
+        .auth
         .auth_middleware
         .authenticate_channel(tenant_id, channel, &message.sender_id)
         .await;
@@ -519,12 +520,14 @@ async fn resolve_or_prompt(
     // pipeline as `AccountPending` / `AccountSuspended` and surfaces a
     // localized "connect a provider" reply via `KEY_NO_PROVIDER_CONNECTED`.
     if let Ok(auth_result) = &auth_outcome {
-        let has_provider =
-            user_has_connected_provider(&resources.repos.provider_connections, auth_result.user_id)
-                .await
-                .unwrap_or(true); // On query failure, fail open — same posture as
-                                  // user_status checks (transient DB errors mustn't
-                                  // lock real users out of an otherwise valid turn).
+        let has_provider = user_has_connected_provider(
+            &resources.common.repos.provider_connections,
+            auth_result.user_id,
+        )
+        .await
+        .unwrap_or(true); // On query failure, fail open — same posture as
+                          // user_status checks (transient DB errors mustn't
+                          // lock real users out of an otherwise valid turn).
         if !has_provider {
             auth_outcome = Err(AppError::no_provider_connected());
         }
@@ -696,7 +699,13 @@ async fn refresh_channel_last_active(
     user_id: Uuid,
     channel_type: ChannelType,
 ) {
-    if let Err(e) = resources.repos.users.update_last_active(user_id).await {
+    if let Err(e) = resources
+        .common
+        .repos
+        .users
+        .update_last_active(user_id)
+        .await
+    {
         warn!(
             user_id = %user_id,
             channel = %channel_type,
@@ -708,7 +717,7 @@ async fn refresh_channel_last_active(
 
 /// Record a `JwtUsage` row for a successful channel-authenticated turn.
 ///
-/// Delegates to [`crate::middleware::auth::record_jwt_usage_for_request`] so
+/// Delegates to [`pierre_middleware::auth::record_jwt_usage_for_request`] so
 /// the JWT (`HTTP` cookie / Bearer / `MCP`) path and the channel-link path
 /// share **one** write site for the rate-limit counter — no symmetry gap
 /// between transports. The endpoint label is rendered as
@@ -716,7 +725,7 @@ async fn refresh_channel_last_active(
 /// can disaggregate by transport.
 async fn record_channel_usage(resources: &ServerContext, user_id: Uuid, channel: &str) {
     let endpoint = format!("messaging:{channel}");
-    record_jwt_usage_for_request(&resources.repos, user_id, &endpoint, "WEBHOOK").await;
+    record_jwt_usage_for_request(&resources.common.repos, user_id, &endpoint, "WEBHOOK").await;
 }
 
 /// Branch on the channel-authentication outcome, surfacing the right reply
@@ -810,6 +819,7 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
     let body = if let Some(key) = messaging_key_for_status(inputs.err.code) {
         let locale = inputs
             .resources
+            .common
             .repos
             .messaging
             .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
@@ -820,12 +830,17 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
             .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
         inputs
             .resources
+            .mcp
             .messaging_strings_registry
             .get(key, &locale)
     } else {
         inputs
             .err
-            .to_channel_reply(inputs.resources, DEFAULT_LOCALE, "channel_auth")
+            .to_channel_reply(
+                &inputs.resources.mcp.messaging_strings_registry,
+                DEFAULT_LOCALE,
+                "channel_auth",
+            )
             .0
     };
 

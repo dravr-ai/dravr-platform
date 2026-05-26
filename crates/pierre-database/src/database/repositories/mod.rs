@@ -6,5 +6,13 @@
 
 pub use crate::repositories::*;
 
-/// Direct implementations of repository traits on `Database` for domain managers
-mod direct_impls;
+/// Direct `CoachesRepository` impl on `Database` (SQLite coaches catalogue)
+mod coaches_impl;
+/// Direct `MobilityRepository` impl on `Database` (SQLite stretching + yoga)
+mod mobility_impl;
+/// Direct `RecipeRepository` impl on `Database` (SQLite recipe persistence)
+mod recipes_impl;
+/// Direct `SocialRepository` impl on `Database` (SQLite social graph + insights)
+mod social_impl;
+/// Direct `StoreListingsRepository` impl on `Database` (SQLite marketplace listings)
+mod store_listings_impl;

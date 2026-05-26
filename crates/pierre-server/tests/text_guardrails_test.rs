@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use pierre_mcp_server::config::text_guardrails::{
+use pierre_contremaitre::text_guardrails::{
     GuardrailOutcome, GuardrailRejection, LocaleGuardrails, TextGuardrails,
 };
 

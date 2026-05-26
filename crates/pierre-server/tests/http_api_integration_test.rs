@@ -15,31 +15,26 @@ use pierre_auth::{
     auth::AuthManager,
     tenant::TenantOAuthCredentials,
 };
+use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
+    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-        DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-        GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-        LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{
-        auth::{AuthService, OAuthService},
-        LoginRequest, RegisterRequest,
-    },
-};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -321,14 +316,15 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     Ok((database, auth_routes, oauth_routes, tenant_id))

@@ -17,8 +17,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
-use pierre_mcp_server::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -39,8 +39,8 @@ async fn create_misc_test_executor() -> Result<Arc<UniversalToolExecutor>> {
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
     let email = format!("misc_test_{}@example.com", Uuid::new_v4());
     let (user_id, _user) =
-        common::create_test_user_with_email(&executor.resources.database, &email).await?;
-    let tenants = executor.resources.repos.tenants.get_all().await?;
+        common::create_test_user_with_email(executor.resources.database(), &email).await?;
+    let tenants = executor.resources.repos().tenants.get_all().await?;
     let user_tenant = tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -66,20 +66,26 @@ fn make_request(
     }
 }
 
+/// Accept both `ProtocolError` variants the executor can produce when a tool
+/// rejects a call: `InvalidParameters` for missing/malformed fields (mapped
+/// from `AppError::InvalidInput`) and `InvalidRequest` for the tenant-gate
+/// rejection. Either proves the tool refused to run.
 fn assert_invalid_request(err: &ProtocolError, tool: &str) {
     match err {
-        ProtocolError::InvalidRequest(_) => {}
-        other => panic!("{tool}: expected InvalidRequest, got {other:?}"),
+        ProtocolError::InvalidParameters(_) | ProtocolError::InvalidRequest(_) => {}
+        other => panic!("{tool}: expected InvalidParameters or InvalidRequest, got {other:?}"),
     }
 }
 
 /// Memory and verification tools call `context.require_tenant()` which surfaces
 /// an `AppError` with an authorization-class code that the executor maps to
-/// `ProtocolError::InternalError` (not `InvalidRequest`). Either is acceptable
-/// for "the tool refused to run without a tenant" — both prove the gate fires.
+/// `ProtocolError::InternalError` (not the validation variants). Either kind
+/// of error is acceptable for "the tool refused to run without a tenant".
 fn assert_tool_errored(err: &ProtocolError, tool: &str) {
     match err {
-        ProtocolError::InvalidRequest(_) | ProtocolError::InternalError(_) => {}
+        ProtocolError::InvalidParameters(_)
+        | ProtocolError::InvalidRequest(_)
+        | ProtocolError::InternalError(_) => {}
         other => panic!("{tool}: expected error variant, got {other:?}"),
     }
 }
@@ -120,7 +126,7 @@ async fn test_misc_tools_registered() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())

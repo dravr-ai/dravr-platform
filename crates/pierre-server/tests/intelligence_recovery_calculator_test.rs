@@ -8,20 +8,18 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::{
-    config::intelligence::{IntelligenceConfig, SleepRecoveryConfig},
-    intelligence::{
-        algorithms::RecoveryAggregationAlgorithm,
-        recovery_calculator::{
-            DataCompleteness, RecoveryCalculator, RecoveryCategory, RecoveryComponents,
-            RecoveryScore, TrainingReadiness,
-        },
-        sleep_analysis::{
-            HrvRecoveryStatus, HrvTrend, HrvTrendAnalysis, SleepData, SleepQualityCategory,
-            SleepQualityScore,
-        },
-        training_load::TrainingLoad,
+use pierre_intelligence::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
+use pierre_intelligence::{
+    algorithms::RecoveryAggregationAlgorithm,
+    recovery_calculator::{
+        DataCompleteness, RecoveryCalculator, RecoveryCategory, RecoveryComponents, RecoveryScore,
+        TrainingReadiness,
     },
+    sleep_analysis::{
+        HrvRecoveryStatus, HrvTrend, HrvTrendAnalysis, SleepData, SleepQualityCategory,
+        SleepQualityScore,
+    },
+    training_load::TrainingLoad,
 };
 
 /// Helper to get default test config

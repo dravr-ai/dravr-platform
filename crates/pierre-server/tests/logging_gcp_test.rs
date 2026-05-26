@@ -13,7 +13,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use chrono::DateTime;
-use pierre_mcp_server::logging::gcp::GcpFormatter;
+use pierre_logging::gcp::GcpFormatter;
 use serde_json::Value;
 use tracing::subscriber::with_default;
 use tracing::{error, info, warn, Subscriber};

@@ -8,12 +8,12 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_memory::{FactKind, MemoryScope};
 use uuid::Uuid;
 

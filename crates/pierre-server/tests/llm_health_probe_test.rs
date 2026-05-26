@@ -10,7 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures_util::stream;
 use pierre_core::errors::AppError;
-use pierre_mcp_server::llm::{
+use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
 };
 

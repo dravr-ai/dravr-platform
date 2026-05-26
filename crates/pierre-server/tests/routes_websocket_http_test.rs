@@ -20,10 +20,8 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig, routes::websocket::WebSocketRoutes,
-    websocket::WebSocketManager,
-};
+use pierre_config::environment::RateLimitConfig;
+use pierre_mcp_server::{routes::websocket::WebSocketRoutes, websocket::WebSocketManager};
 use std::sync::Arc;
 
 /// Test setup helper for WebSocket route testing
@@ -44,7 +42,7 @@ impl WebSocketTestSetup {
         // Create WebSocket manager
         let repos = Arc::new(database.repositories());
         let manager = Arc::new(WebSocketManager::new(
-            repos,
+            &repos,
             &auth_manager,
             &jwks_manager,
             rate_limit_config,

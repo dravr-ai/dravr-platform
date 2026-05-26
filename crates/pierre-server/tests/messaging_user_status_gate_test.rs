@@ -17,20 +17,19 @@ mod messaging_user_status_gate_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use hmac::{Hmac, Mac};
+    use pierre_auth::user_status::enforce_user_status;
+    use pierre_contremaitre::messaging_strings::{
+        MessagingStringsRegistry, KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED,
+    };
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::ConnectionType;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::contremaitre::messaging_strings::{
-        MessagingStringsRegistry, KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED,
-    };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_mcp_server::services::user_status_gate::{
-        enforce_user_status, messaging_key_for_status,
-    };
+    use pierre_services::user_status_gate::messaging_key_for_status;
     use serde_json::json;
     use sha2::Sha256;
     use std::sync::Arc;
@@ -78,7 +77,7 @@ mod messaging_user_status_gate_tests {
         }
 
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -91,7 +90,13 @@ mod messaging_user_status_gate_tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
 
         // Register a synthetic provider for Active users so the
         // inbound chat dispatch gets past the onboarding gate
@@ -100,6 +105,7 @@ mod messaging_user_status_gate_tests {
         // adding one for them too is harmless but unnecessary.
         if status == UserStatus::Active {
             resources
+                .common
                 .repos
                 .provider_connections
                 .register_connection(
@@ -245,7 +251,7 @@ mod messaging_user_status_gate_tests {
         use pierre_auth::auth::AuthMethod;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -259,6 +265,7 @@ mod messaging_user_status_gate_tests {
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let auth_result = resources
+            .auth
             .auth_middleware
             .authenticate_channel(tenant_id, "whatsapp", sender_id)
             .await
@@ -301,6 +308,7 @@ mod messaging_user_status_gate_tests {
         .await;
 
         let err = resources
+            .auth
             .auth_middleware
             .authenticate_channel(tenant_id, "whatsapp", "15550008999")
             .await
@@ -314,7 +322,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn authenticate_channel_returns_account_pending_for_pending_user() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -328,6 +336,7 @@ mod messaging_user_status_gate_tests {
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let err = resources
+            .auth
             .auth_middleware
             .authenticate_channel(tenant_id, "whatsapp", sender_id)
             .await
@@ -340,7 +349,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn authenticate_channel_returns_account_suspended_for_suspended_user() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -354,6 +363,7 @@ mod messaging_user_status_gate_tests {
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let err = resources
+            .auth
             .auth_middleware
             .authenticate_channel(tenant_id, "whatsapp", sender_id)
             .await
@@ -371,7 +381,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn channel_auth_increments_jwt_usage_counter() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -388,6 +398,7 @@ mod messaging_user_status_gate_tests {
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let before = resources
+            .common
             .repos
             .usage
             .get_jwt_current_usage(user_id)
@@ -399,6 +410,7 @@ mod messaging_user_status_gate_tests {
         assert_eq!(status, StatusCode::OK);
 
         let after = resources
+            .common
             .repos
             .usage
             .get_jwt_current_usage(user_id)
@@ -418,7 +430,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn channel_auth_refreshes_last_active_for_active_user() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -435,6 +447,7 @@ mod messaging_user_status_gate_tests {
         link_channel(db, tenant_id, user_id, sender_id).await;
 
         let before = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -455,6 +468,7 @@ mod messaging_user_status_gate_tests {
         assert_eq!(status, StatusCode::OK);
 
         let after = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -545,7 +559,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn pending_user_inbound_chat_is_gated_and_not_stored() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -578,7 +592,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn suspended_user_inbound_chat_is_gated_and_not_stored() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,
@@ -611,7 +625,7 @@ mod messaging_user_status_gate_tests {
     #[tokio::test]
     async fn active_user_inbound_chat_persists_a_message() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) = create_user_with_status(
             &resources,

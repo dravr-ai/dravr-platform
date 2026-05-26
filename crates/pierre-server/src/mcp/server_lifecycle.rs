@@ -4,14 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::multitenant::{McpRequest, McpResponse};
-use super::sampling_peer::SamplingPeer;
-use super::schema::OAuthCompletedNotification;
 use super::{
     mcp_request_processor::McpRequestProcessor, resources::ServerContext,
     transport_manager::TransportManager,
 };
-use crate::errors::{AppError, AppResult};
+use crate::utils::route_timeout::mcp_sampling_timeout_duration;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_mcp_schema::OAuthCompletedNotification;
+use pierre_mcp_schema::{McpRequest, McpResponse};
+use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -143,7 +144,10 @@ impl ServerLifecycle {
         let reader_stdin = stdin();
         let mut reader = BufReader::new(reader_stdin).lines();
         let stdout = Arc::new(Mutex::new(stdout()));
-        let sampling_peer = Arc::new(SamplingPeer::new(stdout.clone()));
+        let sampling_peer = Arc::new(SamplingPeer::new(
+            stdout.clone(),
+            mcp_sampling_timeout_duration(),
+        ));
 
         Self::spawn_notification_handler(notification_receiver, stdout.clone());
 

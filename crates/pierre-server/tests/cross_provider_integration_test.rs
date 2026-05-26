@@ -22,17 +22,16 @@
 )]
 
 use chrono::Utc;
-use pierre_mcp_server::{
-    constants::oauth_providers,
-    models::{Activity, SportType},
-    providers::{registry::ProviderRegistry, synthetic_provider::SyntheticProvider},
-};
+use pierre_core::models::{Activity, SportType};
+use pierre_mcp_server::constants::oauth_providers;
+use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::synthetic_provider::SyntheticProvider;
 
 mod common;
 
 /// Create test activities for the synthetic provider
 fn create_test_activities(count: usize) -> Vec<Activity> {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     let mut activities = Vec::with_capacity(count);
     let base_date = Utc::now();
@@ -109,7 +108,7 @@ async fn test_synthetic_provider_registration() {
 
 #[tokio::test]
 async fn test_synthetic_provider_with_activities() {
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
 
     // Create a synthetic provider with test activities
     let activities = create_test_activities(10);
@@ -128,7 +127,7 @@ async fn test_synthetic_provider_with_activities() {
 
 #[tokio::test]
 async fn test_synthetic_sleep_provider() {
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
 
     // Create a synthetic sleep provider
     let provider = SyntheticProvider::with_name(oauth_providers::SYNTHETIC_SLEEP);
@@ -161,7 +160,7 @@ async fn test_synthetic_sleep_provider() {
 
 #[tokio::test]
 async fn test_cross_provider_scenario() {
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
 
     // Create two synthetic providers: one for activities, one for sleep
     let activity_provider = SyntheticProvider::with_activities(create_test_activities(14));
@@ -279,7 +278,7 @@ async fn test_sleep_providers_list_includes_synthetic_sleep() {
 
 #[tokio::test]
 async fn test_dynamic_activity_and_sleep_injection() {
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
 
     // Create an empty provider and dynamically add data
     let provider = SyntheticProvider::new();
@@ -331,7 +330,7 @@ fn create_activities_with_duration(count: usize, hours_per_day: f64) -> Vec<Acti
     let duration_seconds = (hours_per_day * 3600.0) as u64;
 
     for i in 0..count {
-        use pierre_mcp_server::models::ActivityBuilder;
+        use pierre_core::models::ActivityBuilder;
 
         #[allow(clippy::cast_sign_loss)]
         let activity = ActivityBuilder::new(
@@ -361,7 +360,7 @@ fn create_activities_with_heart_rate(count: usize, avg_hr: u32) -> Vec<Activity>
     let base_date = Utc::now();
 
     for i in 0..count {
-        use pierre_mcp_server::models::ActivityBuilder;
+        use pierre_core::models::ActivityBuilder;
 
         #[allow(clippy::cast_sign_loss)]
         let activity = ActivityBuilder::new(
@@ -389,7 +388,7 @@ fn create_activities_with_heart_rate(count: usize, avg_hr: u32) -> Vec<Activity>
 
 #[test]
 fn test_infer_intensity_high_volume() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // >2 hours/day average = high intensity
     let activities = create_activities_with_duration(7, 2.5);
@@ -402,7 +401,7 @@ fn test_infer_intensity_high_volume() {
 
 #[test]
 fn test_infer_intensity_moderate_volume() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // 1-2 hours/day average = moderate intensity
     let activities = create_activities_with_duration(7, 1.5);
@@ -415,7 +414,7 @@ fn test_infer_intensity_moderate_volume() {
 
 #[test]
 fn test_infer_intensity_low_volume() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // <1 hour/day average = low intensity
     let activities = create_activities_with_duration(7, 0.5);
@@ -428,7 +427,7 @@ fn test_infer_intensity_low_volume() {
 
 #[test]
 fn test_infer_intensity_high_heart_rate() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // High avg HR (>150 bpm) = high intensity even with low volume
     let activities = create_activities_with_heart_rate(7, 160);
@@ -441,7 +440,7 @@ fn test_infer_intensity_high_heart_rate() {
 
 #[test]
 fn test_infer_intensity_moderate_heart_rate() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // Moderate avg HR (130-150 bpm) = moderate intensity
     let activities = create_activities_with_heart_rate(7, 140);
@@ -454,7 +453,7 @@ fn test_infer_intensity_moderate_heart_rate() {
 
 #[test]
 fn test_infer_intensity_low_heart_rate() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // Low avg HR (<130 bpm) with low volume = low intensity
     let activities = create_activities_with_heart_rate(7, 120);
@@ -467,7 +466,7 @@ fn test_infer_intensity_low_heart_rate() {
 
 #[test]
 fn test_infer_intensity_empty_activities() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // Empty activities should default to moderate
     let activities: Vec<Activity> = vec![];
@@ -480,7 +479,7 @@ fn test_infer_intensity_empty_activities() {
 
 #[test]
 fn test_infer_intensity_zero_days() {
-    use pierre_mcp_server::protocols::universal::handlers::provider_helpers::infer_workout_intensity;
+    use pierre_tool_runtime::protocol::provider_helpers::infer_workout_intensity;
 
     // Zero days should default to moderate
     let activities = create_activities_with_duration(5, 1.0);
@@ -498,7 +497,7 @@ fn test_infer_intensity_zero_days() {
 /// Test that fitness score schema includes `sleep_provider` parameter
 #[tokio::test]
 async fn test_calculate_fitness_score_schema_has_sleep_provider() {
-    use pierre_mcp_server::mcp::schema::get_tools;
+    use pierre_mcp_server::tools::registry_builtin::get_tools;
 
     let schemas = get_tools();
     let fitness_score_schema = schemas
@@ -521,7 +520,7 @@ async fn test_calculate_fitness_score_schema_has_sleep_provider() {
 /// Test that `analyze_training_load` schema includes `sleep_provider` parameter
 #[tokio::test]
 async fn test_analyze_training_load_schema_has_sleep_provider() {
-    use pierre_mcp_server::mcp::schema::get_tools;
+    use pierre_mcp_server::tools::registry_builtin::get_tools;
 
     let schemas = get_tools();
     let training_load_schema = schemas
@@ -666,7 +665,7 @@ async fn test_intelligence_tools_work_without_sleep_provider() {
     }
 
     // Verify activities can be retrieved
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
     let fetched = provider.get_activities(Some(10), None).await.unwrap();
     assert_eq!(fetched.len(), 10, "Should retrieve all 10 activities");
 }

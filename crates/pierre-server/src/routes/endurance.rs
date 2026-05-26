@@ -23,14 +23,16 @@ use pierre_intelligence::training_history_compute::MAX_BACKFILL_DAYS;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::config::environment::default_provider;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::extractors::AuthenticatedUser;
-use crate::routes::social::SocialRoutes;
 use crate::services::training_history_compute::{
     compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
 };
-use crate::services::workout_library::{cornerstone_templates, require_cornerstone};
+use crate::tools::runtime_adapter::into_runtime;
+use pierre_config::environment::default_provider;
+use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_routes_social::SocialRoutes;
+use pierre_services::workout_library::{cornerstone_templates, require_cornerstone};
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Lower bound on the analysis window — defended in addition to the
 /// `clamp` inside [`build_latest_snapshot`] so the API surface and the
@@ -114,7 +116,7 @@ async fn get_workout_templates(
     // user-authored overrides for (tenant_id, user_id) ordered newest-first.
     let mut templates = cornerstone_templates();
     let user_authored = resources
-        .repos
+        .repos()
         .workout_templates
         .list_user_workout_templates(tenant_id, user_id)
         .await?;
@@ -155,7 +157,7 @@ async fn post_prescribe(
         created_at: Utc::now(),
     };
     resources
-        .repos
+        .repos()
         .prescribed_workouts
         .upsert_prescribed_workout(&prescribed)
         .await?;
@@ -175,9 +177,10 @@ async fn get_intervals(
 ) -> AppResult<Json<IntervalsExport>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    let activity = fetch_activity_by_id(&resources, user_id, tenant_id, &activity_id).await?;
+    let activity =
+        fetch_activity_by_id(&into_runtime(&resources), user_id, tenant_id, &activity_id).await?;
     let physiology = resources
-        .repos
+        .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
         .await?;
@@ -192,7 +195,8 @@ async fn get_routes(
 ) -> AppResult<Json<RouteSummary>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    let activity = fetch_activity_by_id(&resources, user_id, tenant_id, &activity_id).await?;
+    let activity =
+        fetch_activity_by_id(&into_runtime(&resources), user_id, tenant_id, &activity_id).await?;
     let stream = activity
         .time_series_data()
         .ok_or_else(|| AppError::not_found("activity has no GPS stream — terrain unavailable"))?;
@@ -222,7 +226,7 @@ async fn get_routes(
     let climbs_json = serde_json::to_string(&summary.climbs)
         .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
     resources
-        .repos
+        .repos()
         .route_summaries
         .upsert_route_summary(
             tenant_id,
@@ -237,7 +241,7 @@ async fn get_routes(
 }
 
 async fn fetch_activity_by_id(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
@@ -248,7 +252,7 @@ async fn fetch_activity_by_id(
     let provider_name = if let Some(p) = default_provider() {
         p
     } else if let Some(conn) = resources
-        .repos
+        .repos()
         .provider_connections
         .resolve_most_recent(user_id, Some(tenant_id))
         .await?
@@ -322,7 +326,9 @@ async fn get_history(
         // Cold start: no rows persisted yet for this user. Trigger an
         // on-demand compute for the same window so the next call hits
         // the persisted rollup.
-        let _ = compute_and_persist_history(&resources, tenant_id, user_id, from, to).await?;
+        let _ =
+            compute_and_persist_history(&into_runtime(&resources), tenant_id, user_id, from, to)
+                .await?;
         rows = fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await?;
     }
     Ok(Json(HistoryResponse {
@@ -344,9 +350,9 @@ async fn get_latest_snapshot(
         .unwrap_or(DEFAULT_WINDOW_DAYS)
         .clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
 
-    let activities = fetch_window_activities(&resources, user_id, tenant_id).await?;
+    let activities = fetch_window_activities(&into_runtime(&resources), user_id, tenant_id).await?;
     let physiology = resources
-        .repos
+        .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
         .await?;
@@ -363,7 +369,7 @@ async fn get_dossier(
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
     let dossier = resources
-        .repos
+        .repos()
         .dossier
         .compose_dossier(tenant_id, user_id)
         .await?;
@@ -381,14 +387,14 @@ fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
 }
 
 async fn fetch_window_activities(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {
     let provider_name = if let Some(p) = default_provider() {
         p
     } else if let Some(conn) = resources
-        .repos
+        .repos()
         .provider_connections
         .resolve_most_recent(user_id, Some(tenant_id))
         .await?

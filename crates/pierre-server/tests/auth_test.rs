@@ -14,15 +14,13 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{generate_jwt_secret, AuthManager, AuthMethod, Claims, JwtValidationError},
 };
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig,
-    middleware::McpAuthMiddleware,
-    models::{AuthRequest, User, UserStatus, UserTier},
-    utils::uuid::parse_uuid,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::models::{AuthRequest, User, UserStatus, UserTier};
+use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 use uuid::Uuid;
 

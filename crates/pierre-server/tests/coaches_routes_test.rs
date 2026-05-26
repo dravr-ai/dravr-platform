@@ -18,8 +18,10 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
 };
-use pierre_mcp_server::routes::coaches::{
-    CoachResponse, CoachesRoutes, ListCoachesResponse, RecordUsageResponse, ToggleFavoriteResponse,
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_coaches::coaches::{
+    CoachResponse, ListCoachesResponse, RecordUsageResponse, ToggleFavoriteResponse,
 };
 
 use axum::http::StatusCode;
@@ -32,13 +34,13 @@ use uuid::Uuid;
 
 async fn setup_test_environment() -> (axum::Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Generate a JWT token for the user
     let token = generate_test_token(&resources, &user).await;
 
     // Create the coaches router
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     (router, format!("Bearer {token}"))
 }
@@ -602,10 +604,10 @@ async fn test_record_usage_nonexistent() {
 #[tokio::test]
 async fn test_system_coaches_visible_in_list() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.repos.tenants.get_all().await.unwrap();
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -613,7 +615,7 @@ async fn test_system_coaches_visible_in_list() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach directly in the database
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool);
     let system_request = CreateSystemCoachRequest {
         title: "Platform Coach".to_owned(),
@@ -636,7 +638,7 @@ async fn test_system_coaches_visible_in_list() {
     let auth_token = format!("Bearer {token}");
 
     // Create the coaches router
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // List coaches via the API - should include the system coach
     let list_response = AxumTestRequest::get("/api/coaches")
@@ -666,10 +668,10 @@ async fn test_system_coaches_visible_in_list() {
 #[tokio::test]
 async fn test_get_system_coach_by_id() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.repos.tenants.get_all().await.unwrap();
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -677,7 +679,7 @@ async fn test_get_system_coach_by_id() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool);
     let system_request = CreateSystemCoachRequest {
         title: "Retrievable Coach".to_owned(),
@@ -697,7 +699,7 @@ async fn test_get_system_coach_by_id() {
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
 
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Get the system coach by ID via the API
     let get_response = AxumTestRequest::get(&format!("/api/coaches/{}", system_coach.id))
@@ -721,10 +723,10 @@ async fn test_get_system_coach_by_id() {
 #[tokio::test]
 async fn test_hide_system_coach_via_api() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.repos.tenants.get_all().await.unwrap();
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -732,7 +734,7 @@ async fn test_hide_system_coach_via_api() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool);
     let system_request = CreateSystemCoachRequest {
         title: "Hideable Coach".to_owned(),
@@ -752,7 +754,7 @@ async fn test_hide_system_coach_via_api() {
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
 
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Hide the system coach via the API
     let hide_response = AxumTestRequest::post(&format!("/api/coaches/{}/hide", system_coach.id))
@@ -783,10 +785,10 @@ async fn test_hide_system_coach_via_api() {
 #[tokio::test]
 async fn test_show_hidden_coach_via_api() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.repos.tenants.get_all().await.unwrap();
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -794,7 +796,7 @@ async fn test_show_hidden_coach_via_api() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool.clone());
     let system_request = CreateSystemCoachRequest {
         title: "Show Me Coach".to_owned(),
@@ -820,7 +822,7 @@ async fn test_show_hidden_coach_via_api() {
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
 
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // Show (unhide) the coach via the API - DELETE removes the hide preference
     let show_response = AxumTestRequest::delete(&format!("/api/coaches/{}/hide", system_coach.id))
@@ -851,10 +853,10 @@ async fn test_show_hidden_coach_via_api() {
 #[tokio::test]
 async fn test_list_with_include_hidden() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.repos.tenants.get_all().await.unwrap();
+    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -862,7 +864,7 @@ async fn test_list_with_include_hidden() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool.clone());
     let system_request = CreateSystemCoachRequest {
         title: "Hidden But Findable".to_owned(),
@@ -888,7 +890,7 @@ async fn test_list_with_include_hidden() {
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
 
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     // List with include_hidden=true
     let list_response = AxumTestRequest::get("/api/coaches?include_hidden=true")
@@ -958,7 +960,7 @@ async fn test_generate_coach_empty_conversation() {
     }
 
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
@@ -980,7 +982,7 @@ async fn test_generate_coach_empty_conversation() {
     let conv: ConvResponse = create_response.json();
 
     // Now try to generate coach from empty conversation
-    let coaches_router = CoachesRoutes::routes(resources);
+    let coaches_router = build_coaches_router::<ServerContext>().with_state(resources);
 
     let response = AxumTestRequest::post("/api/coaches/generate")
         .header("authorization", &auth_token)
@@ -1007,7 +1009,7 @@ async fn test_generate_coach_other_users_conversation() {
     let resources = create_test_server_resources().await.unwrap();
 
     // Create first user and their conversation
-    let (_user1_id, user1) = create_test_user(&resources.database).await.unwrap();
+    let (_user1_id, user1) = create_test_user(&resources.coach.database).await.unwrap();
     let token1 = generate_test_token(&resources, &user1).await;
     let auth_token1 = format!("Bearer {token1}");
 
@@ -1028,14 +1030,15 @@ async fn test_generate_coach_other_users_conversation() {
     let conv: ConvResponse = create_response.json();
 
     // Create second user with different email
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token2 = generate_test_token(&resources, &user2).await;
     let auth_token2 = format!("Bearer {token2}");
 
     // Try to generate coach from user1's conversation as user2
-    let coaches_router = CoachesRoutes::routes(resources);
+    let coaches_router = build_coaches_router::<ServerContext>().with_state(resources);
 
     let response = AxumTestRequest::post("/api/coaches/generate")
         .header("authorization", &auth_token2)

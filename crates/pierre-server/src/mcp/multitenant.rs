@@ -17,7 +17,6 @@ use super::{
     resources::ServerContext,
     tool_handlers::{McpOAuthCredentials, ToolRoutingContext},
 };
-use crate::config::environment::ServerConfig;
 #[cfg(feature = "provider-strava")]
 use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{
@@ -25,24 +24,22 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
-use crate::contremaitre;
-use crate::errors::{AppError, AppResult};
-use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
-use crate::mcp::schema::ProgressNotification;
-use crate::protocols::converter::ProtocolConverter;
-use crate::protocols::universal::types::{CancellationToken, ProgressReporter};
-use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
-use crate::providers::ProviderRegistry;
-use crate::routes::feature_flags::FeatureFlagsRoutes;
 use crate::routes::onboarding::OnboardingRoutes;
-use crate::types::json_schemas;
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
+use pierre_config::environment::ServerConfig;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
+use pierre_mcp_schema::json_schemas;
+use pierre_mcp_schema::{McpError, McpRequest, McpResponse, ProgressNotification};
+use pierre_providers::registry::ProviderRegistry;
+use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
+use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
 use std::fmt::Write;
@@ -56,14 +53,9 @@ use tracing::{debug, error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
-use crate::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
-use crate::middleware::{request_id_middleware, setup_cors};
-#[cfg(feature = "client-admin-api")]
-use crate::routes::admin::{AdminApiContext, AdminApiContextInit};
-use crate::routes::billing;
+#[cfg(feature = "contremaitre")]
+use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::endurance;
-#[cfg(feature = "oauth")]
-use crate::routes::oauth2::OAuth2Context;
 use crate::routes::user_profile::routes as user_profile_routes;
 use axum::body::Body;
 use axum::middleware;
@@ -71,7 +63,13 @@ use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
-use pierre_database::RepositoryRegistry;
+use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
+use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
+use pierre_middleware::{request_id_middleware, setup_cors};
+#[cfg(feature = "client-admin-api")]
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
+#[cfg(feature = "oauth")]
+use pierre_routes_identity::oauth2::OAuth2Context;
 use std::any::Any;
 use tokio::net::TcpListener;
 use tower::layer::util::Identity;
@@ -165,8 +163,8 @@ impl MultiTenantMcpServer {
         Self::handle_tenant_disconnect_provider(
             ctx.tenant_context,
             provider_name,
-            &ctx.resources.provider_registry,
-            &ctx.resources.database,
+            &ctx.resources.fitness.provider_registry,
+            &ctx.resources.coach.database,
             request_id,
         )
     }
@@ -244,13 +242,13 @@ impl MultiTenantMcpServer {
     /// Get database reference for admin API
     #[must_use]
     pub fn database(&self) -> &Database {
-        &self.resources.database
+        &self.resources.coach.database
     }
 
     /// Get auth manager reference for admin API
     #[must_use]
     pub fn auth_manager(&self) -> &AuthManager {
-        &self.resources.auth_manager
+        &self.resources.auth.auth_manager
     }
 
     // === Tenant-Aware Tool Handlers ===
@@ -363,7 +361,12 @@ impl MultiTenantMcpServer {
         ]
     }
 
-    /// Handle tenant-aware connection status
+    /// Handle tenant-aware connection status.
+    ///
+    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and `SocialRepos`
+    /// (`notifications`); takes the full registry at the entry-point to
+    /// keep the args list under the clippy ceiling. Helpers below
+    /// receive narrow views.
     #[tracing::instrument(
         skip(tenant_oauth_client, repos, request_id, credentials, config),
         fields(
@@ -395,15 +398,17 @@ impl MultiTenantMcpServer {
         )
         .await;
 
+        let auth = repos.auth_repos();
+        let social = repos.social_repos();
         let base_url = Self::build_oauth_base_url(http_port);
-        let connection_status = Self::check_provider_connections(tenant_context, repos).await;
+        let connection_status = Self::check_provider_connections(tenant_context, &auth).await;
         let notifications_text =
-            Self::build_notifications_text(repos, tenant_context.user_id).await;
+            Self::build_notifications_text(&social, tenant_context.user_id).await;
         let structured_data = Self::build_structured_connection_data(
             tenant_context,
             &connection_status,
             &base_url,
-            repos,
+            &social,
         )
         .await;
         let text_content = Self::build_text_content(
@@ -442,7 +447,7 @@ impl MultiTenantMcpServer {
     /// Check connection status for all providers
     async fn check_provider_connections(
         tenant_context: &TenantContext,
-        repos: &Arc<RepositoryRegistry>,
+        auth: &AuthRepos,
     ) -> ProviderConnectionStatus {
         let user_id = tenant_context.user_id;
         let tenant_id_str = tenant_context.tenant_id.to_string();
@@ -452,7 +457,7 @@ impl MultiTenantMcpServer {
             "Checking Strava token for user_id={}, tenant_id={}, provider=strava",
             user_id, tenant_id_str
         );
-        let strava_connected = repos
+        let strava_connected = auth
             .oauth_tokens
             .get_token(user_id, tenant_context.tenant_id, "strava")
             .await
@@ -469,7 +474,7 @@ impl MultiTenantMcpServer {
             );
 
         // Check Fitbit connection status
-        let fitbit_connected = repos
+        let fitbit_connected = auth
             .oauth_tokens
             .get_token(user_id, tenant_context.tenant_id, "fitbit")
             .await
@@ -482,8 +487,8 @@ impl MultiTenantMcpServer {
     }
 
     /// Build notifications text from unread notifications
-    async fn build_notifications_text(repos: &Arc<RepositoryRegistry>, user_id: Uuid) -> String {
-        let unread_notifications = repos
+    async fn build_notifications_text(social: &SocialRepos, user_id: Uuid) -> String {
+        let unread_notifications = social
             .notifications
             .get_unread(user_id)
             .await
@@ -519,9 +524,9 @@ impl MultiTenantMcpServer {
         tenant_context: &TenantContext,
         connection_status: &ProviderConnectionStatus,
         base_url: &str,
-        repos: &Arc<RepositoryRegistry>,
+        social: &SocialRepos,
     ) -> Value {
-        let unread_notifications = repos
+        let unread_notifications = social
             .notifications
             .get_unread(tenant_context.user_id)
             .await
@@ -765,7 +770,7 @@ impl MultiTenantMcpServer {
         resources: &Arc<ServerContext>,
         request_id: Value,
     ) -> Option<McpResponse> {
-        if resources.tool_registry.get(tool_name).is_some() {
+        if resources.mcp.tool_registry.get(tool_name).is_some() {
             None
         } else {
             Some(McpResponse {
@@ -792,6 +797,7 @@ impl MultiTenantMcpServer {
     ) -> UniversalRequest {
         // Create progress reporter if notification sender is available
         let progress_reporter = resources
+            .sse
             .progress_notification_sender
             .as_ref()
             .map(|sender| {
@@ -881,14 +887,6 @@ impl MultiTenantMcpServer {
         }
     }
 }
-
-// Phase 2: Type aliases pointing to unified JSON-RPC foundation
-/// Type alias for MCP requests using the JSON-RPC foundation
-pub type McpRequest = JsonRpcRequest;
-/// Type alias for MCP responses using the JSON-RPC foundation
-pub type McpResponse = JsonRpcResponse;
-/// Type alias for MCP errors using the JSON-RPC foundation
-pub type McpError = JsonRpcError;
 
 // ============================================================================
 // AXUM SERVER ORCHESTRATION
@@ -990,12 +988,14 @@ impl MultiTenantMcpServer {
                     ),
             )
             .layer(middleware::from_fn(request_id_middleware))
-            .layer(setup_cors(&resources.config))
-            .layer(Self::create_security_headers_layer(&resources.config))
+            .layer(setup_cors(&resources.common.config.cors.allowed_origins))
+            .layer(Self::create_security_headers_layer(
+                &resources.common.config,
+            ))
             .layer(CatchPanicLayer::custom(Self::handle_request_panic));
 
         // Create server address using host from config (defaults to localhost, can be 0.0.0.0 for network access)
-        let host = &resources.config.host;
+        let host = &resources.common.config.host;
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
             .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port)));
@@ -1027,7 +1027,7 @@ impl MultiTenantMcpServer {
     fn setup_axum_router(resources: &Arc<ServerContext>) -> axum::Router {
         use axum::{middleware::from_fn_with_state, Router};
 
-        use crate::middleware::csrf_protection_layer;
+        use pierre_middleware::csrf_protection_layer;
 
         // ═══════════════════════════════════════════════════════════════
         // CONDITIONAL IMPORTS - Based on feature flags
@@ -1035,37 +1035,19 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "transport-sse")]
         use crate::agui::AgUiRoutes;
-        #[cfg(feature = "protocol-a2a")]
-        use crate::routes::a2a::A2ARoutes;
-        #[cfg(feature = "client-admin-api")]
-        use crate::routes::admin::AdminRoutes;
         #[cfg(feature = "client-api-keys")]
         use crate::routes::api_keys::ApiKeyRoutes;
-        #[cfg(feature = "protocol-rest")]
-        use crate::routes::auth::AuthRoutes;
         #[cfg(feature = "client-chat")]
         use crate::routes::chat::ChatRoutes;
-        #[cfg(feature = "client-coaches")]
-        use crate::routes::coaches::CoachesRoutes;
         #[cfg(feature = "client-settings")]
         use crate::routes::configuration::ConfigurationRoutes;
-        #[cfg(feature = "client-dashboard")]
-        use crate::routes::dashboard::DashboardRoutes;
         #[cfg(feature = "client-settings")]
         use crate::routes::fitness::FitnessConfigurationRoutes;
         #[cfg(feature = "client-settings")]
         use crate::routes::health_data::HealthDataRoutes;
-        #[cfg(feature = "client-impersonation")]
-        use crate::routes::impersonation::ImpersonationRoutes;
-        #[cfg(feature = "client-chat")]
-        use crate::routes::llm_consumption::LlmConsumptionRoutes;
-        #[cfg(feature = "client-llm-settings")]
-        use crate::routes::llm_settings::LlmSettingsRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
         use crate::routes::memory::MemoryRoutes;
-        #[cfg(feature = "oauth")]
-        use crate::routes::oauth2::OAuth2Routes;
         #[cfg(feature = "openapi")]
         use crate::routes::openapi::OpenApiRoutes;
         #[cfg(feature = "client-tenants")]
@@ -1074,14 +1056,30 @@ impl MultiTenantMcpServer {
         use crate::routes::usage::UsageRoutes;
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
-        #[cfg(feature = "client-oauth-apps")]
-        use crate::routes::user_oauth_apps::UserOAuthAppRoutes;
-        #[cfg(feature = "client-admin-ui")]
-        use crate::routes::web_admin::WebAdminRoutes;
         #[cfg(feature = "transport-websocket")]
         use crate::routes::websocket::WebSocketRoutes;
+        #[cfg(feature = "protocol-a2a")]
+        use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
+        #[cfg(feature = "client-llm-settings")]
+        use pierre_routes_admin::llm_settings::LlmSettingsRoutes;
+        #[cfg(feature = "client-admin-api")]
+        use pierre_routes_admin::AdminRoutes;
+        #[cfg(feature = "client-impersonation")]
+        use pierre_routes_admin::ImpersonationRoutes;
+        #[cfg(feature = "client-chat")]
+        use pierre_routes_admin::LlmConsumptionRoutes;
+        #[cfg(feature = "protocol-rest")]
+        use pierre_routes_auth::AuthRoutes;
+        #[cfg(feature = "client-dashboard")]
+        use pierre_routes_dashboard::DashboardRoutes;
+        #[cfg(feature = "oauth")]
+        use pierre_routes_identity::OAuth2Routes;
+        #[cfg(feature = "client-oauth-apps")]
+        use pierre_routes_identity::UserOAuthAppRoutes;
+        #[cfg(feature = "client-admin-ui")]
+        use pierre_routes_web_admin::WebAdminRoutes;
         #[cfg(feature = "transport-sse")]
-        use crate::sse::SseRoutes;
+        use pierre_sse::SseRoutes;
 
         #[cfg(feature = "client-admin-api")]
         use crate::config::routes::{admin_config_router, AdminConfigState};
@@ -1090,7 +1088,8 @@ impl MultiTenantMcpServer {
         // HEALTH ROUTES - Always enabled
         // ═══════════════════════════════════════════════════════════════
 
-        let health_routes = Self::create_axum_health_routes(Arc::clone(&resources.llm_health));
+        let health_routes =
+            Self::create_axum_health_routes(Arc::clone(&resources.common.llm_health));
         let app = Router::new().merge(health_routes);
 
         // ═══════════════════════════════════════════════════════════════
@@ -1099,34 +1098,70 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "client-admin-api")]
         let app = {
+            use crate::routes::admin::diagnostics::{
+                routes as diagnostics_routes, DiagnosticsContext,
+            };
+            use pierre_routes_admin::tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
             let admin_api_key_limit = resources
+                .common
                 .config
                 .rate_limiting
                 .admin_provisioned_api_key_monthly_limit;
-            let admin_token_cache_ttl = resources.config.auth.admin_token_cache_ttl_secs;
+            let admin_token_cache_ttl = resources.common.config.auth.admin_token_cache_ttl_secs;
             let mut admin_context = AdminApiContext::new(AdminApiContextInit {
-                database: resources.database.clone(),
-                repos: resources.repos.clone(),
-                jwt_secret: resources.admin_jwt_secret.to_string(),
-                auth_manager: resources.auth_manager.clone(),
-                jwks_manager: resources.jwks_manager.clone(),
+                database: resources.coach.database.clone(),
+                repos: resources.common.repos.clone(),
+                jwt_secret: resources.auth.admin_jwt_secret.to_string(),
+                auth_manager: resources.auth.auth_manager.clone(),
+                jwks_manager: resources.auth.jwks_manager.clone(),
                 admin_api_key_monthly_limit: admin_api_key_limit,
                 admin_token_cache_ttl_secs: admin_token_cache_ttl,
-                tool_selection: resources.tool_selection.clone(),
-                harness_config_registry: resources.harness_config_registry.clone(),
+                harness_config_registry: resources.fitness.harness_config_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                prompt_registry: resources.mcp.prompt_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                tool_description_registry: resources.mcp.tool_description_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                evidence_registry: resources.mcp.evidence_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                messaging_strings_registry: resources.mcp.messaging_strings_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                cageux_config_registry: resources.fitness.cageux_config_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                persona_contract_registry: resources.fitness.persona_contract_registry.clone(),
+                #[cfg(feature = "contremaitre")]
+                contremaitre_config: resources.mcp.contremaitre_config.clone(),
             });
-            admin_context.tool_registry = Some(resources.tool_registry.clone());
             admin_context
                 .email_service
-                .clone_from(&resources.email_service);
+                .clone_from(&resources.common.email_service);
             admin_context
                 .frontend_url
-                .clone_from(&resources.config.frontend_url);
+                .clone_from(&resources.common.config.frontend_url);
+
+            // Tool-selection and diagnostic sub-routes use pierre-server-internal
+            // types (`ToolSelectionService`, `ToolRegistry`) and so are
+            // mounted alongside the admin route group rather than baked into it.
+            let auth_service = admin_context.auth_service.clone();
+            let tool_selection_routes = ToolSelectionRoutes::routes(ToolSelectionContext {
+                tool_selection: resources.mcp.tool_selection.clone(),
+            })
+            .layer(middleware::from_fn_with_state(
+                auth_service.clone(),
+                pierre_routes_admin::admin_auth_middleware,
+            ));
+            let diagnostics_router = diagnostics_routes(
+                DiagnosticsContext {
+                    tool_registry: resources.mcp.tool_registry.clone(),
+                },
+                auth_service,
+            );
+
             let cookie_admin_routes =
-                AdminRoutes::cookie_admin_routes(admin_context.clone(), resources);
+                AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context.clone(), resources);
             let admin_routes = AdminRoutes::routes(admin_context);
 
-            let admin_config_routes = resources.admin_config.as_ref().map_or_else(
+            let admin_config_routes = resources.coach.admin_config.as_ref().map_or_else(
                 || {
                     tracing::warn!(
                         "Admin config service not available - admin config API disabled"
@@ -1143,6 +1178,8 @@ impl MultiTenantMcpServer {
             );
 
             app.merge(admin_routes)
+                .merge(tool_selection_routes)
+                .merge(diagnostics_router)
                 .merge(cookie_admin_routes)
                 .nest("/api/admin/config", admin_config_routes)
         };
@@ -1152,20 +1189,23 @@ impl MultiTenantMcpServer {
         // ═══════════════════════════════════════════════════════════════
 
         #[cfg(feature = "protocol-rest")]
-        let app = app.merge(AuthRoutes::routes(Arc::clone(resources)));
+        let app = app.merge(AuthRoutes::routes(resources.auth_routes_context()));
 
         #[cfg(feature = "oauth")]
         let app = {
             let oauth2_context = OAuth2Context {
-                database: resources.database.clone(),
-                oauth2_server: resources.repos.oauth2_server.clone(),
-                tenants: resources.repos.tenants.clone(),
-                users: resources.repos.users.clone(),
-                auth_manager: resources.auth_manager.clone(),
-                jwks_manager: resources.jwks_manager.clone(),
-                config: resources.config.clone(),
+                database: resources.coach.database.clone(),
+                oauth2_server: resources.common.repos.oauth2_server.clone(),
+                tenants: resources.common.repos.tenants.clone(),
+                users: resources.common.repos.users.clone(),
+                auth_manager: resources.auth.auth_manager.clone(),
+                jwks_manager: resources.auth.jwks_manager.clone(),
+                // pierre-routes-identity owns only the OAuth 2.0 server slice of
+                // ServerConfig — narrowing the route group's config dependency to
+                // OAuth2ServerConfig so the leaf crate has no pierre-server import.
+                config: Arc::new(resources.common.config.oauth2_server.clone()),
                 rate_limiter: Arc::new(OAuth2RateLimiter::from_rate_limit_config(
-                    resources.config.rate_limiting.clone(),
+                    resources.common.config.rate_limiting.clone(),
                 )),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
@@ -1175,17 +1215,39 @@ impl MultiTenantMcpServer {
         let app = app.merge(McpRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "protocol-a2a")]
-        let app = app.merge(A2ARoutes::routes(Arc::clone(resources)));
+        let app = {
+            // A2ARoutesState combines the composition-root context (which
+            // implements both MiddlewareCtx + A2ACtx) with the concrete
+            // A2AClientManager / auth-middleware / tool-runtime handles
+            // pierre-a2a and pierre-tool-runtime own. The state struct
+            // sidesteps the pierre-runtime-context ↔ pierre-a2a cycle that
+            // would arise from adding `a2a_client_manager()` /
+            // `tool_runtime()` accessors to A2ACtx directly.
+            use pierre_tool_runtime::runtime::ToolRuntime;
+            let tool_runtime: Arc<dyn ToolRuntime> = resources.clone(); // Safe: Arc clone coerced into trait object
+            let a2a_state = A2ARoutesState {
+                ctx: Arc::clone(resources),
+                client_manager: resources.a2a.a2a_client_manager.clone(), // Safe: Arc clone for shared client manager
+                auth_middleware: resources.auth.auth_middleware.clone(), // Safe: Arc clone for shared middleware
+                tool_runtime,
+            };
+            app.merge(A2ARoutes::routes(a2a_state))
+        };
 
         // ═══════════════════════════════════════════════════════════════
         // TRANSPORT ROUTES
         // ═══════════════════════════════════════════════════════════════
 
         #[cfg(feature = "transport-sse")]
-        let app = app.merge(SseRoutes::routes(
-            Arc::clone(&resources.sse_manager),
-            Arc::clone(resources),
-        ));
+        let app = {
+            // Upcast Arc<ServerContext> → Arc<dyn SseCtx>. `Arc::clone` cannot
+            // do the coercion in argument position, so use the From impl.
+            let sse_ctx: Arc<dyn pierre_runtime_context::SseCtx> = Arc::clone(resources) as _;
+            app.merge(SseRoutes::routes(
+                Arc::clone(&resources.sse.sse_manager),
+                sse_ctx,
+            ))
+        };
 
         // AG-UI event stream: clients subscribe per run_id to receive
         // lifecycle, step, tool-call, and text-delta events while the
@@ -1193,13 +1255,13 @@ impl MultiTenantMcpServer {
         // AG-UI is delivered over SSE.
         #[cfg(feature = "transport-sse")]
         let app = app.merge(AgUiRoutes::routes(
-            (*resources.agui_registry).clone(),
-            Arc::clone(resources),
+            (*resources.sse.agui_registry).clone(),
+            Arc::clone(&resources.auth.auth_middleware),
         ));
 
         #[cfg(feature = "transport-websocket")]
         let app = app.merge(WebSocketRoutes::routes(Arc::clone(
-            &resources.websocket_manager,
+            &resources.sse.websocket_manager,
         )));
 
         // ═══════════════════════════════════════════════════════════════
@@ -1207,14 +1269,15 @@ impl MultiTenantMcpServer {
         // ═══════════════════════════════════════════════════════════════
 
         #[cfg(feature = "client-dashboard")]
-        let app = app.merge(DashboardRoutes::routes(Arc::clone(resources)));
+        let app =
+            app.merge(DashboardRoutes::routes::<ServerContext>().with_state(Arc::clone(resources)));
 
         #[cfg(feature = "client-settings")]
         let app = app
             .merge(ConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(HealthDataRoutes::routes(Arc::clone(resources)))
-            .merge(billing::billing_routes().with_state(Arc::clone(resources)))
+            .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
             .merge(endurance::endurance_routes().with_state(Arc::clone(resources)))
             .merge(user_profile_routes().with_state(Arc::clone(resources)));
 
@@ -1226,13 +1289,11 @@ impl MultiTenantMcpServer {
         };
 
         // Contremaitre prompt hot-reload: webhook + admin routes
+        // Contremaitre admin write-back routes (`/api/admin/contremaitre/*`)
+        // are mounted by `AdminRoutes::cookie_admin_routes` above. Only the
+        // webhook handler stays here.
         #[cfg(feature = "contremaitre")]
-        let app = app
-            .merge(contremaitre::webhook::routes(Arc::clone(resources)))
-            .nest(
-                "/api",
-                contremaitre::admin::admin_routes(Arc::clone(resources)),
-            );
+        let app = app.merge(contremaitre_webhook_routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]
         let app = app
@@ -1243,9 +1304,12 @@ impl MultiTenantMcpServer {
         // Phase B Sprint C5 — user-facing harness memory facts (list / forget)
         let app = app.merge(MemoryRoutes::routes(Arc::clone(resources)));
 
-        // Runtime feature flags — self-read endpoint (admin endpoints are
-        // mounted alongside the cookie-admin middleware in `web_admin`).
-        let app = app.merge(FeatureFlagsRoutes::routes(Arc::clone(resources)));
+        // Runtime feature flags — self-read endpoint. The admin CRUD
+        // endpoints come in through `AdminRoutes::cookie_admin_routes`
+        // above so they share its cookie-admin middleware mount.
+        let app = app.merge(pierre_routes_admin::FeatureFlagsRoutes::routes::<
+            ServerContext,
+        >(Arc::clone(resources)));
 
         // Onboarding state — cheap self-read used by web + mobile to gate
         // routing right after login.
@@ -1253,31 +1317,38 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "client-coaches")]
         let app = app
-            .merge(CoachesRoutes::routes(Arc::clone(resources)))
+            .merge(
+                pierre_routes_coaches::build_coaches_router::<ServerContext>()
+                    .with_state(Arc::clone(resources)),
+            )
             .nest(
                 "/api/admin",
-                CoachesRoutes::admin_routes(Arc::clone(resources)),
+                pierre_routes_coaches::build_coaches_admin_router::<ServerContext>()
+                    .with_state(Arc::clone(resources)),
             );
 
         #[cfg(feature = "client-store")]
-        let app = {
-            use crate::routes::StoreRoutes;
-            app.merge(StoreRoutes::router(resources))
-        };
+        let app = app.merge(
+            pierre_routes_coaches::build_store_router::<ServerContext>()
+                .with_state(Arc::clone(resources)),
+        );
 
         #[cfg(feature = "client-oauth-apps")]
-        let app = app.merge(UserOAuthAppRoutes::routes(Arc::clone(resources)));
+        let app = app
+            .merge(UserOAuthAppRoutes::routes::<ServerContext>().with_state(Arc::clone(resources)));
 
         #[cfg(feature = "client-social")]
         let app = {
-            use crate::routes::SocialRoutes;
+            use pierre_routes_social::SocialRoutes;
             app.merge(SocialRoutes::routes(Arc::clone(resources)))
         };
 
         #[cfg(feature = "client-groups")]
         let app = {
-            use crate::routes::GroupRoutes;
+            use pierre_routes_social::group_analytics::GroupAnalyticsRoutes;
+            use pierre_routes_social::GroupRoutes;
             app.merge(GroupRoutes::routes(Arc::clone(resources)))
+                .merge(GroupAnalyticsRoutes::routes(Arc::clone(resources)))
         };
 
         // ═══════════════════════════════════════════════════════════════
@@ -1285,7 +1356,7 @@ impl MultiTenantMcpServer {
         // ═══════════════════════════════════════════════════════════════
 
         #[cfg(feature = "client-admin-ui")]
-        let app = app.merge(WebAdminRoutes::routes(Arc::clone(resources)));
+        let app = app.merge(WebAdminRoutes::routes(resources.web_admin_context()));
 
         #[cfg(feature = "client-api-keys")]
         let app = app.merge(ApiKeyRoutes::routes(Arc::clone(resources)));
@@ -1297,16 +1368,18 @@ impl MultiTenantMcpServer {
         let app = app.merge(ImpersonationRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-llm-settings")]
-        let app = app.merge(LlmSettingsRoutes::routes(Arc::clone(resources)));
+        let app = app.merge(LlmSettingsRoutes::routes::<ServerContext>(Arc::clone(
+            resources,
+        )));
 
         // Coach-athlete roster routes — gated by users.manages_roster=true
         // (or is_admin=true). Always mounted; the permission check lives
         // inside the handler so a user without the bit gets a 403 here
         // rather than a 404 from a missing route.
-        let app = {
-            use crate::routes::roster;
-            app.merge(roster::router(Arc::clone(resources)))
-        };
+        let app = app.merge(
+            pierre_routes_coaches::build_roster_router::<ServerContext>()
+                .with_state(Arc::clone(resources)),
+        );
 
         // ═══════════════════════════════════════════════════════════════
         // OTHER CLIENT ROUTES
@@ -1317,13 +1390,13 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "client-messaging")]
         let app = {
-            use crate::routes::MessagingRoutes;
+            use crate::routes::messaging::MessagingRoutes;
             app.merge(MessagingRoutes::routes(Arc::clone(resources)))
         };
 
         #[cfg(feature = "client-notifications")]
         let app = {
-            use crate::routes::NotificationRoutes;
+            use pierre_routes_social::NotificationRoutes;
             app.merge(NotificationRoutes::routes(Arc::clone(resources)))
         };
 

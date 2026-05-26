@@ -53,9 +53,6 @@
 //! let value = service.get_value("rate_limit.free_tier_burst", None).await?;
 //! ```
 
-/// Type definitions for admin configuration
-pub mod types;
-
 /// Database-agnostic repository trait for admin configuration
 pub mod repository;
 
@@ -66,18 +63,10 @@ pub mod manager;
 #[cfg(feature = "postgresql")]
 pub mod postgres_manager;
 
-/// Per-category builders for the parameter definition catalog.
-mod definitions;
 /// Configuration service with caching and hot reload
 pub mod service;
 
 // Re-export main types for convenience
 pub use manager::AdminConfigManager;
 pub use repository::AdminConfigRepository;
-pub use service::{AdminConfigService, ParameterDefinition, UpdateConfigContext};
-pub use types::{
-    AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry, ConfigAuditFilter,
-    ConfigAuditResponse, ConfigCatalogResponse, ConfigDataType, ConfigExportData, ConfigOverride,
-    ConfigValidationError, ParameterRange, ResetConfigRequest, ResetConfigResponse,
-    UpdateConfigRequest, UpdateConfigResponse, ValidateConfigRequest, ValidateConfigResponse,
-};
+pub use service::{AdminConfigService, UpdateConfigContext};

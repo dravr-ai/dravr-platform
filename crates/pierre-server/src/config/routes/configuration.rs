@@ -13,20 +13,18 @@
 //! HTTP endpoints for managing runtime configuration parameters,
 //! physiological profiles, and personalized training zones.
 
-use crate::config::{
-    catalog::{CatalogBuilder, ConfigCatalog},
-    intelligence::{
-        PersonalizedHRZones, PersonalizedPaceZones, PersonalizedPowerZones, VO2MaxCalculator,
-    },
-    profiles::{ConfigProfile, ProfileTemplates},
-    runtime::{ConfigValue, RuntimeConfig},
-    validation::{ConfigValidator, ValidationResult},
-};
 use crate::constants::physiology;
-use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
-use crate::types::json_schemas;
 use pierre_auth::auth::AuthResult;
+use pierre_config::catalog::{CatalogBuilder, ConfigCatalog};
+use pierre_config::runtime::{ConfigValue, RuntimeConfig};
+use pierre_config::validation::{ConfigValidator, ValidationResult};
+use pierre_core::config::profiles::{ConfigProfile, ProfileTemplates};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_intelligence::config::intelligence::{
+    PersonalizedHRZones, PersonalizedPaceZones, PersonalizedPowerZones, VO2MaxCalculator,
+};
+use pierre_mcp_schema::json_schemas;
 // UserRepository methods dispatched through repos.users Arc<dyn Trait>
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -380,7 +378,7 @@ impl ConfigurationRoutes {
         let user_id = auth.user_id;
 
         // SECURITY: Global lookup — config route, tenant not in scope for user check
-        if let Err(e) = self.resources.repos.users.get_global(user_id).await {
+        if let Err(e) = self.resources.common.repos.users.get_global(user_id).await {
             debug!("Database user lookup failed: {}", e);
         }
 
@@ -466,7 +464,7 @@ impl ConfigurationRoutes {
         }
 
         // SECURITY: Global lookup — config save, tenant not in scope for user check
-        if let Err(e) = self.resources.repos.users.get_global(user_id).await {
+        if let Err(e) = self.resources.common.repos.users.get_global(user_id).await {
             debug!("Database user lookup failed during save: {}", e);
         }
 

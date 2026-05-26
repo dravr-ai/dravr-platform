@@ -17,17 +17,17 @@ mod common;
 use std::sync::Arc;
 
 use chrono::Utc;
-use pierre_database::backends::CreateChannelLinkParams;
-use pierre_mcp_server::contremaitre::messaging_strings::{
+use pierre_commands::status::StatusHandler;
+use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
     KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
     KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER,
     KEY_STATUS_PROVIDERS_NONE,
 };
+use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
-use pierre_mcp_server::services::commands::status::StatusHandler;
-use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
 use pierre_mcp_server::services::messaging_ingress::{
     detect_turn_locale, resolve_messaging_locale,
 };
@@ -184,7 +184,7 @@ async fn seed_user_and_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
     user.approved_at = Some(Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -197,7 +197,13 @@ async fn seed_user_and_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
+    resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
 
     (user_id, tenant_id)
 }
@@ -214,7 +220,7 @@ async fn status_handler_renders_french_by_default() {
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: "/status".to_owned(),
-        resources: Arc::clone(&resources),
+        ctx: Arc::<ServerContext>::clone(&resources),
         locale: "fr".to_owned(),
         is_direct_message: false,
         conversation_id: None,
@@ -242,7 +248,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: "/status".to_owned(),
-        resources: Arc::clone(&resources),
+        ctx: Arc::<ServerContext>::clone(&resources),
         locale: "en".to_owned(),
         is_direct_message: false,
         conversation_id: None,
@@ -265,6 +271,7 @@ async fn user_repository_persists_locale_round_trip() {
     let (user_id, _tenant_id) = seed_user_and_tenant(&resources).await;
 
     let u = resources
+        .common
         .repos
         .users
         .get_global(user_id)
@@ -274,6 +281,7 @@ async fn user_repository_persists_locale_round_trip() {
     assert_eq!(u.locale, "fr", "default locale should be 'fr'");
 
     resources
+        .common
         .repos
         .users
         .update_locale(user_id, "en")
@@ -281,6 +289,7 @@ async fn user_repository_persists_locale_round_trip() {
         .expect("update_locale ok");
 
     let u = resources
+        .common
         .repos
         .users
         .get_global(user_id)
@@ -298,6 +307,7 @@ async fn resolve_locale_prefers_channel_link_override() {
     let (user_id, tenant_id) = seed_user_and_tenant(&resources).await;
 
     resources
+        .common
         .repos
         .users
         .update_locale(user_id, "es")
@@ -306,6 +316,7 @@ async fn resolve_locale_prefers_channel_link_override() {
 
     let link_id = Uuid::new_v4().to_string();
     resources
+        .common
         .repos
         .messaging
         .create_channel_link(&CreateChannelLinkParams {
@@ -320,6 +331,7 @@ async fn resolve_locale_prefers_channel_link_override() {
         .expect("create_channel_link");
 
     resources
+        .common
         .repos
         .messaging
         .set_channel_link_locale(tenant_id, &user_id.to_string(), "telegram", Some("de"))
@@ -334,6 +346,7 @@ async fn resolve_locale_prefers_channel_link_override() {
     );
 
     resources
+        .common
         .repos
         .messaging
         .set_channel_link_locale(tenant_id, &user_id.to_string(), "telegram", None)

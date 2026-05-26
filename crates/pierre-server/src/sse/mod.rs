@@ -1,50 +1,23 @@
-// ABOUTME: Server-Sent Events (SSE) implementation for real-time notifications and MCP protocol streaming
-// ABOUTME: Provides unified SSE infrastructure for both OAuth notifications and MCP bidirectional communication
+// ABOUTME: Server-Sent Events (SSE) protocol stream that drives tools/call dispatch
+// ABOUTME: Sibling modules (manager, routes, notifications, a2a_task_stream) live in pierre-sse
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Server-Sent Events (SSE) Module
+//! # SSE Module (pierre-server local pieces)
 //!
-//! This module provides SSE infrastructure for real-time streaming communication.
-//! It is conditionally compiled based on the `transport-sse` feature flag.
-//!
-//! ## Components
-//!
-//! - `a2a_task_stream`: A2A task progress streaming
-//! - `manager`: Central SSE connection management
-//! - `notifications`: OAuth notification streaming
-//! - `protocol`: MCP protocol streaming
-//! - `routes`: HTTP route handlers for SSE endpoints
+//! Most of the SSE implementation lives in the [`pierre_sse`] crate. This
+//! module houses the one piece that did not extract: [`protocol`], the
+//! [`protocol::McpProtocolStream`] implementation that drives the
+//! `tools/call` dispatcher (it depends on
+//! `crate::mcp::tool_handlers::ToolHandlers`, which is still entangled
+//! with `ServerContext` and not yet extracted).
 
-/// A2A task streaming for progress updates
-#[cfg(feature = "protocol-a2a")]
-pub mod a2a_task_stream;
-
-/// Central SSE manager for connection lifecycle and message routing
-pub mod manager;
-
-/// OAuth notification streaming for user-specific events
-#[cfg(feature = "oauth")]
-pub mod notifications;
-
-/// MCP protocol streaming for bidirectional client-server communication
+/// MCP protocol streaming for bidirectional client-server communication.
+///
+/// Stays in `pierre-server` because [`crate::mcp::tool_handlers::ToolHandlers`]
+/// has not been extracted yet; the surrounding broadcast manager lives in
+/// `pierre-sse` and dispatches into this implementation via the
+/// [`pierre_sse::manager::ProtocolStream`] trait.
 #[cfg(feature = "protocol-mcp")]
 pub mod protocol;
-
-/// HTTP route handlers for SSE endpoints
-pub mod routes;
-
-// Re-exports
-#[cfg(feature = "protocol-a2a")]
-pub use a2a_task_stream::A2ATaskStream;
-
-pub use manager::{ConnectionMetadata, ConnectionType, SseManager};
-
-#[cfg(feature = "oauth")]
-pub use notifications::NotificationStream;
-
-#[cfg(feature = "protocol-mcp")]
-pub use protocol::McpProtocolStream;
-
-pub use routes::SseRoutes;

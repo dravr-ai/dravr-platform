@@ -11,8 +11,8 @@ use crate::a2a::client::A2AClientManager;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::config::admin::AdminConfigService;
-use crate::config::environment::ServerConfig;
 use pierre_auth::tenant::TenantOAuthClient;
+use pierre_config::environment::ServerConfig;
 
 /// Configuration context containing config and OAuth dependencies
 ///

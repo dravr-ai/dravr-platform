@@ -45,6 +45,7 @@ mod dispatch_tests {
 
         // Get tenant ID from user's tenants
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -53,10 +54,14 @@ mod dispatch_tests {
         let tenant_id = TenantId(tenants[0].id.0);
 
         // Use the notification service from resources if available, else create a new one
-        let service = resources.notification_service.clone().unwrap_or_else(|| {
-            let pool = resources.database.sqlite_pool().unwrap().clone();
-            Arc::new(NotificationService::from_sqlite(pool))
-        });
+        let service = resources
+            .common
+            .notification_service
+            .clone()
+            .unwrap_or_else(|| {
+                let pool = resources.coach.database.sqlite_pool().unwrap().clone();
+                Arc::new(NotificationService::from_sqlite(pool))
+            });
 
         (service, user.id, tenant_id)
     }
@@ -128,6 +133,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -135,7 +141,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Disable the training category
@@ -172,6 +178,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -179,7 +186,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Disable SOCIAL category
@@ -219,6 +226,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -226,7 +234,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Set max_per_day = 2 for training
@@ -301,6 +309,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -308,7 +317,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
@@ -350,6 +359,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -357,7 +367,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Create 3 training notifications
@@ -430,6 +440,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -437,7 +448,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         // Fire the trigger — it's async fire-and-forget
@@ -477,6 +488,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -484,7 +496,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_training_load_alert(&service, user.id, tenant_id, 85.0);
@@ -508,6 +520,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -515,7 +528,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0);
@@ -539,6 +552,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -546,7 +560,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_overtraining_warning(&service, user.id, tenant_id);
@@ -569,6 +583,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -576,7 +591,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_personal_record(
@@ -608,6 +623,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -615,7 +631,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_milestone_reached(
@@ -642,6 +658,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -649,7 +666,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_fitness_improvement(
@@ -684,6 +701,7 @@ mod dispatch_tests {
             .unwrap();
 
         let tenants_a = resources
+            .common
             .repos
             .tenants
             .list_for_user(user_a.id)
@@ -691,6 +709,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id_a = TenantId(tenants_a[0].id.0);
         let tenants_b = resources
+            .common
             .repos
             .tenants
             .list_for_user(user_b.id)
@@ -698,7 +717,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id_b = TenantId(tenants_b[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         // Dispatch to user A
@@ -736,6 +755,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -743,7 +763,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Disable achievement category
@@ -789,6 +809,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -796,7 +817,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_friend_request_received(
@@ -834,6 +855,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -841,7 +863,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_friend_request_accepted(
@@ -877,6 +899,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -884,7 +907,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_activity_kudos(
@@ -920,6 +943,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -927,7 +951,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_insight_shared(
@@ -965,6 +989,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -972,7 +997,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_coach_message(
@@ -1006,6 +1031,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1013,7 +1039,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_plan_updated(
@@ -1046,6 +1072,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1053,7 +1080,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         notification_triggers::trigger_coach_feedback(
@@ -1093,6 +1120,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1100,7 +1128,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Set max_per_day = 1 for coach category
@@ -1187,6 +1215,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1194,7 +1223,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
@@ -1244,6 +1273,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1251,7 +1281,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Disable the coach category
@@ -1300,6 +1330,7 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -1307,7 +1338,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
 
         // Set max_per_day = 1 for coach

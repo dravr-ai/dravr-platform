@@ -14,14 +14,14 @@
 mod common;
 
 use anyhow::Result;
+use pierre_config::environment::ServerConfig;
+use pierre_core::models::User;
 use pierre_mcp_server::{
-    config::environment::ServerConfig,
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerContext, ServerContextOptions},
-        schema::get_tools,
     },
-    models::User,
+    tools::registry_builtin::get_tools,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;

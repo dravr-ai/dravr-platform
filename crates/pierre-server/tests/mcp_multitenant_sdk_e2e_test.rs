@@ -175,8 +175,9 @@ async fn test_http_transport_tools_list_parity() -> Result<()> {
 
     // Validate token works
     let validated = resources
+        .auth
         .auth_manager
-        .validate_token(&token, &resources.jwks_manager)
+        .validate_token(&token, &resources.auth.jwks_manager)
         .map_err(|e| anyhow::Error::msg(format!("Token validation failed: {e}")))?;
 
     let validated_user_id = Uuid::parse_str(&validated.sub)?;

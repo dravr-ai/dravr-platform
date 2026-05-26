@@ -8,11 +8,11 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_mcp_schema::McpRequest;
 use pierre_mcp_server::constants::tools::{
     GET_STRETCHING_EXERCISE, GET_YOGA_POSE, LIST_STRETCHING_EXERCISES, LIST_YOGA_POSES,
     SUGGEST_STRETCHES_FOR_ACTIVITY, SUGGEST_YOGA_SEQUENCE,
 };
-use pierre_mcp_server::mcp::multitenant::McpRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
 use serde_json::{json, Value};
@@ -31,12 +31,13 @@ impl MobilityMcpHandler {
     /// Create new handler with test resources
     async fn new() -> Result<Self> {
         let resources = common::create_test_server_resources().await?;
-        let (_user_id, user) = common::create_test_user(&resources.database).await?;
+        let (_user_id, user) = common::create_test_user(&resources.coach.database).await?;
 
         // Create a proper JWT token
         let jwt_token = resources
+            .auth
             .auth_manager
-            .generate_token(&user, &resources.jwks_manager)?;
+            .generate_token(&user, &resources.auth.jwks_manager)?;
 
         Ok(Self {
             resources,

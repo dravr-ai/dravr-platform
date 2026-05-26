@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::services::coach_grading::{
+use pierre_services::coach_grading::{
     rerank_by_grade, CoachGrade, CoachGradingSummary, LetterGrade,
 };
 

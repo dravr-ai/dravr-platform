@@ -337,7 +337,7 @@ async fn test_admin_pricing_loader_round_trip() {
     // Phase 2 — write a cat_llm_pricing override row, run the loader, then
     // verify GLOBAL_PRICING_REGISTRY returns the overridden price.
     use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
-    use pierre_mcp_server::services::pricing_loader;
+    use pierre_services::pricing_loader;
 
     let db = create_test_db().await.unwrap();
     let pool = db.sqlite_pool().expect("test db is sqlite");
@@ -392,7 +392,7 @@ async fn test_embedding_sink_injection_records_via_instrumented_provider() {
     use pierre_llm::embeddings::{
         EmbeddingDim, EmbeddingProvider, EmbeddingUsageSink, InstrumentedEmbeddingProvider,
     };
-    use pierre_mcp_server::services::embedding_sink::RepositoryEmbeddingSink;
+    use pierre_services::embedding_sink::RepositoryEmbeddingSink;
     use std::sync::Arc;
 
     struct StubProvider;

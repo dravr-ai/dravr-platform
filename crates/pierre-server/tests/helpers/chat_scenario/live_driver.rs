@@ -13,7 +13,7 @@
 //! - a coach-style system prompt that wires the fitness-assistant
 //!   persona + locale + the function-calling contract;
 //! - the canonical tool catalog harvested from
-//!   [`pierre_mcp_server::tools::registry::ToolRegistry`] so a tool
+//!   [`pierre_tool_runtime::registry::ToolRegistry`] so a tool
 //!   rename in production immediately breaks the scenario run;
 //! - an in-memory provider store seeded from
 //!   [`super::format::ProviderState`] so `get_activities`-class tool
@@ -32,14 +32,15 @@
 use std::collections::BTreeMap;
 use std::env;
 
-use pierre_mcp_server::errors::AppError;
-use pierre_mcp_server::llm::prompts::PIERRE_SYSTEM_PROMPT;
-use pierre_mcp_server::llm::{
+use pierre_core::errors::AppError;
+use pierre_llm::prompts::PIERRE_SYSTEM_PROMPT;
+use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
     LlmCapabilities, LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
-use pierre_mcp_server::mcp::schema::ToolSchema;
-use pierre_mcp_server::tools::registry::ToolRegistry;
+use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::registry::ToolRegistry;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::runtime::Builder as TokioRuntimeBuilder;
@@ -574,7 +575,7 @@ fn strip_template_placeholders(prompt: &str) -> String {
 /// instead of silently passing.
 fn build_tool_catalog() -> (Vec<Tool>, Vec<String>) {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
     let wanted = [
         "get_activities",
         "analyze_training_load",

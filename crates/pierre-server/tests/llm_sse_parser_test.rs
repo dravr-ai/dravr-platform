@@ -8,11 +8,11 @@
 
 use bytes::Bytes;
 use futures_util::{stream, StreamExt};
-use pierre_mcp_server::errors::AppError;
-use pierre_mcp_server::llm::sse_parser::{
+use pierre_core::errors::AppError;
+use pierre_llm::sse_parser::{
     create_sse_stream, is_retryable_status, RetryConfig, SseEvent, SseLineBuffer,
 };
-use pierre_mcp_server::llm::StreamChunk;
+use pierre_llm::StreamChunk;
 
 /// Helper: create an SSE stream from raw byte chunks and collect all `StreamChunks`
 async fn collect_stream_chunks(

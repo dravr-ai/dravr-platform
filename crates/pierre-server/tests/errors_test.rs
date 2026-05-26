@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::errors::{AppError, AppResult, ErrorCode, ErrorResponse};
+use pierre_core::errors::{AppError, AppResult, ErrorCode, ErrorResponse};
 use std::io;
 
 #[test]

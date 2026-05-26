@@ -18,20 +18,22 @@ use uuid::Uuid;
 
 // Import necessary modules from the main crate
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::*,
-    constants::oauth_providers,
-    intelligence::insights::{Insight, InsightType},
-    intelligence::{
-        ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics,
-        TimeOfDay, TrendDirection, TrendIndicators,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier},
-    permissions::UserRole,
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
+use pierre_config::environment::*;
+use pierre_core::models::{
+    DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
 };
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
+use pierre_intelligence::insights::{Insight, InsightType};
+use pierre_intelligence::{
+    ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
+    TrendDirection, TrendIndicators,
+};
+use pierre_mcp_server::{
+    constants::oauth_providers,
+    mcp::resources::{ServerContext, ServerContextOptions},
+};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 
 mod common;
 
@@ -347,7 +349,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         timezone: None,
     };
 
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Now create the tenant with the user as owner
     let tenant_slug = format!("test-tenant-{tenant_id}");
@@ -362,7 +364,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         updated_at: chrono::Utc::now(),
     };
 
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     // Set up OAuth credentials for the tenant
     println!("Setting up tenant OAuth credentials...");
@@ -401,7 +403,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
 
     match executor
         .resources
-        .repos
+        .repos()
         .oauth_tokens
         .upsert_token(&oauth_token)
         .await
@@ -430,7 +432,7 @@ async fn setup_tenant_oauth_credentials(
     // Check if tenant already has Strava OAuth credentials
     match executor
         .resources
-        .repos
+        .repos()
         .tenants
         .get_oauth_credentials(tenant_id, "strava")
         .await
@@ -467,7 +469,7 @@ async fn setup_tenant_oauth_credentials(
     // Store tenant OAuth credentials
     if let Err(e) = executor
         .resources
-        .repos
+        .repos()
         .tenants
         .store_oauth_credentials(&tenant_oauth_creds)
         .await

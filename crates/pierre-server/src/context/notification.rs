@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::mcp::schema::OAuthCompletedNotification;
-#[cfg(feature = "transport-sse")]
-use crate::sse::SseManager;
 #[cfg(feature = "transport-websocket")]
 use crate::websocket::WebSocketManager;
+use pierre_mcp_schema::OAuthCompletedNotification;
+#[cfg(feature = "transport-sse")]
+use pierre_sse::SseManager;
 #[cfg(any(feature = "transport-sse", feature = "transport-websocket"))]
 use std::sync::Arc;
 use tokio::sync::broadcast;

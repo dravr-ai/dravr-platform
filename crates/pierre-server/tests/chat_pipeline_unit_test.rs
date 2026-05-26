@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::services::chat_pipeline::{
+use pierre_chat_pipeline::{
     hooks::{IdentityPostProcess, PipelineHooks, ResponsePostProcess},
     Channel, ChannelProfile, MaxIterations, ModelPolicy,
 };

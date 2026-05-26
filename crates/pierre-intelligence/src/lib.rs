@@ -46,6 +46,33 @@ pub use routes::{
 pub mod threshold_estimation;
 pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 
+/// LLM-powered insight quality validation for social sharing.
+pub mod insight_validation;
+
+/// Privacy-preserving social insight generation (shareable suggestions from activity data).
+///
+/// Note: this module defines its own `PersonalRecord` type which intentionally
+/// shadows `dravr_cageux::types::PersonalRecord`. The two are not interchangeable
+/// — the social-insights variant carries shareable copy + improvement_pct fields
+/// while the cageux variant carries algorithmic PR detection data. Access the
+/// social-insights variant via `pierre_intelligence::social_insights::PersonalRecord`.
+pub mod social_insights;
+
+/// Location and geographic context (geocoding, elevation, address parsing via OSM Nominatim).
+pub mod location;
+/// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).
+pub mod osm_routes;
+/// Weather impact analysis + provider factory (delegates vendor logic to dravr-meteo).
+pub mod weather;
+// Outer doc intentionally omitted — `weather_cache_adapter.rs`'s
+// inner `//!` header is authoritative. When both an outer `///` on the
+// mod declaration and an inner `//!` exist, rustdoc concatenates them
+// into one virtual doc block whose first paragraph trips
+// `clippy::too_long_first_doc_paragraph`.
+pub mod weather_cache_adapter;
+
+pub use osm_routes::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
+
 // Re-export all public submodules from dravr-cageux
 pub use dravr_cageux::activity_analyzer;
 pub use dravr_cageux::algorithms;

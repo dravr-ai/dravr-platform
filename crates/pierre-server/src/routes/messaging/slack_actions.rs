@@ -18,11 +18,11 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
-use crate::models::UserStatus;
 use crate::services::messaging_ingress::resolve_messaging_locale;
-use crate::services::tenant_admin as tenant_admin_service;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::UserStatus;
+use pierre_services::tenant_admin as tenant_admin_service;
 
 /// Slack API endpoint for looking up user info by ID
 const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
@@ -72,6 +72,7 @@ pub async fn handle_slack_action(
 
     // Verify the Slack user is a Pierre admin
     let admin_user = resources
+        .common
         .repos
         .users
         .get_by_email(&slack_email)
@@ -180,7 +181,7 @@ async fn handle_command_postback(
 ) -> AppResult<(StatusCode, Json<Value>)> {
     use pierre_messaging::commands::CommandMatcher;
 
-    use crate::services::commands::PlatformCommandContext;
+    use pierre_commands::PlatformCommandContext;
 
     // Resolve Slack user to Pierre user via email lookup
     let bot_token = env::var("SLACK_BOT_TOKEN")
@@ -188,6 +189,7 @@ async fn handle_command_postback(
     let slack_email = resolve_slack_user_email(&bot_token, &action.slack_user_id).await?;
 
     let user = resources
+        .common
         .repos
         .users
         .get_by_email(&slack_email)
@@ -204,7 +206,12 @@ async fn handle_command_postback(
 
     // Resolve user's tenant
     let user_tenant = {
-        let tenants = resources.repos.tenants.list_for_user(user.id).await?;
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await?;
         if let Some(t) = tenants.first() {
             t.id
         } else {
@@ -214,10 +221,12 @@ async fn handle_command_postback(
 
     // Match command against registry
     let cmd_registry = resources
+        .common
         .command_registry
         .as_ref()
         .ok_or_else(|| AppError::internal("Command registry not initialized"))?;
     let handler_registry = resources
+        .common
         .command_handler_registry
         .as_ref()
         .ok_or_else(|| AppError::internal("Command handler registry not initialized"))?;
@@ -240,13 +249,15 @@ async fn handle_command_postback(
     )
     .await;
 
+    let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
+        Arc::<ServerContext>::clone(resources);
     let ctx = PlatformCommandContext {
         user_id: user.id,
         tenant_id: user_tenant,
         channel_type: "slack".to_owned(),
         args: parsed.args,
         raw_text: parsed.raw_text,
-        resources: Arc::clone(resources),
+        ctx: ctx_dyn,
         locale,
         // Slack block_actions payloads don't expose event.channel_type;
         // use the channel ID prefix convention ("D" = IM, "C" = channel,
@@ -435,6 +446,7 @@ async fn approve_user(
     approved_by: &str,
 ) -> AppResult<String> {
     let user = resources
+        .common
         .repos
         .users
         .get_global(user_uuid)
@@ -447,6 +459,7 @@ async fn approve_user(
     }
 
     let updated_user = resources
+        .common
         .repos
         .users
         .update_status(user_uuid, UserStatus::Active, None)
@@ -455,6 +468,7 @@ async fn approve_user(
 
     // Create default tenant for the approved user if they don't have one
     let has_tenants = !resources
+        .common
         .repos
         .tenants
         .list_for_user(user_uuid)
@@ -464,7 +478,7 @@ async fn approve_user(
 
     if !has_tenants {
         tenant_admin_service::provision_tenant_for_approval(
-            &resources.repos,
+            &resources.common.repos,
             user_uuid,
             &updated_user.email,
             updated_user.display_name.as_deref(),
@@ -493,6 +507,7 @@ async fn reject_user(
     rejected_by: &str,
 ) -> AppResult<String> {
     let user = resources
+        .common
         .repos
         .users
         .get_global(user_uuid)
@@ -505,6 +520,7 @@ async fn reject_user(
     }
 
     let updated_user = resources
+        .common
         .repos
         .users
         .update_status(user_uuid, UserStatus::Suspended, None)

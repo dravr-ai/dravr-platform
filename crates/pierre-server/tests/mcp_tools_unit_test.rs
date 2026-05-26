@@ -37,7 +37,7 @@
 //! 3. `input_schema()` returns valid JSON schema with correct required fields
 //! 4. `capabilities()` returns expected capability flags
 
-use pierre_mcp_server::tools::traits::{McpTool, ToolCapabilities};
+use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
 
 // ============================================================================
 // COACHES TOOLS TESTS (13 tools)
@@ -45,7 +45,7 @@ use pierre_mcp_server::tools::traits::{McpTool, ToolCapabilities};
 
 mod coaches_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::coaches::{
+    use pierre_tool_runtime::implementations::coaches::{
         ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool,
         GetActiveCoachTool, GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool,
         SearchCoachesTool, ShowCoachTool, ToggleCoachFavoriteTool, UpdateCoachTool,
@@ -256,7 +256,7 @@ mod coaches_tests {
 
     #[test]
     fn test_create_coach_tools_factory() {
-        use pierre_mcp_server::tools::implementations::coaches::create_coach_tools;
+        use pierre_tool_runtime::implementations::coaches::create_coach_tools;
 
         let tools = create_coach_tools();
         assert_eq!(tools.len(), 13, "Expected 13 coach tools");
@@ -285,7 +285,7 @@ mod coaches_tests {
 
     #[test]
     fn test_all_coach_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::coaches::create_coach_tools;
+        use pierre_tool_runtime::implementations::coaches::create_coach_tools;
 
         let tools = create_coach_tools();
         for tool in &tools {
@@ -305,7 +305,7 @@ mod coaches_tests {
 
 mod configuration_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::configuration::{
+    use pierre_tool_runtime::implementations::configuration::{
         CalculatePersonalizedZonesTool, GetConfigurationCatalogTool, GetConfigurationProfilesTool,
         GetUserConfigurationTool, UpdateUserConfigurationTool, ValidateConfigurationTool,
     };
@@ -378,7 +378,7 @@ mod configuration_tests {
 
     #[test]
     fn test_create_configuration_tools_factory() {
-        use pierre_mcp_server::tools::implementations::configuration::create_configuration_tools;
+        use pierre_tool_runtime::implementations::configuration::create_configuration_tools;
 
         let tools = create_configuration_tools();
         assert_eq!(tools.len(), 6, "Expected 6 configuration tools");
@@ -400,7 +400,7 @@ mod configuration_tests {
 
     #[test]
     fn test_all_configuration_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::configuration::create_configuration_tools;
+        use pierre_tool_runtime::implementations::configuration::create_configuration_tools;
 
         let tools = create_configuration_tools();
         for tool in &tools {
@@ -420,7 +420,7 @@ mod configuration_tests {
 
 mod fitness_config_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::fitness_config::{
+    use pierre_tool_runtime::implementations::fitness_config::{
         DeleteFitnessConfigTool, GetFitnessConfigTool, ListFitnessConfigsTool, SetFitnessConfigTool,
     };
 
@@ -470,7 +470,7 @@ mod fitness_config_tests {
 
     #[test]
     fn test_create_fitness_config_tools_factory() {
-        use pierre_mcp_server::tools::implementations::fitness_config::create_fitness_config_tools;
+        use pierre_tool_runtime::implementations::fitness_config::create_fitness_config_tools;
 
         let tools = create_fitness_config_tools();
         assert_eq!(tools.len(), 4, "Expected 4 fitness config tools");
@@ -490,7 +490,7 @@ mod fitness_config_tests {
 
     #[test]
     fn test_all_fitness_config_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::fitness_config::create_fitness_config_tools;
+        use pierre_tool_runtime::implementations::fitness_config::create_fitness_config_tools;
 
         let tools = create_fitness_config_tools();
         for tool in &tools {
@@ -510,7 +510,7 @@ mod fitness_config_tests {
 
 mod nutrition_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::nutrition::{
+    use pierre_tool_runtime::implementations::nutrition::{
         AnalyzeMealNutritionTool, CalculateDailyNutritionTool, GetFoodDetailsTool,
         GetNutrientTimingTool, SearchFoodTool,
     };
@@ -614,7 +614,7 @@ mod nutrition_tests {
 
     #[test]
     fn test_create_nutrition_tools_factory() {
-        use pierre_mcp_server::tools::implementations::nutrition::create_nutrition_tools;
+        use pierre_tool_runtime::implementations::nutrition::create_nutrition_tools;
 
         let tools = create_nutrition_tools();
         assert_eq!(tools.len(), 5, "Expected 5 nutrition tools");
@@ -635,7 +635,7 @@ mod nutrition_tests {
 
     #[test]
     fn test_all_nutrition_tools_read_only() {
-        use pierre_mcp_server::tools::implementations::nutrition::create_nutrition_tools;
+        use pierre_tool_runtime::implementations::nutrition::create_nutrition_tools;
 
         let tools = create_nutrition_tools();
         for tool in &tools {
@@ -654,7 +654,7 @@ mod nutrition_tests {
 
 mod recipes_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::recipes::{
+    use pierre_tool_runtime::implementations::recipes::{
         DeleteRecipeTool, GetRecipeConstraintsTool, GetRecipeTool, ListRecipesTool, SaveRecipeTool,
         SearchRecipesTool, ValidateRecipeTool,
     };
@@ -752,7 +752,7 @@ mod recipes_tests {
 
     #[test]
     fn test_create_recipe_tools_factory() {
-        use pierre_mcp_server::tools::implementations::recipes::create_recipe_tools;
+        use pierre_tool_runtime::implementations::recipes::create_recipe_tools;
 
         let tools = create_recipe_tools();
         assert_eq!(tools.len(), 7, "Expected 7 recipe tools");
@@ -775,7 +775,7 @@ mod recipes_tests {
 
     #[test]
     fn test_all_recipe_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::recipes::create_recipe_tools;
+        use pierre_tool_runtime::implementations::recipes::create_recipe_tools;
 
         let tools = create_recipe_tools();
         for tool in &tools {
@@ -795,7 +795,7 @@ mod recipes_tests {
 
 mod sleep_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::sleep::{
+    use pierre_tool_runtime::implementations::sleep::{
         AnalyzeSleepQualityTool, CalculateRecoveryScoreTool, OptimizeSleepScheduleTool,
         SuggestRestDayTool, TrackSleepTrendsTool,
     };
@@ -857,7 +857,7 @@ mod sleep_tests {
 
     #[test]
     fn test_create_sleep_tools_factory() {
-        use pierre_mcp_server::tools::implementations::sleep::create_sleep_tools;
+        use pierre_tool_runtime::implementations::sleep::create_sleep_tools;
 
         let tools = create_sleep_tools();
         assert_eq!(tools.len(), 5, "Expected 5 sleep tools");
@@ -878,7 +878,7 @@ mod sleep_tests {
 
     #[test]
     fn test_all_sleep_tools_are_read_only() {
-        use pierre_mcp_server::tools::implementations::sleep::create_sleep_tools;
+        use pierre_tool_runtime::implementations::sleep::create_sleep_tools;
 
         let tools = create_sleep_tools();
         for tool in &tools {
@@ -892,7 +892,7 @@ mod sleep_tests {
 
     #[test]
     fn test_all_sleep_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::sleep::create_sleep_tools;
+        use pierre_tool_runtime::implementations::sleep::create_sleep_tools;
 
         let tools = create_sleep_tools();
         for tool in &tools {
@@ -912,7 +912,7 @@ mod sleep_tests {
 
 mod data_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::data::{
+    use pierre_tool_runtime::implementations::data::{
         GetActivitiesTool, GetAthleteTool, GetStatsTool,
     };
 
@@ -951,7 +951,7 @@ mod data_tests {
 
     #[test]
     fn test_create_data_tools_factory() {
-        use pierre_mcp_server::tools::implementations::data::create_data_tools;
+        use pierre_tool_runtime::implementations::data::create_data_tools;
 
         let tools = create_data_tools();
         assert_eq!(tools.len(), 7, "Expected 7 data tools");
@@ -966,7 +966,7 @@ mod data_tests {
 
     #[test]
     fn test_all_data_tools_are_read_only() {
-        use pierre_mcp_server::tools::implementations::data::create_data_tools;
+        use pierre_tool_runtime::implementations::data::create_data_tools;
 
         let tools = create_data_tools();
         for tool in &tools {
@@ -985,7 +985,7 @@ mod data_tests {
 
 mod analytics_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::analytics::{
+    use pierre_tool_runtime::implementations::analytics::{
         AnalyzeTrainingLoadTool, CalculateFitnessScoreTool, DetectPatternsTool,
     };
 
@@ -1024,7 +1024,7 @@ mod analytics_tests {
 
     #[test]
     fn test_create_analytics_tools_factory() {
-        use pierre_mcp_server::tools::implementations::analytics::create_analytics_tools;
+        use pierre_tool_runtime::implementations::analytics::create_analytics_tools;
 
         let tools = create_analytics_tools();
         assert_eq!(tools.len(), 11, "Expected 11 analytics tools");
@@ -1049,7 +1049,7 @@ mod analytics_tests {
 
     #[test]
     fn test_all_analytics_tools_are_read_only() {
-        use pierre_mcp_server::tools::implementations::analytics::create_analytics_tools;
+        use pierre_tool_runtime::implementations::analytics::create_analytics_tools;
 
         let tools = create_analytics_tools();
         for tool in &tools {
@@ -1068,7 +1068,7 @@ mod analytics_tests {
 
 mod goals_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::goals::{
+    use pierre_tool_runtime::implementations::goals::{
         AnalyzeGoalFeasibilityTool, SetGoalTool, SuggestGoalsTool, TrackProgressTool,
     };
 
@@ -1118,7 +1118,7 @@ mod goals_tests {
 
     #[test]
     fn test_create_goal_tools_factory() {
-        use pierre_mcp_server::tools::implementations::goals::create_goal_tools;
+        use pierre_tool_runtime::implementations::goals::create_goal_tools;
 
         let tools = create_goal_tools();
         assert_eq!(tools.len(), 4, "Expected 4 goal tools");
@@ -1138,7 +1138,7 @@ mod goals_tests {
 
     #[test]
     fn test_all_goal_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::goals::create_goal_tools;
+        use pierre_tool_runtime::implementations::goals::create_goal_tools;
 
         let tools = create_goal_tools();
         for tool in &tools {
@@ -1158,7 +1158,7 @@ mod goals_tests {
 
 mod connection_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::connection::{
+    use pierre_tool_runtime::implementations::connection::{
         ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
     };
 
@@ -1197,7 +1197,7 @@ mod connection_tests {
 
     #[test]
     fn test_create_connection_tools_factory() {
-        use pierre_mcp_server::tools::implementations::connection::create_connection_tools;
+        use pierre_tool_runtime::implementations::connection::create_connection_tools;
 
         let tools = create_connection_tools();
         assert_eq!(tools.len(), 3, "Expected 3 connection tools");
@@ -1216,7 +1216,7 @@ mod connection_tests {
 
     #[test]
     fn test_all_connection_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::connection::create_connection_tools;
+        use pierre_tool_runtime::implementations::connection::create_connection_tools;
 
         let tools = create_connection_tools();
         for tool in &tools {
@@ -1236,7 +1236,7 @@ mod connection_tests {
 
 mod admin_tests {
     use super::*;
-    use pierre_mcp_server::tools::implementations::admin::{
+    use pierre_tool_runtime::implementations::admin::{
         AdminAssignCoachTool, AdminCreateSystemCoachTool, AdminDeleteSystemCoachTool,
         AdminGetSystemCoachTool, AdminListCoachAssignmentsTool, AdminListSystemCoachesTool,
         AdminUnassignCoachTool, AdminUpdateSystemCoachTool,
@@ -1332,7 +1332,7 @@ mod admin_tests {
 
     #[test]
     fn test_create_admin_tools_factory() {
-        use pierre_mcp_server::tools::implementations::admin::create_admin_tools;
+        use pierre_tool_runtime::implementations::admin::create_admin_tools;
 
         let tools = create_admin_tools();
         assert_eq!(tools.len(), 8, "Expected 8 admin tools");
@@ -1356,7 +1356,7 @@ mod admin_tests {
 
     #[test]
     fn test_all_admin_tools_require_auth() {
-        use pierre_mcp_server::tools::implementations::admin::create_admin_tools;
+        use pierre_tool_runtime::implementations::admin::create_admin_tools;
 
         let tools = create_admin_tools();
         for tool in &tools {
@@ -1376,7 +1376,7 @@ mod admin_tests {
 
 #[test]
 fn test_total_tool_count() {
-    use pierre_mcp_server::tools::implementations::{
+    use pierre_tool_runtime::implementations::{
         admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
@@ -1415,7 +1415,7 @@ fn test_total_tool_count() {
 
 #[test]
 fn test_all_tools_have_valid_schemas() {
-    use pierre_mcp_server::tools::implementations::{
+    use pierre_tool_runtime::implementations::{
         admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
@@ -1466,7 +1466,7 @@ fn test_all_tools_have_valid_schemas() {
 
 #[test]
 fn test_all_tool_names_are_unique() {
-    use pierre_mcp_server::tools::implementations::{
+    use pierre_tool_runtime::implementations::{
         admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
@@ -1502,7 +1502,7 @@ fn test_all_tool_names_are_unique() {
 
 #[test]
 fn test_all_tools_have_descriptions() {
-    use pierre_mcp_server::tools::implementations::{
+    use pierre_tool_runtime::implementations::{
         admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,

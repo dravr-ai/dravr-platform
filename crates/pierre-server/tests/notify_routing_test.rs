@@ -10,7 +10,7 @@
 #[cfg(feature = "contremaitre")]
 mod tests {
     use dravr_tronc::notify::RoutingProvider;
-    use pierre_mcp_server::contremaitre::notify_routing::ContremaitreRoutingProvider;
+    use pierre_contremaitre::notify_routing::ContremaitreRoutingProvider;
     use std::time::Duration;
 
     const SAMPLE_YAML: &str = r##"

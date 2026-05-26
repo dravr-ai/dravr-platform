@@ -48,7 +48,7 @@ use crate::strategies::tier::GroupTierStrategy;
 ///
 /// Coordinates strategy traits with the repository to provide group-aware
 /// coaching intelligence. The key function is [`inject_group_context`],
-/// called from `chat.rs` and `chat_orchestration.rs` to augment coach
+/// called from `chat.rs` and the chat pipeline to augment coach
 /// system prompts with group context.
 pub struct GroupService {
     repo: Arc<dyn CoachingGroupRepository>,
@@ -70,7 +70,7 @@ impl GroupService {
     ///
     /// Called from two places in pierre-server:
     /// - `chat.rs::get_augmented_system_prompt()` — web + mobile path
-    /// - `chat_orchestration.rs` — messaging path
+    /// - `chat_pipeline::stages::prompt_builder` — messaging path
     ///
     /// If the coach is assigned to a group the user belongs to, augments
     /// the system prompt with member summaries, aggregate stats, and

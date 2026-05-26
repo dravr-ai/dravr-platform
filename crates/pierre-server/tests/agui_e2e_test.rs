@@ -46,13 +46,16 @@ impl Fixture {
             .expect("create user + token");
 
         let tenant_id = {
-            let repos = resources.database.repositories();
+            let repos = resources.coach.database.repositories();
             let tenants = repos.tenants.list_for_user(user.id).await.expect("tenants");
             tenants.first().expect("tenant exists").id
         };
         let owner = RunOwner::new(user.id, tenant_id);
 
-        let app = AgUiRoutes::routes((*resources.agui_registry).clone(), Arc::clone(&resources));
+        let app = AgUiRoutes::routes(
+            (*resources.sse.agui_registry).clone(),
+            Arc::clone(&resources.auth.auth_middleware),
+        );
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr: SocketAddr = listener.local_addr().expect("local addr");
         let handle = tokio::spawn(async move {
@@ -132,7 +135,7 @@ async fn broadcast_sink_events_reach_authenticated_owner() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_fanout";
 
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     let client = Client::builder().no_gzip().build().expect("client");
     let response = client
@@ -151,7 +154,7 @@ async fn broadcast_sink_events_reach_authenticated_owner() {
     sleep(Duration::from_millis(50)).await;
 
     let sink = BroadcastSink::new(
-        (*fx.resources.agui_registry).clone(),
+        (*fx.resources.sse.agui_registry).clone(),
         AgUiEventFilter::default(),
     );
     sink.emit(&AgUiEvent::run_started(run_id, Some("thread_1")))
@@ -191,7 +194,7 @@ async fn broadcast_sink_events_reach_authenticated_owner() {
 async fn missing_authorization_header_is_401() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_no_auth";
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     let response = Client::new()
         .get(fx.url(run_id))
@@ -208,7 +211,7 @@ async fn missing_authorization_header_is_401() {
 async fn malformed_bearer_token_is_401() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_bad_token";
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     let response = Client::new()
         .get(fx.url(run_id))
@@ -227,7 +230,7 @@ async fn malformed_bearer_token_is_401() {
 async fn authenticated_but_wrong_user_is_403() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_wrong_user";
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     let other_token = fx.second_user_token("agui-e2e-other@example.com").await;
 
@@ -266,12 +269,12 @@ async fn unknown_run_returns_not_found() {
 async fn late_subscribers_receive_replay_over_http() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_replay";
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     // Emit events BEFORE the client subscribes — the replay buffer
     // captures them and the handler flushes them on connect.
     let sink = BroadcastSink::new(
-        (*fx.resources.agui_registry).clone(),
+        (*fx.resources.sse.agui_registry).clone(),
         AgUiEventFilter::default(),
     );
     sink.emit(&AgUiEvent::run_started(run_id, Some("thread_1")))
@@ -323,7 +326,7 @@ async fn late_subscribers_receive_replay_over_http() {
 async fn filtered_events_do_not_cross_http_boundary() {
     let fx = Fixture::spawn().await;
     let run_id = "run_e2e_filter";
-    let _producer = fx.resources.agui_registry.register(run_id, fx.owner);
+    let _producer = fx.resources.sse.agui_registry.register(run_id, fx.owner);
 
     let client = Client::builder().no_gzip().build().expect("client");
     let response = client
@@ -338,7 +341,7 @@ async fn filtered_events_do_not_cross_http_boundary() {
     let filter = AgUiEventFilter::deny_all()
         .with(AgUiEventKind::RunStarted)
         .with(AgUiEventKind::RunFinished);
-    let sink = BroadcastSink::new((*fx.resources.agui_registry).clone(), filter);
+    let sink = BroadcastSink::new((*fx.resources.sse.agui_registry).clone(), filter);
 
     sink.emit(&AgUiEvent::run_started(run_id, None)).await;
     sink.emit(&AgUiEvent::step_started(run_id, "prompt_assembly"))

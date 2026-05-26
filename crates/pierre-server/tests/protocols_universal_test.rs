@@ -13,18 +13,16 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig},
-    config::environment::{self, *},
-    intelligence::insights::{Insight, InsightType},
-    intelligence::{
-        ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics,
-        TimeOfDay, TrendDirection, TrendIndicators,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, User},
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
+use pierre_cache::{Cache, CacheConfig};
+use pierre_config::environment::{self, *};
+use pierre_core::models::{Tenant, User};
+use pierre_intelligence::insights::{Insight, InsightType};
+use pierre_intelligence::{
+    ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
+    TrendDirection, TrendIndicators,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use uuid::Uuid;
@@ -266,7 +264,7 @@ async fn test_universal_executor_creation() -> Result<()> {
     let executor = create_test_executor().await?;
 
     // Verify basic functionality
-    assert!(!executor.resources.tool_registry.tool_names().is_empty());
+    assert!(!executor.resources.tool_registry().tool_names().is_empty());
 
     // Check that core tools are registered
     assert!(executor.has_tool("get_connection_status"));
@@ -285,7 +283,7 @@ async fn test_tool_registration() -> Result<()> {
     // Verify all expected tools are registered in the shared ToolRegistry
     let tool_names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())
@@ -346,13 +344,29 @@ async fn test_tool_execution_invalid_tool() -> Result<()> {
 async fn test_connection_status_tool() -> Result<()> {
     common::init_server_config();
     let executor = create_test_executor().await?;
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "connection-status@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Connection Status User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Connection Status Tenant".to_owned(),
+        "connection-status-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
-        user_id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant.id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -383,7 +397,7 @@ async fn test_connect_strava_tool() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -393,7 +407,7 @@ async fn test_connect_strava_tool() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     // Test with explicit strava provider to verify OAuth error handling
     // Default provider is "synthetic" which doesn't need OAuth
@@ -816,7 +830,7 @@ async fn test_compare_activities_tool() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -826,7 +840,7 @@ async fn test_compare_activities_tool() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "compare_activities".to_owned(),
@@ -1439,6 +1453,14 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         .await,
     );
     let executor = UniversalToolExecutor::new(server_resources);
+    let tenant = Tenant::new(
+        "Disconnect Provider Tenant".to_owned(),
+        "disconnect-provider-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "disconnect_provider".to_owned(),
@@ -1447,7 +1469,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant.id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -1477,7 +1499,7 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1487,7 +1509,7 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_activities".to_owned(),
@@ -1528,7 +1550,7 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1538,7 +1560,7 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_athlete".to_owned(),
@@ -1580,7 +1602,7 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1590,7 +1612,7 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_stats".to_owned(),
@@ -1663,13 +1685,29 @@ async fn test_invalid_protocol_handling() -> Result<()> {
 async fn test_empty_parameters() -> Result<()> {
     common::init_server_config();
     let executor = create_test_executor().await?;
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "empty-params@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Empty Params User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Empty Params Tenant".to_owned(),
+        "empty-params-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
-        user_id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant.id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,

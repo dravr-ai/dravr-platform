@@ -25,8 +25,9 @@ use anyhow::Result;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     constants::tools::PUBLIC_DISCOVERY_TOOLS, mcp::resources::ServerContext,
-    tools::registry::ToolRegistry,
+    tools::registry_builtin::register_builtin_tools,
 };
+use pierre_tool_runtime::registry::ToolRegistry;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::{collections::HashSet, sync::Arc};
@@ -58,7 +59,7 @@ async fn add_user_to_tenant_as_member(
     tenant_id: &str,
     user_id: Uuid,
 ) -> Result<()> {
-    match &*resources.database {
+    match &*resources.coach.database {
         Database::SQLite(db) => {
             let row_id = Uuid::new_v4().to_string();
             let now = chrono::Utc::now().to_rfc3339();
@@ -368,7 +369,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
 
     // In-process: rebuild a registry and compare.
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
     let in_process: HashSet<String> = registry.all_schemas().into_iter().map(|s| s.name).collect();
 
     let only_wire: Vec<&String> = wire.difference(&in_process).collect();
@@ -415,7 +416,7 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
         common::create_test_tenant(&resources, "member-path-member@example.com").await?;
 
     // Fetch T_owner's id (O is owner here, so list_for_user returns it).
-    let repos = resources.database.repositories();
+    let repos = resources.coach.database.repositories();
     let owner_tenants = repos
         .tenants
         .list_for_user(owner.id)
@@ -433,10 +434,11 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
     // Mint a JWT for M with T_owner as active_tenant_id. The request's
     // TenantContext will resolve to TenantRole::Member → is_admin()==false.
     let token = resources
+        .auth
         .auth_manager
         .generate_token_with_tenant(
             &member,
-            &resources.jwks_manager,
+            &resources.auth.jwks_manager,
             Some(owner_tenant_id.clone()),
         )
         .map_err(|e| anyhow::anyhow!("generate_token_with_tenant failed: {e}"))?;

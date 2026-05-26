@@ -12,14 +12,14 @@ mod helpers;
 
 use chrono::Utc;
 use helpers::test_utils::{create_synthetic_provider_with_scenario, TestScenario};
-use pierre_mcp_server::config::intelligence::{DefaultStrategy, IntelligenceConfig};
-use pierre_mcp_server::intelligence::{
+use pierre_core::models::SportType;
+use pierre_intelligence::config::intelligence::{DefaultStrategy, IntelligenceConfig};
+use pierre_intelligence::{
     ActivityGoal, AdvancedGoalEngine, FitnessLevel, Goal, GoalDifficulty, GoalEngineTrait,
     GoalStatus, GoalType, PerformanceAnalyzerV2, TimeAvailability, TimeFrame, UserFitnessProfile,
     UserPreferences,
 };
-use pierre_mcp_server::models::SportType;
-use pierre_mcp_server::providers::core::FitnessProvider;
+use pierre_providers::core::FitnessProvider;
 
 // ================================================================================================
 // Test Helper Functions

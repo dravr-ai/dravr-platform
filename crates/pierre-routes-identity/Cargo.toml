@@ -1,0 +1,32 @@
+# ABOUTME: Identity route group — OAuth 2.0 authorization server + per-user OAuth-app management
+# ABOUTME: Decoupled from pierre-server via IdentityCtx; mounted by the composition root
+
+[package]
+name = "pierre-routes-identity"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Identity route group (OAuth 2.0 server + user OAuth apps) for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+
+axum = { version = "0.8", features = ["macros"] }
+bcrypt = "0.16"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

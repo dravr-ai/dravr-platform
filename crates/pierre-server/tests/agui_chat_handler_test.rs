@@ -93,8 +93,10 @@ async fn spawn_server() -> (Arc<ServerContext>, String) {
         .expect("server resources");
 
     let chat_router = ChatRoutes::routes(Arc::clone(&resources));
-    let agui_router =
-        AgUiRoutes::routes((*resources.agui_registry).clone(), Arc::clone(&resources));
+    let agui_router = AgUiRoutes::routes(
+        (*resources.sse.agui_registry).clone(),
+        Arc::clone(&resources.auth.auth_middleware),
+    );
     let app = chat_router.merge(agui_router);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -236,12 +238,12 @@ async fn chat_handler_emits_agui_events_for_real_request() {
     // SSE poll races against a sub-millisecond pipeline failure path
     // and is flaky on cold caches.
     let tenant_id = {
-        let repos = resources.database.repositories();
+        let repos = resources.coach.database.repositories();
         let tenants = repos.tenants.list_for_user(user.id).await.expect("tenants");
         tenants.first().expect("tenant exists").id
     };
     let owner = RunOwner::new(user.id, tenant_id);
-    let _test_scope = resources.agui_registry.register_scoped(&run_id, owner);
+    let _test_scope = resources.sse.agui_registry.register_scoped(&run_id, owner);
 
     // Open the SSE subscription up-front. It can connect immediately
     // because the run is already registered.

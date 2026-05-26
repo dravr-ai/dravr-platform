@@ -26,28 +26,25 @@ use anyhow::Result;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
+use pierre_cache::{Cache, CacheConfig};
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::{HttpClientConfig, RateLimitConfig, ServerConfig};
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig},
-    config::{
-        self,
-        environment::{RateLimitConfig, ServerConfig},
-    },
     constants,
     mcp::resources::{ServerContext, ServerContextOptions},
-    middleware::McpAuthMiddleware,
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
     routes::mcp::McpRoutes,
-    tools::traits::McpTool,
     utils,
 };
+use pierre_middleware::McpAuthMiddleware;
+use pierre_tool_runtime::traits::McpTool;
 use rand::Rng;
 #[cfg(feature = "postgresql")]
 use std::thread;
@@ -150,9 +147,7 @@ pub fn init_test_logging() {
 /// Safe to call multiple times - initialization happens only once due to `Once` guard.
 pub fn init_test_http_clients() {
     INIT_HTTP_CLIENTS.call_once(|| {
-        utils::http_client::initialize_http_clients(
-            config::environment::HttpClientConfig::default(),
-        );
+        utils::http_client::initialize_http_clients(HttpClientConfig::default());
     });
 }
 
@@ -317,12 +312,13 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
 pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
-    let repos = resources.database.repositories();
+    let repos = resources.coach.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
     resources
+        .auth
         .auth_manager
-        .generate_token_with_tenant(user, &resources.jwks_manager, tenant_id)
+        .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
 }
 
@@ -501,8 +497,8 @@ async fn create_test_server_resources_inner(
 pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerContext>, Uuid, String)>
 {
     let resources = create_test_server_resources().await?;
-    let (user_id, _user) = create_test_user(&resources.database).await?;
-    let api_key = create_test_api_key(&resources.database, user_id, "test-key")?;
+    let (user_id, _user) = create_test_user(&resources.coach.database).await?;
+    let api_key = create_test_api_key(&resources.coach.database, user_id, "test-key")?;
 
     Ok((resources, user_id, api_key))
 }
@@ -536,9 +532,9 @@ pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerCont
 
 use async_trait::async_trait;
 use futures_util::stream;
-use pierre_mcp_server::errors::AppError;
-use pierre_mcp_server::external::{FoodDetails, FoodNutrient, FoodSearchResult};
-use pierre_mcp_server::llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, StreamChunk};
+use pierre_core::errors::AppError;
+use pierre_external::{FoodDetails, FoodNutrient, FoodSearchResult};
+use pierre_llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, StreamChunk};
 use std::collections::HashMap;
 
 /// Mock USDA client for testing (no API calls)
@@ -930,11 +926,11 @@ pub async fn send_http_mcp_request(
 /// Returns error if user creation or token generation fails
 pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Result<(User, String)> {
     // Create test user with specified email
-    let (_user_id, user) = create_test_user_with_email(&resources.database, email).await?;
+    let (_user_id, user) = create_test_user_with_email(&resources.coach.database, email).await?;
 
     // Look up user's tenant to include active_tenant_id in the JWT.
     // Route handlers require active_tenant_id in JWT claims.
-    let repos = resources.database.repositories();
+    let repos = resources.coach.database.repositories();
     let tenants = repos
         .tenants
         .list_for_user(user.id)
@@ -943,8 +939,9 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
     let tenant_id = tenants.first().map(|t| t.id.to_string());
 
     let token = resources
+        .auth
         .auth_manager
-        .generate_token_with_tenant(&user, &resources.jwks_manager, tenant_id)
+        .generate_token_with_tenant(&user, &resources.auth.jwks_manager, tenant_id)
         .map_err(|e| anyhow::Error::msg(format!("Failed to generate JWT: {e}")))?;
 
     Ok((user, token))
@@ -955,7 +952,7 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
 /// Same shape as [`create_test_tenant`] but also registers a `Synthetic`
 /// provider connection so the user can reach chat / coach / messaging
 /// endpoints past the onboarding gate
-/// (see `pierre_mcp_server::services::onboarding_gate`).
+/// (see `pierre_services::onboarding_gate`).
 ///
 /// Use this whenever a test posts to `/api/chat/conversations/.../messages`
 /// or any other endpoint guarded by `require_connected_provider`. Tests that
@@ -970,7 +967,7 @@ pub async fn create_test_tenant_with_provider(
     email: &str,
 ) -> Result<(User, String)> {
     let (user, token) = create_test_tenant(resources, email).await?;
-    let repos = resources.database.repositories();
+    let repos = resources.coach.database.repositories();
     let tenants = repos
         .tenants
         .list_for_user(user.id)

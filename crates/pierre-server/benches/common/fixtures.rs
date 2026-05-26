@@ -9,7 +9,7 @@
 //! Provides deterministic data generation for reproducible performance measurements.
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_mcp_server::models::{Activity, SportType};
+use pierre_core::models::{Activity, SportType};
 
 /// Predefined batch sizes for benchmark scenarios
 #[derive(Debug, Clone, Copy)]
@@ -108,7 +108,7 @@ fn build_activity(
     distance_meters: f64,
     avg_hr: u32,
 ) -> Activity {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     let is_run = sport_type == SportType::Run;
     let is_walk = sport_type == SportType::Walk;

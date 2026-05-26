@@ -7,10 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::config::CompactionConfig;
 use pierre_llm::{ChatMessage, MessageRole};
-use pierre_mcp_server::services::conversation_compaction::{
-    estimate_messages_tokens, CompactionConfig,
-};
+use pierre_services::conversation_compaction::estimate_messages_tokens;
 
 fn msgs(items: &[(MessageRole, &str)]) -> Vec<ChatMessage> {
     items

@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::services::provider_error_filter::detect_leaked_provider_error;
+use pierre_services::provider_error_filter::detect_leaked_provider_error;
 
 #[test]
 fn detects_copilot_authorization_error_leak() {

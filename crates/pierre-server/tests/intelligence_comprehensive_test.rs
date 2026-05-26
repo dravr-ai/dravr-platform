@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::intelligence::*;
+use pierre_intelligence::*;
 use std::collections::HashMap;
 
 mod common;

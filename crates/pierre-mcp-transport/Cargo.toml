@@ -1,0 +1,30 @@
+# ABOUTME: MCP transport primitives — progress tracking, bidirectional sampling, OAuth callback rendering
+# ABOUTME: Leaf crate consumed by pierre-server; no ServerContext or runtime config dependencies
+
+[package]
+name = "pierre-mcp-transport"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "MCP transport primitives for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
+
+chrono = { version = "0.4", features = ["serde"] }
+http = "1.1"
+html-escape = "0.2.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.50", features = ["sync", "io-std", "io-util", "time"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4"] }
+
+[lints]
+workspace = true

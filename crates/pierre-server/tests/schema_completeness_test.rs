@@ -8,21 +8,21 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::panic)]
 
-use pierre_mcp_server::mcp::schema;
-use pierre_mcp_server::tools::registry::ToolRegistry;
+use pierre_mcp_server::tools::registry_builtin::{get_tools, register_builtin_tools};
+use pierre_tool_runtime::registry::ToolRegistry;
 use std::collections::HashSet;
 
 #[test]
 fn test_all_schema_tools_are_registered() {
     // Get all tools from MCP schema (what Claude Desktop sees)
-    let schema_tools = schema::get_tools();
+    let schema_tools = get_tools();
     let schema_tool_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
 
     println!("Found {} tools in MCP schema", schema_tool_names.len());
 
     // Build the unified registry and check each schema tool resolves
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
     let registered_tools: HashSet<String> = schema_tool_names
         .iter()
         .filter(|name| registry.get(name).is_some())
@@ -76,7 +76,7 @@ fn test_critical_tools_are_present() {
         "get_connection_status",
     ];
 
-    let schema_tools = schema::get_tools();
+    let schema_tools = get_tools();
     let schema_tool_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
 
     for tool in critical_tools {
@@ -92,7 +92,7 @@ fn test_critical_tools_are_present() {
 #[test]
 fn test_tool_schemas_have_valid_structure() {
     // Validate each tool schema has required fields
-    let tools = schema::get_tools();
+    let tools = get_tools();
 
     for tool in &tools {
         // Tool must have a name
@@ -139,11 +139,11 @@ fn test_tool_schemas_have_valid_structure() {
 fn test_every_schema_tool_resolves_in_registry() {
     // Every tool advertised in the MCP schema must also resolve by name in
     // the shared ToolRegistry — the single dispatch surface post-unification.
-    let schema_tools = schema::get_tools();
+    let schema_tools = get_tools();
     let schema_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
 
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let mut unroutable = Vec::new();
     for name in &schema_names {
@@ -175,7 +175,7 @@ fn test_provider_parameter_consistency() {
         "compare_activities",
     ];
 
-    let tools = schema::get_tools();
+    let tools = get_tools();
 
     for tool_name in provider_tools {
         let Some(tool) = tools.iter().find(|t| t.name == tool_name) else {

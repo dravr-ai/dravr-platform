@@ -17,17 +17,15 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-};
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    config::environment::{OAuthConfig, OAuthProviderConfig},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
 };
 use serial_test::serial;
 use std::sync::Arc;

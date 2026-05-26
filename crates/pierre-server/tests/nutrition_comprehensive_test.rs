@@ -20,14 +20,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::{
-    config::intelligence::IntelligenceConfig,
-    intelligence::nutrition_calculator::{
-        calculate_carb_needs, calculate_daily_nutrition_needs, calculate_fat_needs,
-        calculate_mifflin_st_jeor, calculate_nutrient_timing, calculate_protein_needs,
-        calculate_tdee, ActivityLevel, DailyNutritionParams, Gender, TrainingGoal,
-        WorkoutIntensity,
-    },
+use pierre_intelligence::config::intelligence::IntelligenceConfig;
+use pierre_intelligence::nutrition_calculator::{
+    calculate_carb_needs, calculate_daily_nutrition_needs, calculate_fat_needs,
+    calculate_mifflin_st_jeor, calculate_nutrient_timing, calculate_protein_needs, calculate_tdee,
+    ActivityLevel, DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
 };
 
 mod common;

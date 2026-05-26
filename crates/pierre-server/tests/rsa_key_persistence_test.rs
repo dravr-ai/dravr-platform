@@ -12,16 +12,12 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-use pierre_database::{backends::factory::Database, database};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    admin::{
-        jwt::AdminJwtManager,
-        models::{AdminPermission, AdminPermissions},
-    },
-    models::User,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_core::models::User;
+use pierre_database::{backends::factory::Database, database};
+use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 

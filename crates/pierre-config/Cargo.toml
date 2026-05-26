@@ -1,0 +1,31 @@
+# ABOUTME: Configuration data types and loaders for the Pierre platform (server, network, security, cache, etc.)
+# ABOUTME: Extracted leaf crate consumed by pierre-server; depends on pierre-core, pierre-auth, pierre-intelligence, pierre-middleware
+
+[package]
+name = "pierre-config"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Configuration types and loaders for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "http-client"] }
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest-middleware = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.50", features = ["sync"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

@@ -25,10 +25,10 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
-use pierre_mcp_server::permissions::UserRole;
-use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
-use pierre_mcp_server::protocols::ProtocolError;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::permissions::UserRole;
+use pierre_tool_runtime::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -58,7 +58,7 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
     user.approved_by = Some(user.id);
     user.approved_at = Some(Utc::now());
     let user_id = user.id;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -71,10 +71,10 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
     executor
         .resources
-        .repos
+        .repos()
         .users
         .update_tenant_id(user_id, tenant_id)
         .await?;
@@ -87,8 +87,8 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
 async fn create_regular_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
     let email = format!("regular_test_{}@example.com", Uuid::new_v4());
     let (user_id, _user) =
-        common::create_test_user_with_email(&executor.resources.database, &email).await?;
-    let tenants = executor.resources.repos.tenants.get_all().await?;
+        common::create_test_user_with_email(executor.resources.database(), &email).await?;
+    let tenants = executor.resources.repos().tenants.get_all().await?;
     let user_tenant = tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -139,13 +139,13 @@ async fn create_system_coach(
 /// Assert that a non-admin caller is rejected with the canonical permission error.
 fn assert_permission_denied(err: &ProtocolError, tool: &str) {
     match err {
-        ProtocolError::InvalidRequest(msg) => {
+        ProtocolError::InvalidParameters(msg) => {
             assert!(
                 msg.contains("Permission denied") || msg.contains("Admin access required"),
                 "{tool}: expected permission-denied message, got: {msg}"
             );
         }
-        other => panic!("{tool}: expected InvalidRequest, got {other:?}"),
+        other => panic!("{tool}: expected InvalidParameters, got {other:?}"),
     }
 }
 
@@ -158,7 +158,7 @@ async fn test_admin_tools_registered() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())
@@ -302,8 +302,8 @@ async fn test_admin_create_system_coach_missing_title() -> Result<()> {
         .await
         .expect_err("missing title must reject");
     match err {
-        ProtocolError::InvalidRequest(_) => {}
-        other => panic!("expected InvalidRequest, got {other:?}"),
+        ProtocolError::InvalidParameters(_) => {}
+        other => panic!("expected InvalidParameters, got {other:?}"),
     }
     Ok(())
 }

@@ -4,15 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::{
-    errors::AppError,
-    mcp::{
-        protocol::{McpRequest, McpResponse},
-        resources::ServerContext,
-        tool_handlers::ToolHandlers,
-    },
-};
+use crate::mcp::{resources::ServerContext, tool_handlers::ToolHandlers};
+use async_trait::async_trait;
+use pierre_core::errors::AppError;
 use pierre_database::database::oauth_notifications::OAuthNotification;
+use pierre_mcp_schema::{McpRequest, McpResponse};
+use pierre_runtime_context::SseCtx;
+use pierre_sse::manager::{ProtocolStream, ProtocolStreamFactory};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{
@@ -37,7 +35,7 @@ impl McpProtocolStream {
     /// Creates a new MCP protocol stream for SSE communication
     #[must_use]
     pub fn new(resources: Arc<ServerContext>) -> Self {
-        let buffer_size = resources.config.sse.max_buffer_size;
+        let buffer_size = resources.common.config.sse.max_buffer_size;
         Self {
             resources,
             sender: Arc::new(RwLock::new(None)),
@@ -228,5 +226,40 @@ impl McpProtocolStream {
             sender.receiver_count()
         );
         Ok(sender)
+    }
+}
+
+/// `pierre-sse`-facing trait impl so [`pierre_sse::SseManager`] can hold
+/// `Arc<dyn ProtocolStream>` without depending on this concrete type.
+/// Each method delegates to the inherent implementation above via UFCS.
+#[async_trait]
+impl ProtocolStream for McpProtocolStream {
+    async fn subscribe(&self) -> broadcast::Receiver<String> {
+        Self::subscribe(self).await
+    }
+
+    async fn send_oauth_notification(
+        &self,
+        notification: &OAuthNotification,
+    ) -> Result<(), AppError> {
+        Self::send_oauth_notification(self, notification).await
+    }
+
+    async fn handle_request(&self, request: McpRequest) -> Result<(), AppError> {
+        Self::handle_request(self, request).await
+    }
+}
+
+/// Composition-root factory installed on [`pierre_sse::SseManager`] at
+/// startup. Closes over the `Arc<ServerContext>` so each per-session
+/// stream gets the same handle without an extra downcast.
+pub struct McpProtocolStreamFactory {
+    /// Shared resources handle used to construct each per-session stream.
+    pub resources: Arc<ServerContext>,
+}
+
+impl ProtocolStreamFactory for McpProtocolStreamFactory {
+    fn create(&self, _ctx: &Arc<dyn SseCtx>) -> Arc<dyn ProtocolStream> {
+        Arc::new(McpProtocolStream::new(self.resources.clone()))
     }
 }

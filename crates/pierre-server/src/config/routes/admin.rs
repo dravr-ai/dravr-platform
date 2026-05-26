@@ -10,13 +10,8 @@
 //! an admin API. Supports viewing the full catalog, updating values,
 //! resetting to defaults, and viewing audit history.
 
-use crate::config::admin::{
-    AdminConfigService, ConfigAuditFilter, ConfigAuditResponse, ResetConfigRequest,
-    UpdateConfigContext, UpdateConfigRequest, ValidateConfigRequest,
-};
-use crate::errors::{AppError, AppResult};
+use crate::config::admin::{AdminConfigService, UpdateConfigContext};
 use crate::mcp::resources::ServerContext;
-use crate::middleware::require_admin;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -24,6 +19,12 @@ use axum::{
     Json,
 };
 use pierre_auth::security::cookies::get_cookie_value;
+use pierre_config::admin_types::{
+    ConfigAuditFilter, ConfigAuditResponse, ResetConfigRequest, UpdateConfigRequest,
+    ValidateConfigRequest,
+};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_middleware::require_admin;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -60,13 +61,14 @@ impl AdminConfigState {
 
         let auth = self
             .resources
+            .auth
             .auth_middleware
             .authenticate_request(Some(&auth_value))
             .await
             .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
 
         // Verify admin privileges using centralized guard
-        let user = require_admin(auth.user_id, &self.resources.repos.users).await?;
+        let user = require_admin(auth.user_id, &self.resources.common.repos.users).await?;
 
         Ok(AdminAuthInfo {
             user_id: auth.user_id.to_string(),

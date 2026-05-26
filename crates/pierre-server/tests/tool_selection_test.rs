@@ -7,19 +7,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_config::tool_selection::ToolSelectionConfig;
+use pierre_core::models::{TenantId, ToolEnablementSource};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::ToolSelectionConfig,
-    mcp::tool_selection::ToolSelectionService,
-    models::{TenantId, ToolEnablementSource},
-};
+use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::sync::Arc;
 
 mod common;
 
 /// Create a `ToolSelectionService` with the test database
 fn create_test_service(db: &Arc<Database>) -> ToolSelectionService {
-    ToolSelectionService::new(Arc::new(db.repositories()))
+    ToolSelectionService::new(&Arc::new(db.repositories()))
 }
 
 /// Create a `ToolSelectionService` with specific disabled tools
@@ -28,7 +26,7 @@ fn create_test_service_with_disabled(
     disabled_tools: Vec<String>,
 ) -> ToolSelectionService {
     let config = ToolSelectionConfig::with_disabled_tools(disabled_tools);
-    ToolSelectionService::with_config(Arc::new(db.repositories()), config)
+    ToolSelectionService::with_config(&Arc::new(db.repositories()), config)
 }
 
 #[tokio::test]

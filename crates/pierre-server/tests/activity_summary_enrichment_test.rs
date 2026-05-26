@@ -18,7 +18,7 @@
 
 use chrono::Utc;
 use pierre_core::models::{activity::ActivityBuilder, Activity, SportType};
-use pierre_mcp_server::protocols::universal::handlers::fitness_api::{
+use pierre_tool_runtime::implementations::fitness_support::{
     ActivityRetrievalContext, ActivitySummary, AnalysisType,
 };
 

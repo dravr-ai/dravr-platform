@@ -18,7 +18,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -65,7 +65,7 @@ async fn test_mobility_tools_registered() -> Result<()> {
 
     let tool_names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())
@@ -248,7 +248,7 @@ async fn test_get_stretching_exercise_not_found() -> Result<()> {
     let request = create_test_request(
         "get_stretching_exercise",
         json!({
-            "id": "nonexistent-id"
+            "exercise_id": "nonexistent-id"
         }),
         user_id,
     );
@@ -540,7 +540,7 @@ async fn test_get_yoga_pose_not_found() -> Result<()> {
     let request = create_test_request(
         "get_yoga_pose",
         json!({
-            "id": "nonexistent-pose-id"
+            "pose_id": "nonexistent-pose-id"
         }),
         user_id,
     );

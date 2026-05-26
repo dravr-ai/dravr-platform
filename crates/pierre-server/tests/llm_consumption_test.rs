@@ -11,7 +11,7 @@ use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_mcp_server::llm::pricing::calculate_cost;
+use pierre_llm::pricing::calculate_cost;
 
 /// Parameters for inserting test LLM usage data
 struct TestUsageParams<'a> {

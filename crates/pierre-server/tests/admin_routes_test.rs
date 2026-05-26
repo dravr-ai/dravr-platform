@@ -10,9 +10,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::{
-    routes::admin::ProvisionApiKeyRequest, utils::auth::extract_bearer_token_owned,
-};
+use pierre_core::auth_header::extract_bearer_token_owned;
+use pierre_routes_admin::ProvisionApiKeyRequest;
 
 #[test]
 fn test_extract_bearer_token() {

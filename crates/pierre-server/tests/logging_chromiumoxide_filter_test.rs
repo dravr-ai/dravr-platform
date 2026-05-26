@@ -10,7 +10,7 @@
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 
-use pierre_mcp_server::logging::ChromiumoxideNotifierFilter;
+use pierre_logging::ChromiumoxideNotifierFilter;
 use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
 use tracing::Subscriber;

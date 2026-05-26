@@ -13,19 +13,18 @@
 //! Provides real-time updates for API key usage, rate limit status,
 //! and system metrics via `WebSocket` connections.
 
-use crate::{
-    admin::JwksManager,
-    config::environment::RateLimitConfig,
-    constants::rate_limits::WEBSOCKET_CHANNEL_CAPACITY,
-    errors::{AppError, AppResult},
-    middleware::McpAuthMiddleware,
-};
+use pierre_auth::admin::jwks::JwksManager;
+
+use crate::constants::rate_limits::WEBSOCKET_CHANNEL_CAPACITY;
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::{AuthManager, AuthResult};
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_middleware::McpAuthMiddleware;
 // UsageRepository dispatched through repos.usage
 use dashmap::DashMap;
-use pierre_database::RepositoryRegistry;
+use pierre_database::{RepositoryRegistry, UsageRepos};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -90,7 +89,10 @@ pub enum WebSocketMessage {
 /// Manages WebSocket connections and message broadcasting
 #[derive(Clone)]
 pub struct WebSocketManager {
-    repos: Arc<RepositoryRegistry>,
+    /// Narrow view: `WebSocketManager` only consults `repos.usage` for the
+    /// `system_stats` push. JWT/API-key authentication runs through
+    /// `auth_middleware`, which owns its own registry handle internally.
+    repos: UsageRepos,
     auth_middleware: McpAuthMiddleware,
     clients: Arc<DashMap<Uuid, ClientConnection>>,
     broadcast_tx: broadcast::Sender<WebSocketMessage>,
@@ -104,10 +106,17 @@ struct ClientConnection {
 }
 
 impl WebSocketManager {
-    /// Creates a new WebSocket manager instance
+    /// Creates a new WebSocket manager instance.
+    ///
+    /// Takes the full `RepositoryRegistry` because the constructor
+    /// forwards an Arc-clone into `McpAuthMiddleware::new`, which holds
+    /// the registry directly for auth lookups across `users`,
+    /// `api_keys`, and `usage` (cross-cuts `AuthRepos` + `UsageRepos`).
+    /// The narrowing for the manager itself is at the `repos` field —
+    /// `UsageRepos` for the `system_stats` push.
     #[must_use]
     pub fn new(
-        repos: Arc<RepositoryRegistry>,
+        repos: &Arc<RepositoryRegistry>,
         auth_manager: &Arc<AuthManager>,
         jwks_manager: &Arc<JwksManager>,
         rate_limit_config: RateLimitConfig,
@@ -121,7 +130,7 @@ impl WebSocketManager {
         ); // Safe: Arc clones for middleware creation
 
         Self {
-            repos,
+            repos: repos.usage_repos(),
             auth_middleware,
             clients: Arc::new(DashMap::new()),
             broadcast_tx,

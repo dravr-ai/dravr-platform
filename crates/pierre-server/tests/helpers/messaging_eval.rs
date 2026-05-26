@@ -150,8 +150,8 @@
 
 use std::mem;
 
+use pierre_core::models::Activity;
 use pierre_intelligence::training_load::{TrainingLoad, TrainingLoadCalculator};
-use pierre_mcp_server::models::Activity;
 
 /// Default athlete physiology used when deriving training-load metrics
 /// from synthetic activities. These match the middle of the

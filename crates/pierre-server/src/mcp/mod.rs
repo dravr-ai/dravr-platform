@@ -8,29 +8,24 @@
 pub mod mcp_request_processor;
 /// Multi-tenant MCP server implementation
 pub mod multitenant;
-/// OAuth 2.0 authorization flow management (requires protocol-rest for response types)
-#[cfg(feature = "protocol-rest")]
-pub mod oauth_flow_manager;
-/// Progress notification handling
-pub mod progress;
 /// MCP protocol types and message handling
 pub mod protocol;
 /// Resource management for MCP
 pub mod resources;
-/// Sampling peer for server-initiated LLM requests
-pub mod sampling_peer;
-/// MCP JSON schema definitions
-pub mod schema;
 /// Server lifecycle management
 pub mod server_lifecycle;
-/// Tenant isolation and context management
-pub mod tenant_isolation;
 /// MCP tool handler implementations
 pub mod tool_handlers;
-/// Per-tenant MCP tool selection and filtering
+/// Server-startup catalog sync — bridges the live `ToolRegistry` to the `tool_catalog` table.
+///
+/// The per-tenant filtering service (`ToolSelectionService`) lives in
+/// `pierre_tool_runtime::tool_selection`; only the registry-coupled startup
+/// helpers remain here.
 pub mod tool_selection;
 /// Transport layer abstraction
 pub mod transport_manager;
 
-// Re-exports for convenience
-pub use tool_selection::ToolSelectionService;
+// Transport primitives moved to the `pierre-mcp-transport` leaf crate.
+// Callers now use the canonical path `pierre_mcp_transport::{progress,
+// sampling_peer, tenant_isolation, oauth_flow_manager}` directly per the
+// facade-shim deletion plan (gist item #12).

@@ -18,19 +18,19 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
-use pierre_mcp_server::models::{
+use pierre_core::models::{
     Activity, ActivityBuilder, HealthMetrics, MealType, RecoveryMetrics, SleepSession, SportType,
 };
-use pierre_mcp_server::pagination::{PaginationDirection, PaginationParams};
-use pierre_mcp_server::providers::core::FitnessProvider;
-use pierre_mcp_server::providers::spi::ProviderDescriptor;
-use pierre_mcp_server::providers::terra::models::{
+use pierre_core::pagination::{PaginationDirection, PaginationParams};
+use pierre_providers::core::FitnessProvider;
+use pierre_providers::spi::ProviderDescriptor;
+use pierre_providers::terra::models::{
     TerraActivity, TerraCaloriesData, TerraDistanceData, TerraMetadata, TerraUser,
 };
-use pierre_mcp_server::providers::terra::webhook::{
+use pierre_providers::terra::webhook::{
     SignatureValidation, WebhookResult, WebhookSignatureValidator,
 };
-use pierre_mcp_server::providers::terra::{
+use pierre_providers::terra::{
     TerraApiClient, TerraApiConfig, TerraConverters, TerraDataCache, TerraDescriptor,
     TerraProvider, TerraWebhookHandler,
 };

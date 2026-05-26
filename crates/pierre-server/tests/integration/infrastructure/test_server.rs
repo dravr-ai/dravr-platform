@@ -9,23 +9,21 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use pierre_core::models::CoachingPersona;
-use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig, CacheTtlConfig},
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-        ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
-        OAuthConfig, PostgresPoolConfig, ProtocolConfig, RedisConnectionConfig, RouteTimeoutConfig,
-        SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
-    },
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    providers::synthetic_provider::set_synthetic_test_seed,
+use pierre_cache::{Cache, CacheConfig, CacheTtlConfig};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
+    ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
+    OAuthConfig, PostgresPoolConfig, ProtocolConfig, RedisConnectionConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
 };
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
+};
+use pierre_providers::synthetic_provider::set_synthetic_test_seed;
 use rand::Rng;
 use std::{env, net::TcpListener, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::sleep};
@@ -196,7 +194,7 @@ impl IntegrationTestServer {
             timezone: None,
         };
 
-        let repos = self.resources.database.repositories();
+        let repos = self.resources.coach.database.repositories();
         repos.users.create(&user).await?;
 
         // Create tenant for user
@@ -218,11 +216,15 @@ impl IntegrationTestServer {
         repos.users.update_tenant_id(user_id, tenant_id).await?;
 
         // Generate JWT token with active_tenant_id so route handlers can resolve tenant
-        let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
-            &user,
-            &self.resources.jwks_manager,
-            Some(tenant_id.to_string()),
-        )?;
+        let jwt_token = self
+            .resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &user,
+                &self.resources.auth.jwks_manager,
+                Some(tenant_id.to_string()),
+            )?;
 
         Ok((user_id, jwt_token))
     }
@@ -265,7 +267,7 @@ impl IntegrationTestServer {
             timezone: None,
         };
 
-        let repos = self.resources.database.repositories();
+        let repos = self.resources.coach.database.repositories();
         repos.users.create(&user).await?;
 
         let tenant_id = TenantId::new();
@@ -283,11 +285,15 @@ impl IntegrationTestServer {
 
         repos.users.update_tenant_id(user_id, tenant_id).await?;
 
-        let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
-            &user,
-            &self.resources.jwks_manager,
-            Some(tenant_id.to_string()),
-        )?;
+        let jwt_token = self
+            .resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &user,
+                &self.resources.auth.jwks_manager,
+                Some(tenant_id.to_string()),
+            )?;
 
         Ok((user_id, tenant_id, jwt_token))
     }

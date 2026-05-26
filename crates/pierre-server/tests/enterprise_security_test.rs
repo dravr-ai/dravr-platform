@@ -59,8 +59,8 @@ async fn test_enterprise_security_model() -> Result<()> {
 
     // Verify that:
     // 1. Admin token system is available
-    use pierre_mcp_server::admin::jwt::AdminJwtManager;
-    use pierre_mcp_server::admin::models::{AdminPermission, AdminPermissions};
+    use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+    use pierre_routes_admin::auth::jwt::AdminJwtManager;
 
     // 2. Admin permissions include ProvisionKeys
     let admin_perms = AdminPermissions::default_admin();

@@ -17,16 +17,14 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    llm::LlmProvider,
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{InsightType, ShareVisibility, SharedInsight},
-    routes::social::SocialRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::{InsightType, ShareVisibility, SharedInsight};
+use pierre_llm::LlmProvider;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_social::SocialRoutes;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -97,7 +95,7 @@ impl SocialRoutesTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         Ok(Self {
@@ -109,14 +107,17 @@ impl SocialRoutesTestSetup {
 
     /// Create a second user for friend-related tests
     async fn create_second_user(&self) -> anyhow::Result<(Uuid, String)> {
-        let (user_id, user) =
-            common::create_test_user_with_email(&self.resources.database, "friend@example.com")
-                .await?;
+        let (user_id, user) = common::create_test_user_with_email(
+            &self.resources.coach.database,
+            "friend@example.com",
+        )
+        .await?;
 
         let jwt_token = self
             .resources
+            .auth
             .auth_manager
-            .generate_token(&user, &self.resources.jwks_manager)
+            .generate_token(&user, &self.resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT for second user: {}", e))?;
 
         Ok((user_id, jwt_token))
@@ -1627,6 +1628,7 @@ async fn test_has_insight_for_activity_detects_duplicate() {
     // Use the registry's SocialRepository (SQLite-backed in tests).
     let social = setup
         .resources
+        .common
         .repos
         .social
         .clone()
@@ -1686,6 +1688,7 @@ async fn test_duplicate_activity_insight_prevention() {
 
     let social = setup
         .resources
+        .common
         .repos
         .social
         .clone()

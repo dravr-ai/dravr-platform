@@ -11,8 +11,8 @@
 //! - Recipe scaling and validation
 
 use chrono::Utc;
-use pierre_mcp_server::config::intelligence::IntelligenceConfig;
-use pierre_mcp_server::intelligence::recipes::{
+use pierre_intelligence::config::intelligence::IntelligenceConfig;
+use pierre_intelligence::recipes::{
     convert_to_grams, ConversionError, IngredientUnit, MacroTargets, MacroTargetsExt, MealTiming,
     Recipe, RecipeIngredient, ValidatedNutrition,
 };
@@ -216,7 +216,7 @@ fn test_unsupported_unit() {
 
 #[test]
 fn test_has_density() {
-    use pierre_mcp_server::intelligence::recipes::conversion::has_density;
+    use pierre_intelligence::recipes::conversion::has_density;
 
     assert!(
         has_density("chicken breast"),

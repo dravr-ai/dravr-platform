@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
+use pierre_core::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 
 #[test]
 fn test_cursor_encoding_decoding() {

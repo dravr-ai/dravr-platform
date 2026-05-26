@@ -1,0 +1,22 @@
+# ABOUTME: Resend-backed transactional email service + HTML/text templates
+# ABOUTME: Used by mcp::resources to send password reset, OTP, and notification emails
+
+[package]
+name = "pierre-email"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Transactional email service for the Pierre platform"
+repository = "https://github.com/dravr-ai/scriptcurator-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+
+html-escape = "0.2.13"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

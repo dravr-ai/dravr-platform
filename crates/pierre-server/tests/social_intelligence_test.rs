@@ -8,8 +8,9 @@
 //! insight adaptation, and friend activity caching.
 
 use chrono::{Duration, Utc};
-use pierre_mcp_server::config::social::global as social_insights_global;
-use pierre_mcp_server::intelligence::{
+use pierre_config::social::global as social_insights_global;
+use pierre_core::models::{InsightType, ShareVisibility, SharedInsight, TrainingPhase};
+use pierre_intelligence::{
     friend_activity_cache::{
         CacheConfig, DurationCategory, EffortLevel, FriendActivityCache, FriendActivitySummary,
     },
@@ -19,7 +20,6 @@ use pierre_mcp_server::intelligence::{
         InsightGenerationContext, InsightSuggestion, PersonalRecord, SharedInsightGenerator,
     },
 };
-use pierre_mcp_server::models::{InsightType, ShareVisibility, SharedInsight, TrainingPhase};
 use uuid::Uuid;
 
 // ============================================================================
@@ -520,10 +520,10 @@ fn test_user_training_context_builder() {
 fn test_generator_creates_valid_output() {
     // Test that generator can be created and produces valid output
     let generator = SharedInsightGenerator::new();
-    let context = InsightContextBuilder::new().build();
+    let context = InsightContextBuilder::new().build(social_insights_global());
 
     // Empty context should produce no suggestions (below threshold)
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
     assert!(suggestions.is_empty());
 }
 
@@ -531,10 +531,10 @@ fn test_generator_creates_valid_output() {
 fn test_generator_with_custom_relevance() {
     // Test that custom relevance threshold works
     let generator = SharedInsightGenerator::with_min_relevance(90);
-    let context = InsightContextBuilder::new().build();
+    let context = InsightContextBuilder::new().build(social_insights_global());
 
     // Empty context should produce no suggestions
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
     assert!(suggestions.is_empty());
 }
 
@@ -554,7 +554,7 @@ fn test_generator_activity_milestone() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Should have at least one milestone suggestion
     let has_milestone = suggestions
@@ -582,7 +582,7 @@ fn test_generator_streak_achievement() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Should have achievement for streak
     let has_achievement = suggestions
@@ -615,7 +615,7 @@ fn test_generator_personal_record() {
         }],
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Should have achievement for PR
     let has_pr_achievement = suggestions.iter().any(|s| {
@@ -644,7 +644,7 @@ fn test_generator_distance_milestone() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Should have milestone for 1000km (formatted as "1k km")
     let has_distance_milestone = suggestions
@@ -676,7 +676,7 @@ fn test_generator_training_phase_insights() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Training phase insights may or may not be generated depending on other criteria
     // Just ensure we don't crash and generator works
@@ -707,7 +707,7 @@ fn test_generator_suggestions_sorted_by_relevance() {
         }],
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
 
     // Verify sorted by relevance (descending)
     for window in suggestions.windows(2) {
@@ -785,7 +785,7 @@ fn test_capitalize_first_already_capital() {
 
 #[test]
 fn test_empty_context_builder() {
-    let context = InsightContextBuilder::new().build();
+    let context = InsightContextBuilder::new().build(social_insights_global());
     assert_eq!(context.total_activity_count, 0);
     assert_eq!(context.current_streak_days, 0);
 }
@@ -794,7 +794,7 @@ fn test_empty_context_builder() {
 fn test_context_builder_with_training_phase() {
     let context = InsightContextBuilder::new()
         .with_training_phase(TrainingPhase::Base)
-        .build();
+        .build(social_insights_global());
 
     assert_eq!(context.training_phase, Some(TrainingPhase::Base));
 }
@@ -818,7 +818,7 @@ fn test_end_to_end_insight_generation_and_adaptation() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&gen_context);
+    let suggestions = generator.generate_suggestions(&gen_context, social_insights_global());
 
     if let Some(suggestion) = suggestions.first() {
         // Create the insight
@@ -878,7 +878,7 @@ fn test_cache_and_generator_integration() {
         recent_prs: Vec::new(),
     };
 
-    let suggestions = generator.generate_suggestions(&context);
+    let suggestions = generator.generate_suggestions(&context, social_insights_global());
     // Just ensure the integration works without errors
     // The generator may produce zero or more suggestions based on context
     let _ = suggestions;

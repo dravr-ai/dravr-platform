@@ -10,12 +10,11 @@ use pierre_core::tokens::estimate_chat_tokens;
 use serde::Deserialize;
 use tracing::{debug, warn};
 
-use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
-use crate::services::chat_pipeline;
-use crate::services::usage_counter::UsageCounterService;
+use pierre_llm::ChatMessage;
+use pierre_services::usage_counter::UsageCounterService;
 
-use super::super::chat_tool_loop;
+use pierre_tool_runtime::tool_execution;
 
 /// JSON shape the insight-generation prompt is instructed to emit. Kept
 /// local to this module because it is only ever produced by the LLM and
@@ -71,7 +70,7 @@ pub fn post_process_content(raw_content: &str, is_insight_request: bool) -> Stri
 /// input for the prompt side and on the assistant reply for the
 /// completion side.
 pub fn tokens_from_dispatch(
-    dispatch: &chat_pipeline::DispatchResult,
+    dispatch: &pierre_chat_pipeline::DispatchResult,
     user_content: &str,
 ) -> (Option<u32>, Option<u32>) {
     dispatch.usage.as_ref().map_or_else(
@@ -89,7 +88,7 @@ pub fn tokens_from_dispatch(
 /// usage. Used by the insight-generation flow which runs its own tool
 /// loop outside the unified pipeline.
 pub fn extract_or_estimate_tokens(
-    result: &chat_tool_loop::ToolLoopResult,
+    result: &tool_execution::ToolLoopResult,
     llm_messages: &[ChatMessage],
 ) -> (Option<u32>, Option<u32>) {
     result.usage.as_ref().map_or_else(
@@ -162,11 +161,14 @@ pub async fn increment_usage_counters_scoped(
     tool_calls_count: u32,
     scope: &UsageIncrementScope<'_>,
 ) {
-    let Some(ref admin_config) = resources.admin_config else {
+    let Some(ref admin_config) = resources.coach.admin_config else {
         return;
     };
 
-    let usage_svc = UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+    let usage_svc = UsageCounterService::new(
+        resources.common.repos.usage_counters.as_ref(),
+        admin_config.as_ref(),
+    );
 
     increment_base_counters(
         &usage_svc,

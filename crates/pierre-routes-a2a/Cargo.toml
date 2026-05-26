@@ -1,0 +1,33 @@
+# ABOUTME: A2A (Agent-to-Agent) HTTP route group — client management + protocol surface
+# ABOUTME: Owns A2ARoutesState, A2ARoutes — decoupled from pierre-server via narrow A2ACtx trait
+
+[package]
+name = "pierre-routes-a2a"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A2A protocol REST routes (client CRUD, dashboard, JSON-RPC tools dispatch) for the Pierre platform"
+repository = "https://github.com/dravr-ai/cdn-platform"
+publish = false
+
+[dependencies]
+pierre-a2a = { version = "0.3.0", path = "../pierre-a2a" }
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
+
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+subtle = "2.6"
+tokio = { version = "1.0", features = ["rt"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use pierre_mcp_server::email::templates::{registration_approved_html, registration_pending_html};
+use pierre_email::templates::{registration_approved_html, registration_pending_html};
 
 #[test]
 fn pending_email_uses_named_greeting_when_display_name_present() {

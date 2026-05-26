@@ -9,11 +9,11 @@
 
 use std::env;
 
+use pierre_core::models::{ActivityBuilder, SportType};
+use pierre_intelligence::MetricType;
 use pierre_llm::prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
 };
-use pierre_mcp_server::intelligence::MetricType;
-use pierre_mcp_server::models::{ActivityBuilder, SportType};
 
 // =============================================================================
 // Issue #6: analyze_performance_trends missing elevation metric
@@ -293,7 +293,7 @@ fn test_activity_intelligence_fallback_on_not_found() {
     // activity.rs:228 — if get_activity returns ResourceNotFound,
     // it auto-fetches recent activities and analyzes the most recent.
     // The unit test here validates the error code enum variant exists.
-    use pierre_mcp_server::errors::ErrorCode;
+    use pierre_core::errors::ErrorCode;
     let code = ErrorCode::ResourceNotFound;
     assert_eq!(
         format!("{code:?}"),

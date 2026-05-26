@@ -9,10 +9,10 @@
 
 mod common;
 
+use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_mcp_server::models::TenantId;
-use pierre_mcp_server::providers::core::FitnessProvider;
-use pierre_mcp_server::providers::registry::{
+use pierre_providers::core::FitnessProvider;
+use pierre_providers::registry::{
     create_provider, create_tenant_provider, global_registry, ProviderRegistry,
 };
 use uuid::Uuid;

@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
-use pierre_mcp_server::intelligence::sleep_analysis::{
+use pierre_intelligence::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
+use pierre_intelligence::sleep_analysis::{
     HrvRecoveryStatus, HrvTrend, SleepAnalyzer, SleepData, SleepQualityCategory,
 };
 

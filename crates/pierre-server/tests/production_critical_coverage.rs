@@ -14,14 +14,11 @@
 
 use anyhow::Result;
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
+use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::CoachingPersona;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig,
-    mcp::multitenant::MultiTenantMcpServer,
-    models::{EncryptedToken, User, UserStatus, UserTier},
-    permissions::UserRole,
-    websocket::WebSocketManager,
-};
+use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_mcp_server::{mcp::multitenant::MultiTenantMcpServer, websocket::WebSocketManager};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -384,7 +381,7 @@ async fn test_websocket_connection_scenarios() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
     let repos = Arc::new(database.repositories());
     let websocket_manager = WebSocketManager::new(
-        repos,
+        &repos,
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),

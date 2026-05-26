@@ -11,8 +11,8 @@
 // Allow raw string hashes for readability in test fixtures
 #![allow(clippy::needless_raw_string_hashes)]
 
+use pierre_coach_parser::{parse_frontmatter, parse_sections, CoachStartup, RelationType};
 use pierre_database::database::coaches::{CoachCategory, CoachVisibility};
-use pierre_mcp_server::coaches::{parse_frontmatter, parse_sections, CoachStartup, RelationType};
 
 const SAMPLE_COACH: &str = r#"---
 name: test-coach

@@ -10,10 +10,7 @@
 //! sleep sessions, recovery metrics, health snapshots, and connected data sources.
 //! All handlers require valid JWT authentication.
 
-use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser,
-    models::TenantId,
-};
+use crate::mcp::resources::ServerContext;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -23,6 +20,10 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use pierre_auth::auth::AuthResult;
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_middleware::AuthenticatedUser;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -54,13 +55,14 @@ impl HealthDataRoutes {
             .with_state(resources)
     }
 
-    /// Get tenant ID for an authenticated user
-    ///
-    /// Uses `active_tenant_id` from JWT claims if available, otherwise falls back
-    /// to the `user_id` as a single-tenant default.
-    fn get_tenant_id(auth: &AuthResult) -> TenantId {
-        auth.active_tenant_id
-            .map_or_else(|| TenantId::from(auth.user_id), TenantId::from)
+    /// Resolve tenant via the canonical resolver. Verifies membership when
+    /// `active_tenant_id` is claimed; errors if the user has no tenants.
+    /// No user-id fallback.
+    async fn get_tenant_id(
+        auth: &AuthResult,
+        resources: &Arc<ServerContext>,
+    ) -> Result<TenantId, AppError> {
+        require(resolve_tenant(resources, auth, TenantMode::Required).await?)
     }
 
     /// Parse date range from query params, defaulting to last 30 days
@@ -95,10 +97,11 @@ impl HealthDataRoutes {
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth);
+        let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let (start, end) = Self::parse_date_range(&params)?;
 
         let sessions = resources
+            .common
             .repos
             .sleep
             .get_sleep_sessions(auth.user_id, &tenant_id, start, end)
@@ -114,10 +117,11 @@ impl HealthDataRoutes {
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth);
+        let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let (start, end) = Self::parse_date_range(&params)?;
 
         let metrics = resources
+            .common
             .repos
             .recovery
             .get_recovery_metrics(auth.user_id, &tenant_id, start, end)
@@ -133,10 +137,11 @@ impl HealthDataRoutes {
         Query(params): Query<DateRangeQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth);
+        let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let (start, end) = Self::parse_date_range(&params)?;
 
         let snapshots = resources
+            .common
             .repos
             .health_snapshots
             .get_health_snapshots(auth.user_id, &tenant_id, start, end)
@@ -151,9 +156,10 @@ impl HealthDataRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth);
+        let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
 
         let sources = resources
+            .common
             .repos
             .data_sources
             .list_data_sources(auth.user_id, &tenant_id)

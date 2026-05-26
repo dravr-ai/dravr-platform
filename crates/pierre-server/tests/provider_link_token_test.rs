@@ -12,9 +12,8 @@ use std::time::Duration;
 
 use tokio::time::sleep;
 
-use pierre_cache::CacheConfig;
-use pierre_mcp_server::cache::factory::Cache;
-use pierre_mcp_server::middleware::provider_link_token::{
+use pierre_cache::{Cache, CacheConfig};
+use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, mint_link_token, provider_scope, verify_link_token,
     MintProviderLinkTokenArgs, MintRateLimiter, NonceStore,
 };

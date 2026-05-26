@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: PostgreSQL implementation of SubscriptionsRepository for pluggable BillingProvider-backed billing
 // ABOUTME: Mirrors the SQLite impl shape but uses native PG types (UUID, TIMESTAMPTZ, JSONB)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::str::FromStr;
 

@@ -8,9 +8,9 @@
 
 use std::collections::HashMap;
 
+use pierre_config::admin_types::ValidateConfigRequest;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
-use pierre_mcp_server::config::admin::types::ValidateConfigRequest;
 
 #[tokio::test]
 async fn validate_accepts_group_creation_policy_admins_only() {

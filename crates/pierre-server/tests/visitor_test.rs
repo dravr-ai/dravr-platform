@@ -1,17 +1,17 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-//
 // ABOUTME: Tests for the TimeSeriesVisitor pattern
 // ABOUTME: Validates single-pass time series data processing
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::expect_used)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::intelligence::visitor::{
+use pierre_core::models::TimeSeriesData;
+use pierre_intelligence::visitor::{
     DecouplingDetector, NormalizedPowerCalculator, StatsCollector, TimeSeriesExt, ZoneBoundaries,
     ZoneTimeCalculator,
 };
-use pierre_mcp_server::models::TimeSeriesData;
 
 fn create_test_time_series() -> TimeSeriesData {
     TimeSeriesData {

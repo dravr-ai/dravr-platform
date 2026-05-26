@@ -13,12 +13,10 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_mcp_server::{
-    intelligence::{
-        insights::ActivityContext, ActivityAnalyzer, FitnessLevel, MetricsCalculator,
-        TimeAvailability, UserFitnessProfile, UserPreferences,
-    },
-    models::{Activity, ActivityBuilder, SportType, User},
+use pierre_core::models::{Activity, ActivityBuilder, SportType, User};
+use pierre_intelligence::{
+    insights::ActivityContext, ActivityAnalyzer, FitnessLevel, MetricsCalculator, TimeAvailability,
+    UserFitnessProfile, UserPreferences,
 };
 
 mod common;

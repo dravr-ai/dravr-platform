@@ -6,7 +6,7 @@
 
 use axum::response::Html;
 
-use crate::utils::html::escape_html_attribute;
+use pierre_core::html::escape_html_attribute;
 
 /// Login page template embedded at compile-time
 const LINK_LOGIN_TEMPLATE: &str = include_str!("../../../templates/messaging_link_login.html");

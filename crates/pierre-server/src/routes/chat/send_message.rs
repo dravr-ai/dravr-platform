@@ -21,17 +21,17 @@ use tracing::{field, info, instrument, trace, warn, Span};
 use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::models::TenantId;
-use crate::services::chat_pipeline::{self as pipeline};
-use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use crate::services::messaging_ingress::detect_turn_locale;
-use crate::services::onboarding_gate::require_connected_provider;
+use pierre_chat_pipeline::{self as pipeline};
+use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
 #[cfg(feature = "client-notifications")]
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
+use pierre_services::onboarding_gate::require_connected_provider;
 
 use super::common::get_tenant_id;
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
@@ -39,7 +39,7 @@ use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas_scoped, P
 use super::send_insight::{send_insight_message, SendInsightInputs};
 use super::usage::{increment_usage_counters_scoped, tokens_from_dispatch, UsageIncrementScope};
 use super::INSIGHT_PROMPT_PREFIX;
-use crate::middleware::AuthenticatedUser;
+use pierre_middleware::AuthenticatedUser;
 
 /// HTTP header carrying the client surface identifier.
 ///
@@ -94,9 +94,9 @@ fn setup_agui(
     })?;
     let run_id = parsed.to_string();
     let owner = RunOwner::new(user_id, tenant_id);
-    let scope = resources.agui_registry.register_scoped(&run_id, owner);
+    let scope = resources.sse.agui_registry.register_scoped(&run_id, owner);
     let sink = BroadcastSink::new(
-        (*resources.agui_registry).clone(),
+        (*resources.sse.agui_registry).clone(),
         AgUiEventFilter::default(),
     );
     Ok(Some(AgUiWiring {
@@ -139,7 +139,7 @@ pub async fn send_message(
     Json(request): Json<SendMessageRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
 
@@ -148,7 +148,7 @@ pub async fn send_message(
     // data to reason about and hallucinates specifics ("nice 12 km ride
     // yesterday!"); the 403 lets the frontend redirect to the connect-provider
     // screen instead of rendering an empty answer.
-    require_connected_provider(&resources.repos.provider_connections, auth.user_id).await?;
+    require_connected_provider(&resources.common.repos.provider_connections, auth.user_id).await?;
 
     // Populate the parent span so downstream pipeline log lines (already
     // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the
@@ -172,6 +172,7 @@ pub async fn send_message(
     // weekly caps. A missing conversation is fine — the user might be
     // creating a new one — so we silently degrade to global-only.
     let conversation_row = resources
+        .common
         .repos
         .chat
         .get_conversation(&conversation_id, &user_id_str, tenant_id)
@@ -257,6 +258,7 @@ pub async fn send_message(
     // path's `detect_turn_locale` usage so web chat and Slack/Telegram
     // resolve identically.
     let stored_locale = resources
+        .common
         .repos
         .users
         .get_global(auth.user_id)
@@ -323,7 +325,8 @@ pub async fn send_message(
         agui: agui_wiring.as_ref().map(AgUiWiring::run),
         ..pipeline::PipelineHooks::none()
     };
-    let dispatch = pipeline::run(&resources, turn_input, &profile, &hooks).await?;
+    let ctx = resources.chat_pipeline_context();
+    let dispatch = pipeline::run(&ctx, turn_input, &profile, &hooks).await?;
 
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
     #[allow(clippy::cast_possible_truncation)]
@@ -459,7 +462,8 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             stream_sink: Some(stream_tx),
             ..pipeline::PipelineHooks::none()
         };
-        let outcome = pipeline::run(&resources_for_task, turn_input, &profile, &hooks).await;
+        let ctx = resources_for_task.chat_pipeline_context();
+        let outcome = pipeline::run(&ctx, turn_input, &profile, &hooks).await;
         let _ = done_tx.send(outcome);
         // agui_wiring drops here, unregistering the AG-UI run.
     });
@@ -642,6 +646,7 @@ async fn try_handle_chat_command(
         .unwrap_or_else(|| "web".to_owned());
 
     let user_row = resources
+        .common
         .repos
         .users
         .get_global(user_id)
@@ -652,8 +657,26 @@ async fn try_handle_chat_command(
         .as_ref()
         .map_or_else(default_locale, |u| u.locale.clone());
 
+    // Slash dispatch requires both the command-name catalog and the
+    // handler-name map; both live on ServerContext, the dispatcher takes
+    // them explicitly so pierre-commands stays free of ServerContext.
+    let cmd_registry = resources
+        .common
+        .command_registry
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Command registry not configured"))?;
+    let handler_registry = resources
+        .common
+        .command_handler_registry
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Command handler registry not configured"))?;
+    let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
+        Arc::<ServerContext>::clone(resources);
+
     let outcome = try_dispatch(DispatchRequest {
-        resources,
+        ctx: &ctx_dyn,
+        command_registry: cmd_registry,
+        command_handler_registry: handler_registry,
         user_id,
         tenant_id,
         channel_type: &channel_type,
@@ -706,6 +729,7 @@ async fn try_handle_chat_command(
     // user+tenant, add_message surfaces a not-found error which we
     // propagate back to the caller unchanged.
     let user_message = resources
+        .common
         .repos
         .chat
         .add_message(&AddMessageParams {
@@ -721,6 +745,7 @@ async fn try_handle_chat_command(
         .await?;
 
     let assistant_message = resources
+        .common
         .repos
         .chat
         .add_message(&AddMessageParams {
@@ -736,6 +761,7 @@ async fn try_handle_chat_command(
         .await?;
 
     let conversation = resources
+        .common
         .repos
         .chat
         .get_conversation(conversation_id, user_id_str, tenant_id)
@@ -787,7 +813,7 @@ fn notify_coach_response(
     conversation_id: &str,
 ) {
     if conv.coach_id.is_some() {
-        if let Some(service) = &resources.notification_service {
+        if let Some(service) = &resources.common.notification_service {
             let coach_title = conv.title.clone();
             notification_triggers::trigger_coach_message(
                 service,

@@ -11,22 +11,20 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
+use pierre_cache::{Cache, CacheConfig};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
+    ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
+    OAuthConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig},
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-        ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
-        OAuthConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
-    },
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
 };
 use rand::Rng;
 use reqwest::Client;

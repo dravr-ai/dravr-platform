@@ -1,3 +1,6 @@
+// ABOUTME: Regression tests for OAuth + tenant resolution interactions
+// ABOUTME: Locks in fixes for cross-tenant OAuth token bleed and default-tenant fallback bugs
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 

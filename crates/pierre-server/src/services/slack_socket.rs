@@ -27,9 +27,9 @@ use tracing::{debug, info, warn};
 
 type SlackWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-use crate::context::DataContext;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use pierre_runtime_context::DataContext;
 
 /// Start the Slack Socket Mode background service.
 ///

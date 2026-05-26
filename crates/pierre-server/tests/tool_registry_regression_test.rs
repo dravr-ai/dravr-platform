@@ -9,8 +9,8 @@
 #![allow(clippy::panic)]
 
 use pierre_mcp_server::constants::tools::PUBLIC_DISCOVERY_TOOLS;
-use pierre_mcp_server::mcp::schema::get_tools;
-use pierre_mcp_server::tools::registry::ToolRegistry;
+use pierre_mcp_server::tools::registry_builtin::{get_tools, register_builtin_tools};
+use pierre_tool_runtime::registry::ToolRegistry;
 use std::collections::HashSet;
 
 /// Minimum number of user-visible tools. This threshold prevents silent regressions
@@ -20,7 +20,7 @@ const MIN_USER_VISIBLE_TOOLS: usize = 55;
 #[test]
 fn test_public_discovery_tools_are_all_registered() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let registered_names: HashSet<&str> = registry.tool_names().into_iter().collect();
 
@@ -49,7 +49,7 @@ fn test_public_discovery_tools_are_all_registered() {
 #[test]
 fn test_user_visible_tool_count_above_threshold() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let user_schemas = registry.user_visible_schemas();
     let count = user_schemas.len();
@@ -70,7 +70,7 @@ fn test_all_transports_return_consistent_tool_list() {
     // Verify that get_tools() (used by tests/legacy) returns the same tools
     // as ToolRegistry.all_schemas().
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let registry_tools: HashSet<String> =
         registry.all_schemas().into_iter().map(|t| t.name).collect();
@@ -105,7 +105,7 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
     // matching function declaration — producing truthful "no callable tool"
     // refusals (the bug fixed in this commit).
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let chat_surface: HashSet<String> = registry
         .chat_callable_schemas()
@@ -176,7 +176,7 @@ fn test_chat_callable_surface_excludes_admin_and_management_tools() {
     // config write/delete (admin-ish), verify_claim (debug). The LLM should
     // not fire these on natural-language input.
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let chat_surface: HashSet<String> = registry
         .chat_callable_schemas()
@@ -210,7 +210,7 @@ fn test_chat_callable_surface_excludes_admin_and_management_tools() {
 #[test]
 fn test_five_analytics_tools_are_registered() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let required_analytics = [
         "analyze_activity",
@@ -234,7 +234,7 @@ fn test_five_analytics_tools_are_registered() {
 #[test]
 fn test_annotations_present_on_analytics_tools() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let analytics_tools = registry.tools_in_category("analytics");
 

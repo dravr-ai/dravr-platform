@@ -7,11 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_mcp_schema::{Content, ToolCall};
 use pierre_mcp_server::a2a::A2ARequest;
-use pierre_mcp_server::mcp::schema::{Content, ToolCall};
-use pierre_mcp_server::protocols::converter::ProtocolConverter;
-use pierre_mcp_server::protocols::universal::UniversalResponse;
-use pierre_mcp_server::protocols::ProtocolType;
+use pierre_mcp_server::protocols_a2a::{a2a_to_universal, universal_to_a2a};
+use pierre_tool_runtime::protocols::converter::ProtocolConverter;
+use pierre_tool_runtime::protocols::ProtocolType;
+use pierre_tool_runtime::protocols::UniversalResponse;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -33,8 +34,7 @@ fn test_a2a_to_universal_conversion() {
     };
 
     let tenant_id = Some("test-tenant-id".to_owned());
-    let universal =
-        ProtocolConverter::a2a_to_universal(&a2a_request, "test_user", tenant_id.clone()).unwrap();
+    let universal = a2a_to_universal(&a2a_request, "test_user", tenant_id.clone()).unwrap();
 
     assert_eq!(universal.tool_name, "get_activities");
     assert_eq!(universal.user_id, "test_user");
@@ -55,8 +55,7 @@ fn test_universal_to_a2a_conversion_success() {
         metadata: None,
     };
 
-    let a2a_response =
-        ProtocolConverter::universal_to_a2a(universal_response, Some(Value::Number(1.into())));
+    let a2a_response = universal_to_a2a(universal_response, Some(Value::Number(1.into())));
 
     assert_eq!(a2a_response.jsonrpc, "2.0");
     assert!(a2a_response.result.is_some());
@@ -72,8 +71,7 @@ fn test_universal_to_a2a_conversion_error() {
         metadata: None,
     };
 
-    let a2a_response =
-        ProtocolConverter::universal_to_a2a(universal_response, Some(Value::Number(1.into())));
+    let a2a_response = universal_to_a2a(universal_response, Some(Value::Number(1.into())));
 
     assert_eq!(a2a_response.jsonrpc, "2.0");
     assert!(a2a_response.result.is_none());

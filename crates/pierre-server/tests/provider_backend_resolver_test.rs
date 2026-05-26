@@ -28,13 +28,15 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::{TenantId, UserOAuthToken};
-use pierre_mcp_server::providers::backend_resolver::{self, BackendKind, CoalescedStatus};
-use pierre_mcp_server::tools::implementations::connection::{
+use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, GetConnectionStatusTool,
 };
-use pierre_mcp_server::tools::{AuthMethod, McpTool, ToolExecutionContext};
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::traits::McpTool;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -60,6 +62,7 @@ async fn seed_token(
         Some("read".to_owned()),
     );
     resources
+        .common
         .repos
         .oauth_tokens
         .upsert_token(&token)
@@ -69,6 +72,7 @@ async fn seed_token(
 
 async fn user_primary_tenant(resources: &Arc<ServerContext>, user_id: Uuid) -> TenantId {
     resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -84,12 +88,8 @@ fn tool_context(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> ToolExecutionContext {
-    ToolExecutionContext::new(
-        user_id,
-        Some(tenant_id),
-        Arc::clone(resources),
-        AuthMethod::JwtBearer,
-    )
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    ToolExecutionContext::new(user_id, Some(tenant_id), runtime, AuthMethod::JwtBearer)
 }
 
 // ============================================================================
@@ -143,14 +143,14 @@ fn backend_kind_strings_round_trip() {
 #[tokio::test]
 async fn resolve_backend_prefers_sciotte_when_row_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Only the mirror row exists → resolver picks sciotte
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.repos,
+        &resources.common.repos.auth_repos(),
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -162,13 +162,13 @@ async fn resolve_backend_prefers_sciotte_when_row_present() {
 #[tokio::test]
 async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.repos,
+        &resources.common.repos.auth_repos(),
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -180,7 +180,7 @@ async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
 #[tokio::test]
 async fn resolve_backend_prefers_mirror_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Both rows: mirror wins (user's stated preference).
@@ -188,7 +188,7 @@ async fn resolve_backend_prefers_mirror_when_both_rows_exist() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.repos,
+        &resources.common.repos.auth_repos(),
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -200,13 +200,13 @@ async fn resolve_backend_prefers_mirror_when_both_rows_exist() {
 #[tokio::test]
 async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let status = backend_resolver::coalesced_status(
-        &resources.repos,
+        &resources.common.repos.auth_repos(),
         user_id,
         tenant_id,
         oauth_providers::STRAVA,
@@ -229,7 +229,7 @@ async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
 #[tokio::test]
 async fn multi_provider_status_hides_sciotte_entries() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // User has a sciotte row but no OAuth row.
@@ -282,7 +282,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
 #[tokio::test]
 async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
@@ -311,7 +311,7 @@ async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
 #[tokio::test]
 async fn multi_provider_status_prefers_mirror_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
@@ -346,7 +346,7 @@ async fn multi_provider_status_prefers_mirror_when_both_rows_exist() {
 #[tokio::test]
 async fn single_provider_status_rejects_explicit_sciotte_query() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Even if a sciotte row exists, the tool must refuse to confirm it
@@ -376,7 +376,7 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
 #[tokio::test]
 async fn single_provider_status_reports_mirror_backend_when_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
@@ -403,7 +403,7 @@ async fn single_provider_status_reports_mirror_backend_when_present() {
 #[tokio::test]
 async fn connect_provider_blocks_oauth_when_mirror_backend_active() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
@@ -439,7 +439,7 @@ async fn connect_provider_blocks_oauth_when_mirror_backend_active() {
 #[tokio::test]
 async fn connect_provider_rejects_explicit_sciotte_name() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     let tool = ConnectProviderTool;

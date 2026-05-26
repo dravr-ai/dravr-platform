@@ -13,26 +13,23 @@
 
 use anyhow::Result;
 use pierre_auth::tenant::TenantOAuthCredentials;
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
+    DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
+    FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig,
+    HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
+    OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
+    RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
+    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
-        DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
-        FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig,
-        HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
-        OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{
-        auth::{AuthService, OAuthService},
-        LoginRequest, RefreshTokenRequest, RegisterRequest,
-    },
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{
+    AuthService, LoginRequest, OAuthService, RefreshTokenRequest, RegisterRequest,
 };
 use serial_test::serial;
 use std::{env, sync::Arc};
@@ -94,8 +91,9 @@ async fn create_test_auth_routes() -> Result<AuthService> {
     );
 
     Ok(AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     ))
 }
@@ -354,8 +352,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
     Ok((
         OAuthService::new(
             server_resources.data(),
-            server_resources.config(),
-            server_resources.notification(),
+            server_resources.common.config.clone(),
+            server_resources.auth.oauth_notification_sender.clone(),
         ),
         tenant_id,
         database,
@@ -656,8 +654,9 @@ async fn test_user_login_success() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -959,8 +958,9 @@ async fn test_token_refresh_success() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -1207,8 +1207,9 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -1745,14 +1746,15 @@ async fn test_complete_auth_flow() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // 1. Register user
@@ -2080,8 +2082,9 @@ async fn test_concurrent_logins() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 

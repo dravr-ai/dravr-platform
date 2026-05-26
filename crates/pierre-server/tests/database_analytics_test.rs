@@ -9,8 +9,8 @@
 
 use chrono::Utc;
 use pierre_core::models::JwtUsage;
+use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::models::User;
 use uuid::Uuid;
 
 mod common;

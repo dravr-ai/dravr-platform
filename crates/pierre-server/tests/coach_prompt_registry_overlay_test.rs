@@ -11,10 +11,10 @@
 
 use std::sync::Arc;
 
+use pierre_chat_pipeline::stages::prompt_assembly::resolve_coach_base_prompt;
+use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::CoachRuntimeContext;
-use pierre_mcp_server::contremaitre::registry::PromptRegistry;
-use pierre_mcp_server::services::chat_pipeline::stages::prompt_assembly::resolve_coach_base_prompt;
 
 /// `resolve_coach_base_prompt` must serve the live `PromptRegistry` entry
 /// for coaches whose `source` is `"contremaitre"`, ignoring the (possibly

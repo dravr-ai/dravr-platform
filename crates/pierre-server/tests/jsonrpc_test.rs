@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::jsonrpc::{JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};
+use pierre_jsonrpc::{JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};
 use serde_json::Value;
 
 #[test]

@@ -12,29 +12,24 @@
 mod common;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
+    GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
+    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-        DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-        GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
-        McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-        PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-        StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{
-        auth::{AuthService, OAuthService},
-        RegisterRequest,
-    },
-};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
@@ -230,14 +225,15 @@ async fn test_oauth_authorization_url_generation() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Create admin user first
@@ -556,8 +552,8 @@ async fn test_oauth_state_validation() {
 
     let _oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Test valid state format
@@ -794,8 +790,8 @@ async fn test_connection_status_no_providers() {
 
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
@@ -1007,8 +1003,8 @@ async fn test_invalid_provider_error() {
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1210,8 +1206,8 @@ async fn test_disconnect_provider() {
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();
@@ -1243,7 +1239,13 @@ async fn test_disconnect_provider() {
         manages_roster: false,
         timezone: None,
     };
-    server_resources.repos.users.create(&user).await.unwrap();
+    server_resources
+        .common
+        .repos
+        .users
+        .create(&user)
+        .await
+        .unwrap();
 
     // Create tenant so disconnect_provider can resolve user's tenant
     let tenant = Tenant {
@@ -1257,6 +1259,7 @@ async fn test_disconnect_provider() {
         updated_at: chrono::Utc::now(),
     };
     server_resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -1554,8 +1557,8 @@ async fn test_oauth_urls_contain_required_parameters() {
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = Uuid::new_v4();

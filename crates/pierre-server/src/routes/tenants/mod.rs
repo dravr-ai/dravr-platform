@@ -16,10 +16,7 @@
 /// Service layer for multi-tenant management operations
 pub mod service;
 
-use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser,
-    models::TenantId,
-};
+use crate::mcp::resources::ServerContext;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -27,6 +24,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_middleware::AuthenticatedUser;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -98,7 +98,8 @@ impl TenantRoutes {
         Json(request): Json<service::CreateTenantRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let response = service::create_tenant(request, auth, resources.repos.clone()).await?;
+        let response =
+            service::create_tenant(request, auth, &resources.common.repos.auth_repos()).await?;
 
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
@@ -109,7 +110,7 @@ impl TenantRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let response = service::list_tenants(auth, resources.repos.clone()).await?;
+        let response = service::list_tenants(auth, &resources.common.repos.auth_repos()).await?;
 
         Ok((StatusCode::OK, Json(response)).into_response())
     }
@@ -139,6 +140,7 @@ impl TenantRoutes {
 
         // Verify user belongs to this tenant via tenant_users table
         let role_str = resources
+            .common
             .repos
             .tenants
             .get_user_role(auth.user_id, tenant_id)
@@ -155,6 +157,7 @@ impl TenantRoutes {
 
         // Get tenant details
         let tenant = resources
+            .common
             .repos
             .tenants
             .get_by_id(tenant_id)
@@ -163,6 +166,7 @@ impl TenantRoutes {
 
         // SECURITY: Global lookup — tenant JWT refresh, user verified via auth middleware
         let user = resources
+            .common
             .repos
             .users
             .get_global(auth.user_id)
@@ -172,8 +176,13 @@ impl TenantRoutes {
 
         // Generate new JWT with active_tenant_id set
         let token = resources
+            .auth
             .auth_manager
-            .generate_token_with_tenant(&user, &resources.jwks_manager, Some(tenant_id.to_string()))
+            .generate_token_with_tenant(
+                &user,
+                &resources.auth.jwks_manager,
+                Some(tenant_id.to_string()),
+            )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
         info!(
@@ -211,6 +220,7 @@ impl TenantRoutes {
 
         // Get all tenants the user belongs to
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(auth.user_id)
@@ -222,6 +232,7 @@ impl TenantRoutes {
         for tenant in tenants {
             // Get user's role in this tenant
             let role = resources
+                .common
                 .repos
                 .tenants
                 .get_user_role(auth.user_id, tenant.id)

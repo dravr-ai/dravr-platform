@@ -13,9 +13,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
-use crate::contremaitre::messaging_strings::KEY_THINKING_PLACEHOLDER;
-use crate::services::chat_pipeline;
-use crate::services::messaging_status_bridge::{
+use pierre_contremaitre::messaging_strings::KEY_THINKING_PLACEHOLDER;
+use pierre_services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 
@@ -51,8 +50,8 @@ pub(super) struct MessagingAgUiWiring {
 }
 
 impl MessagingAgUiWiring {
-    pub(super) fn run(&self) -> chat_pipeline::AgUiRun<'_> {
-        chat_pipeline::AgUiRun {
+    pub(super) fn run(&self) -> pierre_chat_pipeline::AgUiRun<'_> {
+        pierre_chat_pipeline::AgUiRun {
             run_id: self.scope.run_id().to_owned(),
             thread_id: Some(self.thread_id.clone()),
             sink: &self.sink,
@@ -124,10 +123,11 @@ pub(super) async fn setup_messaging_agui(
     let owner = RunOwner::new(user_id, dispatch.user_tenant_id);
     let scope = dispatch
         .resources
+        .sse
         .agui_registry
         .register_scoped(&run_id, owner);
     let sink = BroadcastSink::new(
-        (*dispatch.resources.agui_registry).clone(),
+        (*dispatch.resources.sse.agui_registry).clone(),
         AgUiEventFilter::default(),
     );
     info!(
@@ -184,6 +184,7 @@ async fn maybe_open_status_bridge(
     // matching-language progress message.
     let placeholder_text = dispatch
         .resources
+        .mcp
         .messaging_strings_registry
         .get(KEY_THINKING_PLACEHOLDER, &dispatch.locale);
 
@@ -203,10 +204,10 @@ async fn maybe_open_status_bridge(
     };
 
     let consumer = spawn_status_consumer(
-        &dispatch.resources.agui_registry,
+        &dispatch.resources.sse.agui_registry,
         run_id.to_owned(),
         Arc::clone(&adapter),
-        Arc::clone(&dispatch.resources.messaging_strings_registry),
+        Arc::clone(&dispatch.resources.mcp.messaging_strings_registry),
         dispatch.locale.clone(),
     );
     (Some(adapter), consumer)

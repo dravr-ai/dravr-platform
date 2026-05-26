@@ -1,0 +1,165 @@
+// ABOUTME: CSRF validation middleware for state-changing HTTP requests
+// ABOUTME: Validates X-CSRF-Token header against HMAC-signed tokens to prevent request forgery
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! CSRF validation middleware
+//!
+//! This middleware validates CSRF tokens for state-changing operations (POST, PUT, DELETE, PATCH).
+//! It extracts the token from the X-CSRF-Token header and validates it against the user's session.
+
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{HeaderMap, Method, Request};
+use axum::middleware::Next;
+use axum::response::Response;
+use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::csrf::CsrfTokenManager;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_runtime_context::MiddlewareCtx;
+use std::sync::Arc;
+use tracing::{debug, warn};
+use uuid::Uuid;
+
+/// Paths exempt from CSRF validation. These are either pre-authentication
+/// (login, register) or session-teardown (logout) endpoints where the client
+/// may not yet have -- or has already discarded -- a CSRF token.
+const CSRF_EXEMPT_PATHS: &[&str] = &[
+    "/oauth/token",
+    "/api/auth/logout",
+    "/api/auth/register",
+    "/api/auth/firebase",
+    "/api/auth/refresh",
+];
+
+/// Validate the CSRF token on a state-changing HTTP request.
+///
+/// GET / HEAD / OPTIONS / etc. return `Ok(())` without inspecting the headers.
+/// For POST / PUT / DELETE / PATCH the `X-CSRF-Token` header is required and
+/// is validated against `csrf_manager` for the supplied `user_id` (stateless
+/// HMAC verification — no server-side storage).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - the request is state-changing and the `X-CSRF-Token` header is missing
+/// - the token is invalid, expired, or tied to a different user
+pub fn validate_csrf_token(
+    headers: &HeaderMap,
+    method: &Method,
+    user_id: Uuid,
+    csrf_manager: &CsrfTokenManager,
+) -> AppResult<()> {
+    if !matches!(
+        method,
+        &Method::POST | &Method::PUT | &Method::DELETE | &Method::PATCH
+    ) {
+        return Ok(());
+    }
+
+    let csrf_token = headers
+        .get("X-CSRF-Token")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| {
+            warn!(
+                user_id = %user_id,
+                method = %method,
+                "CSRF token missing for state-changing request"
+            );
+            AppError::auth_invalid("CSRF token required for this operation")
+        })?;
+
+    csrf_manager
+        .validate_token(csrf_token, user_id)
+        .map_err(|e| {
+            warn!(
+                user_id = %user_id,
+                method = %method,
+                error = %e,
+                "CSRF token validation failed"
+            );
+            e
+        })?;
+
+    debug!(
+        user_id = %user_id,
+        method = %method,
+        "CSRF token validated successfully"
+    );
+
+    Ok(())
+}
+
+/// Axum middleware layer for CSRF validation on cookie-authenticated requests.
+///
+/// This middleware enforces CSRF protection for state-changing HTTP methods
+/// (POST, PUT, DELETE, PATCH) when the request is authenticated via cookies.
+/// Requests using Bearer tokens or API keys (programmatic clients) bypass
+/// CSRF validation since they are not susceptible to cross-site request forgery.
+///
+/// Auth endpoints (login, logout, register) are exempt since they operate
+/// before or after a valid session exists.
+///
+/// # Errors
+///
+/// Returns 401 if a cookie-authenticated state-changing request lacks a valid
+/// X-CSRF-Token header.
+pub async fn csrf_protection_layer<C: MiddlewareCtx>(
+    State(resources): State<Arc<C>>,
+    request: Request<Body>,
+    next: Next,
+) -> Result<Response, AppError> {
+    let method = request.method().clone();
+    let headers = request.headers().clone();
+    let path = request.uri().path();
+
+    // Only validate state-changing methods
+    if !matches!(
+        method,
+        Method::POST | Method::PUT | Method::DELETE | Method::PATCH
+    ) {
+        return Ok(next.run(request).await);
+    }
+
+    // Skip CSRF for auth endpoints that operate before or after a session
+    if CSRF_EXEMPT_PATHS.contains(&path) {
+        return Ok(next.run(request).await);
+    }
+
+    // Only enforce CSRF for cookie-authenticated requests (browser clients).
+    // Programmatic clients using Bearer tokens or API keys are not vulnerable
+    // to CSRF and should not be required to send CSRF tokens.
+    let has_bearer_or_api_key = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|v| v.starts_with("Bearer ") || v.starts_with("Api-Key "));
+
+    if has_bearer_or_api_key {
+        return Ok(next.run(request).await);
+    }
+
+    // Check if request has cookie auth; skip CSRF for non-cookie requests
+    let Some(auth_token) = get_cookie_value(&headers, "auth_token") else {
+        return Ok(next.run(request).await);
+    };
+
+    // Extract user_id from the cookie JWT to validate CSRF token ownership.
+    // If the cookie JWT is invalid (expired, stale RSA key, etc.), treat the
+    // request as unauthenticated — there is no valid session to protect with
+    // CSRF. The actual endpoint handler will perform its own authentication.
+    let Ok(claims) = resources
+        .auth_manager()
+        .validate_token(&auth_token, resources.jwks_manager())
+    else {
+        debug!("Stale or invalid auth cookie in CSRF check, treating as unauthenticated");
+        return Ok(next.run(request).await);
+    };
+
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| AppError::auth_invalid("Invalid user ID in authentication token"))?;
+
+    validate_csrf_token(&headers, &method, user_id, resources.csrf_manager())?;
+
+    Ok(next.run(request).await)
+}

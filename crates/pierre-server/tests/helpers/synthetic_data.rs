@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_mcp_server::models::{Activity, ActivityBuilder as ModelActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder as ModelActivityBuilder, SportType};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 

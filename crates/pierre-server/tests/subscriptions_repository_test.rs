@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Round-trip test for the SubscriptionsRepository (Phase 5 billing foundation)
 // ABOUTME: Asserts upsert + read-back across every lookup method on the SQLite backend
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 #![allow(
     missing_docs,

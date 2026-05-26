@@ -1,10 +1,12 @@
+// ABOUTME: Tests typed-parameter deserialization for the Phase 3A json_schemas tool params
+// ABOUTME: Asserts serde::from_value round-trips for every tool-arg struct + alias compatibility
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// Test parameter deserialization for Phase 3A typed parameters
 #![allow(missing_docs, clippy::unwrap_used, clippy::float_cmp)]
 
-use pierre_mcp_server::types::json_schemas::{
+use pierre_mcp_schema::json_schemas::{
     AnalyzeGoalFeasibilityParams, AnalyzePerformanceTrendsParams, CompareActivitiesParams,
     GetActivityIntelligenceParams, SetGoalParams, TrackProgressParams,
 };

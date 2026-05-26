@@ -10,10 +10,10 @@
 mod common;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use pierre_core::models::TenantId;
 use pierre_database::database::coach_authors::{
     CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
 };
-use pierre_mcp_server::models::TenantId;
 use uuid::Uuid;
 
 // ============================================================================
@@ -23,8 +23,9 @@ use uuid::Uuid;
 #[tokio::test]
 async fn test_create_author() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -34,7 +35,7 @@ async fn test_create_author() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -65,8 +66,9 @@ async fn test_create_author() {
 #[tokio::test]
 async fn test_create_author_minimal() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -76,7 +78,7 @@ async fn test_create_author_minimal() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -97,8 +99,9 @@ async fn test_create_author_minimal() {
 #[tokio::test]
 async fn test_create_author_duplicate() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -108,7 +111,7 @@ async fn test_create_author_duplicate() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -134,8 +137,9 @@ async fn test_create_author_duplicate() {
 #[tokio::test]
 async fn test_get_author_by_user() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -145,7 +149,7 @@ async fn test_get_author_by_user() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -171,8 +175,9 @@ async fn test_get_author_by_user() {
 #[tokio::test]
 async fn test_get_author_by_user_not_found() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -182,7 +187,7 @@ async fn test_get_author_by_user_not_found() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let result = manager.get_by_user(user_id, tenant_id).await.unwrap();
@@ -192,8 +197,9 @@ async fn test_get_author_by_user_not_found() {
 #[tokio::test]
 async fn test_get_author_by_id() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -203,7 +209,7 @@ async fn test_get_author_by_id() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -229,7 +235,7 @@ async fn test_get_author_by_id() {
 async fn test_get_author_by_id_not_found() {
     let resources = create_test_server_resources().await.unwrap();
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let fake_id = Uuid::new_v4();
@@ -244,8 +250,9 @@ async fn test_get_author_by_id_not_found() {
 #[tokio::test]
 async fn test_update_author_all_fields() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -255,7 +262,7 @@ async fn test_update_author_all_fields() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author first
@@ -300,8 +307,9 @@ async fn test_update_author_all_fields() {
 #[tokio::test]
 async fn test_update_author_partial() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -311,7 +319,7 @@ async fn test_update_author_partial() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author first
@@ -349,8 +357,9 @@ async fn test_update_author_partial() {
 #[tokio::test]
 async fn test_update_author_not_found() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -360,7 +369,7 @@ async fn test_update_author_not_found() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let update_request = UpdateAuthorRequest {
@@ -382,8 +391,9 @@ async fn test_update_author_not_found() {
 #[tokio::test]
 async fn test_verify_author() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -393,7 +403,7 @@ async fn test_verify_author() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -421,7 +431,7 @@ async fn test_verify_author() {
 async fn test_verify_author_not_found() {
     let resources = create_test_server_resources().await.unwrap();
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let fake_id = Uuid::new_v4();
@@ -439,8 +449,9 @@ async fn test_verify_author_not_found() {
 #[tokio::test]
 async fn test_increment_published_count() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -450,7 +461,7 @@ async fn test_increment_published_count() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -497,8 +508,9 @@ async fn test_increment_published_count() {
 #[tokio::test]
 async fn test_update_install_count_increment() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -508,7 +520,7 @@ async fn test_update_install_count_increment() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -538,8 +550,9 @@ async fn test_update_install_count_increment() {
 #[tokio::test]
 async fn test_update_install_count_decrement() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -549,7 +562,7 @@ async fn test_update_install_count_decrement() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -584,8 +597,9 @@ async fn test_update_install_count_decrement() {
 #[tokio::test]
 async fn test_update_install_count_never_negative() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -595,7 +609,7 @@ async fn test_update_install_count_never_negative() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     let request = CreateAuthorRequest {
@@ -628,8 +642,9 @@ async fn test_update_install_count_never_negative() {
 #[tokio::test]
 async fn test_list_popular_authors() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -639,7 +654,7 @@ async fn test_list_popular_authors() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author with published coaches
@@ -672,8 +687,9 @@ async fn test_list_popular_authors() {
 #[tokio::test]
 async fn test_list_popular_authors_empty_no_published() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -683,7 +699,7 @@ async fn test_list_popular_authors_empty_no_published() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author without published coaches
@@ -703,8 +719,9 @@ async fn test_list_popular_authors_empty_no_published() {
 #[tokio::test]
 async fn test_list_verified_authors() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -714,7 +731,7 @@ async fn test_list_verified_authors() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create and verify author
@@ -741,8 +758,9 @@ async fn test_list_verified_authors() {
 #[tokio::test]
 async fn test_list_verified_authors_excludes_unverified() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -752,7 +770,7 @@ async fn test_list_verified_authors_excludes_unverified() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author without verifying
@@ -775,8 +793,9 @@ async fn test_list_verified_authors_excludes_unverified() {
 #[tokio::test]
 async fn test_get_or_create_new() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -786,7 +805,7 @@ async fn test_get_or_create_new() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Should create new author
@@ -802,8 +821,9 @@ async fn test_get_or_create_new() {
 #[tokio::test]
 async fn test_get_or_create_existing() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -813,7 +833,7 @@ async fn test_get_or_create_existing() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author first
@@ -845,10 +865,12 @@ async fn test_authors_isolated_by_tenant() {
     let resources = create_test_server_resources().await.unwrap();
 
     // Create user in tenant 1
-    let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
-        .await
-        .unwrap();
+    let (user1_id, _user1) =
+        create_test_user_with_email(&resources.coach.database, "user1@example.com")
+            .await
+            .unwrap();
     let tenants1 = resources
+        .common
         .repos
         .tenants
         .list_for_user(user1_id)
@@ -859,10 +881,12 @@ async fn test_authors_isolated_by_tenant() {
         .map_or_else(|| TenantId::from(user1_id), |t| t.id);
 
     // Create user in tenant 2
-    let (user2_id, _user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (user2_id, _user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let tenants2 = resources
+        .common
         .repos
         .tenants
         .list_for_user(user2_id)
@@ -872,7 +896,7 @@ async fn test_authors_isolated_by_tenant() {
         .first()
         .map_or_else(|| TenantId::from(user2_id), |t| t.id);
 
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
 
     // Create author in tenant 1

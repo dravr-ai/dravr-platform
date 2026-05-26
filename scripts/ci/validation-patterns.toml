@@ -571,7 +571,7 @@ enum_name = "RecoveryScoreAlgorithm"
 module_path = "crates/pierre-server/src/intelligence/algorithms/recovery.rs"
 # Note: OAuth scope files excluded to avoid false positives from "sleep ... weight" scope strings
 # Tool implementation files excluded as they pass configuration values, not implement formulas
-exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/recovery.rs", "crates/pierre-server/src/intelligence/algorithms/recovery_aggregation.rs", "crates/pierre-server/src/intelligence/recovery_calculator.rs", "crates/pierre-server/src/protocols/universal/handlers/sleep_recovery.rs", "crates/pierre-server/src/config/intelligence/*", "crates/pierre-server/src/constants/oauth/*", "crates/pierre-server/src/config/oauth.rs", "crates/pierre-server/src/providers/spi.rs", "crates/pierre-server/src/tools/implementations/sleep.rs", "crates/pierre-server/tests/*"]
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/recovery.rs", "crates/pierre-server/src/intelligence/algorithms/recovery_aggregation.rs", "crates/pierre-server/src/intelligence/recovery_calculator.rs", "crates/pierre-server/src/tools/implementations/sleep/inner.rs", "crates/pierre-server/src/config/intelligence/*", "crates/pierre-server/src/constants/oauth/*", "crates/pierre-server/src/config/oauth.rs", "crates/pierre-server/src/providers/spi.rs", "crates/pierre-server/src/tools/implementations/sleep/mod.rs", "crates/pierre-server/tests/*"]
 
 [algorithm_di_patterns.recovery_score.formulas]
 score_calculation = 'overall_score.*=.*(tsb.*\+.*sleep|sleep.*\+.*tsb)'

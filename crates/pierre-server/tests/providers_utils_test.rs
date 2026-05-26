@@ -8,13 +8,13 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::providers::core::OAuth2Credentials;
-use pierre_mcp_server::providers::errors::ProviderError;
-use pierre_mcp_server::providers::utils::{
+use pierre_core::errors::provider::ProviderError;
+use pierre_providers::core::OAuth2Credentials;
+use pierre_providers::utils::{
     conversions, is_authenticated, needs_token_refresh, with_retry, with_retry_default,
     RetryBackoffConfig, RetryConfig,
 };
-use pierre_mcp_server::providers::{
+use pierre_providers::{
     ENV_RETRY_BASE_DELAY_MS, ENV_RETRY_JITTER_FACTOR, ENV_RETRY_MAX_ATTEMPTS,
     ENV_RETRY_MAX_DELAY_MS,
 };

@@ -1,4 +1,6 @@
-// Integration tests for stateless HMAC-signed CSRF token manager
+// ABOUTME: Integration tests for the stateless HMAC-signed CSRF token manager
+// ABOUTME: Covers mint/verify happy path, expiry rejection, signature tamper detection
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 

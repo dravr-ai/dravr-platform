@@ -13,25 +13,25 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_cache::{Cache, CacheConfig};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
+    ExternalServicesConfig, FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig,
+    HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
+    WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig},
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-        ExternalServicesConfig, FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig,
-        HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig,
-        SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
-        WeatherServiceConfig,
-    },
     constants::tools::PUBLIC_DISCOVERY_TOOLS,
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerContext, ServerContextOptions},
     },
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
 };
 use rand::Rng;
 use reqwest::{redirect::Policy, Client};

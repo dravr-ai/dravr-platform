@@ -25,14 +25,14 @@ mod conversation_turn_e2e_tests {
         TokenUsage,
     };
     use pierre_core::models::ConnectionType;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::permissions::UserRole;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_mcp_server::permissions::UserRole;
-    use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use pierre_routes_admin::LlmConsumptionRoutes;
     use serde_json::{json, Value};
     use serial_test::serial;
     use sha2::Sha256;
@@ -153,7 +153,7 @@ mod conversation_turn_e2e_tests {
         user.approved_by = Some(user.id);
         user.approved_at = Some(Utc::now());
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -166,8 +166,15 @@ mod conversation_turn_e2e_tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
         resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
+        resources
+            .common
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
@@ -180,6 +187,7 @@ mod conversation_turn_e2e_tests {
         // the mock provider for the actual data fetch; the gate just needs
         // any row in `provider_connections` to pass.
         resources
+            .common
             .repos
             .provider_connections
             .register_connection(
@@ -193,8 +201,9 @@ mod conversation_turn_e2e_tests {
             .unwrap();
 
         let token = resources
+            .auth
             .auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .unwrap();
         (user_id, tenant_id, format!("Bearer {token}"))
     }
@@ -211,6 +220,7 @@ mod conversation_turn_e2e_tests {
         tenant_id: TenantId,
     ) -> Option<Uuid> {
         let pool = resources
+            .coach
             .database
             .sqlite_pool()
             .expect("test fixture runs against SQLite");
@@ -260,7 +270,7 @@ mod conversation_turn_e2e_tests {
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
         let (admin_user_id, tenant_id, admin_auth) =
             create_admin_user_in_tenant(&resources, "turn-e2e-admin@example.com").await;
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         // Configure the Slack channel so the webhook's HMAC check passes.
         let signing_secret = "slack_turn_e2e_secret_99";

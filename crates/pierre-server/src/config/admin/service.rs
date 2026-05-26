@@ -4,7 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::definitions::{
+use super::manager::AdminConfigManager;
+use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
+use chrono::Utc;
+use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_cache_ttl,
     register_feature_flags, register_fitbit_provider, register_garmin_provider,
     register_group_permissions, register_heart_rate_zones, register_llm_pricing,
@@ -12,54 +15,20 @@ use super::definitions::{
     register_rate_limiting, register_recommendation_engine, register_sleep_recovery,
     register_sqlx_pool, register_strava_provider, register_tokio_runtime,
     register_training_stress_balance, register_usage_quotas, register_weather_analysis,
+    ParameterDefinition,
 };
-use super::manager::AdminConfigManager;
-use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
-use super::types::{
-    AdminConfigCategory, AdminConfigParameter, ConfigAuditFilter, ConfigCatalogResponse,
-    ConfigDataType, ConfigOverride, ConfigValidationError, ParameterRange, ResetConfigRequest,
-    ResetConfigResponse, UpdateConfigRequest, UpdateConfigResponse, ValidateConfigRequest,
-    ValidateConfigResponse,
+use pierre_config::admin_types::{
+    AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry, ConfigAuditFilter,
+    ConfigCatalogResponse, ConfigDataType, ConfigOverride, ConfigValidationError,
+    ResetConfigRequest, ResetConfigResponse, UpdateConfigRequest, UpdateConfigResponse,
+    ValidateConfigRequest, ValidateConfigResponse,
 };
-use crate::errors::{AppError, AppResult};
-use chrono::Utc;
+use pierre_core::errors::{AppError, AppResult};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-
-/// Default configuration definitions with metadata
-/// This struct holds the canonical parameter definitions loaded at startup
-#[derive(Debug, Clone)]
-pub struct ParameterDefinition {
-    /// Unique identifier for the parameter (e.g., `rate_limit.free_tier_burst`)
-    pub key: String,
-    /// Human-readable name for display in UI
-    pub display_name: String,
-    /// Detailed description of what this parameter controls
-    pub description: String,
-    /// Category grouping for organization (e.g., `rate_limiting`, `algorithms`)
-    pub category: String,
-    /// Data type for validation and UI rendering
-    pub data_type: ConfigDataType,
-    /// Default value when no override is set
-    pub default_value: serde_json::Value,
-    /// Optional numeric range constraints for validation
-    pub valid_range: Option<ParameterRange>,
-    /// Optional list of valid enum values
-    pub enum_options: Option<Vec<String>>,
-    /// Unit of measurement for display (e.g., "requests", "km", "% max HR")
-    pub units: Option<String>,
-    /// Scientific or research basis for the default value
-    pub scientific_basis: Option<String>,
-    /// Environment variable name if this can be set via env
-    pub env_variable: Option<String>,
-    /// Whether this can be changed at runtime without restart
-    pub is_runtime_configurable: bool,
-    /// Whether changing this parameter requires a server restart
-    pub requires_restart: bool,
-}
 
 /// Admin configuration service for managing runtime configuration
 pub struct AdminConfigService {
@@ -694,7 +663,7 @@ impl AdminConfigService {
         filter: &ConfigAuditFilter,
         limit: usize,
         offset: usize,
-    ) -> AppResult<(Vec<super::types::ConfigAuditEntry>, usize)> {
+    ) -> AppResult<(Vec<ConfigAuditEntry>, usize)> {
         self.manager.get_audit_log(filter, limit, offset).await
     }
 

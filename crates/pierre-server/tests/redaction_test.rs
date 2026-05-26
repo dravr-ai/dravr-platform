@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::middleware::redaction::{
+use pierre_middleware::redaction::{
     mask_email, redact_headers, redact_json_fields, redact_session_id, redact_token_patterns,
     BoundedTenantLabel, BoundedUserLabel, RedactionConfig,
 };

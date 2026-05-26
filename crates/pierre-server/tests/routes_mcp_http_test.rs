@@ -17,11 +17,11 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
 use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
     constants::tools::PUBLIC_DISCOVERY_TOOLS,
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::mcp::McpRoutes,
@@ -93,7 +93,7 @@ impl McpTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         Ok(Self {

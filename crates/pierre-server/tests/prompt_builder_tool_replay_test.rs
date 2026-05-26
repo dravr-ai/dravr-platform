@@ -6,9 +6,9 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
 use pierre_database::database::MessageRecord;
 use pierre_llm::MessageRole;
-use pierre_mcp_server::services::chat_pipeline::stages::prompt_builder::build_llm_messages;
 
 /// Build a deterministic `MessageRecord` for a given role + content. The
 /// non-content fields don't influence `build_llm_messages` so they get

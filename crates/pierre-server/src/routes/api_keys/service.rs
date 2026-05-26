@@ -10,14 +10,12 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::sync::Arc;
 
-use crate::{
-    errors::{AppError, AppResult},
-    mcp::resources::ServerContext,
-};
+use crate::mcp::resources::ServerContext;
 use pierre_auth::api_keys::{
     ApiKeyManager, ApiKeyTier, ApiKeyUsageStats, CreateApiKeyRequest, CreateApiKeyRequestSimple,
 };
 use pierre_auth::auth::AuthResult;
+use pierre_core::errors::{AppError, AppResult};
 
 /// Response containing list of API keys for a user
 #[derive(Debug, Serialize)]
@@ -116,7 +114,12 @@ impl ApiKeyRoutes {
             .create_api_key_simple(user_id, request)?;
 
         // Store in database
-        self.resources.repos.api_keys.create(&api_key).await?;
+        self.resources
+            .common
+            .repos
+            .api_keys
+            .create(&api_key)
+            .await?;
 
         let key_info = ApiKeyInfo {
             id: api_key.id,
@@ -156,7 +159,12 @@ impl ApiKeyRoutes {
         let (api_key, full_key) = self.api_key_manager.create_api_key(user_id, request)?;
 
         // Store in database
-        self.resources.repos.api_keys.create(&api_key).await?;
+        self.resources
+            .common
+            .repos
+            .api_keys
+            .create(&api_key)
+            .await?;
 
         let key_info = ApiKeyInfo {
             id: api_key.id,
@@ -187,7 +195,13 @@ impl ApiKeyRoutes {
     pub async fn list_api_keys(&self, auth: &AuthResult) -> AppResult<ApiKeyListResponse> {
         let user_id = auth.user_id;
 
-        let api_keys = self.resources.repos.api_keys.get_for_user(user_id).await?;
+        let api_keys = self
+            .resources
+            .common
+            .repos
+            .api_keys
+            .get_for_user(user_id)
+            .await?;
 
         let api_key_infos = api_keys
             .into_iter()
@@ -225,6 +239,7 @@ impl ApiKeyRoutes {
         let user_id = auth.user_id;
 
         self.resources
+            .common
             .repos
             .api_keys
             .deactivate(api_key_id, user_id)
@@ -254,13 +269,20 @@ impl ApiKeyRoutes {
         let user_id = auth.user_id;
 
         // Verify the API key belongs to the user
-        let user_keys = self.resources.repos.api_keys.get_for_user(user_id).await?;
+        let user_keys = self
+            .resources
+            .common
+            .repos
+            .api_keys
+            .get_for_user(user_id)
+            .await?;
         if !user_keys.iter().any(|key| key.id == api_key_id) {
             return Err(AppError::not_found("API key not found or access denied"));
         }
 
         let stats = self
             .resources
+            .common
             .repos
             .usage
             .get_api_key_stats(api_key_id, start_date, end_date)
@@ -287,7 +309,13 @@ impl ApiKeyRoutes {
         let user_id = auth.user_id;
 
         // Check if user already has a trial key
-        let existing_keys = self.resources.repos.api_keys.get_for_user(user_id).await?;
+        let existing_keys = self
+            .resources
+            .common
+            .repos
+            .api_keys
+            .get_for_user(user_id)
+            .await?;
         let has_trial_key = existing_keys.iter().any(|k| k.tier == ApiKeyTier::Trial);
 
         if has_trial_key {
@@ -300,7 +328,12 @@ impl ApiKeyRoutes {
                 .create_trial_key(user_id, name, description)?;
 
         // Store in database
-        self.resources.repos.api_keys.create(&api_key).await?;
+        self.resources
+            .common
+            .repos
+            .api_keys
+            .create(&api_key)
+            .await?;
 
         Ok(ApiKeyCreateResponse {
             api_key: full_key,

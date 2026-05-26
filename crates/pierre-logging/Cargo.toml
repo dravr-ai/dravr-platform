@@ -1,0 +1,30 @@
+# ABOUTME: Structured logging — GCP Cloud Logging formatter + tenant-aware tracing layer + notify routing
+# ABOUTME: Wires tracing-subscriber with dravr-tronc notify layer for operator alerts via Slack/PagerDuty
+
+[package]
+name = "pierre-logging"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Structured logging + notify routing for the Pierre platform"
+repository = "https://github.com/dravr-ai/scriptcurator-platform"
+publish = false
+
+[features]
+default = []
+contremaitre = ["dep:pierre-contremaitre"]
+
+[dependencies]
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+
+chrono = { version = "0.4", features = ["serde"] }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.16" }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

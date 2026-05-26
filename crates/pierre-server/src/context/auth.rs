@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::admin::FirebaseAuth;
-use crate::middleware::McpAuthMiddleware;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::firebase::FirebaseAuth;
+use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 
 /// Authentication context containing auth-related dependencies

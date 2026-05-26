@@ -12,15 +12,13 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::key_management::KeyManager;
-use pierre_core::models::CoachingPersona;
-use pierre_database::backends::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    admin::models::CreateAdminTokenRequest,
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::admin::models::CreateAdminTokenRequest;
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::{factory::Database, DatabaseProvider};
 use serial_test::serial;
 use std::{env, fs};
 use uuid::Uuid;

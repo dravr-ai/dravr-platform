@@ -17,11 +17,11 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::{format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC};
-use crate::errors::AppError;
-use crate::services::analytics::{analytics, hash_id};
-use crate::services::chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
-use crate::services::usage_counter::UsageCounterService;
+use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
+use pierre_contremaitre::messaging_strings::{format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC};
+use pierre_core::errors::AppError;
+use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::usage_counter::UsageCounterService;
 
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::{
@@ -101,6 +101,7 @@ async fn report_dispatch_failure(
     let short_id = correlation_id.to_string()[..8].to_owned();
     let template = dispatch
         .resources
+        .mcp
         .messaging_strings_registry
         .get(KEY_ERROR_GENERIC, &dispatch.locale);
     let user_message = format_template(&template, &[&short_id]);
@@ -173,7 +174,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // `None` means the tenant has no configured channel — we cannot
     // reply at all, so log and bail without spending compute on the
     // LLM pipeline.
-    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
     let Some(channel_config) =
         load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
     else {
@@ -212,14 +213,15 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         ..PipelineHooks::none()
     };
 
-    let dispatch_result =
-        match chat_pipeline::run(&dispatch.resources, turn_input, &profile, &hooks).await {
-            Ok(result) => result,
-            Err(e) => {
-                report_dispatch_failure(&dispatch, &channel_config, &e).await;
-                return;
-            }
-        };
+    let ctx = dispatch.resources.chat_pipeline_context();
+    let dispatch_result = match pierre_chat_pipeline::run(&ctx, turn_input, &profile, &hooks).await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            report_dispatch_failure(&dispatch, &channel_config, &e).await;
+            return;
+        }
+    };
 
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
     #[allow(clippy::cast_possible_truncation)]
@@ -253,6 +255,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         );
         let empty_reply = dispatch
             .resources
+            .mcp
             .messaging_strings_registry
             .get(KEY_EMPTY_REPLY, &dispatch.locale);
         send_error_reply(&dispatch, &channel_config, &empty_reply).await;
@@ -348,14 +351,14 @@ fn estimate_or_extract_messaging_tokens(
 
 /// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch
 async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: &DispatchResult) {
-    let Some(ref admin_config) = dispatch.resources.admin_config else {
+    let Some(ref admin_config) = dispatch.resources.coach.admin_config else {
         return;
     };
 
     let tenant_id_str = dispatch.channel_tenant_id.to_string();
     let usage_svc = UsageCounterService::new(
-        dispatch.resources.repos.usage_counters.as_ref(),
-        admin_config,
+        dispatch.resources.common.repos.usage_counters.as_ref(),
+        admin_config.as_ref(),
     );
 
     // Use real token counts when available, fall back to estimation for CLI providers
@@ -399,7 +402,7 @@ async fn send_outbound_response(
     channel_config: &ChannelConfig,
     outgoing: &OutgoingMessage,
 ) {
-    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
 
     match dispatch.adapter.send(outgoing, channel_config).await {
         Ok(receipt) => {

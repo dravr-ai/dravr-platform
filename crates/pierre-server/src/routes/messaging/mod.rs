@@ -29,8 +29,8 @@ use std::sync::Arc;
 
 use std::env;
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
+use pierre_core::errors::AppError;
 
 /// Messaging gateway routes handler
 pub struct MessagingRoutes;

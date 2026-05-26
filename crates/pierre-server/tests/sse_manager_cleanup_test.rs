@@ -9,15 +9,34 @@
 mod common;
 
 use common::create_test_server_resources;
-use pierre_mcp_server::sse::manager::SseManager;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::sse::protocol::McpProtocolStreamFactory;
+use pierre_runtime_context::SseCtx;
+use pierre_sse::manager::SseManager;
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
+
+/// Build an `SseManager` with the `McpProtocolStreamFactory` pre-installed so
+/// `register_protocol_stream` doesn't trip the uninstalled-factory panic,
+/// and return the matching `Arc<dyn SseCtx>` handle the manager wants.
+fn build_manager_and_ctx(
+    buffer: usize,
+    resources: &Arc<ServerContext>,
+) -> (SseManager, Arc<dyn SseCtx>) {
+    let manager = SseManager::new(buffer);
+    let _ = manager.install_protocol_factory(Arc::new(McpProtocolStreamFactory {
+        resources: Arc::clone(resources),
+    }));
+    let ctx: Arc<dyn SseCtx> = Arc::clone(resources) as _;
+    (manager, ctx)
+}
 
 #[tokio::test]
 async fn test_protocol_stream_cleanup_removes_from_user_sessions() -> anyhow::Result<()> {
     // Create SSE manager
-    let manager = SseManager::new(100);
     let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
 
     // Create a test user
     let user_id = Uuid::new_v4();
@@ -31,14 +50,14 @@ async fn test_protocol_stream_cleanup_removes_from_user_sessions() -> anyhow::Re
     let session_id_3 = "session_3".to_owned();
 
     let _receiver1 = manager
-        .register_protocol_stream(session_id_1.clone(), Some(token.clone()), resources.clone())
-        .await;
+        .register_protocol_stream(session_id_1.clone(), Some(token.clone()), ctx.clone())
+        .await?;
     let _receiver2 = manager
-        .register_protocol_stream(session_id_2.clone(), Some(token.clone()), resources.clone())
-        .await;
+        .register_protocol_stream(session_id_2.clone(), Some(token.clone()), ctx.clone())
+        .await?;
     let _receiver3 = manager
-        .register_protocol_stream(session_id_3.clone(), Some(token), resources.clone())
-        .await;
+        .register_protocol_stream(session_id_3.clone(), Some(token), ctx.clone())
+        .await?;
 
     // Verify protocol streams are registered
     assert_eq!(manager.active_protocol_streams(), 3);
@@ -68,8 +87,8 @@ async fn test_protocol_stream_cleanup_removes_from_user_sessions() -> anyhow::Re
 
 #[tokio::test]
 async fn test_protocol_stream_cleanup_with_multiple_users() -> anyhow::Result<()> {
-    let manager = SseManager::new(100);
     let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
 
     // Create two users
     let user_id_1 = Uuid::new_v4();
@@ -87,9 +106,9 @@ async fn test_protocol_stream_cleanup_with_multiple_users() -> anyhow::Result<()
                 .register_protocol_stream(
                     session.clone(),
                     Some(format!("Bearer test_{user_id_1}")),
-                    resources.clone(),
+                    ctx.clone(),
                 )
-                .await,
+                .await?,
         );
     }
     receivers.push(
@@ -97,9 +116,9 @@ async fn test_protocol_stream_cleanup_with_multiple_users() -> anyhow::Result<()
             .register_protocol_stream(
                 user2_session.clone(),
                 Some(format!("Bearer test_{user_id_2}")),
-                resources.clone(),
+                ctx.clone(),
             )
-            .await,
+            .await?,
     );
 
     assert_eq!(manager.active_protocol_streams(), 3);
@@ -124,8 +143,8 @@ async fn test_protocol_stream_cleanup_with_multiple_users() -> anyhow::Result<()
 
 #[tokio::test]
 async fn test_memory_leak_prevention_after_many_connects_disconnects() -> anyhow::Result<()> {
-    let manager = SseManager::new(100);
     let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
 
     let user_id = Uuid::new_v4();
     let token = Some(format!("Bearer test_{user_id}"));
@@ -135,8 +154,8 @@ async fn test_memory_leak_prevention_after_many_connects_disconnects() -> anyhow
         let session_id = format!("session_{i}");
 
         let _receiver = manager
-            .register_protocol_stream(session_id.clone(), token.clone(), resources.clone())
-            .await;
+            .register_protocol_stream(session_id.clone(), token.clone(), ctx.clone())
+            .await?;
 
         // Immediately unregister
         manager.unregister_protocol_stream(&session_id);
@@ -152,8 +171,8 @@ async fn test_memory_leak_prevention_after_many_connects_disconnects() -> anyhow
 
 #[tokio::test]
 async fn test_cleanup_inactive_connections() -> anyhow::Result<()> {
-    let manager = SseManager::new(100);
     let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
 
     let user_id = Uuid::new_v4();
     let session_id = "test_session".to_owned();
@@ -162,9 +181,9 @@ async fn test_cleanup_inactive_connections() -> anyhow::Result<()> {
         .register_protocol_stream(
             session_id.clone(),
             Some(format!("Bearer test_{user_id}")),
-            resources,
+            ctx,
         )
-        .await;
+        .await?;
 
     assert_eq!(manager.active_protocol_streams(), 1);
 

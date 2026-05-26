@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: SQLite implementation of SubscriptionsRepository for pluggable BillingProvider-backed billing
 // ABOUTME: Upsert keyed on (provider, provider_customer_id); reads by user, tenant, or provider identifier
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::str::FromStr;
 

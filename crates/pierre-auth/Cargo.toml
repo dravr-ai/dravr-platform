@@ -64,6 +64,9 @@ base64 = "0.22"
 hex = "0.4"
 urlencoding = "2.1"
 
+# X.509 certificate parsing (used by Firebase JWKS validation)
+x509-parser = "0.18.1"
+
 # Concurrent data structures
 dashmap = "5.5"
 

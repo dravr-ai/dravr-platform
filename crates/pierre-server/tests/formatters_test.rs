@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::formatters::{format_output, OutputFormat};
+use pierre_formatters::{format_output, OutputFormat};
 use serde::Serialize;
 
 #[derive(Serialize)]

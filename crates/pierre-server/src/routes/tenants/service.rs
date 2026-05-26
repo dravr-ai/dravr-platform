@@ -4,14 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::{
-    errors::{AppError, AppResult},
-    models::{Tenant, TenantId},
-};
 use pierre_auth::auth::AuthResult;
-use pierre_database::RepositoryRegistry;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{Tenant, TenantId};
+use pierre_database::AuthRepos;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::{info, warn};
 
 // Tenant Management Request/Response Types
@@ -87,7 +84,7 @@ pub struct TenantSummary {
 pub async fn create_tenant(
     tenant_request: CreateTenantRequest,
     auth_result: AuthResult,
-    repos: Arc<RepositoryRegistry>,
+    repos: &AuthRepos,
 ) -> AppResult<CreateTenantResponse> {
     info!("Creating new tenant: {}", tenant_request.name);
 
@@ -151,7 +148,7 @@ pub async fn create_tenant(
 /// - User lacks permissions
 pub async fn list_tenants(
     auth_result: AuthResult,
-    repos: Arc<RepositoryRegistry>,
+    repos: &AuthRepos,
 ) -> AppResult<TenantListResponse> {
     info!("Listing tenants for user: {}", auth_result.user_id);
 

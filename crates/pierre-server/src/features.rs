@@ -26,7 +26,7 @@
 //! - Avoids struct field proliferation
 //! - Ensures feature detection matches actual compilation
 
-use crate::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult};
 use tracing::{info, warn};
 
 /// Feature configuration validator

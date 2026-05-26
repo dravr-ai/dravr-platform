@@ -143,12 +143,14 @@
 )]
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use pierre_mcp_server::{errors::ErrorCode, intelligence::ActivityAnalyzer, models::SportType};
+use pierre_core::errors::ErrorCode;
+use pierre_core::models::SportType;
+use pierre_intelligence::ActivityAnalyzer;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn test_intelligence_analysis_integration() -> Result<()> {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     let analyzer = ActivityAnalyzer::new();
 
@@ -218,7 +220,7 @@ async fn test_activity_model_creation() -> Result<()> {
     ];
 
     for sport in sports {
-        use pierre_mcp_server::models::ActivityBuilder;
+        use pierre_core::models::ActivityBuilder;
 
         let activity = ActivityBuilder::new(
             format!("sport_test_{sport:?}"),
@@ -254,7 +256,7 @@ async fn test_concurrent_analysis() -> Result<()> {
 
     for i in 0..5 {
         let handle = tokio::spawn(async move {
-            use pierre_mcp_server::models::ActivityBuilder;
+            use pierre_core::models::ActivityBuilder;
 
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let activity = ActivityBuilder::new(

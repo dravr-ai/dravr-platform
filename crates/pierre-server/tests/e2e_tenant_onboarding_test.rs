@@ -24,21 +24,19 @@ use pierre_auth::{
         TenantOAuthClient, TenantRole,
     },
 };
-use pierre_core::models::CoachingPersona;
-use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig},
-    intelligence::{
-        ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-        TrendIndicators,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{OAuthApp, Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig};
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{OAuthApp, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
+use pierre_intelligence::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;
 use tracing_subscriber::fmt;
@@ -598,7 +596,7 @@ async fn test_tenant_context_switching() -> Result<()> {
 
 /// Helper function to create test server configuration
 fn create_test_server_config() -> ServerConfig {
-    use pierre_mcp_server::config::environment::*;
+    use pierre_config::environment::*;
     use std::path::PathBuf;
 
     ServerConfig {

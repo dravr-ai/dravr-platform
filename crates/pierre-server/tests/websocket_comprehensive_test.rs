@@ -148,11 +148,9 @@
 //! which currently has no test coverage
 
 use anyhow::Result;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig,
-    models::User,
-    websocket::{WebSocketManager, WebSocketMessage},
-};
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::models::User;
+use pierre_mcp_server::websocket::{WebSocketManager, WebSocketMessage};
 use serde_json::json;
 use serial_test::serial;
 use std::{collections::HashSet, sync::Arc};
@@ -167,7 +165,7 @@ async fn test_websocket_manager_creation() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let _ws_manager = WebSocketManager::new(
-        Arc::new(database.repositories()),
+        &Arc::new(database.repositories()),
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),
@@ -200,7 +198,7 @@ async fn test_websocket_authentication_flow() -> Result<()> {
 
     let jwks_manager = common::get_shared_test_jwks();
     let _ws_manager = WebSocketManager::new(
-        Arc::new(database.repositories()),
+        &Arc::new(database.repositories()),
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),
@@ -367,7 +365,7 @@ async fn test_websocket_connection_with_invalid_auth() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let _ws_manager = WebSocketManager::new(
-        Arc::new(database.repositories()),
+        &Arc::new(database.repositories()),
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),
@@ -395,7 +393,7 @@ async fn test_websocket_concurrent_client_management() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let ws_manager = Arc::new(WebSocketManager::new(
-        Arc::new(database.repositories()),
+        &Arc::new(database.repositories()),
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),
@@ -553,7 +551,7 @@ async fn test_websocket_broadcast_system_stats() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let _ws_manager = WebSocketManager::new(
-        Arc::new(database.repositories()),
+        &Arc::new(database.repositories()),
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),

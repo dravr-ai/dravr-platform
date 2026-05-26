@@ -19,10 +19,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::{
-    models::User,
-    protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor},
-};
+use pierre_core::models::{Tenant, User};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
 use std::env;
 use std::time::Duration;
@@ -47,30 +45,46 @@ async fn create_recipe_test_executor() -> Result<UniversalToolExecutor> {
     Ok(UniversalToolExecutor::new(resources))
 }
 
-/// Create a test user in the database
-async fn create_test_user_for_recipes(executor: &UniversalToolExecutor) -> Result<Uuid> {
+/// Create a test user (with provisioned tenant) in the database.
+///
+/// Returns `(user_id, tenant_id)`. Finding D requires every `UniversalRequest`
+/// to carry an explicit `tenant_id`; the per-test tenant is owned by the user.
+async fn create_test_user_for_recipes(executor: &UniversalToolExecutor) -> Result<(Uuid, Uuid)> {
     let user = User::new(
         format!("recipe_test_{}@example.com", Uuid::new_v4()),
         "password_hash".to_owned(),
         Some("Recipe Test User".to_owned()),
     );
     let user_id = user.id;
-    executor.resources.repos.users.create(&user).await?;
-    Ok(user_id)
+    executor.resources.repos().users.create(&user).await?;
+
+    let slug = format!("recipe-test-tenant-{}", Uuid::new_v4());
+    let tenant = Tenant::new(
+        "Recipe Test Tenant".to_owned(),
+        slug,
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id: Uuid = tenant.id.into();
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    Ok((user_id, tenant_id))
 }
 
-/// Create a test request with user ID
+/// Create a test request with user and tenant IDs.
 fn create_test_request(
     tool_name: &str,
     parameters: serde_json::Value,
     user_id: Uuid,
+    tenant_id: Uuid,
 ) -> UniversalRequest {
     UniversalRequest {
         tool_name: tool_name.to_owned(),
         parameters,
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -156,7 +170,7 @@ async fn test_recipe_tools_registered() -> Result<()> {
 
     let tool_names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())
@@ -189,7 +203,7 @@ async fn test_recipe_tools_registered() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_default() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -197,6 +211,7 @@ async fn test_get_recipe_constraints_default() -> Result<()> {
             "meal_timing": "general"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -233,7 +248,7 @@ async fn test_get_recipe_constraints_default() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_pre_training() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -242,6 +257,7 @@ async fn test_get_recipe_constraints_pre_training() -> Result<()> {
             "calories": 500.0
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -265,7 +281,7 @@ async fn test_get_recipe_constraints_pre_training() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_post_training() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -274,6 +290,7 @@ async fn test_get_recipe_constraints_post_training() -> Result<()> {
             "calories": 600.0
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -295,7 +312,7 @@ async fn test_get_recipe_constraints_post_training() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_rest_day() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -303,6 +320,7 @@ async fn test_get_recipe_constraints_rest_day() -> Result<()> {
             "meal_timing": "rest_day"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -319,7 +337,7 @@ async fn test_get_recipe_constraints_rest_day() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_with_tdee() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -328,6 +346,7 @@ async fn test_get_recipe_constraints_with_tdee() -> Result<()> {
             "tdee": 2500.0
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -356,7 +375,7 @@ async fn test_get_recipe_constraints_with_tdee() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_constraints_with_time_limits() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe_constraints",
@@ -366,6 +385,7 @@ async fn test_get_recipe_constraints_with_time_limits() -> Result<()> {
             "max_cook_time_mins": 45
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -391,7 +411,7 @@ async fn test_validate_recipe_no_api_key() -> Result<()> {
     }
 
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "validate_recipe",
@@ -404,6 +424,7 @@ async fn test_validate_recipe_no_api_key() -> Result<()> {
             ]
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -417,7 +438,7 @@ async fn test_validate_recipe_no_api_key() -> Result<()> {
 #[tokio::test]
 async fn test_validate_recipe_missing_servings() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "validate_recipe",
@@ -428,6 +449,7 @@ async fn test_validate_recipe_missing_servings() -> Result<()> {
             ]
         }),
         user_id,
+        tenant_id,
     );
 
     let result = executor.execute_tool(request).await;
@@ -440,7 +462,7 @@ async fn test_validate_recipe_missing_servings() -> Result<()> {
 #[tokio::test]
 async fn test_validate_recipe_missing_ingredients() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "validate_recipe",
@@ -449,6 +471,7 @@ async fn test_validate_recipe_missing_ingredients() -> Result<()> {
             "servings": 4
         }),
         user_id,
+        tenant_id,
     );
 
     let result = executor.execute_tool(request).await;
@@ -465,7 +488,7 @@ async fn test_validate_recipe_missing_ingredients() -> Result<()> {
 #[tokio::test]
 async fn test_save_recipe_success() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "save_recipe",
@@ -491,6 +514,7 @@ async fn test_save_recipe_success() -> Result<()> {
             "meal_timing": "post_training"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -515,7 +539,7 @@ async fn test_save_recipe_success() -> Result<()> {
 #[tokio::test]
 async fn test_save_recipe_minimal() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Minimal required fields only
     let request = create_test_request(
@@ -529,6 +553,7 @@ async fn test_save_recipe_minimal() -> Result<()> {
             ]
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -545,7 +570,7 @@ async fn test_save_recipe_minimal() -> Result<()> {
 #[tokio::test]
 async fn test_save_recipe_missing_name() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "save_recipe",
@@ -555,6 +580,7 @@ async fn test_save_recipe_missing_name() -> Result<()> {
             "ingredients": [{"name": "rice", "amount": 100.0, "unit": "grams"}]
         }),
         user_id,
+        tenant_id,
     );
 
     let result = executor.execute_tool(request).await;
@@ -571,9 +597,9 @@ async fn test_save_recipe_missing_name() -> Result<()> {
 #[tokio::test]
 async fn test_list_recipes_empty() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
-    let request = create_test_request("list_recipes", json!({}), user_id);
+    let request = create_test_request("list_recipes", json!({}), user_id, tenant_id);
 
     let response = executor.execute_tool(request).await?;
 
@@ -589,7 +615,7 @@ async fn test_list_recipes_empty() -> Result<()> {
 #[tokio::test]
 async fn test_list_recipes_after_save() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save a recipe first
     let save_request = create_test_request(
@@ -602,13 +628,14 @@ async fn test_list_recipes_after_save() -> Result<()> {
             "meal_timing": "pre_training"
         }),
         user_id,
+        tenant_id,
     );
 
     let save_response = executor.execute_tool(save_request).await?;
     assert!(save_response.success);
 
     // Now list recipes
-    let list_request = create_test_request("list_recipes", json!({}), user_id);
+    let list_request = create_test_request("list_recipes", json!({}), user_id, tenant_id);
 
     let response = executor.execute_tool(list_request).await?;
 
@@ -625,7 +652,7 @@ async fn test_list_recipes_after_save() -> Result<()> {
 #[tokio::test]
 async fn test_list_recipes_with_meal_timing_filter() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save recipes with different timings
     for (name, timing) in [
@@ -643,6 +670,7 @@ async fn test_list_recipes_with_meal_timing_filter() -> Result<()> {
                 "meal_timing": timing
             }),
             user_id,
+            tenant_id,
         );
         executor.execute_tool(request).await?;
     }
@@ -654,6 +682,7 @@ async fn test_list_recipes_with_meal_timing_filter() -> Result<()> {
             "meal_timing": "pre_training"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -674,7 +703,7 @@ async fn test_list_recipes_with_meal_timing_filter() -> Result<()> {
 #[tokio::test]
 async fn test_list_recipes_with_pagination() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save 5 recipes
     for i in 0..5 {
@@ -687,6 +716,7 @@ async fn test_list_recipes_with_pagination() -> Result<()> {
                 "ingredients": [{"name": "rice", "amount": 100.0, "unit": "grams"}]
             }),
             user_id,
+            tenant_id,
         );
         executor.execute_tool(request).await?;
     }
@@ -699,6 +729,7 @@ async fn test_list_recipes_with_pagination() -> Result<()> {
             "offset": 0
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -718,7 +749,7 @@ async fn test_list_recipes_with_pagination() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_success() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save a recipe first
     let save_request = create_test_request(
@@ -737,6 +768,7 @@ async fn test_get_recipe_success() -> Result<()> {
             "tags": ["dinner", "healthy"]
         }),
         user_id,
+        tenant_id,
     );
 
     let save_response = executor.execute_tool(save_request).await?;
@@ -753,6 +785,7 @@ async fn test_get_recipe_success() -> Result<()> {
             "recipe_id": recipe_id
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(get_request).await?;
@@ -790,7 +823,7 @@ async fn test_get_recipe_success() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_not_found() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "get_recipe",
@@ -798,6 +831,7 @@ async fn test_get_recipe_not_found() -> Result<()> {
             "recipe_id": Uuid::new_v4().to_string()
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -811,9 +845,9 @@ async fn test_get_recipe_not_found() -> Result<()> {
 #[tokio::test]
 async fn test_get_recipe_missing_id() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
-    let request = create_test_request("get_recipe", json!({}), user_id);
+    let request = create_test_request("get_recipe", json!({}), user_id, tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -829,7 +863,7 @@ async fn test_get_recipe_missing_id() -> Result<()> {
 #[tokio::test]
 async fn test_delete_recipe_success() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save a recipe first
     let save_request = create_test_request(
@@ -841,6 +875,7 @@ async fn test_delete_recipe_success() -> Result<()> {
             "ingredients": [{"name": "rice", "amount": 100.0, "unit": "grams"}]
         }),
         user_id,
+        tenant_id,
     );
 
     let save_response = executor.execute_tool(save_request).await?;
@@ -856,6 +891,7 @@ async fn test_delete_recipe_success() -> Result<()> {
             "recipe_id": recipe_id.clone()
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(delete_request).await?;
@@ -872,6 +908,7 @@ async fn test_delete_recipe_success() -> Result<()> {
             "recipe_id": recipe_id
         }),
         user_id,
+        tenant_id,
     );
 
     let get_response = executor.execute_tool(get_request).await?;
@@ -883,7 +920,7 @@ async fn test_delete_recipe_success() -> Result<()> {
 #[tokio::test]
 async fn test_delete_recipe_not_found() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "delete_recipe",
@@ -891,6 +928,7 @@ async fn test_delete_recipe_not_found() -> Result<()> {
             "recipe_id": Uuid::new_v4().to_string()
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -904,9 +942,9 @@ async fn test_delete_recipe_not_found() -> Result<()> {
 #[tokio::test]
 async fn test_delete_recipe_missing_id() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
-    let request = create_test_request("delete_recipe", json!({}), user_id);
+    let request = create_test_request("delete_recipe", json!({}), user_id, tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -922,7 +960,7 @@ async fn test_delete_recipe_missing_id() -> Result<()> {
 #[tokio::test]
 async fn test_search_recipes_by_name() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save recipes with different names
     for name in ["Chicken Stir Fry", "Beef Tacos", "Vegetable Soup"] {
@@ -935,6 +973,7 @@ async fn test_search_recipes_by_name() -> Result<()> {
                 "ingredients": [{"name": "ingredient", "amount": 100.0, "unit": "grams"}]
             }),
             user_id,
+            tenant_id,
         );
         executor.execute_tool(request).await?;
     }
@@ -946,6 +985,7 @@ async fn test_search_recipes_by_name() -> Result<()> {
             "query": "chicken"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -965,7 +1005,7 @@ async fn test_search_recipes_by_name() -> Result<()> {
 #[tokio::test]
 async fn test_search_recipes_by_tag() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save recipes with tags
     let request1 = create_test_request(
@@ -978,6 +1018,7 @@ async fn test_search_recipes_by_tag() -> Result<()> {
             "tags": ["quick", "breakfast", "high-protein"]
         }),
         user_id,
+        tenant_id,
     );
     executor.execute_tool(request1).await?;
 
@@ -991,6 +1032,7 @@ async fn test_search_recipes_by_tag() -> Result<()> {
             "tags": ["slow-cooked", "dinner"]
         }),
         user_id,
+        tenant_id,
     );
     executor.execute_tool(request2).await?;
 
@@ -1001,6 +1043,7 @@ async fn test_search_recipes_by_tag() -> Result<()> {
             "query": "quick"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -1016,7 +1059,7 @@ async fn test_search_recipes_by_tag() -> Result<()> {
 #[tokio::test]
 async fn test_search_recipes_no_results() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "search_recipes",
@@ -1024,6 +1067,7 @@ async fn test_search_recipes_no_results() -> Result<()> {
             "query": "nonexistent_recipe_xyz"
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -1040,9 +1084,9 @@ async fn test_search_recipes_no_results() -> Result<()> {
 #[tokio::test]
 async fn test_search_recipes_missing_query() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
-    let request = create_test_request("search_recipes", json!({}), user_id);
+    let request = create_test_request("search_recipes", json!({}), user_id, tenant_id);
 
     let result = executor.execute_tool(request).await;
 
@@ -1054,7 +1098,7 @@ async fn test_search_recipes_missing_query() -> Result<()> {
 #[tokio::test]
 async fn test_search_recipes_with_limit() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     // Save 10 recipes with "test" in the name
     for i in 0..10 {
@@ -1067,6 +1111,7 @@ async fn test_search_recipes_with_limit() -> Result<()> {
                 "ingredients": [{"name": "ingredient", "amount": 100.0, "unit": "grams"}]
             }),
             user_id,
+            tenant_id,
         );
         executor.execute_tool(request).await?;
     }
@@ -1079,6 +1124,7 @@ async fn test_search_recipes_with_limit() -> Result<()> {
             "limit": 3
         }),
         user_id,
+        tenant_id,
     );
 
     let response = executor.execute_tool(request).await?;
@@ -1100,8 +1146,8 @@ async fn test_recipe_user_isolation() -> Result<()> {
     let executor = create_recipe_test_executor().await?;
 
     // Create two users
-    let user1_id = create_test_user_for_recipes(&executor).await?;
-    let user2_id = create_test_user_for_recipes(&executor).await?;
+    let (user1_id, tenant1_id) = create_test_user_for_recipes(&executor).await?;
+    let (user2_id, tenant2_id) = create_test_user_for_recipes(&executor).await?;
 
     // User 1 saves a recipe
     let save_request = create_test_request(
@@ -1113,6 +1159,7 @@ async fn test_recipe_user_isolation() -> Result<()> {
             "ingredients": [{"name": "secret", "amount": 100.0, "unit": "grams"}]
         }),
         user1_id,
+        tenant1_id,
     );
 
     let save_response = executor.execute_tool(save_request).await?;
@@ -1123,7 +1170,7 @@ async fn test_recipe_user_isolation() -> Result<()> {
         .to_owned();
 
     // User 2 should not see User 1's recipe
-    let list_request = create_test_request("list_recipes", json!({}), user2_id);
+    let list_request = create_test_request("list_recipes", json!({}), user2_id, tenant2_id);
 
     let response = executor.execute_tool(list_request).await?;
     let result = response.result.unwrap();
@@ -1141,6 +1188,7 @@ async fn test_recipe_user_isolation() -> Result<()> {
             "recipe_id": recipe_id
         }),
         user2_id,
+        tenant2_id,
     );
 
     let get_response = executor.execute_tool(get_request).await?;
@@ -1164,7 +1212,7 @@ async fn test_validate_recipe_with_api_key() -> Result<()> {
     }
 
     let executor = create_recipe_test_executor().await?;
-    let user_id = create_test_user_for_recipes(&executor).await?;
+    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
         "validate_recipe",
@@ -1177,6 +1225,7 @@ async fn test_validate_recipe_with_api_key() -> Result<()> {
             ]
         }),
         user_id,
+        tenant_id,
     );
 
     let response =

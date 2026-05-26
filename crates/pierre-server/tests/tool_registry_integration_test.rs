@@ -22,9 +22,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::TenantId;
-use pierre_mcp_server::tools::{AuthMethod, ToolCapabilities, ToolExecutionContext, ToolRegistry};
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::traits::ToolCapabilities;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -39,13 +43,9 @@ fn create_test_context(
     tenant_id: Option<TenantId>,
     is_admin: bool,
 ) -> ToolExecutionContext {
-    ToolExecutionContext::new(
-        user_id,
-        tenant_id,
-        Arc::clone(resources),
-        AuthMethod::JwtBearer,
-    )
-    .with_admin_status(is_admin)
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    ToolExecutionContext::new(user_id, tenant_id, runtime, AuthMethod::JwtBearer)
+        .with_admin_status(is_admin)
 }
 
 // ============================================================================
@@ -55,7 +55,7 @@ fn create_test_context(
 #[tokio::test]
 async fn test_registry_builtin_tools_registration() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     // Should have registered tools based on enabled features
     // With all tools features enabled, we expect at least 50 tools
@@ -79,7 +79,7 @@ async fn test_registry_builtin_tools_registration() {
 #[tokio::test]
 async fn test_registry_categories_populated() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let categories = registry.categories();
 
@@ -105,7 +105,7 @@ async fn test_registry_categories_populated() {
 #[tokio::test]
 async fn test_registry_tools_in_category() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     // Coach tools category
     let coach_tools = registry.tools_in_category("coaches");
@@ -126,7 +126,7 @@ async fn test_registry_tools_in_category() {
 #[tokio::test]
 async fn test_list_schemas_for_role_user() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let user_schemas = registry.list_schemas_for_role(false);
 
@@ -152,7 +152,7 @@ async fn test_list_schemas_for_role_user() {
 #[tokio::test]
 async fn test_list_schemas_for_role_admin() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let admin_schemas = registry.list_schemas_for_role(true);
     let user_schemas = registry.list_schemas_for_role(false);
@@ -167,7 +167,7 @@ async fn test_list_schemas_for_role_admin() {
 #[tokio::test]
 async fn test_admin_tool_schemas_only_admin() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let admin_only_schemas = registry.admin_tool_schemas();
 
@@ -185,7 +185,7 @@ async fn test_admin_tool_schemas_only_admin() {
 #[tokio::test]
 async fn test_user_visible_schemas_no_admin() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let user_schemas = registry.user_visible_schemas();
 
@@ -207,7 +207,7 @@ async fn test_user_visible_schemas_no_admin() {
 #[tokio::test]
 async fn test_filter_by_capabilities_reads_data() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let read_tools = registry.filter_by_capabilities(ToolCapabilities::READS_DATA);
 
@@ -227,7 +227,7 @@ async fn test_filter_by_capabilities_reads_data() {
 #[tokio::test]
 async fn test_filter_by_capabilities_writes_data() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let write_tools = registry.filter_by_capabilities(ToolCapabilities::WRITES_DATA);
 
@@ -244,7 +244,7 @@ async fn test_filter_by_capabilities_writes_data() {
 #[tokio::test]
 async fn test_read_tools_method() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let read_tool_names = registry.read_tools();
 
@@ -261,7 +261,7 @@ async fn test_read_tools_method() {
 #[tokio::test]
 async fn test_write_tools_method() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let write_tool_names = registry.write_tools();
 
@@ -284,12 +284,12 @@ async fn test_execute_nonexistent_tool() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let context = create_test_context(&resources, user_id, None, false);
 
@@ -311,12 +311,12 @@ async fn test_execute_admin_tool_as_non_admin_denied() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     // Find an admin-only tool
     let admin_tools = registry.filter_by_capabilities(ToolCapabilities::ADMIN_ONLY);
@@ -349,13 +349,13 @@ async fn test_execute_admin_tool_as_admin_allowed() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     // No need to update database - context caches admin status via with_admin_status()
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     // Find an admin-only tool
     let admin_tools = registry.filter_by_capabilities(ToolCapabilities::ADMIN_ONLY);
@@ -391,7 +391,7 @@ async fn test_execute_admin_tool_as_admin_allowed() {
 #[tokio::test]
 async fn test_get_existing_tool() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let tool = registry.get("list_coaches");
     assert!(tool.is_some(), "list_coaches should exist");
@@ -403,7 +403,7 @@ async fn test_get_existing_tool() {
 #[tokio::test]
 async fn test_get_nonexistent_tool() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let tool = registry.get("this_tool_does_not_exist_xyz");
     assert!(tool.is_none(), "Nonexistent tool should return None");
@@ -412,7 +412,7 @@ async fn test_get_nonexistent_tool() {
 #[tokio::test]
 async fn test_contains_method() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     assert!(registry.contains("list_coaches"));
     assert!(!registry.contains("nonexistent_tool_xyz"));
@@ -421,7 +421,7 @@ async fn test_contains_method() {
 #[tokio::test]
 async fn test_tool_names_method() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let names = registry.tool_names();
 
@@ -439,7 +439,7 @@ async fn test_context_require_tenant_with_tenant() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -456,7 +456,7 @@ async fn test_context_require_tenant_without_tenant() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -471,7 +471,7 @@ async fn test_context_is_admin_cached() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -491,7 +491,7 @@ async fn test_context_require_admin_as_admin() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -506,7 +506,7 @@ async fn test_context_require_admin_as_non_admin() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.database)
+    let (user_id, _) = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -523,7 +523,7 @@ async fn test_context_require_admin_as_non_admin() {
 #[tokio::test]
 async fn test_schema_has_required_fields() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let schemas = registry.all_schemas();
 
@@ -550,7 +550,7 @@ async fn test_schema_has_required_fields() {
 #[tokio::test]
 async fn test_no_duplicate_tool_names() {
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
 
     let names = registry.tool_names();
     let mut seen = HashSet::new();
@@ -570,10 +570,10 @@ async fn test_different_users_separate_contexts() {
         .await
         .expect("Failed to create test resources");
 
-    let (user1_id, _) = create_test_user_with_email(&resources.database, "user1@test.com")
+    let (user1_id, _) = create_test_user_with_email(&resources.coach.database, "user1@test.com")
         .await
         .expect("Failed to create user 1");
-    let (user2_id, _) = create_test_user_with_email(&resources.database, "user2@test.com")
+    let (user2_id, _) = create_test_user_with_email(&resources.coach.database, "user2@test.com")
         .await
         .expect("Failed to create user 2");
 
@@ -590,9 +590,10 @@ async fn test_different_users_separate_contexts() {
 #[tokio::test]
 async fn test_register_external_tool() {
     use async_trait::async_trait;
-    use pierre_mcp_server::errors::AppResult;
-    use pierre_mcp_server::mcp::schema::JsonSchema;
-    use pierre_mcp_server::tools::{McpTool, ToolResult};
+    use pierre_core::errors::AppResult;
+    use pierre_mcp_schema::JsonSchema;
+    use pierre_tool_runtime::traits::McpTool;
+    use pierre_tools_core::ToolResult;
     use serde_json::Value;
 
     struct ExternalTestTool;
@@ -637,9 +638,10 @@ async fn test_register_external_tool() {
 #[tokio::test]
 async fn test_external_tool_with_builtin_tools() {
     use async_trait::async_trait;
-    use pierre_mcp_server::errors::AppResult;
-    use pierre_mcp_server::mcp::schema::JsonSchema;
-    use pierre_mcp_server::tools::{McpTool, ToolResult};
+    use pierre_core::errors::AppResult;
+    use pierre_mcp_schema::JsonSchema;
+    use pierre_tool_runtime::traits::McpTool;
+    use pierre_tools_core::ToolResult;
     use serde_json::Value;
 
     struct CustomTool;
@@ -672,7 +674,7 @@ async fn test_external_tool_with_builtin_tools() {
     }
 
     let mut registry = ToolRegistry::new();
-    registry.register_builtin_tools();
+    register_builtin_tools(&mut registry);
     let builtin_count = registry.len();
 
     registry.register(Arc::new(CustomTool));

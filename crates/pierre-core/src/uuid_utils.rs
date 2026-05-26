@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::errors::protocol::ProtocolError;
 use crate::errors::{AppError, AppResult};
 use uuid::Uuid;
 
@@ -89,6 +90,16 @@ pub fn parse_user_id_from_state(state: &str) -> AppResult<Uuid> {
         return Err(AppError::invalid_input("Invalid state parameter format"));
     }
     parse_user_id(parts[0])
+}
+
+/// Parse a user ID for protocol requests with `ProtocolError`
+///
+/// # Errors
+///
+/// Returns a `ProtocolError::InvalidParameters` if the user ID is not a valid UUID
+pub fn parse_user_id_for_protocol(user_id_str: &str) -> Result<Uuid, ProtocolError> {
+    Uuid::parse_str(user_id_str)
+        .map_err(|_| ProtocolError::InvalidParameters("Invalid user ID format".into()))
 }
 
 /// Format a UUID as a hyphenated string

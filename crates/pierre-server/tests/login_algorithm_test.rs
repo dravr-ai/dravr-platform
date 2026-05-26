@@ -21,16 +21,14 @@ mod helpers;
 
 use chrono::{Timelike, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{User, UserStatus},
-    routes::auth::AuthRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::{User, UserStatus};
+use pierre_database::backends::factory::Database;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -98,7 +96,7 @@ impl LoginAlgorithmTestSetup {
     }
 
     fn routes(&self) -> axum::Router {
-        AuthRoutes::routes(self.resources.clone())
+        AuthRoutes::routes(self.resources.auth_routes_context())
     }
 
     /// Create a user with a specific status and password

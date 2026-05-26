@@ -4,9 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::multitenant::{McpError, McpRequest, McpResponse, MultiTenantMcpServer};
+use super::multitenant::MultiTenantMcpServer;
 use super::resources::ServerContext;
-use super::tenant_isolation::extract_tenant_context_internal;
 use crate::constants::{
     errors::{
         ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
@@ -16,18 +15,20 @@ use crate::constants::{
     protocol::JSONRPC_VERSION,
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
 };
-use crate::errors::{AppError, ErrorCode};
-use crate::models::{OAuthNotification, TenantId};
-use crate::services::usage_counter::UsageCounterService;
-use crate::tools::context::{AuthMethod, ToolExecutionContext};
-use crate::tools::result::ToolResult;
-use crate::types::json_schemas;
 use pierre_auth::auth::AuthMethod as AuthResultMethod;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, UserTier};
+use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_database::backends::NotificationRepository;
+use pierre_mcp_schema::json_schemas;
+use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
+use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_services::usage_counter::UsageCounterService;
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tools_core::ToolResult;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -112,6 +113,7 @@ impl ToolHandlers {
         );
 
         match resources
+            .auth
             .auth_middleware
             .authenticate_request(auth_token)
             .await
@@ -128,6 +130,7 @@ impl ToolHandlers {
 
                 // Update user's last active timestamp
                 if let Err(e) = resources
+                    .common
                     .repos
                     .users
                     .update_last_active(auth_result.user_id)
@@ -144,7 +147,7 @@ impl ToolHandlers {
                 // Tenant context is REQUIRED for tool execution to ensure tenant isolation
                 // Priority: JWT active_tenant_id > user's default tenant
                 let tenant_context = match extract_tenant_context_internal(
-                    &resources.repos,
+                    &resources.common.repos,
                     Some(auth_result.user_id),
                     auth_result.active_tenant_id.map(TenantId::from), // Pass active_tenant_id from JWT claims
                     None, // MCP transport headers not applicable here
@@ -223,6 +226,7 @@ impl ToolHandlers {
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
         match resources
+            .mcp
             .tool_selection
             .is_tool_enabled(tenant_context.tenant_id, tool_name)
             .await
@@ -378,7 +382,12 @@ impl ToolHandlers {
             result,
             user_id,
             tool_name,
-            routing_context.resources.repos.notifications.as_ref(),
+            routing_context
+                .resources
+                .common
+                .repos
+                .notifications
+                .as_ref(),
         )
         .await;
 
@@ -482,12 +491,14 @@ impl ToolHandlers {
         user_id: &str,
         tool_name: &str,
     ) {
-        let Some(ref admin_config) = resources.admin_config else {
+        let Some(ref admin_config) = resources.coach.admin_config else {
             return;
         };
 
-        let usage_svc =
-            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+        let usage_svc = UsageCounterService::new(
+            resources.common.repos.usage_counters.as_ref(),
+            admin_config.as_ref(),
+        );
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
             if let Err(e) = usage_svc
                 .increment(tenant_id, user_id, counter_type, 1)
@@ -526,6 +537,7 @@ impl ToolHandlers {
             serde_json::to_string(&[tool_name]).unwrap_or_else(|_| "[]".to_owned());
 
         if let Err(e) = resources
+            .common
             .repos
             .llm_usage
             .insert_llm_usage(&InsertLlmUsage {
@@ -572,7 +584,7 @@ impl ToolHandlers {
         auth_result: &AuthResult,
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
-        let Some(ref admin_config) = resources.admin_config else {
+        let Some(ref admin_config) = resources.coach.admin_config else {
             debug!("Admin config not available, skipping MCP tool quota check");
             return None;
         };
@@ -580,6 +592,7 @@ impl ToolHandlers {
         // Admin role bypasses quota enforcement for debugging and testing.
         // Owners (tenant creators) remain subject to quotas as cost control.
         if let Ok(Some(role)) = resources
+            .common
             .repos
             .tenants
             .get_user_role(auth_result.user_id, tenant_context.tenant_id)
@@ -597,8 +610,10 @@ impl ToolHandlers {
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
         let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
-        let usage_svc =
-            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+        let usage_svc = UsageCounterService::new(
+            resources.common.repos.usage_counters.as_ref(),
+            admin_config.as_ref(),
+        );
 
         // Check daily, then weekly quota
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
@@ -624,7 +639,7 @@ impl ToolHandlers {
     /// least-permissive defaults apply when the user has been deleted
     /// out from under an in-flight tool call.
     async fn resolve_user_tier(resources: &Arc<ServerContext>, user_id: Uuid) -> UserTier {
-        match resources.repos.users.get_global(user_id).await {
+        match resources.common.repos.users.get_global(user_id).await {
             Ok(Some(user)) => user.tier,
             _ => UserTier::Starter,
         }
@@ -716,7 +731,7 @@ impl ToolHandlers {
             return None;
         }
 
-        let Some(ref admin_config) = resources.admin_config else {
+        let Some(ref admin_config) = resources.coach.admin_config else {
             debug!("Admin config not available, skipping activity quota check");
             return None;
         };
@@ -724,8 +739,10 @@ impl ToolHandlers {
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
         let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
-        let usage_svc =
-            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+        let usage_svc = UsageCounterService::new(
+            resources.common.repos.usage_counters.as_ref(),
+            admin_config.as_ref(),
+        );
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {
@@ -762,14 +779,16 @@ impl ToolHandlers {
         user_id: Uuid,
         args: &Value,
     ) {
-        let Some(ref admin_config) = resources.admin_config else {
+        let Some(ref admin_config) = resources.coach.admin_config else {
             return;
         };
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = user_id.to_string();
-        let usage_svc =
-            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+        let usage_svc = UsageCounterService::new(
+            resources.common.repos.usage_counters.as_ref(),
+            admin_config.as_ref(),
+        );
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {
@@ -906,11 +925,12 @@ impl ToolHandlers {
         }
 
         // Try the registry first for all other tools
-        if ctx.resources.tool_registry.contains(tool_name) {
+        if ctx.resources.mcp.tool_registry.contains(tool_name) {
             let tool_ctx = Self::build_tool_context(user_id, Some(request_id.clone()), ctx);
 
             match ctx
                 .resources
+                .mcp
                 .tool_registry
                 .execute(tool_name, args.clone(), &tool_ctx)
                 .await
@@ -998,12 +1018,12 @@ impl ToolHandlers {
 
         MultiTenantMcpServer::handle_tenant_connection_status(
             ctx.tenant_context,
-            &ctx.resources.tenant_oauth_client,
-            &ctx.resources.repos,
+            &ctx.resources.auth.tenant_oauth_client,
+            &ctx.resources.common.repos,
             request_id,
             credentials,
-            ctx.resources.config.http_port,
-            &ctx.resources.config,
+            ctx.resources.common.config.http_port,
+            &ctx.resources.common.config,
         )
         .await
     }

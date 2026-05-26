@@ -181,7 +181,13 @@ impl DossierRepository for PostgresDatabase {
 
         let goals = self.get_goals(user_id).await.unwrap_or_default();
 
-        let raw_profile = self.get_profile(user_id).await.unwrap_or(None);
+        let raw_profile = match self.get_profile(user_id).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(error = %e, user_id = %user_id, "get_profile failed; degrading to empty profile");
+                None
+            }
+        };
         let nutrition = raw_profile
             .as_ref()
             .and_then(|v| v.get("nutrition").cloned());

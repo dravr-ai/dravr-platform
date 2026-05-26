@@ -7,11 +7,11 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
     UpdateCoachRequest,
 };
-use pierre_mcp_server::models::TenantId;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 

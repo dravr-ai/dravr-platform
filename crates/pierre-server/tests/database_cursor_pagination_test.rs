@@ -8,15 +8,13 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::models::CoachingPersona;
-use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    models::{User, UserStatus, UserTier},
-    pagination::PaginationParams,
-    permissions::UserRole,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::pagination::PaginationParams;
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 

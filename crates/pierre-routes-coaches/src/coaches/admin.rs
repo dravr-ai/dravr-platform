@@ -1,0 +1,485 @@
+// ABOUTME: Admin route handlers for system coach management and store moderation
+// ABOUTME: Contains admin-only endpoints for CRUD on system coaches, assignments, and store review workflows
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use pierre_core::errors::AppError;
+use pierre_core::models::coaches::{Coach, UpdateCoachRequest};
+use pierre_database::backends::StoreListingsRepository;
+use pierre_database::database::store_listings::CoachWithListing;
+use pierre_middleware::{require_admin, AuthenticatedUser};
+use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_services::coaches as coaches_service;
+
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
+
+use super::types::{
+    AdminCreateCoachBody, AssignCoachBody, AssignCoachResponse, CoachAssignment, CoachResponse,
+    ListAssignmentsResponse, ListCoachesResponse, RejectCoachBody, StoreActionResponse,
+    StoreAdminStatsResponse, StoreCoachResponse, StoreCoachesResponse, StoreListParams,
+    UnassignCoachResponse, UpdateCoachBody,
+};
+
+/// Handle GET /admin/coaches - List all system coaches in tenant
+pub(super) async fn handle_admin_list<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+    let coaches = manager.list_system_coaches(tenant_id).await?;
+
+    let response = ListCoachesResponse {
+        total: u32::try_from(coaches.len()).unwrap_or(0),
+        coaches: coaches.into_iter().map(Into::into).collect(),
+        metadata: super::build_metadata(),
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle POST /admin/coaches - Create a system coach
+pub(super) async fn handle_admin_create<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Json(body): Json<AdminCreateCoachBody>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+    let coach = manager
+        .create_system_coach(auth.user_id, tenant_id, &body.into())
+        .await?;
+
+    let response: CoachResponse = coach.into();
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// Handle GET /admin/coaches/:id - Get a system coach
+pub(super) async fn handle_admin_get<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+    let coach = manager
+        .get_system_coach(&id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
+
+    let response: CoachResponse = coach.into();
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle PUT /admin/coaches/:id - Update a system coach
+pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateCoachBody>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+    let request: UpdateCoachRequest = body.into();
+    let coach = manager
+        .update_system_coach(&id, tenant_id, &request)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
+
+    // Notify users assigned to this coach that their training plan was updated
+    #[cfg(feature = "client-notifications")]
+    if let Some(service) = ctx.notification_service() {
+        let coach_name = coach.title.clone();
+        if let Ok(assignments) = manager.list_assignments_for_tenant(&id, tenant_id).await {
+            for assignment in assignments {
+                if let Ok(user_uuid) = assignment.user_id.parse::<uuid::Uuid>() {
+                    notification_triggers::trigger_plan_updated(
+                        service,
+                        user_uuid,
+                        pierre_notifications::TenantId(tenant_id.0),
+                        &coach_name,
+                    );
+                }
+            }
+        }
+    }
+
+    let response: CoachResponse = coach.into();
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle DELETE /admin/coaches/:id - Delete a system coach
+pub(super) async fn handle_admin_delete<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+    let deleted = manager.delete_system_coach(&id, tenant_id).await?;
+
+    if !deleted {
+        return Err(AppError::not_found(format!("System coach {id}")));
+    }
+
+    Ok((StatusCode::NO_CONTENT, ()).into_response())
+}
+
+/// Handle POST /admin/coaches/:id/assign - Assign coach to users
+///
+/// Delegates tenant membership verification and bulk operations to
+/// `services::coaches::bulk_assign_coach`.
+pub(super) async fn handle_admin_assign<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+    Json(body): Json<AssignCoachBody>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+
+    // Verify the coach exists and is a system coach (also used for notification body)
+    let coach: Coach = manager
+        .get_system_coach(&id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
+
+    let result = coaches_service::bulk_assign_coach(
+        manager,
+        ctx.repos().tenants.as_ref(),
+        &id,
+        tenant_id,
+        auth.user_id,
+        &body.user_ids,
+    )
+    .await?;
+
+    // Notify each assigned user about the new coach assignment
+    #[cfg(feature = "client-notifications")]
+    if let Some(service) = ctx.notification_service() {
+        let coach_name = coach.title.clone();
+        for user_id_str in &body.user_ids {
+            if let Ok(user_uuid) = user_id_str.parse::<uuid::Uuid>() {
+                notification_triggers::trigger_plan_updated(
+                    service,
+                    user_uuid,
+                    pierre_notifications::TenantId(tenant_id.0),
+                    &coach_name,
+                );
+            }
+        }
+    }
+
+    // When notifications are disabled the coach binding is unused — silence
+    // the warning without dropping the lookup (it doubles as a 404 check).
+    #[cfg(not(feature = "client-notifications"))]
+    let _ = coach;
+
+    let response = AssignCoachResponse {
+        coach_id: id,
+        assigned_count: result.affected_count,
+        total_requested: result.total_requested,
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle DELETE /admin/coaches/:id/assign - Remove coach assignment from users
+///
+/// Delegates tenant membership verification and bulk operations to
+/// `services::coaches::bulk_unassign_coach`.
+pub(super) async fn handle_admin_unassign<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+    Json(body): Json<AssignCoachBody>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+
+    // Verify the coach exists
+    manager
+        .get_system_coach(&id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
+
+    let result = coaches_service::bulk_unassign_coach(
+        manager,
+        ctx.repos().tenants.as_ref(),
+        &id,
+        tenant_id,
+        &body.user_ids,
+    )
+    .await?;
+
+    let response = UnassignCoachResponse {
+        coach_id: id,
+        removed_count: result.affected_count,
+        total_requested: result.total_requested,
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle GET /admin/coaches/:id/assignments - List users assigned to a coach
+pub(super) async fn handle_admin_list_assignments<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let manager = super::get_coaches_manager(&ctx);
+
+    // Verify the coach exists
+    manager
+        .get_system_coach(&id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
+
+    let db_assignments = manager.list_assignments_for_tenant(&id, tenant_id).await?;
+    let assignments: Vec<CoachAssignment> = db_assignments.into_iter().map(Into::into).collect();
+
+    let response = ListAssignmentsResponse {
+        coach_id: id,
+        assignments,
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+// ============================================
+// Admin Store Management Handlers
+// ============================================
+
+/// Handle GET /admin/store/stats - Get store statistics
+pub(super) async fn handle_admin_store_stats<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    let stats = store_manager.get_store_admin_stats(tenant_id).await?;
+
+    let response = StoreAdminStatsResponse {
+        pending_count: stats.pending_count,
+        published_count: stats.published_count,
+        rejected_count: stats.rejected_count,
+        total_installs: stats.total_installs,
+        rejection_rate: stats.rejection_rate,
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle GET /admin/store/review-queue - Get pending review coaches
+pub(super) async fn handle_admin_review_queue<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Query(params): Query<StoreListParams>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    let coaches = store_manager
+        .get_pending_review_coaches(tenant_id, params.limit, params.offset)
+        .await?;
+
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    // Paginated results with limits - count never exceeds u32
+    #[allow(clippy::cast_possible_truncation)]
+    let total = coaches_with_email.len() as u32;
+
+    let response = StoreCoachesResponse {
+        coaches: coaches_with_email,
+        total,
+        metadata: super::build_metadata(),
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle GET /admin/store/published - Get published coaches
+pub(super) async fn handle_admin_published<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Query(params): Query<StoreListParams>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    let sort_by = params.sort_by.as_deref();
+    let coaches = store_manager
+        .get_published_coaches(None, sort_by, params.limit, params.offset)
+        .await?;
+
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    // Paginated results with limits - count never exceeds u32
+    #[allow(clippy::cast_possible_truncation)]
+    let total = coaches_with_email.len() as u32;
+
+    let response = StoreCoachesResponse {
+        coaches: coaches_with_email,
+        total,
+        metadata: super::build_metadata(),
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle GET /admin/store/rejected - Get rejected coaches
+pub(super) async fn handle_admin_rejected<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Query(params): Query<StoreListParams>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    let coaches = store_manager
+        .get_rejected_coaches(tenant_id, params.limit, params.offset)
+        .await?;
+
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
+    // Paginated results with limits - count never exceeds u32
+    #[allow(clippy::cast_possible_truncation)]
+    let total = coaches_with_email.len() as u32;
+
+    let response = StoreCoachesResponse {
+        coaches: coaches_with_email,
+        total,
+        metadata: super::build_metadata(),
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle POST /admin/store/coaches/:id/approve - Approve a coach
+pub(super) async fn handle_admin_approve<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    store_manager
+        .approve_coach(&id, tenant_id, Some(auth.user_id))
+        .await?;
+
+    let response = StoreActionResponse {
+        success: true,
+        message: "Coach approved and published".to_owned(),
+        coach_id: id,
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle POST /admin/store/coaches/:id/reject - Reject a coach
+pub(super) async fn handle_admin_reject<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+    Json(body): Json<RejectCoachBody>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let rejection_reason =
+        coaches_service::format_rejection_reason(&body.reason, body.notes.as_deref());
+
+    let store_manager = super::get_store_manager(&ctx);
+    store_manager
+        .reject_coach(&id, tenant_id, Some(auth.user_id), &rejection_reason)
+        .await?;
+
+    let response = StoreActionResponse {
+        success: true,
+        message: "Coach rejected".to_owned(),
+        coach_id: id,
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle POST /admin/store/coaches/:id/unpublish - Unpublish a coach
+pub(super) async fn handle_admin_unpublish<C: CoachesCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    require_admin(auth.user_id, &ctx.repos().users).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    let store_manager = super::get_store_manager(&ctx);
+    store_manager.unpublish_coach(&id, tenant_id).await?;
+
+    let response = StoreActionResponse {
+        success: true,
+        message: "Coach unpublished".to_owned(),
+        coach_id: id,
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Enrich coaches with author email information
+pub(super) async fn enrich_coaches_with_email(
+    store_manager: &dyn StoreListingsRepository,
+    coaches: Vec<CoachWithListing>,
+) -> Result<Vec<StoreCoachResponse>, AppError> {
+    let mut result = Vec::with_capacity(coaches.len());
+
+    for cwl in coaches {
+        let author_email = store_manager.get_author_email(cwl.coach.user_id).await?;
+        result.push(StoreCoachResponse::from_coach_with_listing(
+            cwl,
+            author_email,
+        ));
+    }
+
+    Ok(result)
+}

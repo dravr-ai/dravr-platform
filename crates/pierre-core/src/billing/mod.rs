@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Provider-agnostic billing trait + value types — Stripe / RevenueCat / etc. live in dravr-xxx repos
 // ABOUTME: pierre-server consumes Arc<dyn BillingProvider>; the in-tree DummyProvider drives tests
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 //! # Billing
 //!

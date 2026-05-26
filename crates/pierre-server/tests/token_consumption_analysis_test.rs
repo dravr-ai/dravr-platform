@@ -8,13 +8,14 @@
 #![allow(clippy::cast_possible_wrap)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
-use pierre_mcp_server::llm::pricing::calculate_cost;
-use pierre_mcp_server::llm::prompts::{
+use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
+use pierre_llm::pricing::calculate_cost;
+use pierre_llm::prompts::{
     COACH_GENERATION_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
     PIERRE_SYSTEM_PROMPT,
 };
-use pierre_mcp_server::tools::ToolRegistry;
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::registry::ToolRegistry;
 use serde::Serialize;
 
 #[derive(Serialize, Clone)]
@@ -89,7 +90,7 @@ mod axis1_schema_tokens {
     #[test]
     fn test_tool_schema_total_token_estimate() {
         let mut registry = ToolRegistry::new();
-        registry.register_builtin_tools();
+        register_builtin_tools(&mut registry);
         let estimate = registry.total_schema_token_estimate();
 
         println!("\n=== AXIS 1: Tool Schema Token Budget (DRAVR-419) ===");

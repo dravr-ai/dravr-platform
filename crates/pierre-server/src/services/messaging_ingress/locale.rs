@@ -7,8 +7,8 @@
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::DEFAULT_LOCALE;
 use crate::mcp::resources::ServerContext;
+use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 
 /// Resolve the user-facing locale for a messaging turn.
 ///
@@ -18,7 +18,7 @@ use crate::mcp::resources::ServerContext;
 ///    — explicit per-channel override (user set Telegram to EN while keeping
 ///    the web app in FR, for example)
 /// 2. `users.locale` — the profile-wide preference edited from the Settings UI
-/// 3. [`crate::contremaitre::messaging_strings::DEFAULT_LOCALE`] — hard-coded
+/// 3. [`pierre_contremaitre::messaging_strings::DEFAULT_LOCALE`] — hard-coded
 ///    French fallback
 ///
 /// Never fails: any DB error silently degrades to the next rung. Called once
@@ -32,6 +32,7 @@ pub async fn resolve_messaging_locale(
     channel_user_id: &str,
 ) -> String {
     if let Ok(Some(override_locale)) = resources
+        .common
         .repos
         .messaging
         .get_channel_link_locale(tenant_id, channel_type, channel_user_id)
@@ -42,7 +43,7 @@ pub async fn resolve_messaging_locale(
         }
     }
 
-    if let Ok(Some(user)) = resources.repos.users.get_global(user_id).await {
+    if let Ok(Some(user)) = resources.common.repos.users.get_global(user_id).await {
         if !user.locale.trim().is_empty() {
             return user.locale;
         }

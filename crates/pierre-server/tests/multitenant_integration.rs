@@ -146,27 +146,27 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
+use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
+    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-        DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-        GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-        LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
     constants::oauth_providers,
     mcp::resources::{ServerContext, ServerContextOptions},
-    models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{auth::AuthService, LoginRequest, RegisterRequest},
 };
+use pierre_routes_auth::{AuthService, LoginRequest, RegisterRequest};
 use std::{sync::Arc, time::Duration};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -378,8 +378,9 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -467,7 +468,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         .jwt_token
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in response"))?;
-    let claims = auth_manager.validate_token(jwt_token, &server_resources.jwks_manager)?;
+    let claims = auth_manager.validate_token(jwt_token, &server_resources.auth.jwks_manager)?;
     assert_eq!(claims.email, "test@multitenant.com");
     assert_eq!(claims.sub, register_response.user_id);
 
@@ -898,8 +899,9 @@ async fn test_input_validation() -> Result<()> {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 

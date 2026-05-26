@@ -13,13 +13,13 @@ use pierre_core::models::TenantId;
 use pierre_intelligence::training_history_compute::MAX_BACKFILL_DAYS;
 use serde_json::{json, Value};
 
-use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::services::training_history_compute::{
     compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
 };
-use crate::tools::context::ToolExecutionContext;
-use crate::tools::result::ToolResult;
-use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tools_core::ToolResult;
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {

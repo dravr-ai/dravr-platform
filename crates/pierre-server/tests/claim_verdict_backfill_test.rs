@@ -12,13 +12,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_evals::VerificationConfig;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::services::claim_verdict_backfill::{run_backfill, BackfillParams};
+use pierre_services::claim_verdict_backfill::{run_backfill, BackfillParams};
 use sqlx::Executor;
 use uuid::Uuid;
 

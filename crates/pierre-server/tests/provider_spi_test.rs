@@ -7,22 +7,22 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::providers::ProviderCapabilities;
+use pierre_providers::ProviderCapabilities;
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
     feature = "provider-synthetic"
 ))]
-use pierre_mcp_server::providers::{ProviderBundle, ProviderDescriptor};
+use pierre_providers::{ProviderBundle, ProviderDescriptor};
 
 #[cfg(feature = "provider-strava")]
-use pierre_mcp_server::providers::StravaDescriptor;
+use pierre_providers::StravaDescriptor;
 
 #[cfg(feature = "provider-garmin")]
-use pierre_mcp_server::providers::GarminDescriptor;
+use pierre_providers::GarminDescriptor;
 
 #[cfg(feature = "provider-synthetic")]
-use pierre_mcp_server::providers::SyntheticDescriptor;
+use pierre_providers::SyntheticDescriptor;
 
 #[test]
 #[cfg(feature = "provider-strava")]
@@ -122,11 +122,11 @@ fn test_synthetic_no_oauth_params() {
 #[test]
 #[cfg(all(feature = "provider-strava", feature = "provider-synthetic"))]
 fn test_provider_bundle_creation() {
-    use pierre_mcp_server::providers::core::{FitnessProvider, ProviderConfig};
+    use pierre_providers::core::{FitnessProvider, ProviderConfig};
 
     // Create a test factory function
     fn test_factory(_config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        use pierre_mcp_server::providers::synthetic_provider::SyntheticProvider;
+        use pierre_providers::synthetic_provider::SyntheticProvider;
         Box::new(SyntheticProvider::new())
     }
 
@@ -245,13 +245,13 @@ fn test_garmin_full_descriptor() {
 #[cfg(feature = "provider-synthetic")]
 mod activity_query_params_tests {
     use chrono::{Duration, Utc};
-    use pierre_mcp_server::providers::synthetic_provider::SyntheticProvider;
-    use pierre_mcp_server::providers::ActivityQueryParams;
-    use pierre_mcp_server::providers::CoreFitnessProvider;
+    use pierre_providers::synthetic_provider::SyntheticProvider;
+    use pierre_providers::ActivityQueryParams;
+    use pierre_providers::CoreFitnessProvider;
 
     /// Helper to create a synthetic provider with sample activities spanning multiple dates
     fn create_provider_with_activities() -> SyntheticProvider {
-        use pierre_mcp_server::models::{ActivityBuilder, SportType};
+        use pierre_core::models::{ActivityBuilder, SportType};
 
         let provider = SyntheticProvider::new();
         let now = Utc::now();

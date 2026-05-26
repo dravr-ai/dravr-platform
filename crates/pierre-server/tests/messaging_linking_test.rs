@@ -18,13 +18,13 @@
 )]
 
 use chrono::{Duration, Utc};
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::{
     backends::{factory::Database, CreateChannelLinkParams, CreateLinkStateParams},
     DatabaseProvider,
 };
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::models::{Tenant, TenantId, User};
 use uuid::Uuid;
 
 /// Create an in-memory `SQLite` database for testing

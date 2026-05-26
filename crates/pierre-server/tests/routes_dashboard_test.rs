@@ -158,27 +158,25 @@ use pierre_auth::{
     auth::{AuthMethod, AuthResult},
     rate_limiting::UnifiedRateLimitInfo,
 };
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-        DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-        GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-        LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::dashboard::service::DashboardRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
+    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
 };
+use pierre_database::backends::factory::Database;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_dashboard::service::DashboardRoutes;
 use std::{sync::Arc, time::Instant};
 use uuid::Uuid;
 
 /// Test setup helper that creates all necessary components for dashboard route testing
 struct DashboardTestSetup {
-    dashboard_routes: DashboardRoutes,
+    dashboard_routes: DashboardRoutes<ServerContext>,
     database: Arc<Database>,
     user_id: Uuid,
     api_keys: Vec<ApiKey>,

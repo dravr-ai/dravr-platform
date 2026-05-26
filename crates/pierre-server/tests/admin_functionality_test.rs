@@ -19,13 +19,10 @@ mod common;
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_mcp_server::admin::{
-    auth::AdminAuthService,
-    jwt::AdminJwtManager,
-    models::{
-        AdminAction, AdminPermission, AdminPermissions, AdminTokenUsage, CreateAdminTokenRequest,
-    },
+use pierre_core::admin::models::{
+    AdminAction, AdminPermission, AdminPermissions, AdminTokenUsage, CreateAdminTokenRequest,
 };
+use pierre_routes_admin::auth::{jwt::AdminJwtManager, service::AdminAuthService};
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_token_creation_in_tests";
 use serial_test::serial;

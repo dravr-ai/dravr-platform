@@ -1,16 +1,15 @@
-// ABOUTME: User-facing memory fact service — list and forget what the coach remembers
-// ABOUTME: Wraps HarnessMemoryRepository with user-scoped wire shapes for the GDPR Forget UX
+// ABOUTME: Axum handlers for the user-facing memory facts endpoints
+// ABOUTME: Thin shims that delegate to pierre_services::memory_facts pure helpers
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! User-facing memory facts service.
+//! User-facing memory facts handlers.
 //!
-//! Exposes a tightly-scoped read+delete surface for [`pierre_memory::UserFact`]
-//! rows so the user-facing memory panel can show what the coach remembers
-//! and let the user GDPR-forget any individual fact. Tenant ownership is
-//! enforced by the caller (the route handler resolves the active tenant
-//! from the authenticated session before invoking these helpers).
+//! Thin axum wrappers around [`pierre_services::memory_facts`]. The wire
+//! shapes and repository-backed logic live in `pierre-services`; this
+//! module exists only because the axum + `ServerContext` glue is
+//! server-local.
 
 use std::sync::Arc;
 
@@ -20,63 +19,16 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use pierre_core::models::TenantId;
-use pierre_memory::FactKind;
+use pierre_core::errors::AppError;
+use pierre_middleware::extract_auth_from_headers;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_services::memory_facts::{
+    fact_kind_from_query, forget_user_fact, list_user_facts, DEFAULT_LIST_LIMIT,
+};
 
-use crate::context::DataContext;
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::extract_auth_from_headers;
-
-/// Default page size when the client omits `limit`. Bounded to 100 by
-/// [`MAX_LIST_LIMIT`] so a misconfigured client cannot drag the database.
-const DEFAULT_LIST_LIMIT: i64 = 50;
-/// Maximum number of facts returned in a single response.
-const MAX_LIST_LIMIT: i64 = 100;
-
-/// Wire shape for a single stored user fact. Mirrors the domain
-/// [`pierre_memory::UserFact`] but flattens enums to stable string keys
-/// so the `TypeScript` client can render them without an extra mapping.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UserFactRow {
-    /// Stable identifier — the key the Forget action uses.
-    pub id: String,
-    /// Coach the fact is scoped to, or `null` for cross-coach facts.
-    pub coach_id: Option<String>,
-    /// One of `preference | physiology | injury | goal | schedule | equipment | other`.
-    pub kind: String,
-    /// Subject phrase, typically `"you"`.
-    pub subject: String,
-    /// Verb phrase (`prefers`, `has`, `runs`, etc.).
-    pub predicate: String,
-    /// Object phrase — the fact value the user can review.
-    pub object: String,
-    /// Confidence in `[0.0, 1.0]` from the extractor.
-    pub confidence: f32,
-    /// Source message id for "jump to source" UI affordances.
-    pub source_msg_id: Option<String>,
-    /// RFC3339 timestamp of the most recent update to this fact.
-    pub updated_at: String,
-}
-
-/// Response envelope for `GET /api/memory/facts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UserFactListResponse {
-    /// Facts ordered most-recently-updated first.
-    pub facts: Vec<UserFactRow>,
-    /// Total number of facts returned in this response.
-    pub total: usize,
-}
-
-/// Response envelope for `DELETE /api/memory/facts/:fact_id`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ForgetFactResponse {
-    /// `true` when a row was removed, `false` when no matching fact was
-    /// found (still a success — the desired post-condition holds).
-    pub deleted: bool,
-}
 
 /// Query parameters for [`get_facts_handler`].
 #[derive(Debug, Deserialize)]
@@ -90,23 +42,6 @@ pub struct ListFactsQuery {
     pub limit: Option<i64>,
 }
 
-/// Resolve the user's active tenant the same way `routes::chat` does,
-/// without depending on the chat module so this handler can live entirely
-/// inside the services layer.
-async fn resolve_tenant_id(data: &DataContext, user_id: uuid::Uuid) -> TenantId {
-    data.repos()
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .ok()
-        .and_then(|tenants| tenants.first().map(|t| t.id))
-        .unwrap_or_else(|| TenantId::from(user_id))
-}
-
-fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
-    raw.map(FactKind::parse_lenient)
-}
-
 /// Axum handler for `GET /api/memory/facts`.
 ///
 /// Returns the user's stored facts. Filters by coach and/or kind when
@@ -117,54 +52,29 @@ fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
 ///
 /// - Authentication failures from the middleware extractor.
 /// - Repository errors propagated from
-///   [`pierre_database::repositories::HarnessMemoryRepository::list_user_facts`].
+///   [`pierre_services::memory_facts::list_user_facts`].
 pub async fn get_facts_handler(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Query(params): Query<ListFactsQuery>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let data = resources.data();
-    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
-    let limit = params
-        .limit
-        .unwrap_or(DEFAULT_LIST_LIMIT)
-        .clamp(1, MAX_LIST_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
     let kind = fact_kind_from_query(params.kind.as_deref());
 
-    let facts = data
-        .repos()
-        .memory
-        .list_user_facts(
-            tenant_id,
-            &auth.user_id.to_string(),
-            params.coach_id.as_deref(),
-            kind,
-            limit,
-        )
-        .await?;
-
-    let rows: Vec<UserFactRow> = facts
-        .into_iter()
-        .map(|f| UserFactRow {
-            id: f.id,
-            coach_id: f.coach_id,
-            kind: f.kind.as_str().to_owned(),
-            subject: f.subject,
-            predicate: f.predicate,
-            object: f.object,
-            confidence: f.confidence,
-            source_msg_id: f.source_msg_id,
-            updated_at: f.updated_at.to_rfc3339(),
-        })
-        .collect();
-
-    let total = rows.len();
-    Ok((
-        StatusCode::OK,
-        Json(UserFactListResponse { facts: rows, total }),
+    let response = list_user_facts(
+        &data.repos().coach_repos(),
+        tenant_id,
+        &auth.user_id.to_string(),
+        params.coach_id.as_deref(),
+        kind,
+        limit,
     )
-        .into_response())
+    .await?;
+
+    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 /// Axum handler for `DELETE /api/memory/facts/:fact_id`.
@@ -177,21 +87,23 @@ pub async fn get_facts_handler(
 ///
 /// - Authentication failures from the middleware extractor.
 /// - Repository errors propagated from
-///   [`pierre_database::repositories::HarnessMemoryRepository::delete_user_fact`].
+///   [`pierre_services::memory_facts::forget_user_fact`].
 pub async fn forget_fact_handler(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(fact_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let data = resources.data();
-    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
 
-    let deleted = data
-        .repos()
-        .memory
-        .delete_user_fact(&fact_id, tenant_id, &auth.user_id.to_string())
-        .await?;
+    let response = forget_user_fact(
+        &data.repos().coach_repos(),
+        &fact_id,
+        tenant_id,
+        &auth.user_id.to_string(),
+    )
+    .await?;
 
-    Ok((StatusCode::OK, Json(ForgetFactResponse { deleted })).into_response())
+    Ok((StatusCode::OK, Json(response)).into_response())
 }

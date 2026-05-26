@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::cache::{factory::Cache, CacheConfig, CacheKey, CacheResource};
-use pierre_mcp_server::models::TenantId;
+use pierre_cache::{Cache, CacheConfig, CacheKey, CacheResource};
+use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use std::{env, time::Duration};
 use tokio::time;

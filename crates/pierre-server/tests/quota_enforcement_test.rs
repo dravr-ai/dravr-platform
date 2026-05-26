@@ -17,7 +17,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier, PROFESSI
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
-use pierre_mcp_server::services::usage_counter::UsageCounterService;
+use pierre_services::usage_counter::UsageCounterService;
 use uuid::Uuid;
 
 async fn build_user(

@@ -9,9 +9,9 @@
 //! This module validates that typed parameter structs correctly deserialize
 //! JSON input with proper type safety and validation.
 
-use pierre_mcp_server::{
-    config::runtime::ConfigValue,
-    types::json_schemas::{A2ATaskCreateParams, ConfigValueInput, UpdateConfigurationRequest},
+use pierre_config::runtime::ConfigValue;
+use pierre_mcp_schema::json_schemas::{
+    A2ATaskCreateParams, ConfigValueInput, UpdateConfigurationRequest,
 };
 use std::error::Error;
 

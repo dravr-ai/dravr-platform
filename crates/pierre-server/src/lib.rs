@@ -44,7 +44,7 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::config::environment::ServerConfig;
+//! use pierre_config::environment::ServerConfig;
 //! use pierre_mcp_server::errors::AppResult;
 //!
 //! #[tokio::main]
@@ -64,101 +64,46 @@
 // These modules are used by binary crates (src/bin/) and integration tests (tests/).
 // They must remain `pub` so external consumers can access them.
 
-/// A2A (Agent-to-Agent) protocol implementation
+/// A2A (Agent-to-Agent) protocol implementation (extracted to the `pierre-a2a`
+/// crate; the `crate::a2a::*` namespace is preserved as a re-export so in-tree
+/// call sites and integration tests keep compiling without a search-and-replace
+/// cycle).
 #[cfg(feature = "protocol-a2a")]
-pub mod a2a;
+pub use pierre_a2a as a2a;
 
-/// AG-UI (Agent-User Interaction) protocol integration
-pub mod agui;
-
-/// Admin token authentication and `API` key provisioning
-pub mod admin;
+/// AG-UI (Agent-User Interaction) protocol integration.
+///
+/// Extracted to the `pierre-agui` crate; the `crate::agui::*` namespace
+/// is preserved as a re-export so in-tree call sites and integration
+/// tests keep compiling without a search-and-replace cycle.
+pub use pierre_agui as agui;
 
 /// Cache abstraction layer with pluggable backends
 pub mod cache;
 
-/// Hot-reloadable dravr-cageux IntelligenceConfig snapshot registry
-pub mod cageux_config;
-
-/// Coach definition parsing from markdown files
-pub mod coaches;
-
-/// Hot-reloadable harness config snapshot (compaction + Tier 6 guardrails)
-pub mod harness_config_registry;
-
-/// Prompt hot-reload system backed by a GitHub repository
-#[cfg(feature = "contremaitre")]
-pub mod contremaitre;
-
-/// Messaging command definition parsing from markdown files
-#[cfg(feature = "client-messaging")]
-pub mod commands;
-
 /// Configuration management and persistence
 pub mod config;
 
-/// Application constants and configuration values
-pub mod constants;
+/// Application constants and configuration values (extracted to `pierre_config::constants`,
+/// re-exported here so `crate::constants::*` keeps resolving for in-crate callers and tests).
+pub use pierre_config::constants;
 
 /// Focused dependency injection contexts
 pub mod context;
 
-/// Transactional email delivery via Resend API
-pub mod email;
-
-/// Unified error handling system with standard error codes and HTTP responses
-pub mod errors;
-
-/// External API clients (USDA, weather services)
-pub mod external;
-
 /// Feature flag configuration and validation
 pub mod features;
 
-/// Output format abstraction (JSON, TOON) for efficient LLM serialization
-pub mod formatters;
-
-/// Health checks and monitoring
-pub mod health;
-
-/// Insight sample parsing from markdown files for validation testing
-pub mod insight_samples;
-
-/// Athlete Intelligence for activity analysis and insights
-pub mod intelligence;
-
-/// Unified JSON-RPC 2.0 foundation for all protocols
-pub mod jsonrpc;
-
-/// LLM provider abstraction for AI chat integration
-pub mod llm;
-
-/// Production logging and structured output
-pub mod logging;
+/// Health checks and monitoring (extracted to `pierre_health`, re-exported here so
+/// `crate::health::*` keeps resolving for in-crate callers and tests).
+pub use pierre_health as health;
 
 /// Model Context Protocol server implementation
 pub mod mcp;
 
-/// HTTP middleware for request tracing and tenant context
-pub mod middleware;
-
-/// Common data models for fitness data
-pub mod models;
-
-/// Cursor-based pagination for efficient data traversal
-pub mod pagination;
-
-/// Per-persona output-format conformance contracts hot-reloaded from contremaitre
-pub mod persona_contracts;
-
-/// Role-based permission system with `super_admin`, `admin`, `user` hierarchy
-pub mod permissions;
-
-/// Universal protocol support for MCP and A2A
-pub mod protocols;
-
-/// Fitness provider implementations for various services
-pub mod providers;
+/// A2A-coupled protocol converter (free functions that touch `crate::a2a::*`)
+#[cfg(feature = "protocol-a2a")]
+pub mod protocols_a2a;
 
 /// `HTTP` routes for user registration and `OAuth` flows
 pub mod routes;
@@ -173,8 +118,9 @@ pub mod tools;
 /// Common type definitions and shared types
 pub mod types;
 
-/// Utility functions and helpers
-pub mod utils;
+/// Utility functions and helpers (extracted to `pierre_config::utils`,
+/// re-exported here so `crate::utils::*` keeps resolving for in-crate callers and tests).
+pub use pierre_config::utils;
 
 /// WebSocket support for real-time updates
 #[cfg(feature = "transport-websocket")]
@@ -187,28 +133,25 @@ pub mod test_utils;
 /// Domain service layer for protocol-agnostic business logic
 pub mod services;
 
-/// Seeder entry points invoked by `pierre-cli seed <domain>` subcommands
-pub mod seeders;
-
 // Re-export messaging outbound worker and channel seeder for binary startup
-pub use services::coach_followup_scheduler::start_followup_scheduler;
+pub use pierre_services::coach_followup_scheduler::start_followup_scheduler;
+#[cfg(feature = "client-messaging")]
+pub use pierre_services::messaging_outbound::start_outbound_worker;
+#[cfg(feature = "client-messaging")]
+pub use pierre_services::messaging_seed;
 #[cfg(feature = "client-messaging")]
 pub use services::discord_gateway::start_discord_gateway;
-#[cfg(feature = "client-messaging")]
-pub use services::messaging_outbound::start_outbound_worker;
-#[cfg(feature = "client-messaging")]
-pub use services::messaging_seed;
 #[cfg(feature = "client-messaging")]
 pub use services::slack_socket::start_slack_socket_mode;
 
 // Re-export OAuth flow validation for integration testing
-pub use services::oauth_flow;
+pub use pierre_services::oauth_flow;
 
 // Re-export ops notifier for binary startup and route handlers
-pub use services::slack_ops_notifier::{init_ops_notifier, ops_notifier, OpsNotifier};
+pub use pierre_services::slack_ops_notifier::{init_ops_notifier, ops_notifier, OpsNotifier};
 
 // Re-export analytics tracker for binary startup and route handlers
-pub use services::analytics::{analytics, hash_id, init_analytics, AnalyticsTracker};
+pub use pierre_services::analytics::{analytics, hash_id, init_analytics, AnalyticsTracker};
 
 // Re-export notification crate for integration testing
 #[cfg(feature = "client-notifications")]

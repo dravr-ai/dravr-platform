@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use pierre_mcp_server::protocols::universal::handlers::provider_helpers::{
+use pierre_tool_runtime::protocol::provider_helpers::{
     build_activities_success_response, create_auth_error_response, create_no_token_response,
     extract_provider,
 };
@@ -114,7 +114,7 @@ fn test_auth_error_response_metadata() {
 #[test]
 fn test_build_activities_success_response() {
     use chrono::Utc;
-    use pierre_mcp_server::models::{ActivityBuilder, SportType};
+    use pierre_core::models::{ActivityBuilder, SportType};
     use uuid::Uuid;
 
     let now = Utc::now();

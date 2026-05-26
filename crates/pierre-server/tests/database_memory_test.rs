@@ -10,11 +10,11 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::models::User;
 use std::env;
 use std::fs;
 
