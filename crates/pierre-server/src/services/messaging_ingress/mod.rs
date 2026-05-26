@@ -53,7 +53,9 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::ChannelProfile;
-use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_contremaitre::messaging_strings::{
+    DEFAULT_LOCALE, KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+};
 use pierre_core::errors::AppError;
 use pierre_middleware::auth::record_jwt_usage_for_request;
 use pierre_services::analytics::{analytics, hash_id};
@@ -813,6 +815,40 @@ struct AuthDenialReplyInputs<'a> {
     err: &'a AppError,
 }
 
+/// Resolve the user's account email for a `(channel, channel_user_id)`
+/// pair via the channel-link → user-id → user-row chain.
+///
+/// Used by the `NoProviderConnected` denial path so the chat reply can tell
+/// the user *which* email to sign in with. Returns `None` on any failure
+/// (channel link missing, malformed JSON, user-id parse failure, DB hiccup,
+/// user row deleted) so the caller can fall back to the URL-only template.
+async fn resolve_channel_user_email(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    channel_user_id: &str,
+) -> Option<String> {
+    let link = resources
+        .common
+        .repos
+        .messaging
+        .get_channel_link(tenant_id, channel, channel_user_id)
+        .await
+        .ok()
+        .flatten()?;
+    let user_id_str = link.get("user_id")?.as_str()?;
+    let user_id = Uuid::parse_str(user_id_str).ok()?;
+    let user = resources
+        .common
+        .repos
+        .users
+        .get_global(user_id)
+        .await
+        .ok()
+        .flatten()?;
+    Some(user.email)
+}
+
 /// Build a localized "denied" reply for the authentication outcomes that need
 /// to surface user-facing text (`Pending`, `Suspended`, `RateLimitExceeded`).
 async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingMessage {
@@ -829,9 +865,10 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
             .filter(|l| !l.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
         // NoProviderConnected carries a `{0}` placeholder for the dravr web
-        // connect URL — render with args so the chat reply contains a working
-        // link to the provider-connection page. Other status denials
-        // (Pending/Suspended) have no template args.
+        // connect URL, and `{1}` for the account email when we can resolve
+        // it from the channel link. Telling the user *which* email to sign
+        // in with removes a guessing step (multi-account households, etc.).
+        // Other status denials (Pending/Suspended) have no template args.
         if inputs.err.code == ErrorCode::NoProviderConnected {
             let connect_url = format!(
                 "{}/providers",
@@ -843,11 +880,22 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
                     .as_deref()
                     .unwrap_or(&inputs.resources.common.config.base_url)
             );
-            inputs
-                .resources
-                .mcp
-                .messaging_strings_registry
-                .render(key, &locale, &[&connect_url])
+            let email = resolve_channel_user_email(
+                inputs.resources,
+                inputs.tenant_id,
+                inputs.channel,
+                inputs.sender_id,
+            )
+            .await;
+            let registry = &inputs.resources.mcp.messaging_strings_registry;
+            match email {
+                Some(email) => registry.render(
+                    KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+                    &locale,
+                    &[&connect_url, &email],
+                ),
+                None => registry.render(key, &locale, &[&connect_url]),
+            }
         } else {
             inputs
                 .resources

@@ -14,9 +14,12 @@
 //! renderer doesn't silently regress the user-visible reply path —
 //! a regression would leak literal `{0}` to chat users.
 
-use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_NO_PROVIDER_CONNECTED};
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_NO_PROVIDER_CONNECTED, KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+};
 
 const TEST_URL: &str = "https://app.dravr.ai/providers";
+const TEST_EMAIL: &str = "jf@dravr.ai";
 
 #[test]
 fn no_provider_connected_renders_fr_with_url() {
@@ -104,6 +107,80 @@ fn no_provider_connected_renders_pt_with_url() {
         !rendered.contains("{0}"),
         "PT placeholder leaked: {rendered}"
     );
+}
+
+#[test]
+fn no_provider_connected_with_email_renders_fr() {
+    let reg = MessagingStringsRegistry::new();
+    let rendered = reg.render(
+        KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+        "fr",
+        &[TEST_URL, TEST_EMAIL],
+    );
+
+    assert!(
+        rendered.contains(TEST_URL),
+        "FR_WITH_EMAIL must include the URL in slot 0: {rendered}"
+    );
+    assert!(
+        rendered.contains(TEST_EMAIL),
+        "FR_WITH_EMAIL must include the email in slot 1: {rendered}"
+    );
+    assert!(
+        !rendered.contains("{0}") && !rendered.contains("{1}"),
+        "FR_WITH_EMAIL must substitute both placeholders: {rendered}"
+    );
+    assert!(
+        rendered.contains("Strava") && rendered.contains("Garmin") && rendered.contains("Whoop"),
+        "FR_WITH_EMAIL must list Strava/Garmin/Whoop: {rendered}"
+    );
+}
+
+#[test]
+fn no_provider_connected_with_email_renders_en() {
+    let reg = MessagingStringsRegistry::new();
+    let rendered = reg.render(
+        KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+        "en",
+        &[TEST_URL, TEST_EMAIL],
+    );
+
+    assert!(
+        rendered.contains(TEST_URL),
+        "EN_WITH_EMAIL must include the URL: {rendered}"
+    );
+    assert!(
+        rendered.contains(TEST_EMAIL),
+        "EN_WITH_EMAIL must include the email: {rendered}"
+    );
+    assert!(
+        rendered.contains("Sign in") || rendered.contains("sign in"),
+        "EN_WITH_EMAIL should mention signing in: {rendered}"
+    );
+}
+
+#[test]
+fn no_provider_connected_with_email_renders_all_other_locales() {
+    let reg = MessagingStringsRegistry::new();
+    for locale in ["es", "de", "pt"] {
+        let rendered = reg.render(
+            KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+            locale,
+            &[TEST_URL, TEST_EMAIL],
+        );
+        assert!(
+            rendered.contains(TEST_URL),
+            "{locale}_WITH_EMAIL must include the URL: {rendered}"
+        );
+        assert!(
+            rendered.contains(TEST_EMAIL),
+            "{locale}_WITH_EMAIL must include the email: {rendered}"
+        );
+        assert!(
+            !rendered.contains("{0}") && !rendered.contains("{1}"),
+            "{locale}_WITH_EMAIL placeholders leaked: {rendered}"
+        );
+    }
 }
 
 #[test]
