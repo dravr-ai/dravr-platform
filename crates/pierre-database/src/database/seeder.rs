@@ -894,6 +894,26 @@ impl SeederRepository for Database {
         }))
     }
 
+    async fn seed_find_coach_drift_info(
+        &self,
+        slug: &str,
+    ) -> AppResult<Option<(String, Option<String>)>> {
+        // Tenant-agnostic on purpose — see trait doc on
+        // `SeederRepository::seed_find_coach_drift_info`. Used by
+        // `pierre-cli check-drift coaches`, never by the seed path.
+        let row = sqlx::query("SELECT source, content_hash FROM coaches WHERE slug = $1 LIMIT 1")
+            .bind(slug)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to fetch coach drift info: {e}")))?;
+
+        Ok(row.map(|r| {
+            let source: String = r.get("source");
+            let content_hash: Option<String> = r.get("content_hash");
+            (source, content_hash)
+        }))
+    }
+
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
         // `source = 'contremaitre'` flags this row for the
         // prompt-assembly registry overlay — `resolve_coach_base_prompt`

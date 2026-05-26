@@ -498,3 +498,8 @@ resource "google_secret_manager_secret" "contremaitre_webhook_secret" {
     auto {}
   }
 }
+
+# GCP Monitoring Slack notification channel reuses the existing
+# slack_bot_token secret (above). No separate secret container is
+# created here — operators load one bot token, both Pierre's outbound
+# messaging and GCP alert routing read it.

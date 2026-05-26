@@ -15,6 +15,12 @@ resource "google_project_service" "apis" {
     "vpcaccess.googleapis.com",            # Serverless VPC Access
     "redis.googleapis.com",                # Memorystore Redis
     "cloudresourcemanager.googleapis.com", # Resource Manager
+    # Monitoring stack (added 2026-05-25 after the c6630e46 seed-coaches
+    # outage): log-based metric + alert policy on Cloud Run job exit 1,
+    # plus the daily drift-check Cloud Scheduler trigger.
+    "monitoring.googleapis.com",     # google_logging_metric, google_monitoring_alert_policy
+    "logging.googleapis.com",        # log-based metric reads from Cloud Logging
+    "cloudscheduler.googleapis.com", # google_cloud_scheduler_job (daily drift trigger)
   ])
 
   project            = var.project_id
