@@ -12,12 +12,12 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     models::{ClientRegistrationRequest, OAuth2State},
 };
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use std::error::Error;
 use std::sync::Arc;
 use uuid::Uuid;

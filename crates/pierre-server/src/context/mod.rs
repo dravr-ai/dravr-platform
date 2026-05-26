@@ -20,8 +20,6 @@
 pub mod auth;
 /// Configuration context with OAuth, tenant settings, and admin config management
 pub mod config;
-/// Data context with database, cache, and provider access
-pub mod data;
 /// Extension context for plugins, sampling peer, and progress notifications
 pub mod extension;
 /// Notification context for WebSocket and SSE
@@ -37,8 +35,6 @@ pub use crate::mcp::resources::ServerContext;
 pub use auth::AuthContext;
 /// Configuration context
 pub use config::ConfigContext;
-/// Data access context
-pub use data::DataContext;
 /// Extension context
 pub use extension::ExtensionContext;
 /// Notification context

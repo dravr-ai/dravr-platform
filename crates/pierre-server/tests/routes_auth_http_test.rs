@@ -17,14 +17,12 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::auth::AuthRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -88,12 +86,12 @@ impl AuthTestSetup {
     }
 
     fn routes(&self) -> axum::Router {
-        AuthRoutes::routes(self.resources.clone())
+        AuthRoutes::routes(self.resources.auth_routes_context())
     }
 
     /// Create a test admin token for authentication
     async fn create_admin_token(&self) -> anyhow::Result<String> {
-        use pierre_mcp_server::admin::models::CreateAdminTokenRequest;
+        use pierre_core::admin::models::CreateAdminTokenRequest;
 
         // Create admin token request
         let request = CreateAdminTokenRequest {
@@ -108,9 +106,14 @@ impl AuthTestSetup {
         // Use repository to create admin token
         let generated_token = self
             .resources
+            .common
             .repos
             .admin
-            .create_token(&request, "test_jwt_secret", &self.resources.jwks_manager)
+            .create_token(
+                &request,
+                "test_jwt_secret",
+                &self.resources.auth.jwks_manager,
+            )
             .await?;
 
         Ok(generated_token.jwt_token)
@@ -300,7 +303,7 @@ async fn test_login_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create a test user first
-    let (_, user) = common::create_test_user(&setup.resources.database)
+    let (_, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -375,7 +378,7 @@ async fn test_login_wrong_password() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create a test user first
-    let (_, user) = common::create_test_user(&setup.resources.database)
+    let (_, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
@@ -422,14 +425,15 @@ async fn test_refresh_token_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (user_id, user) = common::create_test_user(&setup.resources.database)
+    let (user_id, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let jwt_token = setup
         .resources
+        .auth
         .auth_manager
-        .generate_token(&user, &setup.resources.jwks_manager)
+        .generate_token(&user, &setup.resources.auth.jwks_manager)
         .expect("Failed to generate JWT");
 
     let routes = setup.routes();
@@ -475,14 +479,15 @@ async fn test_refresh_token_user_id_mismatch() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.database)
+    let (_, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let jwt_token = setup
         .resources
+        .auth
         .auth_manager
-        .generate_token(&user, &setup.resources.jwks_manager)
+        .generate_token(&user, &setup.resources.auth.jwks_manager)
         .expect("Failed to generate JWT");
 
     let routes = setup.routes();
@@ -528,14 +533,15 @@ async fn test_oauth_status_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.database)
+    let (_, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let jwt_token = setup
         .resources
+        .auth
         .auth_manager
-        .generate_token(&user, &setup.resources.jwks_manager)
+        .generate_token(&user, &setup.resources.auth.jwks_manager)
         .expect("Failed to generate JWT");
 
     let routes = setup.routes();
@@ -586,14 +592,15 @@ async fn test_oauth_status_includes_all_providers() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.database)
+    let (_, user) = common::create_test_user(&setup.resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let jwt_token = setup
         .resources
+        .auth
         .auth_manager
-        .generate_token(&user, &setup.resources.jwks_manager)
+        .generate_token(&user, &setup.resources.auth.jwks_manager)
         .expect("Failed to generate JWT");
 
     let routes = setup.routes();

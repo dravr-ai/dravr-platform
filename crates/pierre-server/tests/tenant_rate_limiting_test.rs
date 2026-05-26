@@ -16,10 +16,8 @@ use pierre_auth::{
     },
 };
 use pierre_core::models::CoachingPersona;
-use pierre_mcp_server::{
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-};
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use uuid::Uuid;
 
 fn create_test_tenant(plan: &str) -> Tenant {

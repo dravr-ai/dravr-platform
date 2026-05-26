@@ -1,0 +1,26 @@
+# ABOUTME: Provider-agnostic billing route group — /api/billing/* + /webhooks/{provider}
+# ABOUTME: Decoupled from pierre-server via BillingCtx; mounted by the composition root
+
+[package]
+name = "pierre-routes-billing"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Billing route group (checkout, portal, webhook, subscription, invoices) for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["billing"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

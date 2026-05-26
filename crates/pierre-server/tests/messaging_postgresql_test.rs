@@ -10,12 +10,10 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
-};
-use pierre_mcp_server::{
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
 };
 use uuid::Uuid;
 

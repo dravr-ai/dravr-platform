@@ -13,17 +13,17 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_mcp_server::{
-    config::environment::*,
-    constants::oauth_providers,
-    intelligence::{
-        ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-        TrendIndicators,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, User, UserOAuthToken},
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
+use pierre_config::environment::*;
+use pierre_core::models::{Tenant, User, UserOAuthToken};
+use pierre_intelligence::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
 };
+use pierre_mcp_server::{
+    constants::oauth_providers,
+    mcp::resources::{ServerContext, ServerContextOptions},
+};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
@@ -268,7 +268,7 @@ async fn test_oauth_configuration_errors() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -278,7 +278,7 @@ async fn test_oauth_configuration_errors() -> Result<()> {
         "starter".to_owned(),
         user_id, // User is now the owner
     );
-    executor.resources.repos.tenants.create(&tenant).await?;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     // Test get_activities with missing OAuth config
     // Must specify a real provider (strava) - default provider is "synthetic" which doesn't need OAuth
@@ -326,7 +326,7 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Store an invalid/expired token
     let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
@@ -341,7 +341,7 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     );
     executor
         .resources
-        .repos
+        .repos()
         .oauth_tokens
         .upsert_token(&oauth_token)
         .await?;
@@ -413,13 +413,14 @@ async fn test_non_existent_user() -> Result<()> {
     let executor = create_test_executor().await?;
 
     let non_existent_user_id = Uuid::new_v4();
+    let synthetic_tenant_id = Uuid::new_v4();
 
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
         user_id: non_existent_user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(synthetic_tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -445,7 +446,17 @@ async fn test_invalid_tool_parameters() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Invalid Params Test Tenant".to_owned(),
+        format!("invalid-params-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     // Test get_activities with invalid limit
     let request = UniversalRequest {
@@ -456,7 +467,7 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -487,7 +498,7 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -511,13 +522,15 @@ async fn test_invalid_tool_parameters() -> Result<()> {
 async fn test_database_error_handling() -> Result<()> {
     let executor = create_test_executor().await?;
 
+    let synthetic_tenant_id = Uuid::new_v4();
+
     // Try to access a very large invalid user ID to potentially trigger DB errors
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
         user_id: "00000000-0000-0000-0000-000000000000".to_owned(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(synthetic_tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -539,7 +552,17 @@ async fn test_concurrent_tool_execution() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Concurrent Exec Test Tenant".to_owned(),
+        format!("concurrent-exec-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     // Create multiple concurrent requests
     let mut handles = vec![];
@@ -547,6 +570,7 @@ async fn test_concurrent_tool_execution() -> Result<()> {
     for i in 0..5 {
         let executor_clone = executor.clone();
         let user_id_str = user_id.to_string();
+        let tenant_id_str = tenant_id.to_string();
 
         let handle = tokio::spawn(async move {
             let request = UniversalRequest {
@@ -554,7 +578,7 @@ async fn test_concurrent_tool_execution() -> Result<()> {
                 parameters: json!({}),
                 user_id: user_id_str.clone(),
                 protocol: format!("test_{i}"),
-                tenant_id: None,
+                tenant_id: Some(tenant_id_str),
                 progress_token: None,
                 cancellation_token: None,
                 progress_reporter: None,
@@ -586,14 +610,24 @@ async fn test_tool_response_metadata() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Response Metadata Test Tenant".to_owned(),
+        format!("response-metadata-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant_id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -621,7 +655,7 @@ async fn test_intelligence_integration_errors() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test analytics tools with invalid data
     let request = UniversalRequest {
@@ -654,7 +688,7 @@ async fn test_provider_unavailable() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test with unsupported provider
     let request = UniversalRequest {

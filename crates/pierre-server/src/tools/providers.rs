@@ -4,20 +4,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::{
-    constants::oauth_providers::{FITBIT, STRAVA},
-    errors::AppError,
-    models::TenantId,
-    providers::CoreFitnessProvider,
-};
+use crate::constants::oauth_providers::{FITBIT, STRAVA};
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
 use pierre_database::repositories::{OAuthTokenRepository, TenantRepository};
 use std::{
-    collections::HashMap,
     fmt::{Display, Formatter, Result as FmtResult},
     str::FromStr,
     sync::Arc,
 };
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::OnceCell;
 use tracing::error;
 use uuid::Uuid;
 
@@ -92,15 +88,10 @@ pub struct ProviderInfo {
     pub data_available: bool,
 }
 
-/// Type alias for complex provider cache type
-type ProviderCache = RwLock<HashMap<(Uuid, ProviderType), Arc<Box<dyn CoreFitnessProvider>>>>;
-
 /// Unified provider manager
 pub struct ProviderManager {
     oauth_tokens: Arc<dyn OAuthTokenRepository>,
     tenants: Arc<dyn TenantRepository>,
-    /// Cache of authenticated providers per user
-    provider_cache: ProviderCache,
 }
 
 impl ProviderManager {
@@ -113,7 +104,6 @@ impl ProviderManager {
         Self {
             oauth_tokens,
             tenants,
-            provider_cache: RwLock::new(HashMap::new()),
         }
     }
 
@@ -205,7 +195,11 @@ impl ProviderManager {
             .oauth_tokens
             .get_provider_last_sync(user_id, tenant_id, &provider_type.to_string())
             .await
-            .unwrap_or(None);
+            .map_err(|e| {
+                AppError::database(format!(
+                    "Failed to get {provider_type} provider last sync timestamp: {e}"
+                ))
+            })?;
 
         let data_available = matches!(status, ConnectionStatus::Connected { .. });
 
@@ -257,12 +251,6 @@ impl ProviderManager {
             }
         }
 
-        // Remove from cache
-        {
-            let mut cache = self.provider_cache.write().await;
-            cache.remove(&(user_id, provider_type));
-        }
-
         Ok(())
     }
 
@@ -275,18 +263,6 @@ impl ProviderManager {
         user_id: Uuid,
     ) -> Result<Vec<ProviderInfo>, AppError> {
         self.get_user_providers(user_id).await
-    }
-
-    /// Clear the provider cache for a user (useful for logout)
-    pub async fn clear_user_cache(&self, user_id: Uuid) {
-        let mut cache = self.provider_cache.write().await;
-        cache.retain(|(cached_user_id, _), _| *cached_user_id != user_id);
-    }
-
-    /// Clear all cached providers
-    pub async fn clear_all_cache(&self) {
-        let mut cache = self.provider_cache.write().await;
-        cache.clear();
     }
 
     /// Get connection summary for a user

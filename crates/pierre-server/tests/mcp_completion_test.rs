@@ -1,12 +1,14 @@
-#![allow(clippy::unwrap_used)]
-#![allow(missing_docs)]
 // ABOUTME: Tests for MCP completion (auto-complete) feature
 // ABOUTME: Validates completion suggestions for tool arguments and resources
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_mcp_server::mcp::protocol::{McpRequest, ProtocolHandler};
+#![allow(clippy::unwrap_used)]
+#![allow(missing_docs)]
+
+use pierre_mcp_schema::McpRequest;
+use pierre_mcp_server::mcp::protocol::ProtocolHandler;
 use serde_json::json;
 use std::collections::HashMap;
 

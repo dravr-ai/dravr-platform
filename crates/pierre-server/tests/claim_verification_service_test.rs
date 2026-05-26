@@ -11,10 +11,10 @@
 use std::collections::HashSet;
 
 use pierre_evals::VerificationConfig;
-use pierre_mcp_server::services::claim_verification::{
+use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
+use pierre_services::claim_verification::{
     corpus, verify_reply_heuristic, verify_reply_with_config, warm_corpus,
 };
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
 
 #[test]
 fn embedded_corpus_parses_from_include_str() {

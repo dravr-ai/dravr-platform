@@ -1,4 +1,6 @@
-// Integration tests for secure cookie utilities
+// ABOUTME: Integration tests for the secure-cookie helpers (HttpOnly + Secure + SameSite gating)
+// ABOUTME: Verifies attribute serialization, expiry/clear semantics, and prod-vs-dev defaults
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 

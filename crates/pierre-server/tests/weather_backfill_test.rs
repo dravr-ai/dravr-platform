@@ -14,7 +14,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_mcp_server::services::weather_backfill::fill_activity_temperatures;
+use pierre_services::weather_backfill::fill_activity_temperatures;
 use pierre_weather::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
 
 struct ConstantProvider {

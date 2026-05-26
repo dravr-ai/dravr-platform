@@ -17,10 +17,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
+use pierre_core::errors::AppError;
+use pierre_middleware::extract_auth_from_headers;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
 /// Request body for upserting a channel configuration
 #[derive(Debug, Deserialize)]
@@ -46,10 +47,14 @@ pub struct ChannelConfigResponse {
     pub webhook_url: Option<String>,
 }
 
-/// Resolve tenant ID from auth result, using `active_tenant_id` or falling back to `user_id`
-fn resolve_tenant_id(auth: &AuthResult) -> TenantId {
-    auth.active_tenant_id
-        .map_or_else(|| TenantId::from(auth.user_id), TenantId::from)
+/// Resolve tenant via the canonical resolver. Verifies membership when
+/// `active_tenant_id` is claimed; errors if the user has no tenants.
+/// No user-id fallback.
+async fn resolve_tenant_id(
+    auth: &AuthResult,
+    resources: &Arc<ServerContext>,
+) -> Result<TenantId, AppError> {
+    require(resolve_tenant(resources, auth, TenantMode::Required).await?)
 }
 
 /// List all channel configurations for the authenticated tenant
@@ -58,8 +63,8 @@ pub async fn list_channel_configs(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth);
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     let configs = db.list_channel_configs(tenant_id).await?;
 
@@ -79,12 +84,12 @@ pub async fn get_channel_config(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth);
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let channel_str = channel_type.to_string();
     let config = db.get_channel_config(tenant_id, &channel_str).await?;
 
@@ -105,7 +110,7 @@ pub async fn upsert_channel_config(
     Json(body): Json<UpsertChannelConfigBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth);
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
@@ -135,7 +140,7 @@ pub async fn upsert_channel_config(
         is_active: body.enabled,
     };
 
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     db.upsert_channel_config(&params).await?;
 
     let has_credentials = api_key.is_some()
@@ -167,12 +172,12 @@ pub async fn delete_channel_config(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth);
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let deleted = db.delete_channel_config(tenant_id, &channel).await?;
 
     let status = if deleted {

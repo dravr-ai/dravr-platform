@@ -1,0 +1,20 @@
+# ABOUTME: Tool I/O value types — ToolResult, ToolNotification, NotificationType + re-exported tool errors
+# ABOUTME: Pure leaf crate consumed by tool implementations across the Pierre platform
+
+[package]
+name = "pierre-tools-core"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Shared tool I/O value types for the Pierre platform"
+repository = "https://github.com/dravr-ai/scriptcurator-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

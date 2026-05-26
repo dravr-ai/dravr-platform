@@ -7,15 +7,13 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_core::models::CoachingPersona;
-use pierre_database::backends::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    constants::oauth_providers,
-    models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
-    permissions::UserRole,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::{factory::Database, DatabaseProvider};
+use pierre_mcp_server::constants::oauth_providers;
 use serde_json::json;
 use std::env;
 use uuid::Uuid;

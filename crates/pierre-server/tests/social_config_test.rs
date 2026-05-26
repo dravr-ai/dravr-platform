@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::social::{
+use pierre_config::social::{
     DistanceRelevanceScores, MilestoneRelevanceScores, SocialInsightsConfig, StreakRelevanceScores,
 };
 

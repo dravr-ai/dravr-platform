@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
-use pierre_mcp_server::formatters::{
+use pierre_formatters::{
     format_output, format_output_with_telemetry, OutputFormat, TokenEfficiencyMetrics,
 };
 use serde::Serialize;

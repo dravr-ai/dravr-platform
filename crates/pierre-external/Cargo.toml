@@ -1,0 +1,24 @@
+# ABOUTME: External-API HTTP clients — USDA FoodData Central etc.
+# ABOUTME: Wraps third-party REST APIs with caching + retry behind the canonical reqwest client
+
+[package]
+name = "pierre-external"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Third-party external-API clients for the Pierre platform"
+repository = "https://github.com/dravr-ai/scriptcurator-platform"
+publish = false
+
+[dependencies]
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.50", features = ["sync"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

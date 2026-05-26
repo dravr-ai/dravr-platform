@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::types::{
+use async_trait::async_trait;
+use pierre_config::admin_types::{
     AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
 };
-use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
 /// Parameters for [`AdminConfigRepository::set_override`].

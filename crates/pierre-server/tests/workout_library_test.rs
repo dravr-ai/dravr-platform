@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::services::workout_library::{
+use pierre_services::workout_library::{
     cornerstone_by_slug, cornerstone_templates, require_cornerstone, CORNERSTONE_SLUGS,
 };
 

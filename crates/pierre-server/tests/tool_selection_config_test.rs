@@ -6,7 +6,7 @@
 
 //! Tests for [`ToolSelectionConfig`] global tool disabling functionality.
 
-use pierre_mcp_server::config::ToolSelectionConfig;
+use pierre_config::tool_selection::ToolSelectionConfig;
 
 #[test]
 fn test_with_disabled_tools() {

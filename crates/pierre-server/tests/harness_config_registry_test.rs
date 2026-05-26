@@ -9,14 +9,14 @@
 
 use std::collections::HashMap;
 
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::config::text_guardrails::LocaleGuardrails;
-use pierre_mcp_server::harness_config_registry::{
-    HarnessConfigRegistry, HarnessConfigSnapshot, HarnessConfigSource,
-};
-use pierre_mcp_server::routes::admin::harness_config::{
+use pierre_contremaitre::harness_config_document::{
     HarnessConfigDocument, HARNESS_CONFIG_SETTING_KEY,
 };
+use pierre_contremaitre::harness_config_registry::{
+    HarnessConfigRegistry, HarnessConfigSnapshot, HarnessConfigSource,
+};
+use pierre_contremaitre::text_guardrails::LocaleGuardrails;
+use pierre_database::backends::factory::Database;
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 
@@ -30,7 +30,7 @@ async fn fresh_database() -> Database {
 
 #[cfg(feature = "postgresql")]
 async fn fresh_database() -> Database {
-    use pierre_mcp_server::config::environment::PostgresPoolConfig;
+    use pierre_config::environment::PostgresPoolConfig;
     Database::new(
         "sqlite::memory:",
         ENCRYPTION_KEY.to_vec(),
@@ -161,7 +161,7 @@ fn install_swaps_runtime_projections_atomically() {
 
 #[test]
 fn current_compaction_feeds_into_compactor_constructor() {
-    use pierre_mcp_server::services::conversation_compaction::ConversationCompactor;
+    use pierre_services::conversation_compaction::ConversationCompactor;
 
     let registry = HarnessConfigRegistry::bootstrap();
     let mut doc = HarnessConfigDocument::default();
@@ -185,7 +185,7 @@ fn current_compaction_feeds_into_compactor_constructor() {
 
 #[test]
 fn current_guardrails_blocks_a_topic_after_install() {
-    use pierre_mcp_server::config::text_guardrails::{GuardrailOutcome, GuardrailRejection};
+    use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 
     let registry = HarnessConfigRegistry::bootstrap();
 

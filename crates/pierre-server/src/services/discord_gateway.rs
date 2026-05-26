@@ -18,9 +18,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::context::DataContext;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use pierre_runtime_context::DataContext;
 
 /// Start the Discord Gateway background service
 ///

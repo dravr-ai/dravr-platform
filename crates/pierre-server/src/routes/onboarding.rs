@@ -11,7 +11,7 @@
 //!   right after login to decide whether to render the onboarding screen or
 //!   route to the main UI.
 //!
-//! Logic lives in [`crate::services::onboarding_gate`]; this module is the
+//! Logic lives in [`pierre_services::onboarding_gate`]; this module is the
 //! thin HTTP boundary.
 
 use std::sync::Arc;
@@ -25,10 +25,10 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::{
-    errors::AppError, mcp::resources::ServerContext, middleware::extract_auth_from_headers,
-    services::onboarding_gate,
-};
+use crate::mcp::resources::ServerContext;
+use pierre_core::errors::AppError;
+use pierre_middleware::extract_auth_from_headers;
+use pierre_services::onboarding_gate;
 
 /// Response body for `GET /api/me/onboarding-status`.
 ///
@@ -53,7 +53,7 @@ pub async fn handle_self_get(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let has_provider = onboarding_gate::user_has_connected_provider(
-        &resources.repos.provider_connections,
+        &resources.common.repos.provider_connections,
         auth.user_id,
     )
     .await?;
@@ -67,7 +67,7 @@ pub async fn handle_self_get(
 }
 
 /// Mount-helper for the onboarding-status endpoint. Same shape as
-/// [`crate::routes::feature_flags::FeatureFlagsRoutes`].
+/// [`pierre_routes_admin::FeatureFlagsRoutes`].
 pub struct OnboardingRoutes;
 
 impl OnboardingRoutes {

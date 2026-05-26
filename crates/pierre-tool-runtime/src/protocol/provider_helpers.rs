@@ -1,0 +1,650 @@
+// ABOUTME: Shared helper functions for provider-agnostic handler operations
+// ABOUTME: Consolidates provider extraction, configuration, and creation logic
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+use crate::context::ToolExecutionContext;
+use crate::protocol::auth::TokenData;
+use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
+use crate::tool_execution::META_AUTH_REQUIRED_PROVIDER;
+use pierre_auth::tenant::TenantOAuthClient;
+use pierre_config::environment::{default_provider, get_oauth_config, OAuthProviderConfig};
+use pierre_core::models::{Activity, TenantId};
+use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
+use pierre_providers::core::FitnessProvider;
+use pierre_providers::{OAuth2Credentials, ProviderRegistry};
+use pierre_tools_core::ToolResult;
+use serde_json::{json, Value as JsonValue};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::{debug, info, warn};
+use uuid::Uuid;
+
+/// Context for resolving tenant-scoped OAuth credentials
+///
+/// When provided to `create_configured_provider`, enables credential resolution
+/// using the tenant OAuth manager's priority chain:
+/// 1. User-specific credentials
+/// 2. Tenant-specific credentials
+/// 3. Server-level OAuth configuration (environment variables)
+pub struct TenantCredentialContext<'a> {
+    /// Tenant OAuth client for credential lookup
+    pub tenant_oauth_client: &'a TenantOAuthClient,
+    /// Tenant repository for credential persistence queries
+    pub tenants: &'a dyn TenantRepository,
+    /// OAuth token repository for user-specific OAuth app lookups
+    pub oauth_tokens: &'a dyn OAuthTokenRepository,
+    /// Tenant identifier for credential scoping
+    pub tenant_id: TenantId,
+    /// User identifier for user-specific credential lookup
+    pub user_id: Uuid,
+}
+
+/// Extract the literal `provider` argument from request parameters, when present.
+///
+/// Returns `None` when the caller didn't pass `provider` (or passed an empty string).
+/// **Does not fall back to a synthetic-or-strava-default;** that historical behavior
+/// silently bound untargeted tool calls to seed data in production. Use
+/// [`resolve_provider_for_request`] to do the full priority chain (explicit arg →
+/// env override → user's most-recently-used connection → reconnect signal).
+#[must_use]
+pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Option<String> {
+    parameters
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+/// Resolve which fitness provider to serve a tool call from.
+///
+/// Priority chain — matches the user mental model of "what data are we looking at":
+/// 1. Explicit `provider` argument in request parameters.
+/// 2. Deployment-wide `PIERRE_DEFAULT_PROVIDER` env override.
+/// 3. The user's most-recently-used connection from `provider_connections`
+///    (ordered by `last_used_at DESC NULLS LAST, connected_at DESC`).
+/// 4. Returns a `UniversalResponse` carrying `META_AUTH_REQUIRED_PROVIDER` so the
+///    tool loop short-circuits and the chat-pipeline `auth_recovery` stage mints
+///    a hosted-login URL and renders the localized reconnect copy.
+///
+/// Replaces the historical `.and_then(|v| v.as_str()).map_or_else(default_provider, String::from)`
+/// pattern duplicated across every fitness-API handler, which silently bound
+/// untargeted calls to the synthetic seed provider in production.
+///
+/// # Errors
+///
+/// Returns `Err(UniversalResponse)` when the user has no provider connections at
+/// all. The returned response carries the canonical reconnect-required metadata
+/// the tool loop scans for.
+pub async fn resolve_provider_for_request(
+    parameters: &JsonValue,
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+) -> Result<String, UniversalResponse> {
+    // 1. Explicit arg
+    if let Some(p) = parameters
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(p.to_owned());
+    }
+
+    // 2. Env override
+    if let Some(env_p) = default_provider() {
+        return Ok(env_p);
+    }
+
+    // 3. User's most-recently-used connection
+    let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+    match executor
+        .resources
+        .repos()
+        .provider_connections
+        .resolve_most_recent(user_uuid, tenant)
+        .await
+    {
+        Ok(Some(conn)) => {
+            info!(
+                target: "notify",
+                user_id = %user_uuid,
+                provider = %conn.provider,
+                "resolved provider from user's most-recent connection"
+            );
+            Ok(conn.provider)
+        }
+        Ok(None) => {
+            warn!(
+                user_id = %user_uuid,
+                "no fitness provider connected for user — surfacing reconnect signal"
+            );
+            // Mint a UniversalResponse the tool loop will detect and propagate as
+            // `ToolLoopResult::pending_provider_auth_required`. The auth_recovery
+            // stage downstream mints a hosted-login URL targeting Strava (the
+            // most common starting point) and renders localized copy.
+            let mut metadata: HashMap<String, JsonValue> = HashMap::new();
+            metadata.insert(
+                META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                JsonValue::String("sciotte".to_owned()),
+            );
+            Err(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(
+                    "No fitness provider connected. Connect Strava, Garmin, or another \
+                     provider before asking for activity data."
+                        .to_owned(),
+                ),
+                metadata: Some(metadata),
+            })
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_uuid,
+                error = %e,
+                "provider_connections lookup failed during resolution"
+            );
+            Err(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Failed to resolve fitness provider for this request: {e}"
+                )),
+                metadata: None,
+            })
+        }
+    }
+}
+
+/// `McpTool::execute`-shaped variant of [`resolve_provider_for_request`].
+///
+/// Same priority chain (explicit arg → env override → most-recent connection)
+/// but reads from a [`crate::context::ToolExecutionContext`] (which carries
+/// `Arc<dyn ToolRuntime>` + parsed `user_id`/`tenant_id`) instead of a
+/// `UniversalRequest`. Returns a JSON `ToolResult::error` payload on no-provider
+/// rather than minting a `UniversalResponse`, because `McpTool` callers consume
+/// `ToolResult` directly.
+///
+/// # Errors
+///
+/// Returns `Err(ToolResult)` carrying the canonical `auth_required_provider`
+/// payload when the user has no provider connections at all. Callers should
+/// propagate this with `?` or an early return so the chat tool-loop's
+/// `auth_recovery` stage renders the localized reconnect copy.
+pub async fn resolve_provider_for_tool(
+    args: &JsonValue,
+    context: &ToolExecutionContext,
+) -> Result<String, ToolResult> {
+    // 1. Explicit arg
+    if let Some(p) = args
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(p.to_owned());
+    }
+
+    // 2. Env override
+    if let Some(env_p) = default_provider() {
+        return Ok(env_p);
+    }
+
+    // 3. User's most-recently-used connection
+    let tenant = context.tenant_id.map(TenantId::from_uuid);
+    match context
+        .resources
+        .repos()
+        .provider_connections
+        .resolve_most_recent(context.user_id, tenant)
+        .await
+    {
+        Ok(Some(conn)) => Ok(conn.provider),
+        Ok(None) | Err(_) => Err(ToolResult::error(json!({
+            "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
+            "auth_required_provider": "sciotte"
+        }))),
+    }
+}
+
+/// Create and configure a provider with OAuth credentials
+///
+/// This is the provider-agnostic version of provider creation that works with
+/// any registered provider. It:
+/// 1. Creates a provider instance from the registry
+/// 2. Resolves OAuth credentials using tenant-scoped priority (if context provided)
+/// 3. Falls back to server-level OAuth configuration from environment variables
+/// 4. Sets credentials from the token data
+///
+/// # Arguments
+/// * `provider_name` - Name of the provider (e.g., "strava", "garmin")
+/// * `provider_registry` - Registry for creating provider instances
+/// * `token_data` - OAuth token data for authentication
+///
+/// # Errors
+/// Returns an error string if provider creation fails or credentials cannot be set.
+pub async fn create_configured_provider(
+    provider_name: &str,
+    provider_registry: &Arc<ProviderRegistry>,
+    token_data: &TokenData,
+) -> Result<Box<dyn FitnessProvider>, String> {
+    create_configured_provider_with_tenant(provider_name, provider_registry, token_data, None).await
+}
+
+/// Create and configure a provider with tenant-scoped OAuth credentials
+///
+/// Resolves OAuth credentials using the tenant OAuth manager's priority chain:
+/// 1. User-specific credentials (per-user OAuth app)
+/// 2. Tenant-specific credentials (stored in database)
+/// 3. Server-level OAuth configuration (environment variables)
+///
+/// # Arguments
+/// * `provider_name` - Name of the provider (e.g., "strava", "garmin")
+/// * `provider_registry` - Registry for creating provider instances
+/// * `token_data` - OAuth token data for authentication
+/// * `tenant_ctx` - Optional tenant context for credential resolution
+///
+/// # Errors
+/// Returns an error string if provider creation fails or credentials cannot be set.
+pub async fn create_configured_provider_with_tenant(
+    provider_name: &str,
+    provider_registry: &Arc<ProviderRegistry>,
+    token_data: &TokenData,
+    tenant_ctx: Option<TenantCredentialContext<'_>>,
+) -> Result<Box<dyn FitnessProvider>, String> {
+    // Create provider instance
+    let provider = provider_registry
+        .create_provider(provider_name)
+        .map_err(|e| format!("Failed to create {provider_name} provider: {e}"))?;
+
+    // Resolve OAuth credentials using tenant priority chain when context is available:
+    //   1. User-specific credentials (per-user OAuth app)
+    //   2. Tenant-specific credentials (stored in database)
+    //   3. Server-level OAuth configuration (environment variables)
+    // Falls back to global env config when no tenant context is provided.
+    let (client_id, client_secret, scopes) = if let Some(ctx) = tenant_ctx {
+        let manager = ctx.tenant_oauth_client.oauth_manager.lock().await;
+        match manager
+            .get_credentials_for_user(
+                Some(ctx.user_id),
+                ctx.tenant_id,
+                provider_name,
+                ctx.tenants,
+                ctx.oauth_tokens,
+            )
+            .await
+        {
+            Ok(creds) => {
+                debug!(
+                    provider = provider_name,
+                    tenant_id = %ctx.tenant_id,
+                    user_id = %ctx.user_id,
+                    "Resolved tenant-scoped OAuth credentials"
+                );
+                (creds.client_id, creds.client_secret, creds.scopes)
+            }
+            Err(e) => {
+                warn!(
+                    provider = provider_name,
+                    tenant_id = %ctx.tenant_id,
+                    error = %e,
+                    "Tenant credential lookup failed, falling back to global config"
+                );
+                let config = get_oauth_config(provider_name);
+                (
+                    config.client_id.unwrap_or_default(),
+                    config.client_secret.unwrap_or_default(),
+                    config.scopes,
+                )
+            }
+        }
+    } else {
+        let config = get_oauth_config(provider_name);
+        (
+            config.client_id.unwrap_or_default(),
+            config.client_secret.unwrap_or_default(),
+            config.scopes,
+        )
+    };
+
+    // Build credentials with resolved OAuth config and user's access token
+    let credentials = OAuth2Credentials {
+        client_id,
+        client_secret,
+        access_token: Some(token_data.access_token.clone()),
+        refresh_token: Some(token_data.refresh_token.clone()),
+        expires_at: Some(token_data.expires_at),
+        scopes,
+    };
+
+    // Set credentials on provider
+    provider
+        .set_credentials(credentials)
+        .await
+        .map_err(|e| format!("Failed to set {provider_name} provider credentials: {e}"))?;
+
+    Ok(provider)
+}
+
+/// Create a no-token response for a specific provider
+///
+/// Returns a standardized response when no OAuth token is found for the provider.
+#[must_use]
+pub fn create_no_token_response(provider_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: None,
+        error: Some(format!(
+            "No valid {provider_name} token found. Please connect your account using the connect_provider tool with provider='{provider_name}'."
+        )),
+        metadata: Some({
+            let mut map = HashMap::new();
+            map.insert(
+                "total_activities".to_owned(),
+                JsonValue::Number(0.into()),
+            );
+            map.insert(
+                "authentication_required".to_owned(),
+                JsonValue::Bool(true),
+            );
+            map.insert(
+                "provider".to_owned(),
+                JsonValue::String(provider_name.to_owned()),
+            );
+            map
+        }),
+    }
+}
+
+/// Create a standard auth error response
+#[must_use]
+pub fn create_auth_error_response(provider_name: &str, error: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: true,
+        result: Some(json!({
+            "activities": [],
+            "message": format!("Authentication error for {provider_name}: {error}"),
+            "error": format!("Authentication error: {error}"),
+            "provider": provider_name
+        })),
+        error: None,
+        metadata: Some({
+            let mut map = HashMap::new();
+            map.insert("authentication_error".to_owned(), JsonValue::Bool(true));
+            map.insert(
+                "provider".to_owned(),
+                JsonValue::String(provider_name.to_owned()),
+            );
+            map
+        }),
+    }
+}
+
+/// Build success response for activities from any provider
+pub fn build_activities_success_response(
+    activities: &[Activity],
+    provider_name: &str,
+    user_uuid: uuid::Uuid,
+    tenant_id: Option<String>,
+) -> UniversalResponse {
+    UniversalResponse {
+        success: true,
+        result: Some(json!({
+            "activities": activities,
+            "provider": provider_name,
+            "count": activities.len()
+        })),
+        error: None,
+        metadata: Some({
+            let mut map = HashMap::new();
+            map.insert(
+                "total_activities".to_owned(),
+                JsonValue::Number(activities.len().into()),
+            );
+            map.insert(
+                "user_id".to_owned(),
+                JsonValue::String(user_uuid.to_string()),
+            );
+            map.insert(
+                "tenant_id".to_owned(),
+                tenant_id.map_or(JsonValue::Null, JsonValue::String),
+            );
+            map.insert(
+                "provider".to_owned(),
+                JsonValue::String(provider_name.to_owned()),
+            );
+            map.insert("cached".to_owned(), JsonValue::Bool(false));
+            map
+        }),
+    }
+}
+
+/// Get OAuth config for a provider, with logging
+pub fn get_provider_oauth_config(provider_name: &str) -> OAuthProviderConfig {
+    let config = get_oauth_config(provider_name);
+    debug!(
+        provider = provider_name,
+        has_client_id = config.client_id.is_some(),
+        "Loaded OAuth config for provider"
+    );
+    config
+}
+
+/// Fetch activities from any supported provider
+///
+/// This is a provider-agnostic activity fetcher that handles:
+/// - Provider validation
+/// - OAuth token retrieval and validation (for OAuth providers)
+/// - Non-OAuth provider support (like synthetic)
+/// - Provider creation and credential setup
+/// - Activity fetching with optional limit
+///
+/// # Arguments
+/// * `executor` - The universal tool executor with server resources
+/// * `user_uuid` - User identifier
+/// * `tenant_id` - Optional tenant identifier for multi-tenant isolation
+/// * `provider_name` - Name of the provider (e.g., "strava", "garmin", "synthetic")
+/// * `limit` - Optional limit on number of activities to fetch
+///
+/// # Errors
+/// Returns `UniversalResponse` error if provider is not supported, authentication fails,
+/// or activity fetching fails.
+pub async fn fetch_provider_activities(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    provider_name: &str,
+    limit: Option<usize>,
+) -> Result<Vec<Activity>, UniversalResponse> {
+    // Validate provider is supported
+    if !executor
+        .resources
+        .provider_registry()
+        .is_supported(provider_name)
+    {
+        let supported = executor
+            .resources
+            .provider_registry()
+            .supported_providers()
+            .join(", ");
+        return Err(UniversalResponse {
+            success: false,
+            result: None,
+            error: Some(format!(
+                "Provider '{provider_name}' is not supported. Available providers: {supported}"
+            )),
+            metadata: None,
+        });
+    }
+
+    // Check if provider requires OAuth
+    let requires_oauth = executor
+        .resources
+        .provider_registry()
+        .requires_oauth(provider_name);
+
+    // For non-OAuth providers (like synthetic), create provider with user context directly
+    if !requires_oauth {
+        debug!(
+            provider = provider_name,
+            user_id = %user_uuid,
+            "Creating non-OAuth provider with direct user context"
+        );
+
+        let provider = executor
+            .resources
+            .provider_registry()
+            .create_provider(provider_name)
+            .map_err(|e| UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to create {provider_name} provider: {e}")),
+                metadata: None,
+            })?;
+
+        // For synthetic provider, pass user context via credentials
+        // Format: "user_id:tenant_id" in access_token field
+        if let Some(tid) = tenant_id {
+            let synthetic_token = format!("{user_uuid}:{tid}");
+            let credentials = OAuth2Credentials {
+                client_id: String::new(),
+                client_secret: String::new(),
+                access_token: Some(synthetic_token),
+                refresh_token: None,
+                expires_at: None,
+                scopes: vec![],
+            };
+
+            if let Err(e) = provider.set_credentials(credentials).await {
+                debug!(error = %e, "Failed to set synthetic provider credentials (non-fatal)");
+            }
+        }
+
+        // Fetch activities
+        return match provider.get_activities(limit, None).await {
+            Ok(activities) => Ok(activities),
+            Err(e) => Err(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Failed to fetch activities from {provider_name}: {e}"
+                )),
+                metadata: None,
+            }),
+        };
+    }
+
+    // For OAuth providers, get valid token first
+    match executor
+        .auth_service
+        .get_valid_token(user_uuid, provider_name, tenant_id)
+        .await
+    {
+        Ok(Some(token_data)) => {
+            // Build tenant credential context for tenant-scoped OAuth resolution
+            let tenant_ctx = tenant_id
+                .and_then(|tid| tid.parse::<TenantId>().ok())
+                .map(|tid| TenantCredentialContext {
+                    tenant_oauth_client: executor.resources.tenant_oauth_client(),
+                    tenants: executor.resources.repos().tenants.as_ref(),
+                    oauth_tokens: executor.resources.repos().oauth_tokens.as_ref(),
+                    tenant_id: tid,
+                    user_id: user_uuid,
+                });
+
+            // Create and configure provider with tenant-scoped credentials
+            let provider = match create_configured_provider_with_tenant(
+                provider_name,
+                executor.resources.provider_registry(),
+                &token_data,
+                tenant_ctx,
+            )
+            .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    return Err(UniversalResponse {
+                        success: false,
+                        result: None,
+                        error: Some(format!("Failed to configure {provider_name} provider: {e}")),
+                        metadata: None,
+                    });
+                }
+            };
+
+            // Fetch activities
+            match provider.get_activities(limit, None).await {
+                Ok(activities) => Ok(activities),
+                Err(e) => Err(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!(
+                        "Failed to fetch activities from {provider_name}: {e}"
+                    )),
+                    metadata: None,
+                }),
+            }
+        }
+        Ok(None) => Err(create_no_token_response(provider_name)),
+        Err(e) => Err(UniversalResponse {
+            success: false,
+            result: None,
+            error: Some(format!("Authentication error for {provider_name}: {e}")),
+            metadata: None,
+        }),
+    }
+}
+
+/// Infer workout intensity from recent activities
+///
+/// Analyzes recent training data to determine current workout intensity:
+/// - High: Average > 2 hours/day or high heart rate zones
+/// - Moderate: Average 1-2 hours/day
+/// - Low: Average < 1 hour/day
+///
+/// # Arguments
+/// * `activities` - List of recent activities to analyze
+/// * `days_back` - Number of days the activities span
+///
+/// # Returns
+/// Inferred intensity as "low", "moderate", or "high"
+#[must_use]
+pub fn infer_workout_intensity(activities: &[Activity], days_back: u32) -> String {
+    if activities.is_empty() || days_back == 0 {
+        return "moderate".to_owned(); // Default when no data
+    }
+
+    // Calculate total training hours
+    // Safe: total_seconds is sum of activity durations (typically < 10^9 seconds), well within f64 precision
+    let total_seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
+    #[allow(clippy::cast_precision_loss)]
+    let total_hours = total_seconds as f64 / 3600.0;
+    let avg_hours_per_day = total_hours / f64::from(days_back);
+
+    // Calculate average heart rate if available
+    let hr_activities: Vec<_> = activities
+        .iter()
+        .filter_map(Activity::average_heart_rate)
+        .collect();
+    let avg_hr = if hr_activities.is_empty() {
+        None
+    } else {
+        // Safe: activity count is bounded by fetch limit (typically 50), well within u32 range
+        #[allow(clippy::cast_possible_truncation)]
+        let count = hr_activities.len() as u32;
+        Some(hr_activities.iter().sum::<u32>() / count)
+    };
+
+    // Intensity inference logic
+    // High intensity: > 2 hours/day OR high avg HR (> 150 bpm)
+    // Moderate: 1-2 hours/day OR moderate avg HR (130-150 bpm)
+    // Low: < 1 hour/day AND low avg HR (< 130 bpm)
+    if avg_hours_per_day > 2.0 || avg_hr.is_some_and(|hr| hr > 150) {
+        "high".to_owned()
+    } else if avg_hours_per_day >= 1.0 || avg_hr.is_some_and(|hr| hr >= 130) {
+        "moderate".to_owned()
+    } else {
+        "low".to_owned()
+    }
+}

@@ -11,12 +11,12 @@
 mod common;
 
 use common::TestLlmProvider;
-use pierre_llm::prompts::INSIGHT_VALIDATION_PROMPT;
-use pierre_mcp_server::intelligence::insight_validation::{
+use pierre_core::models::{InsightType, UserTier};
+use pierre_intelligence::insight_validation::{
     contains_metrics, detect_metrics, quick_reject_check, validate_insight_with_policy,
     InsightMetricType, InsightSharingPolicy, ValidationVerdict,
 };
-use pierre_mcp_server::models::{InsightType, UserTier};
+use pierre_llm::prompts::INSIGHT_VALIDATION_PROMPT;
 
 // Compiled-in validation prompt for tests (no ServerContext needed)
 const TEST_VALIDATION_PROMPT: &str = INSIGHT_VALIDATION_PROMPT;

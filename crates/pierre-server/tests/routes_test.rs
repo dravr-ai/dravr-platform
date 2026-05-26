@@ -13,21 +13,19 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
-        DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
-        FitbitApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-        LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::{auth::AuthService, RegisterRequest},
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
+    DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
+    FitbitApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
 };
+use pierre_database::backends::factory::Database;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{AuthService, RegisterRequest};
 use std::{ptr, sync::Arc};
 use tempfile::TempDir;
 
@@ -243,8 +241,9 @@ async fn test_register_user() {
     );
 
     let routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -431,8 +430,9 @@ async fn test_register_duplicate_user() {
     );
 
     let routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 

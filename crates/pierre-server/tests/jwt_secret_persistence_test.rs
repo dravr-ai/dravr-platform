@@ -11,10 +11,11 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::key_management::KeyManager;
-use pierre_database::backends::factory::Database;
-use pierre_mcp_server::admin::{jwt::AdminJwtManager, models::CreateAdminTokenRequest};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::admin::models::CreateAdminTokenRequest;
+use pierre_database::backends::factory::Database;
+use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use serial_test::serial;
 use std::env;
 use tempfile::TempDir;

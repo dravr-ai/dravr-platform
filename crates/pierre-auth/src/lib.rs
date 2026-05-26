@@ -34,6 +34,12 @@ pub mod auth;
 /// Cryptographic utilities and key management
 pub mod crypto;
 
+/// Data Transfer Objects (request/response shapes) for auth HTTP endpoints
+pub mod dto;
+
+/// Firebase Authentication ID-token validation (social login providers via Firebase)
+pub mod firebase;
+
 /// Two-tier key management system
 pub mod key_management;
 
@@ -51,3 +57,6 @@ pub mod security;
 
 /// Multi-tenant data isolation and OAuth/LLM management
 pub mod tenant;
+
+/// Account-status policy gate (`Pending`/`Suspended`/`Active`)
+pub mod user_status;

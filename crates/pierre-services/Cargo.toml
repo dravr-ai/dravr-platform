@@ -1,0 +1,83 @@
+# ABOUTME: Domain service layer — leaf services extracted from pierre-server
+# ABOUTME: Protocol-agnostic business logic reusable across REST, MCP, A2A
+
+[package]
+name = "pierre-services"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Domain service layer for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+# Forwarded to pierre-database/pierre-core for backend dispatch
+postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
+# Tier 5.5 bullshit detector services (claim_verification, claim_verdict_backfill, eval_harness)
+tools-verification = ["dep:pierre-evals", "dep:pierre-contremaitre"]
+# Messaging-related services (messaging_outbound, messaging_seed, channel_error_reply, messaging_status_bridge)
+client-messaging = [
+    "dep:pierre-messaging",
+    "dep:pierre-contremaitre",
+    "dep:pierre-agui",
+    "pierre-messaging/agui",
+    "pierre-messaging/channel-discord",
+    "pierre-messaging/channel-slack",
+    "pierre-messaging/channel-telegram",
+]
+# Push notification dispatch in coach_followup_scheduler
+client-notifications = []
+# Health-data sync adapter (health_sync)
+health-sync = ["dep:pierre-enforme", "dep:dravr-equilibre-sync"]
+# Prompt hot-reload (claim_verification + user_status_gate)
+contremaitre = ["dep:pierre-contremaitre"]
+# PostHog analytics implementation
+analytics-posthog = []
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+pierre-agui = { version = "0.3.0", path = "../pierre-agui", optional = true }
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-config = { version = "0.3.0", path = "../pierre-config" }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
+pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
+pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
+pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
+pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
+
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
+dravr-equilibre-sync = { package = "dravr-equilibre", version = "0.2", optional = true }
+
+async-trait = "0.1"
+base64 = "0.22"
+bcrypt = "0.16"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "5.5"
+futures-util = "0.3"
+hex = "0.4"
+rand = "0.9"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive", "migrate", "macros"], default-features = false }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tracing = "0.1"
+url = "2.5"
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

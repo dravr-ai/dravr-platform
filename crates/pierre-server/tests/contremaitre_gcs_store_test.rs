@@ -5,20 +5,20 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Integration tests covering the GCS-backed
-//! [`pierre_mcp_server::contremaitre::store::gcs::GcsPromptStore`].
+//! [`pierre_contremaitre::store::gcs::GcsPromptStore`].
 //!
 //! Production reads obtain an `OAuth2` token from the GCP metadata server,
 //! which is unreachable from `cargo test`. These tests inject a stub
-//! [`pierre_mcp_server::contremaitre::store::gcs::TokenProvider`] so the
+//! [`pierre_contremaitre::store::gcs::TokenProvider`] so the
 //! store can be constructed and exercised without leaving the test binary.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use pierre_mcp_server::contremaitre::store::gcs::{GcsPromptStore, TokenProvider};
-use pierre_mcp_server::contremaitre::store::PromptStore;
-use pierre_mcp_server::contremaitre::ContremaitreError;
+use pierre_contremaitre::store::gcs::{GcsPromptStore, TokenProvider};
+use pierre_contremaitre::store::PromptStore;
+use pierre_contremaitre::ContremaitreError;
 
 /// Stub provider returning a fixed token. Avoids depending on the GCP
 /// metadata server, which is unreachable from `cargo test`.

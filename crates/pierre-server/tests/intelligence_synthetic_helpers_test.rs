@@ -12,7 +12,7 @@ mod helpers;
 
 use helpers::synthetic_data::{SyntheticDataBuilder, TrainingPattern};
 use helpers::test_utils::{create_synthetic_provider_with_scenario, TestScenario};
-use pierre_mcp_server::providers::core::FitnessProvider;
+use pierre_providers::core::FitnessProvider;
 
 #[test]
 fn test_helpers_module_structure() {

@@ -11,13 +11,9 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-use pierre_mcp_server::{
-    admin::{
-        jwt::AdminJwtManager,
-        models::{AdminPermission, AdminPermissions},
-    },
-    models::User,
-};
+use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_core::models::User;
+use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use std::{collections::HashSet, sync::Arc, thread, time::Duration};
 
 /// Test JWKS manager initialization and key generation

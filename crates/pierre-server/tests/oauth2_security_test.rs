@@ -11,12 +11,12 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
 };
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use std::sync::Arc;
 
 /// Test redirect URI validation - HTTPS enforcement

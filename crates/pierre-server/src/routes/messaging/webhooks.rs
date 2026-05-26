@@ -21,9 +21,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, field, info, warn, Instrument, Span};
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use pierre_core::errors::AppError;
 
 /// Result of tenant-aware webhook verification
 struct WebhookVerification {
@@ -74,7 +74,7 @@ pub async fn verify_webhook(
         )));
     }
 
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type(&channel).await?;
 
     if configs.is_empty() {
@@ -267,7 +267,7 @@ async fn parse_and_verify(
     let channel_type = ChannelType::from_str(channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type(channel).await?;
 
     if configs.is_empty() {

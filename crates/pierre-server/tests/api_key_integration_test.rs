@@ -18,12 +18,12 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod},
 };
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig, middleware::McpAuthMiddleware, models::User,
-};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::models::User;
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 
 async fn create_test_environment() -> (

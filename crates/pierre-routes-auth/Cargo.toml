@@ -1,0 +1,57 @@
+# ABOUTME: Auth route group — credential login, OAuth callback, Sciotte hosted flow, provider-link webhook
+# ABOUTME: Decoupled from pierre-server via AuthRoutesContext; mounted by the composition root
+
+[package]
+name = "pierre-routes-auth"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Authentication route group (login, OAuth callbacks, Sciotte hosted login, provider-link webhook) for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+# Health backfill kicks in after a successful OAuth connection (handled inside oauth.rs handler).
+health-sync = ["pierre-services/health-sync", "dep:pierre-enforme"]
+# Sciotte (Strava-mirror) provider routes: credential login + hosted login pages.
+provider-sciotte = ["dep:dravr-sciotte", "pierre-providers/provider-sciotte"]
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-config = { version = "0.3.0", path = "../pierre-config" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["billing"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-email = { version = "0.3.0", path = "../pierre-email" }
+pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
+pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
+pierre-routes-admin = { version = "0.3.0", path = "../pierre-routes-admin" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-services = { version = "0.3.0", path = "../pierre-services" }
+
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+hmac = "0.12"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "sync"] }
+tracing = "0.1"
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+# Sciotte (provider-sciotte feature)
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.16", optional = true }
+
+# Health backfill (health-sync feature)
+pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true }
+
+[lints]
+workspace = true

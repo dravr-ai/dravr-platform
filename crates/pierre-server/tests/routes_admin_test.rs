@@ -152,18 +152,17 @@
 mod common;
 
 use anyhow::Result;
+#[cfg(feature = "contremaitre")]
+use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+#[cfg(feature = "contremaitre")]
+use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken};
+use pierre_core::models::{User, UserStatus};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    admin::{
-        models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken},
-        AdminAuthService,
-    },
-    constants::system_config::STARTER_MONTHLY_LIMIT,
-    harness_config_registry::HarnessConfigRegistry,
-    mcp::ToolSelectionService,
-    models::{User, UserStatus},
-    routes::admin::{AdminApiContext, AdminApiContextInit, AdminRoutes},
-};
+use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
+use pierre_routes_admin::auth::service::AdminAuthService;
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use serde_json::{json, Value};
 use std::{str, sync::Arc};
 use tokio::time::{sleep, Duration};
@@ -197,9 +196,6 @@ impl AdminTestSetup {
         let jwt_secret = "test_admin_jwt_secret_for_route_testing";
         let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
         let database_arc = Arc::new((*database).clone());
-        let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
-            database_arc.repositories(),
-        )));
         let repos_arc = Arc::new(database_arc.repositories());
         let context = AdminApiContext::new(AdminApiContextInit {
             database: database_arc,
@@ -209,18 +205,31 @@ impl AdminTestSetup {
             jwks_manager: jwks_manager.clone(),
             admin_api_key_monthly_limit,
             admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
-            tool_selection,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+            #[cfg(feature = "contremaitre")]
+            prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            messaging_strings_registry: Arc::new(
+                pierre_contremaitre::MessagingStringsRegistry::new(),
+            ),
+            #[cfg(feature = "contremaitre")]
+            cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+            #[cfg(feature = "contremaitre")]
+            persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            contremaitre_config: None,
         });
 
         // Create test user
         let (user_id, user) = common::create_test_user(&database).await?;
 
         // Create admin tokens with manual JWT generation using the same secret as AdminApiContext
-        use pierre_mcp_server::admin::{
-            jwt::AdminJwtManager,
-            models::{AdminPermissions, GeneratedAdminToken},
-        };
+        use pierre_core::admin::models::{AdminPermissions, GeneratedAdminToken};
+        use pierre_routes_admin::auth::jwt::AdminJwtManager;
         use uuid::Uuid;
 
         let admin_permissions = AdminPermissions::new(vec![
@@ -337,7 +346,7 @@ impl AdminTestSetup {
         token: &GeneratedAdminToken,
         jwt_secret: &str,
     ) -> Result<()> {
-        use pierre_mcp_server::admin::jwt::AdminJwtManager;
+        use pierre_routes_admin::auth::jwt::AdminJwtManager;
 
         let token_hash = AdminJwtManager::hash_token_for_storage(&token.jwt_token)?;
         let jwt_secret_hash = AdminJwtManager::hash_secret(jwt_secret);

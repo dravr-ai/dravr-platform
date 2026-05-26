@@ -1,0 +1,38 @@
+# ABOUTME: Prompt + persona + tool-description hot-reload subsystem (GCS / GitHub backed)
+# ABOUTME: Sync engine populates the in-memory registries; admin write-back commits via GitHub Contents API
+
+[package]
+name = "pierre-contremaitre"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Prompt + persona + tool-description hot-reload subsystem for the Pierre platform"
+repository = "https://github.com/dravr-ai/scriptcurator-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
+pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
+hex = "0.4"
+regex = "1.12"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sha2 = "0.10"
+tokio = { version = "1.50", features = ["sync"] }
+tracing = "0.1"
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

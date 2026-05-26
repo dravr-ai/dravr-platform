@@ -27,15 +27,16 @@ use helpers::axum_test::AxumTestRequest;
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::roster;
+use pierre_routes_coaches::build_roster_router;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
 async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<ServerContext>) {
     let resources = create_test_server_resources().await.unwrap();
-    let (coach_id, mut coach) = create_test_user(&resources.database).await.unwrap();
+    let (coach_id, mut coach) = create_test_user(&resources.coach.database).await.unwrap();
     resources
+        .common
         .repos
         .users
         .set_manages_roster(coach_id, true)
@@ -44,7 +45,7 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
     coach.manages_roster = true;
 
     let (athlete_id, _athlete) =
-        create_test_user_with_email(&resources.database, "athlete@example.com")
+        create_test_user_with_email(&resources.coach.database, "athlete@example.com")
             .await
             .unwrap();
 
@@ -53,6 +54,7 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
     // legacy `tenant_id` at the coach's tenant, which also upserts the
     // junction row in `tenant_users` (see `update_user_tenant_id_impl`).
     let coach_tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(coach_id)
@@ -60,6 +62,7 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
         .unwrap();
     let coach_tenant = coach_tenants.first().expect("coach tenant").id;
     resources
+        .common
         .repos
         .users
         .update_tenant_id(athlete_id, coach_tenant)
@@ -67,14 +70,16 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
         .expect("link athlete to coach tenant");
 
     let token = resources
+        .auth
         .auth_manager
         .generate_token_with_tenant(
             &coach,
-            &resources.jwks_manager,
+            &resources.auth.jwks_manager,
             Some(coach_tenant.to_string()),
         )
         .unwrap();
-    let router = Router::new().merge(roster::router(resources.clone()));
+    let router = Router::new()
+        .merge(build_roster_router::<ServerContext>().with_state(Arc::clone(&resources)));
     let auth_header = format!("Bearer {token}");
     (router, auth_header, coach_id, athlete_id, resources)
 }
@@ -126,12 +131,14 @@ async fn roster_round_trip_assigns_lists_and_revokes() {
 async fn roster_rejects_caller_without_manages_roster_with_403() {
     // Build a router with a coach whose `manages_roster=false`.
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
     let token = resources
+        .auth
         .auth_manager
-        .generate_token(&user, &resources.jwks_manager)
+        .generate_token(&user, &resources.auth.jwks_manager)
         .unwrap();
-    let router = Router::new().merge(roster::router(resources.clone()));
+    let router = Router::new()
+        .merge(build_roster_router::<ServerContext>().with_state(Arc::clone(&resources)));
     let auth = format!("Bearer {token}");
 
     let response = AxumTestRequest::get("/api/roster")
@@ -145,8 +152,9 @@ async fn roster_rejects_caller_without_manages_roster_with_403() {
 #[tokio::test]
 async fn roster_rejects_cross_tenant_assignment_with_403() {
     let resources = create_test_server_resources().await.unwrap();
-    let (coach_id, mut coach) = create_test_user(&resources.database).await.unwrap();
+    let (coach_id, mut coach) = create_test_user(&resources.coach.database).await.unwrap();
     resources
+        .common
         .repos
         .users
         .set_manages_roster(coach_id, true)
@@ -154,11 +162,13 @@ async fn roster_rejects_cross_tenant_assignment_with_403() {
         .expect("grant manages_roster");
     coach.manages_roster = true;
     // Athlete lives in their own tenant — never added to the coach's.
-    let (athlete_id, _) = create_test_user_with_email(&resources.database, "outsider@example.com")
-        .await
-        .unwrap();
+    let (athlete_id, _) =
+        create_test_user_with_email(&resources.coach.database, "outsider@example.com")
+            .await
+            .unwrap();
 
     let coach_tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(coach_id)
@@ -166,14 +176,16 @@ async fn roster_rejects_cross_tenant_assignment_with_403() {
         .unwrap();
     let coach_tenant = coach_tenants.first().expect("coach tenant").id;
     let token = resources
+        .auth
         .auth_manager
         .generate_token_with_tenant(
             &coach,
-            &resources.jwks_manager,
+            &resources.auth.jwks_manager,
             Some(coach_tenant.to_string()),
         )
         .unwrap();
-    let router = Router::new().merge(roster::router(resources.clone()));
+    let router = Router::new()
+        .merge(build_roster_router::<ServerContext>().with_state(Arc::clone(&resources)));
     let auth_header = format!("Bearer {token}");
 
     let response = AxumTestRequest::post("/api/roster")
@@ -207,7 +219,8 @@ async fn roster_double_assign_returns_409() {
 #[tokio::test]
 async fn roster_without_auth_rejected_401() {
     let resources = create_test_server_resources().await.unwrap();
-    let router = Router::new().merge(roster::router(resources));
+    let router = Router::new()
+        .merge(build_roster_router::<ServerContext>().with_state(Arc::clone(&resources)));
 
     let response = AxumTestRequest::get("/api/roster").send(router).await;
     assert!(

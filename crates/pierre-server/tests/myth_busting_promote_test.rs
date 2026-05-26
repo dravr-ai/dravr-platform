@@ -9,11 +9,11 @@
 
 use std::sync::Arc;
 
+use pierre_contremaitre::harness_config_document::HARNESS_CONFIG_SETTING_KEY;
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::config::text_guardrails::{GuardrailOutcome, GuardrailRejection};
-use pierre_mcp_server::harness_config_registry::HarnessConfigRegistry;
-use pierre_mcp_server::routes::admin::harness_config::HARNESS_CONFIG_SETTING_KEY;
-use pierre_mcp_server::routes::admin::myth_busting::promote_topic;
+use pierre_routes_admin::handlers::myth_busting::promote_topic;
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 
@@ -26,7 +26,7 @@ async fn fresh_database() -> Database {
 
 #[cfg(feature = "postgresql")]
 async fn fresh_database() -> Database {
-    use pierre_mcp_server::config::environment::PostgresPoolConfig;
+    use pierre_config::environment::PostgresPoolConfig;
     Database::new(
         "sqlite::memory:",
         ENCRYPTION_KEY.to_vec(),

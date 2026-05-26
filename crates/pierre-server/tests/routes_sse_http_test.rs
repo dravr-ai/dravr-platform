@@ -20,14 +20,15 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    sse::{manager::SseManager, routes::SseRoutes},
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::{
+    mcp::resources::{ServerContext, ServerContextOptions},
+    sse::protocol::McpProtocolStreamFactory,
+};
+use pierre_sse::{manager::SseManager, routes::SseRoutes};
 use std::sync::Arc;
 
 /// Test setup helper for SSE route testing
@@ -95,11 +96,15 @@ impl SseTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
-        // Create SSE manager with buffer size
+        // Create SSE manager with buffer size and install the protocol-stream
+        // factory so /mcp/sse/* tests don't hit the uninstalled-factory panic.
         let manager = Arc::new(SseManager::new(1024));
+        let _ = manager.install_protocol_factory(Arc::new(McpProtocolStreamFactory {
+            resources: Arc::clone(&resources),
+        }));
 
         Ok(Self {
             resources,

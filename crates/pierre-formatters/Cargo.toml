@@ -1,0 +1,26 @@
+# ABOUTME: Pluggable output format abstraction (JSON + TOON) for serializing tool responses
+# ABOUTME: Leaf crate — TOON's ~40% token reduction matters most when LLMs consume large fitness datasets
+
+[package]
+name = "pierre-formatters"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Output format abstraction (JSON + TOON) for Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+toon = ["dep:toon-format"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+
+# Optional: TOON token-efficient encoding
+toon-format = { version = "0.2", optional = true }
+
+[lints]
+workspace = true

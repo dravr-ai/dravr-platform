@@ -8,10 +8,10 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::models::{Tenant, TenantId};
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::{Tenant, TenantId};
+use pierre_database::backends::factory::Database;
 
 mod common;
 use common::*;

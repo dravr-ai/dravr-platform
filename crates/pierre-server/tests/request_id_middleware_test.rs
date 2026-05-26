@@ -1,3 +1,6 @@
+// ABOUTME: Integration tests for the X-Request-Id middleware
+// ABOUTME: Verifies header propagation, generation when absent, and tenant-scoped tracing fields
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -17,7 +20,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use pierre_mcp_server::middleware::request_id::{request_id_middleware, RequestId};
+use pierre_middleware::request_id::{request_id_middleware, RequestId};
 use std::error::Error;
 use tower::ServiceExt;
 use uuid::Uuid;

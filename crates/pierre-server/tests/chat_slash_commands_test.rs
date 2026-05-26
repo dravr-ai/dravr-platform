@@ -15,8 +15,8 @@ use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
 use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{Tenant, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::{Tenant, User, UserStatus};
 use pierre_mcp_server::routes::chat::{ChatCompletionResponse, ChatRoutes, ConversationResponse};
 use serde_json::json;
 use std::sync::Arc;
@@ -38,7 +38,7 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -52,10 +52,17 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         updated_at: chrono::Utc::now(),
     };
     // tenants.create() adds the owner to tenant_users automatically.
-    resources.repos.tenants.create(&tenant).await.unwrap();
+    resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
     // Legacy tenant_id column mirrors tenant_users; keep them in sync
     // for the /api/chat endpoints that still read it.
     resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -67,6 +74,7 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     // before the slash dispatcher even runs. Slash commands don't consume
     // provider data, but the gate fires upstream of dispatch.
     resources
+        .common
         .repos
         .provider_connections
         .register_connection(
@@ -80,8 +88,9 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         .unwrap();
 
     let token = resources
+        .auth
         .auth_manager
-        .generate_token(&user, &resources.jwks_manager)
+        .generate_token(&user, &resources.auth.jwks_manager)
         .unwrap();
 
     (user_id, tenant_id, format!("Bearer {token}"))
@@ -111,6 +120,7 @@ async fn seed_coach(
         success_criteria: None,
     };
     let coach = resources
+        .common
         .repos
         .coaches
         .create(user_id, tenant_id, &request)
@@ -199,6 +209,7 @@ async fn coach_select_in_chat_sets_users_default_coach() {
     .await;
 
     let before = resources
+        .common
         .repos
         .users
         .get_global(user_id)
@@ -231,6 +242,7 @@ async fn coach_select_in_chat_sets_users_default_coach() {
     );
 
     let after = resources
+        .common
         .repos
         .users
         .get_global(user_id)

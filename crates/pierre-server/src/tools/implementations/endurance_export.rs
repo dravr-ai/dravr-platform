@@ -15,13 +15,13 @@ use pierre_intelligence::latest_snapshot::{
 };
 use serde_json::Value;
 
-use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerContext;
-use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::routes::social::SocialRoutes;
-use crate::tools::context::ToolExecutionContext;
-use crate::tools::result::ToolResult;
-use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_config::environment::default_provider;
+use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_routes_social::SocialRoutes;
+use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tools_core::ToolResult;
 use tracing::warn;
 
 /// Lower bound on the analysis window. Mirrors the constant in
@@ -51,7 +51,7 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
 }
 
 async fn fetch_window_activities(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
 ) -> AppResult<Vec<Activity>> {
@@ -72,7 +72,7 @@ async fn fetch_window_activities(
 /// `resolve_provider_for_request` priority chain minus the explicit-arg step:
 /// env override → user's most-recently-used connection → `AppError::no_provider_connected()`.
 async fn resolve_provider_for_user(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
 ) -> AppResult<String> {
@@ -80,7 +80,7 @@ async fn resolve_provider_for_user(
         return Ok(env_p);
     }
     match resources
-        .repos
+        .repos()
         .provider_connections
         .resolve_most_recent(user_id, Some(tenant_id))
         .await
@@ -163,7 +163,7 @@ impl McpTool for ExportLatestSnapshotTool {
         let activities = fetch_window_activities(&context.resources, user_id, tenant_id).await?;
         let physiology = context
             .resources
-            .repos
+            .repos()
             .user_physiological_profile
             .get_user_physiological_profile(tenant_id, user_id)
             .await?;
@@ -222,7 +222,7 @@ impl McpTool for ExportDossierTool {
         let user_id = context.user_id;
         let dossier = context
             .resources
-            .repos
+            .repos()
             .dossier
             .compose_dossier(tenant_id, user_id)
             .await?;

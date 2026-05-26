@@ -12,6 +12,13 @@ mod helpers;
 
 use anyhow::Result;
 use helpers::axum_test::AxumTestRequest;
+#[cfg(feature = "contremaitre")]
+use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+#[cfg(feature = "contremaitre")]
+use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::admin::models::{AdminPermission, AdminPermissions, GeneratedAdminToken};
+use pierre_core::models::TenantId;
 use pierre_database::{
     backends::factory::Database,
     database::coaches::{
@@ -19,18 +26,9 @@ use pierre_database::{
     },
     database::{Coach, StoreListingsManager},
 };
-use pierre_mcp_server::{
-    admin::{
-        jwt::AdminJwtManager,
-        models::{AdminPermission, AdminPermissions, GeneratedAdminToken},
-        AdminAuthService,
-    },
-    constants::system_config::STARTER_MONTHLY_LIMIT,
-    harness_config_registry::HarnessConfigRegistry,
-    mcp::ToolSelectionService,
-    models::TenantId,
-    routes::admin::{AdminApiContext, AdminApiContextInit, AdminRoutes},
-};
+use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
+use pierre_routes_admin::auth::{jwt::AdminJwtManager, service::AdminAuthService};
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -63,9 +61,6 @@ impl StoreAdminTestSetup {
         let jwt_secret = "test_admin_jwt_secret_for_store_review_testing";
         let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
         let database_arc = Arc::new((*database).clone());
-        let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
-            database_arc.repositories(),
-        )));
         let repos_arc = Arc::new(database_arc.repositories());
         let context = AdminApiContext::new(AdminApiContextInit {
             database: database_arc.clone(),
@@ -75,8 +70,23 @@ impl StoreAdminTestSetup {
             jwks_manager: jwks_manager.clone(),
             admin_api_key_monthly_limit,
             admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
-            tool_selection,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+            #[cfg(feature = "contremaitre")]
+            prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            messaging_strings_registry: Arc::new(
+                pierre_contremaitre::MessagingStringsRegistry::new(),
+            ),
+            #[cfg(feature = "contremaitre")]
+            cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+            #[cfg(feature = "contremaitre")]
+            persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+            #[cfg(feature = "contremaitre")]
+            contremaitre_config: None,
         });
 
         // Create test user

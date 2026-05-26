@@ -9,7 +9,7 @@
 //! This module handles MCP token creation, listing, and revocation
 //! for authenticated users. All handlers require valid JWT authentication.
 
-use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
+use crate::mcp::resources::ServerContext;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -17,7 +17,9 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use pierre_core::errors::AppError;
 use pierre_database::database::CreateUserMcpTokenRequest;
+use pierre_middleware::AuthenticatedUser;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -106,6 +108,7 @@ impl UserMcpTokenRoutes {
         };
 
         let result = resources
+            .common
             .repos
             .user_mcp_tokens
             .create_token(auth.user_id, &db_request)
@@ -132,6 +135,7 @@ impl UserMcpTokenRoutes {
 
         // List tokens
         let tokens = resources
+            .common
             .repos
             .user_mcp_tokens
             .list_tokens(auth.user_id)
@@ -166,6 +170,7 @@ impl UserMcpTokenRoutes {
 
         // Revoke token
         resources
+            .common
             .repos
             .user_mcp_tokens
             .revoke_token(&token_id, auth.user_id)

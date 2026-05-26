@@ -1,0 +1,28 @@
+# ABOUTME: Dashboard route group — /api/dashboard/{overview,analytics,...} + /dashboard/* aliases
+# ABOUTME: Decoupled from pierre-server via DashboardCtx; mounted by the composition root
+
+[package]
+name = "pierre-routes-dashboard"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Dashboard route group (overview, analytics, rate limits, request logs, tool usage) for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

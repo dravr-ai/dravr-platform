@@ -7,9 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::cache::{CacheKey, CacheResource};
-use pierre_mcp_server::models::TenantId;
-use pierre_mcp_server::providers::CachePolicy;
+use pierre_cache::{CacheKey, CacheResource};
+use pierre_core::models::TenantId;
+use pierre_providers::CachePolicy;
 use uuid::Uuid;
 
 #[test]

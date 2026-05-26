@@ -14,13 +14,13 @@ use pierre_intelligence::intervals::build_intervals;
 use pierre_intelligence::routes::build_route_summary_from_streams;
 use serde_json::{json, Value};
 
-use crate::config::environment::default_provider;
-use crate::mcp::resources::ServerContext;
-use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::routes::social::SocialRoutes;
-use crate::tools::context::ToolExecutionContext;
-use crate::tools::result::ToolResult;
-use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_config::environment::default_provider;
+use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_routes_social::SocialRoutes;
+use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tools_core::ToolResult;
 
 const MAX_ACTIVITIES_PER_FETCH: usize = 200;
 
@@ -51,7 +51,7 @@ fn activity_id_arg(args: &Value) -> AppResult<String> {
 }
 
 async fn fetch_activity(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: uuid::Uuid,
     activity_id: &str,
@@ -59,7 +59,7 @@ async fn fetch_activity(
     let provider_name = if let Some(p) = default_provider() {
         p
     } else if let Some(conn) = resources
-        .repos
+        .repos()
         .provider_connections
         .resolve_most_recent(user_id, Some(tenant_id))
         .await?
@@ -143,7 +143,7 @@ impl McpTool for ExportIntervalsTool {
         let activity = fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
         let physiology = context
             .resources
-            .repos
+            .repos()
             .user_physiological_profile
             .get_user_physiological_profile(tenant_id, user_id)
             .await?;
@@ -214,7 +214,7 @@ impl McpTool for ExportRoutesTool {
             .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
         context
             .resources
-            .repos
+            .repos()
             .route_summaries
             .upsert_route_summary(
                 tenant_id,

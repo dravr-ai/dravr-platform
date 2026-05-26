@@ -12,23 +12,20 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_core::models::{AddMessageParams, ConversationTurnId};
 
-use crate::errors::AppError;
-use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerContext;
-use crate::models::TenantId;
-use crate::protocols::universal::UniversalExecutor;
-use crate::services::chat_pipeline;
-use crate::services::chat_pipeline::stages::persistence::{
-    persist_assistant_response, persist_user_message,
-};
+use pierre_chat_pipeline::stages::persistence::{persist_assistant_response, persist_user_message};
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_llm::ChatMessage;
+use pierre_tool_runtime::protocol::UniversalExecutor;
 
-use super::super::chat_tool_loop::{self, ToolLoopParams};
 use super::dto::{ChatCompletionResponse, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, UsageWarning};
 use super::usage::{extract_or_estimate_tokens, increment_usage_counters, post_process_content};
 use super::{
     build_mcp_tools, get_llm_provider, DEFAULT_MAX_TOOL_ITERATIONS, INSIGHT_PROMPT_PREFIX,
 };
+use pierre_tool_runtime::tool_execution::{self, ToolLoopParams};
 
 /// Dispatch an insight-generation request.
 ///
@@ -77,7 +74,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     } = inputs;
     // Verify ownership and persist user message.
     let msg_result = persist_user_message(
-        resources.repos.chat.as_ref(),
+        resources.common.repos.chat.as_ref(),
         &conversation_id,
         &user_id_str,
         tenant_id,
@@ -107,9 +104,9 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     let start_time = Instant::now();
     // Per-LLM-call recorder so every insight-tool-loop iteration
     // writes its own `llm_usage` row under this turn id.
-    let call_recorder: Option<Arc<dyn chat_tool_loop::LlmCallRecorder>> =
-        Some(Arc::new(chat_pipeline::TurnCallRecorder::new(
-            Arc::clone(&resources.repos.llm_usage),
+    let call_recorder: Option<Arc<dyn tool_execution::LlmCallRecorder>> =
+        Some(Arc::new(pierre_chat_pipeline::TurnCallRecorder::new(
+            Arc::clone(&resources.common.repos.llm_usage),
             tenant_id_str.clone(),
             user_id_str.clone(),
             Some(conversation_id.clone()),
@@ -134,7 +131,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         // UX, so the streaming sink stays absent.
         stream_sink: None,
     };
-    let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
+    let result = tool_execution::run_tool_loop(&tool_params, &mut llm_messages).await?;
 
     #[allow(clippy::cast_possible_truncation)]
     let execution_time_ms = start_time.elapsed().as_millis() as u64;
@@ -153,9 +150,12 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         prompt_tokens,
         model: Some(&conv.model),
     };
-    let (assistant_msg, updated_conv) =
-        persist_assistant_response(resources.repos.chat.as_ref(), &assistant_params, tenant_id)
-            .await?;
+    let (assistant_msg, updated_conv) = persist_assistant_response(
+        resources.common.repos.chat.as_ref(),
+        &assistant_params,
+        tenant_id,
+    )
+    .await?;
 
     // Per-call `llm_usage` rows are written inline by the chat pipeline's
     // `UsageRepoCallRecorder` with real token counts, cost_usd, and

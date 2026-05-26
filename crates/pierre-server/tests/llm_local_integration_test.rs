@@ -31,7 +31,7 @@
 //! cargo test --test llm_local_integration_test -- --nocapture
 //! ```
 
-use pierre_mcp_server::llm::{
+use pierre_llm::{
     ChatMessage, ChatRequest, FunctionDeclaration, LlmCapabilities, LlmProvider,
     OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
@@ -569,16 +569,17 @@ async fn test_local_llm_concurrent_requests() {
 // removal, or required-field change in production tools is caught here.
 
 use futures_util::StreamExt as _;
-use pierre_mcp_server::llm::prompts::get_coaching_persona_prompt;
-use pierre_mcp_server::mcp::schema::ToolSchema;
-use pierre_mcp_server::models::CoachingPersona;
-use pierre_mcp_server::tools::registry::ToolRegistry;
+use pierre_core::models::CoachingPersona;
+use pierre_llm::prompts::get_coaching_persona_prompt;
+use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::registry::ToolRegistry;
 
 /// Build the registry the same way the runtime does: empty + register builtins.
 /// No DB pool, no auth — the registry's schema view is purely declarative.
 fn build_registry() -> ToolRegistry {
     let mut r = ToolRegistry::new();
-    r.register_builtin_tools();
+    register_builtin_tools(&mut r);
     r
 }
 

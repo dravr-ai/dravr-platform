@@ -10,8 +10,8 @@
 mod common;
 
 use anyhow::Result;
-use pierre_mcp_server::cache::{factory::Cache, CacheConfig, CacheKey, CacheResource};
-use pierre_mcp_server::models::TenantId;
+use pierre_cache::{Cache, CacheConfig, CacheKey, CacheResource};
+use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time;
@@ -416,11 +416,13 @@ async fn test_cache_different_resource_types() -> Result<()> {
 
 #[tokio::test]
 async fn test_cache_from_env_defaults() -> Result<()> {
+    use pierre_mcp_server::cache::cache_from_env;
+
     // Initialize server config for tests
     common::init_server_config();
 
     // Test cache creation from environment (should use defaults)
-    let cache = Cache::from_env().await?;
+    let cache = cache_from_env().await?;
 
     // Should be able to use it
     let key = test_cache_key(CacheResource::AthleteProfile);

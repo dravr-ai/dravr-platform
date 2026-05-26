@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::profiles::ConfigProfile;
-use pierre_mcp_server::config::runtime::{ConfigValue, ConfigurationManager, RuntimeConfig};
+use pierre_config::runtime::{ConfigValue, ConfigurationManager, RuntimeConfig};
+use pierre_core::config::profiles::ConfigProfile;
 use uuid::Uuid;
 
 #[test]

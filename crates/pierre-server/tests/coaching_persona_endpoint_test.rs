@@ -23,19 +23,20 @@ use axum::http::StatusCode;
 use axum::Router;
 use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::auth::AuthRoutes;
+use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
 async fn setup() -> (Router, String, Uuid, Arc<ServerContext>) {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
     let token = resources
+        .auth
         .auth_manager
-        .generate_token(&user, &resources.jwks_manager)
+        .generate_token(&user, &resources.auth.jwks_manager)
         .unwrap();
-    let router = AuthRoutes::routes(resources.clone());
+    let router = AuthRoutes::routes(resources.auth_routes_context());
     (router, format!("Bearer {token}"), user_id, resources)
 }
 
@@ -55,6 +56,7 @@ async fn put_coaching_persona_persists_power_athlete() {
 
     // Round-trip through the repo to assert the column actually changed.
     let persisted = resources
+        .common
         .repos
         .users
         .get_global(user_id)

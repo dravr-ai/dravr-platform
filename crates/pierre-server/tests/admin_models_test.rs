@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::admin::models::{AdminPermission, AdminPermissions, RateLimitPeriod};
+use pierre_core::admin::models::{AdminPermission, AdminPermissions, RateLimitPeriod};
 
 #[test]
 fn test_admin_permissions_serialization() {

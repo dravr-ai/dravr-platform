@@ -20,12 +20,10 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, TenantId, TURN_SUMMARY_CALL_TYPE};
-use pierre_mcp_server::{
-    mcp::resources::ServerContext,
-    models::{Tenant, User, UserStatus},
-    permissions::UserRole,
-    routes::llm_consumption::LlmConsumptionRoutes,
-};
+use pierre_core::models::{Tenant, User, UserStatus};
+use pierre_core::permissions::UserRole;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_admin::LlmConsumptionRoutes;
 use serde_json::Value;
 use serial_test::serial;
 use std::sync::Arc;
@@ -53,7 +51,7 @@ async fn create_admin_user_and_token(
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -66,8 +64,15 @@ async fn create_admin_user_and_token(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
     resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+    resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -94,7 +99,7 @@ async fn create_regular_user_and_token(
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -107,8 +112,15 @@ async fn create_regular_user_and_token(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
     resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+    resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -119,6 +131,7 @@ async fn create_regular_user_and_token(
     // inserts — the endpoint rejects anything that is not admin or owner,
     // so this lets us exercise that branch.
     let pool = resources
+        .coach
         .database
         .sqlite_pool()
         .expect("test fixture runs against SQLite");
@@ -182,6 +195,7 @@ async fn seed_turn(
             call_sequence: None,
         };
         resources
+            .common
             .repos
             .llm_usage
             .insert_llm_usage(&params)
@@ -210,6 +224,7 @@ async fn seed_turn(
         call_sequence: None,
     };
     resources
+        .common
         .repos
         .llm_usage
         .insert_llm_usage(&summary)
@@ -237,6 +252,7 @@ async fn seed_turn(
         call_sequence: None,
     };
     resources
+        .common
         .repos
         .llm_usage
         .insert_llm_usage(&noise)
@@ -366,6 +382,7 @@ async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
     let tenant_str = tenant.to_string();
     let user_str = user.to_string();
     resources
+        .common
         .repos
         .llm_usage
         .insert_llm_usage(&InsertLlmUsage {
@@ -388,6 +405,7 @@ async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
         })
         .await?;
     resources
+        .common
         .repos
         .llm_usage
         .insert_llm_usage(&InsertLlmUsage {

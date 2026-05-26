@@ -17,14 +17,13 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::a2a::A2ARoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
+use pierre_tool_runtime::runtime::ToolRuntime;
 use std::sync::Arc;
 
 /// Create test resources for A2A route testing
@@ -81,7 +80,14 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
 /// Get A2A routes for testing
 async fn a2a_routes() -> axum::Router {
     let resources = create_a2a_test_resources().await;
-    A2ARoutes::routes(resources)
+    let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let state = A2ARoutesState {
+        ctx: resources.clone(),
+        client_manager: resources.a2a.a2a_client_manager.clone(),
+        auth_middleware: resources.auth.auth_middleware.clone(),
+        tool_runtime,
+    };
+    A2ARoutes::routes(state)
 }
 
 // ============================================================================

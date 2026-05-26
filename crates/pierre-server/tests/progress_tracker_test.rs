@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::mcp::progress::ProgressTracker;
+use pierre_mcp_transport::progress::ProgressTracker;
 use tokio::sync::mpsc;
 
 #[tokio::test]

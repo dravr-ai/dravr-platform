@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use pierre_database::database::oauth_notifications::OAuthNotification;
-use pierre_mcp_server::sse::manager::SseManager;
+use pierre_sse::manager::SseManager;
 use reqwest::Client;
 use serde_json::json;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
 
     // Create test server resources
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
 
     // Create SSE manager
     let sse_manager = Arc::new(SseManager::new(100));
@@ -37,6 +37,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
     // Generate JWT token for user
     let jwks_manager = common::get_shared_test_jwks();
     let jwt_token = resources
+        .auth
         .auth_manager
         .generate_token(&user, &jwks_manager)?;
     println!("✅ JWT token generated for user");
@@ -87,6 +88,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
 
     // Save notification to database using the correct method signature
     resources
+        .common
         .repos
         .notifications
         .store(
@@ -144,7 +146,7 @@ async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
     println!("🔄 Testing MCP client OAuth notification flow");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
 
     // Create SSE manager
     let sse_manager = Arc::new(SseManager::new(100));
@@ -152,6 +154,7 @@ async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
     // Test token refresh endpoint (simulates MCP client auto-refresh)
     let jwks_manager = common::get_shared_test_jwks();
     let initial_token = resources
+        .auth
         .auth_manager
         .generate_token(&user, &jwks_manager)?;
     println!("✅ Initial JWT token generated");
@@ -229,7 +232,7 @@ async fn test_oauth_sse_error_scenarios() -> Result<()> {
     println!("🔄 Testing OAuth+SSE error scenarios");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, _user) = common::create_test_user(&resources.database).await?;
+    let (user_id, _user) = common::create_test_user(&resources.coach.database).await?;
 
     let sse_manager = Arc::new(SseManager::new(100));
 

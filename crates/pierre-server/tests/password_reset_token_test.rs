@@ -18,14 +18,12 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::auth::AuthRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -89,12 +87,12 @@ impl ResetTokenTestSetup {
     }
 
     fn routes(&self) -> axum::Router {
-        AuthRoutes::routes(self.resources.clone())
+        AuthRoutes::routes(self.resources.auth_routes_context())
     }
 
     /// Create a test user and return their UUID and email
     async fn create_user(&self) -> anyhow::Result<(uuid::Uuid, String)> {
-        let (_, user) = common::create_test_user(&self.resources.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
         Ok((user.id, user.email))
     }
 
@@ -112,6 +110,7 @@ impl ResetTokenTestSetup {
         let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
 
         self.resources
+            .common
             .repos
             .password_reset
             .store_token(user_id, &token_hash, "test_admin")

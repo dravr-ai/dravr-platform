@@ -21,14 +21,11 @@ use tracing::{debug, error, field::Empty, info, info_span, warn, Instrument};
 
 use crate::{
     constants::mcp_transport::MAX_REQUEST_BODY_BYTES,
-    mcp::{
-        multitenant::{McpRequest, MultiTenantMcpServer},
-        resources::ServerContext,
-        tenant_isolation::validate_jwt_token_for_mcp,
-    },
-    middleware::redact_session_id,
-    middleware::RequestId,
+    mcp::{multitenant::MultiTenantMcpServer, resources::ServerContext},
 };
+use pierre_mcp_schema::McpRequest;
+use pierre_mcp_transport::tenant_isolation::validate_jwt_token_for_mcp;
+use pierre_middleware::{redact_session_id, RequestId};
 
 /// Session data for MCP requests
 #[derive(Clone)]
@@ -85,7 +82,7 @@ impl McpRoutes {
         // Yield to scheduler for cooperative multitasking
         yield_now().await;
 
-        let tools = state.resources.tool_registry.all_schemas();
+        let tools = state.resources.mcp.tool_registry.all_schemas();
         Json(serde_json::json!({
             "tools": tools
         }))
@@ -299,9 +296,9 @@ impl McpRoutes {
         // Validate the JWT
         let Ok(jwt_result) = validate_jwt_token_for_mcp(
             token,
-            &state.resources.auth_manager,
-            &state.resources.jwks_manager,
-            &state.resources.repos,
+            &state.resources.auth.auth_manager,
+            &state.resources.auth.jwks_manager,
+            &state.resources.common.repos,
         )
         .await
         else {
@@ -311,6 +308,7 @@ impl McpRoutes {
         // SECURITY: Global lookup — WebSocket session setup, tenant resolved later
         let Ok(Some(..)) = state
             .resources
+            .common
             .repos
             .users
             .get_global(jwt_result.user_id)

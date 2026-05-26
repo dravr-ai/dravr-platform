@@ -27,11 +27,11 @@ mod messaging_e2e_tests {
     use axum::http::StatusCode;
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
+    use pierre_core::models::{Tenant, TenantId, User};
     use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
     use sha2::Sha256;
@@ -72,7 +72,7 @@ mod messaging_e2e_tests {
         email: &str,
         password: &str,
     ) -> (Uuid, TenantId) {
-        use pierre_mcp_server::models::UserStatus;
+        use pierre_core::models::UserStatus;
 
         let password_owned = password.to_owned();
         let password_hash =
@@ -86,7 +86,7 @@ mod messaging_e2e_tests {
         user.approved_at = Some(Utc::now());
 
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         // Create a tenant with this user as owner
         let tenant_id = TenantId::new();
@@ -100,7 +100,13 @@ mod messaging_e2e_tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
 
         (user_id, tenant_id)
     }
@@ -138,7 +144,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_telegram_e2e_full_flow() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (user_id, tenant_id) =
             create_e2e_user(&resources, "tg_e2e@example.com", "TgPass123!").await;
@@ -274,7 +280,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_slack_e2e_full_flow() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "slack_e2e@example.com", "SlackPass123!").await;
@@ -413,7 +419,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_whatsapp_e2e_register_flow() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "wa_owner@example.com", "WaOwner123!").await;
@@ -521,7 +527,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_messenger_e2e_webhook_and_auth() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "fb_e2e@example.com", "FbPass123!").await;
@@ -618,7 +624,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_invalid_signature_rejected_telegram() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "tg_sig@example.com", "Pass123!").await;
@@ -666,7 +672,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_slack_retry_header_short_circuits() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "slack_retry@example.com", "Pass123!").await;
@@ -714,7 +720,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_invalid_signature_rejected_slack() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "slack_sig@example.com", "Pass123!").await;
@@ -766,7 +772,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_invalid_signature_rejected_whatsapp() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "wa_sig@example.com", "Pass123!").await;
@@ -824,7 +830,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_invalid_signature_rejected_messenger() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "fb_sig@example.com", "Pass123!").await;
@@ -875,7 +881,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_e2e_consumed_code_rejected() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "reuse@example.com", "ReusePass123!").await;
@@ -933,7 +939,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_e2e_cross_tenant_webhook_isolation() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_a, tenant_a) =
             create_e2e_user(&resources, "tenant_a@example.com", "Pass123!").await;
@@ -1042,7 +1048,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_meta_webhook_verification_whatsapp() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "wa_verify@example.com", "WaVerify123!").await;
@@ -1098,7 +1104,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_meta_webhook_verification_messenger() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "msg_verify@example.com", "MsgVerify123!").await;
@@ -1136,7 +1142,7 @@ mod messaging_e2e_tests {
     #[tokio::test]
     async fn test_e2e_expired_link_code_rejected() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "expired@example.com", "ExpPass123!").await;

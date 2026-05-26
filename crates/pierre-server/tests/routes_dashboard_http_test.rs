@@ -17,14 +17,12 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::dashboard::DashboardRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_dashboard::DashboardRoutes;
 use std::sync::Arc;
 
 /// Test setup helper for dashboard route testing
@@ -90,7 +88,7 @@ impl DashboardTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         // Create test API keys for dashboard data
@@ -106,7 +104,7 @@ impl DashboardTestSetup {
     }
 
     fn routes(&self) -> axum::Router {
-        DashboardRoutes::routes(self.resources.clone())
+        DashboardRoutes::routes::<ServerContext>().with_state(self.resources.clone())
     }
 
     fn auth_header(&self) -> String {
@@ -410,7 +408,7 @@ async fn test_dashboard_logs_with_api_key_filter() {
 
     // Create an API key
     let key = common::create_and_store_test_api_key(
-        setup.resources.database.as_ref(),
+        setup.resources.coach.database.as_ref(),
         setup.user_id,
         "Key for Logs",
     )
@@ -474,7 +472,7 @@ async fn test_dashboard_user_isolation() {
 
     // User 1 creates API keys
     let _ = common::create_and_store_test_api_key(
-        setup1.resources.database.as_ref(),
+        setup1.resources.coach.database.as_ref(),
         setup1.user_id,
         "User 1 Key",
     )

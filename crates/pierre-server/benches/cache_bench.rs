@@ -19,9 +19,9 @@ mod common;
 
 use common::fixtures::{generate_activities, ActivityBatchSize};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use pierre_mcp_server::cache::memory::InMemoryCache;
-use pierre_mcp_server::cache::{CacheConfig, CacheKey, CacheProvider, CacheResource};
-use pierre_mcp_server::models::{Activity, TenantId};
+use pierre_cache::memory::InMemoryCache;
+use pierre_cache::{CacheConfig, CacheKey, CacheProvider, CacheResource};
+use pierre_core::models::{Activity, TenantId};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;

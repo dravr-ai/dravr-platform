@@ -11,22 +11,22 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pierre_mcp_server::contremaitre::errors::ContremaitreError;
-use pierre_mcp_server::contremaitre::manifest::{
+use pierre_contremaitre::errors::ContremaitreError;
+use pierre_contremaitre::manifest::{
     compute_sha256, parse_manifest, Manifest, ManifestConfig, ManifestEntry, ManifestEvidence,
     ManifestPrompts, ManifestStrings, ManifestTools,
 };
-use pierre_mcp_server::contremaitre::messaging_strings::{
+use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, DEFAULT_LOCALE, EN_EMPTY_REPLY,
     EN_VERIFICATION_BLOCK_FALLBACK, FR_EMPTY_REPLY, FR_VERIFICATION_BLOCK_FALLBACK,
     KEY_EMPTY_REPLY, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
-use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
-use pierre_mcp_server::contremaitre::sync::system_prompt_content_is_valid;
-use pierre_mcp_server::contremaitre::tool_descriptions::{
+use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
+use pierre_contremaitre::sync::system_prompt_content_is_valid;
+use pierre_contremaitre::tool_descriptions::{
     parse_tool_yaml, ToolDescriptionOverlay, ToolDescriptionRegistry,
 };
-use pierre_mcp_server::contremaitre::webhook::verify_github_signature;
+use pierre_mcp_server::routes::contremaitre_webhook::verify_github_signature;
 use ring::hmac;
 use std::fs;
 use std::path::Path;

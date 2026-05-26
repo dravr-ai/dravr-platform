@@ -10,10 +10,8 @@
 mod common;
 
 use chrono::{Duration, Utc};
-use pierre_mcp_server::admin::{
-    jwt::AdminJwtManager,
-    models::{AdminPermission, AdminPermissions},
-};
+use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_routes_admin::auth::jwt::AdminJwtManager;
 
 #[test]
 fn test_jwt_generation_and_validation() {

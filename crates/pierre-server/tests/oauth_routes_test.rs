@@ -12,23 +12,21 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_core::models::CoachingPersona;
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-        DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-        GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
-        McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-        PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-        StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{auth::AuthService, LoginRequest, RegisterRequest},
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
+    GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
+    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{AuthService, LoginRequest, RegisterRequest};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -198,8 +196,9 @@ async fn test_email_validation() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -423,8 +422,9 @@ async fn test_password_validation() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -620,8 +620,9 @@ async fn test_duplicate_user_registration() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -808,8 +809,9 @@ async fn test_login_with_correct_credentials() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -852,6 +854,7 @@ async fn test_login_with_correct_credentials() {
         timezone: None,
     };
     server_resources
+        .common
         .repos
         .users
         .create(&admin_user)
@@ -859,6 +862,7 @@ async fn test_login_with_correct_credentials() {
         .unwrap();
 
     server_resources
+        .common
         .repos
         .users
         .update_status(user_id, UserStatus::Active, Some(admin_id))
@@ -1048,8 +1052,9 @@ async fn test_login_with_wrong_password() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 
@@ -1244,8 +1249,9 @@ async fn test_login_with_non_existent_user() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
 

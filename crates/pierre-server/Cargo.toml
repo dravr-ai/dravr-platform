@@ -24,13 +24,9 @@ bench = false
 # name = "auth-setup"
 # path = "src/bin/auth_setup.rs"
 
-[[bin]]
-name = "pierre-cli"
-path = "src/bin/pierre_cli/main.rs"
-bench = false
-
-# Seeder binaries have been consolidated into `pierre-cli seed <domain>` subcommands.
-# Seeder logic now lives in `src/seeders/` and is dispatched by `bin/pierre_cli/commands/seed.rs`.
+# pierre-cli has been extracted to its own crate at crates/pierre-cli/.
+# Seeder binaries are consolidated under `pierre-cli seed <domain>` subcommands;
+# seeder logic lives in crates/pierre-seeders/.
 
 # [[bin]]
 # name = "serve-docs"
@@ -40,11 +36,11 @@ bench = false
 [features]
 default = ["sqlite", "server-full", "sqlx/migrate"]
 sqlite = []
-postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-notifications/postgresql"]
+postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-health/postgresql", "pierre-intelligence/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
 testing = []
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]
-toon = ["dep:toon-format"]
-analytics-posthog = []
+toon = ["dep:toon-format", "pierre-formatters/toon"]
+analytics-posthog = ["pierre-services/analytics-posthog"]
 
 # Provider feature flags - forwarded to pierre-providers crate
 provider-strava = ["pierre-providers/provider-strava"]
@@ -55,8 +51,8 @@ provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
-provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
-health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "dep:dravr-equilibre-sync"]
+provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte", "pierre-routes-auth?/provider-sciotte"]
+health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-strava", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-synthetic", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
@@ -80,22 +76,22 @@ tools-all = [
 ]
 
 # Individual tool categories
-tools-connection = []      # connect_provider, get_connection_status, disconnect
-tools-data = []            # get_activities, get_athlete, get_stats
-tools-analytics = []       # analyze_activity, calculate_metrics, trends
-tools-goals = []           # set_goal, track_progress, suggest_goals
-tools-config = []          # fitness config tools, user configuration
-tools-nutrition = []       # daily_nutrition, nutrient_timing, food search
-tools-sleep = []           # sleep_quality, recovery_score, rest_day
+tools-connection = ["pierre-tool-runtime/tools-connection"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
+tools-data = ["pierre-tool-runtime/tools-data"]            # get_activities, get_athlete, get_stats (+ endurance workouts)
+tools-analytics = ["pierre-tool-runtime/tools-analytics"]       # analyze_activity, calculate_metrics, trends, discover_routes
+tools-goals = ["pierre-tool-runtime/tools-goals"]           # set_goal, track_progress, suggest_goals
+tools-config = ["pierre-tool-runtime/tools-config"]        # fitness config tools, user configuration
+tools-nutrition = ["pierre-tool-runtime/tools-nutrition"]       # daily_nutrition, nutrient_timing, food search
+tools-sleep = ["pierre-tool-runtime/tools-sleep"]           # sleep_quality, recovery_score, rest_day
 tools-health-data = []     # sleep_sessions, recovery, health_snapshots, data_sources persistence queries
-tools-recipes = []         # validate_recipe, save_recipe, list_recipes
-tools-coaches = []         # coach CRUD, activate, favorites
-tools-admin = ["tools-coaches"]  # admin tools depend on coach tools
-tools-mobility = []        # stretching exercises, yoga poses, mobility recommendations
-tools-store = []           # store MCP tools (browse, search, install coaches)
-tools-groups = ["dep:pierre-groups"]  # group coaching tools (create, join, manage, analytics)
-tools-memory = []          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
-tools-verification = ["dep:pierre-evals"]  # Tier 5.5 bullshit detector: verify_claim tool + dispatch hook
+tools-recipes = ["pierre-tool-runtime/tools-recipes"]         # validate_recipe, save_recipe, list_recipes
+tools-coaches = ["pierre-tool-runtime/tools-coaches"]         # coach CRUD, activate, favorites
+tools-admin = ["tools-coaches", "pierre-tool-runtime/tools-admin"]  # admin tools depend on coach tools
+tools-mobility = ["pierre-tool-runtime/tools-mobility"]        # stretching exercises, yoga poses, mobility recommendations
+tools-store = ["pierre-tool-runtime/tools-store"]           # store MCP tools (browse, search, install coaches)
+tools-groups = ["dep:pierre-groups", "pierre-tool-runtime/tools-groups", "pierre-commands?/tools-groups", "pierre-chat-pipeline?/tools-groups"]  # group coaching tools (create, join, manage, analytics) + group_fitness snapshot fetcher
+tools-memory = ["pierre-tool-runtime/tools-memory"]          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
+tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-routes-admin/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # Tier 5.5 bullshit detector: verify_claim tool + dispatch hook
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]
@@ -104,9 +100,9 @@ tools-wellness = ["tools-sleep", "tools-nutrition", "tools-recipes", "tools-mobi
 # ═══════════════════════════════════════════════════════════════
 # PROTOCOL FEATURES
 # ═══════════════════════════════════════════════════════════════
-protocol-rest = []
+protocol-rest = ["dep:pierre-routes-auth"]
 protocol-mcp = ["transport-http"]  # Requires at least HTTP transport
-protocol-a2a = ["transport-http", "dep:pierre-a2a"]
+protocol-a2a = ["transport-http", "dep:pierre-a2a", "dep:pierre-routes-a2a"]
 
 protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 
@@ -115,7 +111,7 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
 transport-websocket = []
-transport-sse = []
+transport-sse = ["dep:pierre-sse", "pierre-agui/transport-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
 transport-stdio = []
 
 transport-all = ["transport-http", "transport-websocket", "transport-sse", "transport-stdio"]
@@ -124,15 +120,15 @@ transport-web = ["transport-http", "transport-websocket", "transport-sse"]
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-WEB FEATURES
 # ═══════════════════════════════════════════════════════════════
-client-dashboard = ["protocol-rest"]     # dashboard.rs
+client-dashboard = ["protocol-rest", "dep:pierre-routes-dashboard"]     # dashboard routes (extracted to pierre-routes-dashboard)
 client-settings = ["protocol-rest"]      # configuration.rs, fitness.rs
-client-chat = ["protocol-rest"]          # chat.rs
+client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
 client-coaches = ["protocol-rest", "tools-coaches"]  # coaches.rs
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
 client-store = ["protocol-rest", "tools-store"]  # Store REST API routes + MCP tools
-client-social = ["protocol-rest"]               # social.rs - coach-mediated social features
-client-groups = ["protocol-rest", "tools-groups"]  # groups.rs - group coaching management
+client-social = ["protocol-rest", "dep:pierre-routes-social"]   # social.rs - coach-mediated social features (friends/feed/settings via pierre-routes-social)
+client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-social"]  # group coaching routes (extracted to pierre-routes-social)
 
 client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-social", "client-groups"]
 
@@ -140,7 +136,7 @@ client-web = ["client-dashboard", "client-settings", "client-chat", "client-coac
 # GRANULAR CLIENT-ADMIN FEATURES
 # ═══════════════════════════════════════════════════════════════
 client-admin-api = ["protocol-rest"]     # admin.rs
-client-admin-ui = ["protocol-rest"]      # web_admin.rs
+client-admin-ui = ["protocol-rest", "dep:pierre-routes-web-admin"]      # web_admin.rs (extracted to pierre-routes-web-admin)
 client-api-keys = ["protocol-rest"]      # api_keys.rs
 client-tenants = ["protocol-rest"]       # tenants.rs
 client-impersonation = ["protocol-rest"] # impersonation.rs
@@ -155,8 +151,8 @@ client-admin = ["client-admin-api", "client-admin-ui", "client-api-keys", "clien
 client-mobile = ["protocol-rest"]        # Mobile-specific routes (subset)
 client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
-client-messaging = ["protocol-rest", "dep:pierre-messaging", "pierre-messaging/all-channels"]
-client-notifications = ["protocol-rest", "dep:pierre-notifications"]   # notifications.rs - push notification routes
+client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging"]
+client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-social", "pierre-routes-social?/client-notifications", "pierre-services/client-notifications", "pierre-routes-coaches/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-social)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
@@ -168,7 +164,7 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # PROMPT HOT-RELOAD (contremaitre)
 # ═══════════════════════════════════════════════════════════════
-contremaitre = []  # GitHub-backed prompt registry with webhook hot-reload
+contremaitre = ["dep:pierre-contremaitre", "pierre-logging/contremaitre", "pierre-services/contremaitre", "pierre-routes-admin/contremaitre", "pierre-tool-runtime/contremaitre", "pierre-chat-pipeline?/contremaitre"]  # GitHub-backed prompt registry with webhook hot-reload
 
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
@@ -182,19 +178,49 @@ server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-we
 
 # OpenAPI documentation (SwaggerUI) - excluded from production by default
 # Enable with: cargo build --features openapi
-openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi"]
+openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi", "pierre-routes-coaches/openapi", "pierre-routes-social?/openapi"]
 
 [dependencies]
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon", "http-client", "billing"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", optional = true }
+pierre-commands = { version = "0.3.0", path = "../pierre-commands", optional = true }
+pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
+pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-email = { version = "0.3.0", path = "../pierre-email" }
+pierre-external = { version = "0.3.0", path = "../pierre-external" }
+pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
+pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
+pierre-jsonrpc = { version = "0.3.0", path = "../pierre-jsonrpc" }
+pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
+pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-tools-core = { version = "0.3.0", path = "../pierre-tools-core" }
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-routes-admin = { version = "0.3.0", path = "../pierre-routes-admin" }
+pierre-routes-auth = { version = "0.3.0", path = "../pierre-routes-auth", optional = true }
+pierre-routes-billing = { version = "0.3.0", path = "../pierre-routes-billing" }
+pierre-routes-coaches = { version = "0.3.0", path = "../pierre-routes-coaches" }
+pierre-routes-dashboard = { version = "0.3.0", path = "../pierre-routes-dashboard", optional = true }
+pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity" }
+pierre-routes-social = { version = "0.3.0", path = "../pierre-routes-social", optional = true }
+pierre-routes-web-admin = { version = "0.3.0", path = "../pierre-routes-web-admin", optional = true }
+pierre-services = { version = "0.3.0", path = "../pierre-services" }
+pierre-sse = { version = "0.3.0", path = "../pierre-sse", optional = true }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis"] }
+pierre-config = { version = "0.3.0", path = "../pierre-config" }
+pierre-health = { version = "0.3.0", path = "../pierre-health" }
 pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
+pierre-routes-a2a = { version = "0.3.0", path = "../pierre-routes-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
@@ -280,7 +306,6 @@ num-traits = "0.2"
 # Rayon for CPU-bound parallel data processing (zone analysis, fitness calculations)
 rayon = "1.11"
 rsa = "0.9"
-x509-parser = "0.18.1"
 # TOON format for token-efficient LLM serialization (~40% token reduction vs JSON)
 toon-format = { version = "0.2", optional = true }
 rand_chacha = "0.9"

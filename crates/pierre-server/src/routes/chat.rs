@@ -29,12 +29,12 @@ use std::sync::Arc;
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 
-use crate::errors::AppError;
-use crate::llm::{ChatProvider, Tool};
 use crate::mcp::resources::ServerContext;
-use crate::services::chat_provider_factory::chat_provider_from_resources_arc;
 use crate::services::chat_verdicts;
-use crate::services::tool_execution::build_mcp_tools as services_build_mcp_tools;
+use pierre_core::errors::AppError;
+use pierre_llm::{ChatProvider, Tool};
+use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
+use pierre_tool_runtime::tool_execution::build_mcp_tools as services_build_mcp_tools;
 
 pub use dto::{
     ChatCompletionResponse, ConversationListResponse, ConversationResponse,
@@ -60,12 +60,15 @@ pub(super) const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from 
 pub(super) async fn get_llm_provider(
     resources: &Arc<ServerContext>,
 ) -> Result<Arc<ChatProvider>, AppError> {
-    chat_provider_from_resources_arc(resources).await
+    chat_provider_from_resources_arc(
+        resources.common.chat_provider.as_ref(),
+        resources.common.llm_provider.as_ref(),
+    )
 }
 
 /// Build LLM tool definitions for chat-mode function calling.
 pub(crate) fn build_mcp_tools(resources: &Arc<ServerContext>) -> Tool {
-    services_build_mcp_tools(&resources.tool_registry)
+    services_build_mcp_tools(&resources.mcp.tool_registry)
 }
 
 /// Chat routes handler.

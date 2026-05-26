@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
 // ABOUTME: Cargo build script that automatically builds the TypeScript SDK
 // ABOUTME: Ensures sdk/dist/ exists before running tests that depend on it
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 //! # Automatic SDK Builder
 //!

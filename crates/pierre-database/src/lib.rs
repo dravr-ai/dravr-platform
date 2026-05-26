@@ -33,5 +33,10 @@ pub mod backends;
 /// Trait-object registry for repository access without runtime enum dispatch
 pub mod repository_registry;
 
+/// Repository view-structs — narrow projections of `RepositoryRegistry` for
+/// consumers that only need a cohesive subset of repository traits.
+pub mod views;
+
 pub use repositories::DatabaseProvider;
 pub use repository_registry::RepositoryRegistry;
+pub use views::{AuthRepos, CoachRepos, ContentRepos, FitnessRepos, SocialRepos, UsageRepos};

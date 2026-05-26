@@ -7,10 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::{
-    catalog::{CatalogBuilder, ParameterType},
-    runtime::ConfigValue,
-};
+use pierre_config::catalog::{CatalogBuilder, ParameterType};
+use pierre_config::runtime::ConfigValue;
 
 #[test]
 fn test_catalog_build() {

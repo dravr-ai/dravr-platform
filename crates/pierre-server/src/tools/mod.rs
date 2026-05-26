@@ -12,21 +12,24 @@
 //!
 //! ## Architecture
 //!
-//! The tools module is organized as follows:
+//! The scaffolding (trait surface, registry, decorators, runtime façade)
+//! lives in the `pierre-tool-runtime` crate and is re-exported here so the
+//! `crate::tools::*` paths stay stable for callers inside pierre-server.
 //!
-//! - **Core Types** (`traits`, `context`, `result`, `errors`)
-//!   - `McpTool` trait - the main interface for all tools
-//!   - `ToolCapabilities` - bitflags for capability-based filtering
-//!   - `ToolExecutionContext` - context for tool execution
-//!   - `ToolResult` - structured result with notifications
+//! - **Core Types** (`traits`, `context`, plus `pierre_tools_core` for I/O values)
+//!   - `McpTool` trait — the main interface for all tools
+//!   - `ToolCapabilities` — bitflags for capability-based filtering
+//!   - `ToolExecutionContext` — context for tool execution
+//!   - `pierre_tools_core::ToolResult` — structured result with notifications
 //!
 //! - **Registry** (`registry`)
-//!   - Central tool registration and lookup
-//!   - Capability-based filtering (admin vs user)
-//!   - Feature-flag-based conditional compilation
+//!   - Central tool registration and lookup (in `pierre-tool-runtime`)
+//!   - Built-in wiring of `implementations::*` lives in
+//!     [`registry_builtin`] (pierre-server-side, because it imports
+//!     `super::implementations::*`).
 //!
 //! - **Decorators** (`decorators`)
-//!   - `AuditedTool` - audit logging for admin operations and security tracking
+//!   - `AuditedTool` — audit logging for admin operations and security tracking
 //!
 //! - **Implementations** (`implementations`)
 //!   - Tool implementations organized by category
@@ -49,76 +52,35 @@
 //!
 //! ## Example
 //!
-//! ```
-//! use pierre_mcp_server::tools::ToolRegistry;
+//! ```text
+//! use pierre_mcp_server::tools::{registry::ToolRegistry, registry_builtin};
 //!
-//! // Create and populate registry
 //! let mut registry = ToolRegistry::new();
-//! registry.register_builtin_tools();
+//! registry_builtin::register_builtin_tools(&mut registry);
 //!
 //! // List user-visible tools
 //! let is_admin = false;
 //! let schemas = registry.list_schemas_for_role(is_admin);
 //! ```
-//!
-//! For async tool execution examples, see [`ToolRegistry::execute`].
 
 // ============================================================================
-// Core Types - Pluggable MCP Tools Architecture
+// pierre-server-side modules — depend on `implementations::*` and stay local
 // ============================================================================
 
-/// MCP tool trait and capability flags
-pub mod traits;
+/// Wires built-in tools (in [`implementations`]) into a
+/// [`registry::ToolRegistry`]. Free functions that mirror the original
+/// inherent methods on `ToolRegistry`.
+pub mod registry_builtin;
 
-/// Tool execution context with resources and user info
-pub mod context;
-
-/// Tool result types with notification support
-pub mod result;
-
-/// Tool-specific error types
-pub mod errors;
-
-/// Central tool registry with capability-based filtering
-pub mod registry;
-
-/// Single-conversion dispatch from `McpTool::execute` onto a
-/// `protocols::universal::handlers::handle_*` body.
-///
-/// Owns the canonical conversion between `ToolExecutionContext` + `Value`
-/// args and the protocol-level `UniversalRequest`/`UniversalResponse` shape,
-/// so each tool impl is a thin schema definition plus one call into
-/// [`dispatch_handler`].
-///
-/// [`dispatch_handler`]: dispatch::dispatch_handler
-pub mod dispatch;
-
-/// Tool decorators (caching, auditing)
-pub mod decorators;
+/// Upcast `Arc<ServerContext>` to `Arc<dyn ToolRuntime>`.
+pub mod runtime_adapter;
 
 /// Tool implementations organized by category
 pub mod implementations;
 
 // ============================================================================
-// Core Tool Infrastructure
+// Core Tool Infrastructure (pierre-server-internal)
 // ============================================================================
-
-/// Tool execution engine core
-pub mod engine;
 
 /// Provider-specific tool implementations
 pub mod providers;
-
-/// Tool response formatting utilities
-pub mod responses;
-
-// ============================================================================
-// Re-exports for convenient access
-// ============================================================================
-
-pub use context::{AuthMethod, ToolExecutionContext};
-pub use decorators::AuditedTool;
-pub use errors::ToolError;
-pub use registry::ToolRegistry;
-pub use result::{NotificationType, ToolNotification, ToolResult};
-pub use traits::{McpTool, ToolCapabilities};

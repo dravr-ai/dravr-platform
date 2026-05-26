@@ -11,12 +11,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::{
-    config::environment::ServerConfig,
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
+use pierre_config::environment::ServerConfig;
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
 };
 use serde_json::json;
 use std::sync::Arc;

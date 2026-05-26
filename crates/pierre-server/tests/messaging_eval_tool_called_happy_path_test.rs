@@ -41,10 +41,10 @@ mod tool_called_happy_path {
     use chrono::Utc;
     use pierre_core::models::usage::{InsertLlmUsage, TURN_SUMMARY_CALL_TYPE};
     use pierre_core::models::ConversationTurnId;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::permissions::UserRole;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_mcp_server::permissions::UserRole;
-    use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
+    use pierre_routes_admin::LlmConsumptionRoutes;
     use serde_json::Value;
     use serial_test::serial;
     use std::sync::Arc;
@@ -70,7 +70,7 @@ mod tool_called_happy_path {
         user.approved_by = Some(user.id);
         user.approved_at = Some(Utc::now());
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -83,8 +83,15 @@ mod tool_called_happy_path {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
         resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
+        resources
+            .common
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
@@ -92,8 +99,9 @@ mod tool_called_happy_path {
             .unwrap();
 
         let token = resources
+            .auth
             .auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .unwrap();
         (user_id, tenant_id, format!("Bearer {token}"))
     }
@@ -129,6 +137,7 @@ mod tool_called_happy_path {
             call_sequence: None,
         };
         resources
+            .common
             .repos
             .llm_usage
             .insert_llm_usage(&params)

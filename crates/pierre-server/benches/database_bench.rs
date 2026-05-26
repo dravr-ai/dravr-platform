@@ -17,10 +17,10 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::pagination::{PaginationDirection, PaginationParams};
+use pierre_core::permissions::UserRole;
 use pierre_database::database::Database;
-use pierre_mcp_server::models::{User, UserStatus, UserTier};
-use pierre_mcp_server::pagination::{PaginationDirection, PaginationParams};
-use pierre_mcp_server::permissions::UserRole;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::runtime::Runtime;
 use uuid::Uuid;

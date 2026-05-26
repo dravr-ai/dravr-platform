@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
-use pierre_mcp_server::intelligence::{PatternDetector, RiskLevel};
-use pierre_mcp_server::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_intelligence::{PatternDetector, RiskLevel};
 
 fn create_test_activity(days_ago: i64, distance_km: f64, avg_hr: Option<u32>) -> Activity {
     let date = Utc::now() - Duration::days(days_ago);

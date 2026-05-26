@@ -12,8 +12,9 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::routes::coaches::CoachesRoutes;
-use pierre_mcp_server::routes::groups::GroupRoutes;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_social::GroupRoutes;
 
 use axum::http::StatusCode;
 use serde_json::{json, Value};
@@ -44,22 +45,23 @@ async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
 
 async fn setup_single_user() -> (axum::Router, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (uid, u) = create_test_user_with_email(&res.database, "groupuser@test.com")
+    let (uid, u) = create_test_user_with_email(&res.coach.database, "groupuser@test.com")
         .await
         .unwrap();
     let auth = format!("Bearer {}", generate_test_token(&res, &u).await);
-    let router =
-        CoachesRoutes::routes(Arc::clone(&res)).merge(GroupRoutes::routes(Arc::clone(&res)));
+    let router = build_coaches_router::<ServerContext>()
+        .with_state(Arc::clone(&res))
+        .merge(GroupRoutes::routes(Arc::clone(&res)));
     let cid = create_test_coach(&router, &auth).await;
     (router, auth, uid.to_string(), cid)
 }
 
 async fn setup_two_users() -> (axum::Router, String, String, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (u1id, u1) = create_test_user_with_email(&res.database, "groupowner@test.com")
+    let (u1id, u1) = create_test_user_with_email(&res.coach.database, "groupowner@test.com")
         .await
         .unwrap();
-    let (u2id, u2) = create_test_user_with_email(&res.database, "groupmember@test.com")
+    let (u2id, u2) = create_test_user_with_email(&res.coach.database, "groupmember@test.com")
         .await
         .unwrap();
 
@@ -68,17 +70,19 @@ async fn setup_two_users() -> (axum::Router, String, String, String, String, Str
     let a1 = format!("Bearer {}", generate_test_token(&res, &u1).await);
 
     // For user2, generate a token with user1's tenant_id
-    let repos = res.database.repositories();
+    let repos = res.coach.database.repositories();
     let tenants = repos.tenants.list_for_user(u1id).await.unwrap();
     let shared_tid = tenants.first().unwrap().id;
     let a2 = format!(
         "Bearer {}",
-        res.auth_manager
-            .generate_token_with_tenant(&u2, &res.jwks_manager, Some(shared_tid.to_string()))
+        res.auth
+            .auth_manager
+            .generate_token_with_tenant(&u2, &res.auth.jwks_manager, Some(shared_tid.to_string()))
             .unwrap()
     );
-    let router =
-        CoachesRoutes::routes(Arc::clone(&res)).merge(GroupRoutes::routes(Arc::clone(&res)));
+    let router = build_coaches_router::<ServerContext>()
+        .with_state(Arc::clone(&res))
+        .merge(GroupRoutes::routes(Arc::clone(&res)));
     let cid = create_test_coach(&router, &a1).await;
     (router, a1, a2, u1id.to_string(), u2id.to_string(), cid)
 }

@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::tokens::estimate_chat_tokens;
-use pierre_mcp_server::llm::pricing::calculate_cost;
+use pierre_llm::pricing::calculate_cost;
 
 #[test]
 fn test_known_model_cost() {

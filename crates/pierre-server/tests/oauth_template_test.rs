@@ -17,14 +17,14 @@
 
 mod common;
 
-use pierre_mcp_server::routes::oauth2::OAuth2Routes;
+use pierre_routes_identity::OAuth2Routes;
 
 /// Test that OAuth login template compiles and contains required placeholders
 #[test]
 fn test_oauth_login_template_exists() {
     // This test validates that the template file exists and can be loaded at compile time
     // If the file doesn't exist, compilation will fail
-    const TEMPLATE: &str = include_str!("../templates/oauth_login.html");
+    const TEMPLATE: &str = include_str!("../../pierre-routes-identity/templates/oauth_login.html");
 
     // Verify all required placeholders exist
     let required_placeholders = [
@@ -73,7 +73,8 @@ fn test_oauth_login_template_exists() {
 fn test_oauth_login_error_template_exists() {
     // This test validates that the error template file exists and can be loaded at compile time
     // If the file doesn't exist, compilation will fail
-    const TEMPLATE: &str = include_str!("../templates/oauth_login_error.html");
+    const TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Verify all required placeholders exist
     let required_placeholders = [
@@ -121,18 +122,17 @@ async fn test_generate_login_html() {
     let test_password = "test_pass_123";
 
     // Generate HTML using the OAuth2Routes method
-    let html =
-        OAuth2Routes::generate_login_html(pierre_mcp_server::routes::oauth2::LoginHtmlParams {
-            client_id: test_client_id,
-            redirect_uri: test_redirect,
-            response_type: test_response_type,
-            state: test_state,
-            scope: test_scope,
-            code_challenge: test_challenge,
-            code_challenge_method: test_method,
-            default_email: test_email,
-            default_password: test_password,
-        });
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: test_client_id,
+        redirect_uri: test_redirect,
+        response_type: test_response_type,
+        state: test_state,
+        scope: test_scope,
+        code_challenge: test_challenge,
+        code_challenge_method: test_method,
+        default_email: test_email,
+        default_password: test_password,
+    });
 
     // Verify all placeholders were replaced with actual values
     assert!(
@@ -226,18 +226,17 @@ async fn test_generate_login_html_empty_scope() {
     common::init_server_config();
 
     // Generate HTML with empty scope
-    let html =
-        OAuth2Routes::generate_login_html(pierre_mcp_server::routes::oauth2::LoginHtmlParams {
-            client_id: "test",
-            redirect_uri: "https://example.com",
-            response_type: "code",
-            state: "state",
-            scope: "", // Empty scope
-            code_challenge: "challenge",
-            code_challenge_method: "S256",
-            default_email: "test@example.com",
-            default_password: "",
-        });
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "test",
+        redirect_uri: "https://example.com",
+        response_type: "code",
+        state: "state",
+        scope: "", // Empty scope
+        code_challenge: "challenge",
+        code_challenge_method: "S256",
+        default_email: "test@example.com",
+        default_password: "",
+    });
 
     // Verify default scope is used when scope is empty
     assert!(
@@ -254,7 +253,8 @@ async fn test_generate_login_html_empty_scope() {
 #[tokio::test]
 async fn test_oauth_login_error_rendering() {
     // Load the error template
-    const TEMPLATE: &str = include_str!("../templates/oauth_login_error.html");
+    const TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Simulate error HTML generation
     let test_error_msg = "Authentication Failed: Invalid credentials";
@@ -306,8 +306,10 @@ async fn test_oauth_login_error_rendering() {
 /// Test that templates use Pierre design system colors
 #[test]
 fn test_templates_use_pierre_design_system() {
-    const LOGIN_TEMPLATE: &str = include_str!("../templates/oauth_login.html");
-    const ERROR_TEMPLATE: &str = include_str!("../templates/oauth_login_error.html");
+    const LOGIN_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login.html");
+    const ERROR_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Verify Pierre brand colors are used (hex colors from BRAND.md)
     // Primary: Violet #7C3AED, Cyan #06B6D4
@@ -344,8 +346,10 @@ fn test_templates_use_pierre_design_system() {
 /// Test template accessibility features
 #[test]
 fn test_templates_accessibility() {
-    const LOGIN_TEMPLATE: &str = include_str!("../templates/oauth_login.html");
-    const ERROR_TEMPLATE: &str = include_str!("../templates/oauth_login_error.html");
+    const LOGIN_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login.html");
+    const ERROR_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Verify proper HTML lang attribute
     assert!(
@@ -383,8 +387,10 @@ fn test_templates_accessibility() {
 /// Test template security features
 #[test]
 fn test_templates_security_features() {
-    const LOGIN_TEMPLATE: &str = include_str!("../templates/oauth_login.html");
-    const ERROR_TEMPLATE: &str = include_str!("../templates/oauth_login_error.html");
+    const LOGIN_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login.html");
+    const ERROR_TEMPLATE: &str =
+        include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Verify noindex meta tag (OAuth pages should not be indexed)
     assert!(
@@ -417,7 +423,7 @@ fn test_templates_security_features() {
 // HTML Escaping Tests
 // ============================================================================
 
-use pierre_mcp_server::utils::html::escape_html_attribute;
+use pierre_core::html::escape_html_attribute;
 
 #[test]
 fn test_escape_html_attribute_no_special_chars() {
@@ -474,18 +480,17 @@ async fn test_login_html_escapes_xss_in_state() {
     common::init_server_config();
 
     let xss_state = r#""><script>alert('xss')</script>"#;
-    let html =
-        OAuth2Routes::generate_login_html(pierre_mcp_server::routes::oauth2::LoginHtmlParams {
-            client_id: "test_client",
-            redirect_uri: "https://example.com/callback",
-            response_type: "code",
-            state: xss_state,
-            scope: "fitness:read",
-            code_challenge: "challenge",
-            code_challenge_method: "S256",
-            default_email: "",
-            default_password: "",
-        });
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "test_client",
+        redirect_uri: "https://example.com/callback",
+        response_type: "code",
+        state: xss_state,
+        scope: "fitness:read",
+        code_challenge: "challenge",
+        code_challenge_method: "S256",
+        default_email: "",
+        default_password: "",
+    });
 
     // The XSS payload should NOT appear unescaped
     assert!(
@@ -505,18 +510,17 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
     common::init_server_config();
 
     let xss_redirect = r#"https://evil.com" onload="alert(1)"#;
-    let html =
-        OAuth2Routes::generate_login_html(pierre_mcp_server::routes::oauth2::LoginHtmlParams {
-            client_id: "test_client",
-            redirect_uri: xss_redirect,
-            response_type: "code",
-            state: "safe_state",
-            scope: "fitness:read",
-            code_challenge: "challenge",
-            code_challenge_method: "S256",
-            default_email: "",
-            default_password: "",
-        });
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "test_client",
+        redirect_uri: xss_redirect,
+        response_type: "code",
+        state: "safe_state",
+        scope: "fitness:read",
+        code_challenge: "challenge",
+        code_challenge_method: "S256",
+        default_email: "",
+        default_password: "",
+    });
 
     // The attribute breakout should NOT appear unescaped
     assert!(
@@ -535,18 +539,17 @@ async fn test_oauth_login_page_integration() {
     common::init_server_config();
 
     // Generate login HTML with test values (no full server config needed for this test)
-    let html =
-        OAuth2Routes::generate_login_html(pierre_mcp_server::routes::oauth2::LoginHtmlParams {
-            client_id: "integration_test_client",
-            redirect_uri: "https://integration.test/callback",
-            response_type: "code",
-            state: "integration_state_123",
-            scope: "read:all write:all",
-            code_challenge: "integration_challenge",
-            code_challenge_method: "S256",
-            default_email: "test@pierre.test",
-            default_password: "test123",
-        });
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "integration_test_client",
+        redirect_uri: "https://integration.test/callback",
+        response_type: "code",
+        state: "integration_state_123",
+        scope: "read:all write:all",
+        code_challenge: "integration_challenge",
+        code_challenge_method: "S256",
+        default_email: "test@pierre.test",
+        default_password: "test123",
+    });
 
     // Verify complete HTML structure
     assert!(html.contains("<!DOCTYPE html>"));

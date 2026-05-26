@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::environment::FirebaseConfig;
+use pierre_config::environment::FirebaseConfig;
 
 #[test]
 fn test_firebase_config_is_configured() {

@@ -12,7 +12,7 @@
 /// Service layer for API key management operations
 pub mod service;
 
-use crate::{errors::AppError, mcp::resources::ServerContext, middleware::AuthenticatedUser};
+use crate::mcp::resources::ServerContext;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -22,6 +22,8 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use pierre_auth::api_keys::CreateApiKeyRequestSimple;
+use pierre_core::errors::AppError;
+use pierre_middleware::AuthenticatedUser;
 use serde::Deserialize;
 use service::ApiKeyRoutes as ApiKeyService;
 use std::sync::Arc;

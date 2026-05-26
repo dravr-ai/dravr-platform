@@ -1,16 +1,15 @@
-// ABOUTME: Thin service layer that maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
-// ABOUTME: Lets the chat route stay under the 1750-line route-thinness threshold
+// ABOUTME: Axum handler for the chat verdicts endpoint — delegates to pierre_services::chat_verdicts
+// ABOUTME: Resolves the tenant from the authenticated session then defers to the pure service
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Chat verdict service.
+//! Chat verdict handler.
 //!
-//! Wraps `ClaimVerdictRepository::list_verdicts_for_conversation` with
-//! ownership verification (the user must own the conversation) and
-//! converts the domain `ClaimVerdict` rows into a serializable wire shape
-//! that mirrors the admin route response without crossing the admin
-//! permission gate.
+//! Thin axum wrapper around [`pierre_services::chat_verdicts::list_for_conversation`].
+//! Lives in pierre-server because the axum + `ServerContext` glue is
+//! server-local; the underlying repository logic and wire shapes are in
+//! `pierre-services::chat_verdicts`.
 
 use std::sync::Arc;
 
@@ -20,147 +19,38 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::{Deserialize, Serialize};
 
-use pierre_core::models::TenantId;
+use pierre_core::errors::AppError;
+use pierre_middleware::extract_auth_from_headers;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_services::chat_verdicts::list_for_conversation;
 
-use crate::context::DataContext;
-use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerContext;
-use crate::middleware::extract_auth_from_headers;
-
-/// User-facing wire shape for a Tier 5.5 claim verdict.
-///
-/// Mirrors the admin row but is exposed via the chat route so end users
-/// can render Evidence Strength chips on their own messages without
-/// needing admin permissions.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ChatVerdictRow {
-    /// Stable verdict identifier.
-    pub id: String,
-    /// Conversation the verdict was emitted in.
-    pub conversation_id: Option<String>,
-    /// Message the verdict belongs to (chip rendering key).
-    pub message_id: Option<String>,
-    /// Coach that emitted the underlying claim, if known.
-    pub coach_id: Option<String>,
-    /// The exact claim text the detector verified.
-    pub claim_text: String,
-    /// `nutrition`, `supplement`, etc.
-    pub category: String,
-    /// `supported`, `unsupported`, `contradicted`, `rhetorical`, `unverifiable`.
-    pub status: String,
-    /// `strong`, `mixed`, `weak`, `none`.
-    pub evidence_strength: String,
-    /// Pipeline confidence in `[0.0, 1.0]`.
-    pub confidence: f32,
-    /// Which detector layer produced the verdict.
-    pub layer_fired: String,
-    /// User-facing rationale rendered by the detector explanation layer.
-    pub explanation: Option<String>,
-    /// Comma-separated DOIs / PMIDs backing the verdict, if any.
-    pub evidence_refs: Option<String>,
-    /// RFC3339 emission timestamp.
-    pub created_at: String,
-}
-
-/// Response envelope for `GET /api/chat/conversations/:id/verdicts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ChatVerdictListResponse {
-    /// Verdicts attached to messages in this conversation, chronological order.
-    pub verdicts: Vec<ChatVerdictRow>,
-    /// Convenience count (matches `verdicts.len()`).
-    pub total: usize,
-}
-
-/// Verify the caller owns the conversation, then return all Tier 5.5
-/// verdicts attached to messages in that conversation.
-///
-/// # Errors
-///
-/// - [`AppError::not_found`] when the conversation does not belong to
-///   the user under the given tenant.
-/// - Repository errors propagated from the underlying chat or
-///   claim verdict repositories.
-pub async fn list_for_conversation(
-    data: &DataContext,
-    conversation_id: &str,
-    user_id: &str,
-    tenant_id: TenantId,
-) -> AppResult<ChatVerdictListResponse> {
-    data.repos()
-        .chat
-        .get_conversation(conversation_id, user_id, tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
-
-    let verdicts = data
-        .repos()
-        .claim_verdicts
-        .list_verdicts_for_conversation(conversation_id, tenant_id)
-        .await?;
-
-    let rows: Vec<ChatVerdictRow> = verdicts
-        .into_iter()
-        .map(|v| ChatVerdictRow {
-            id: v.id,
-            conversation_id: v.conversation_id,
-            message_id: v.message_id,
-            coach_id: v.coach_id,
-            claim_text: v.claim_text,
-            category: v.category.as_str().to_owned(),
-            status: v.status.as_str().to_owned(),
-            evidence_strength: v.evidence_strength.as_str().to_owned(),
-            confidence: v.confidence,
-            layer_fired: v.layer_fired.as_str().to_owned(),
-            explanation: v.explanation,
-            evidence_refs: v.evidence_refs,
-            created_at: v.created_at.to_rfc3339(),
-        })
-        .collect();
-
-    let total = rows.len();
-    Ok(ChatVerdictListResponse {
-        verdicts: rows,
-        total,
-    })
-}
-
-/// Resolve the active tenant for the authenticated user.
-///
-/// Mirrors the helper inside `routes::chat::ChatRoutes::get_tenant_id`
-/// without going through the route module so this handler can stay
-/// outside `routes/chat.rs` (which is at the route-thinness ceiling).
-async fn resolve_tenant_id(data: &DataContext, user_id: uuid::Uuid) -> TenantId {
-    data.repos()
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .ok()
-        .and_then(|tenants| tenants.first().map(|t| t.id))
-        .unwrap_or_else(|| TenantId::from(user_id))
-}
 
 /// Axum handler for `GET /api/chat/conversations/:id/verdicts`.
 ///
-/// Authenticates the caller, resolves their active tenant, and delegates
-/// to [`list_for_conversation`]. Routed from `routes::chat` so the chat
-/// route module stays under the 1750-line route-thinness threshold.
+/// Authenticates the caller, resolves their active tenant via the
+/// canonical `resolve_tenant` helper (no user-id fallback, membership
+/// verified for `active_tenant_id` claims), and delegates to
+/// [`pierre_services::chat_verdicts::list_for_conversation`]. Routed
+/// from `routes::chat` so the chat route module stays under the 1750-line
+/// route-thinness threshold.
 ///
 /// # Errors
 ///
-/// Returns the same errors as [`list_for_conversation`] plus
-/// authentication failures from the middleware extractor.
+/// Returns the same errors as
+/// [`pierre_services::chat_verdicts::list_for_conversation`] plus
+/// authentication failures from the middleware extractor, plus
+/// [`AppError::auth_invalid`] when the user has no tenants.
 pub async fn get_verdicts_handler(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let data = resources.data();
-    let tenant_id = resolve_tenant_id(&data, auth.user_id).await;
+    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let response = list_for_conversation(
-        &data,
+        &resources.data().repos().coach_repos(),
         &conversation_id,
         &auth.user_id.to_string(),
         tenant_id,

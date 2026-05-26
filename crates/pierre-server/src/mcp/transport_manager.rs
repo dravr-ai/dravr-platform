@@ -9,8 +9,11 @@
 // - Shared resource distribution across stdio, SSE, and HTTP transports
 
 use super::resources::ServerContext;
-use crate::errors::{AppError, AppResult};
-use crate::mcp::schema::OAuthCompletedNotification;
+#[cfg(feature = "transport-stdio")]
+use crate::utils::route_timeout::mcp_sampling_timeout_duration;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_mcp_schema::OAuthCompletedNotification;
+use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use std::sync::Arc;
 #[cfg(feature = "transport-stdio")]
 use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader};
@@ -87,7 +90,10 @@ impl TransportManager {
         resources_clone.set_oauth_notification_sender(self.notification_sender.clone());
 
         let stdout_handle = Arc::new(Mutex::new(stdout()));
-        let sampling_peer = Arc::new(super::sampling_peer::SamplingPeer::new(stdout_handle));
+        let sampling_peer = Arc::new(SamplingPeer::new(
+            stdout_handle,
+            mcp_sampling_timeout_duration(),
+        ));
         resources_clone.set_sampling_peer(sampling_peer);
 
         Self::spawn_progress_handler(&mut resources_clone);
@@ -224,7 +230,10 @@ impl TransportManager {
         {
             use tokio::io::stdout;
             let stdout_handle = Arc::new(Mutex::new(stdout()));
-            let sampling_peer = Arc::new(super::sampling_peer::SamplingPeer::new(stdout_handle));
+            let sampling_peer = Arc::new(SamplingPeer::new(
+                stdout_handle,
+                mcp_sampling_timeout_duration(),
+            ));
             resources_clone.set_sampling_peer(sampling_peer);
             Self::spawn_progress_handler(&mut resources_clone);
         }
@@ -307,7 +316,7 @@ impl StdioTransport {
     /// Route a sampling response to the sampling peer
     async fn route_sampling_response(
         message: &serde_json::Value,
-        sampling_peer: Option<&Arc<super::sampling_peer::SamplingPeer>>,
+        sampling_peer: Option<&Arc<SamplingPeer>>,
     ) {
         let Some(peer) = sampling_peer else {
             warn!("Received sampling response but no sampling peer available");
@@ -346,7 +355,7 @@ impl StdioTransport {
 
     /// Process an MCP request and send the response
     async fn process_mcp_request(message: serde_json::Value, resources: Arc<ServerContext>) {
-        match serde_json::from_value::<super::multitenant::McpRequest>(message) {
+        match serde_json::from_value::<pierre_mcp_schema::McpRequest>(message) {
             Ok(request) => {
                 let processor = super::mcp_request_processor::McpRequestProcessor::new(resources);
                 if let Some(response) = processor.handle_request(request).await {
@@ -366,7 +375,7 @@ impl StdioTransport {
     async fn process_stdio_message(
         message: serde_json::Value,
         resources: Arc<ServerContext>,
-        sampling_peer: Option<&Arc<super::sampling_peer::SamplingPeer>>,
+        sampling_peer: Option<&Arc<SamplingPeer>>,
     ) {
         if Self::is_sampling_response(&message) {
             Self::route_sampling_response(&message, sampling_peer).await;
@@ -387,7 +396,7 @@ impl StdioTransport {
 
         let stdin_handle = stdin();
         let mut lines = BufReader::new(stdin_handle).lines();
-        let sampling_peer = self.resources.sampling_peer.clone();
+        let sampling_peer = self.resources.sse.sampling_peer.clone();
 
         let resources_for_notifications = self.resources.clone();
         let notification_handle = tokio::spawn(async move {

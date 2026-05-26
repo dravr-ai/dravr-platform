@@ -14,10 +14,10 @@ use pierre_intelligence::training_history_compute::{
 };
 use uuid::Uuid;
 
-use crate::config::environment::default_provider;
-use crate::context::DataContext;
-use crate::mcp::resources::ServerContext;
-use crate::routes::social::SocialRoutes;
+use pierre_config::environment::default_provider;
+use pierre_routes_social::SocialRoutes;
+use pierre_runtime_context::DataContext;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
 pub const DEFAULT_BACKFILL_DAYS: i64 = 90;
@@ -39,7 +39,7 @@ pub const MAX_ACTIVITIES_FOR_BACKFILL: usize = 500;
 /// Returns [`AppError`] when the provider fetch fails or the repository
 /// upsert fails. The compute step is infallible.
 pub async fn compute_and_persist_history(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -57,7 +57,7 @@ pub async fn compute_and_persist_history(
     let provider_name = if let Some(p) = default_provider() {
         p
     } else if let Some(conn) = resources
-        .repos
+        .repos()
         .provider_connections
         .resolve_most_recent(user_id, Some(tenant_id))
         .await?
@@ -77,7 +77,7 @@ pub async fn compute_and_persist_history(
     .await?;
 
     let physiology = resources
-        .repos
+        .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
         .await?;
@@ -98,7 +98,7 @@ pub async fn compute_and_persist_history(
         return Ok(0);
     }
     resources
-        .repos
+        .repos()
         .training_history
         .upsert_training_history_batch(tenant_id, user_id, &states)
         .await?;
@@ -113,7 +113,7 @@ pub async fn compute_and_persist_history(
 ///
 /// Same conditions as [`compute_and_persist_history`].
 pub async fn compute_default_window(
-    resources: &Arc<ServerContext>,
+    resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AppResult<usize> {

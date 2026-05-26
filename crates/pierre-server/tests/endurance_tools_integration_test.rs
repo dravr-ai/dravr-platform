@@ -32,8 +32,8 @@
 use anyhow::Result;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
-use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
-use pierre_mcp_server::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -56,8 +56,8 @@ async fn create_endurance_test_executor() -> Result<Arc<UniversalToolExecutor>> 
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
     let email = format!("endurance_test_{}@example.com", Uuid::new_v4());
     let (user_id, _user) =
-        common::create_test_user_with_email(&executor.resources.database, &email).await?;
-    let tenants = executor.resources.repos.tenants.get_all().await?;
+        common::create_test_user_with_email(executor.resources.database(), &email).await?;
+    let tenants = executor.resources.repos().tenants.get_all().await?;
     let user_tenant = tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -83,10 +83,14 @@ fn make_request(
     }
 }
 
+/// Accept both `ProtocolError` variants the executor can produce when a tool
+/// rejects a call: `InvalidParameters` for missing/malformed fields (mapped
+/// from `AppError::InvalidInput`) and `InvalidRequest` for the tenant-gate
+/// rejection. Either proves the tool refused to run.
 fn assert_invalid_request(err: &ProtocolError, tool: &str) {
     match err {
-        ProtocolError::InvalidRequest(_) => {}
-        other => panic!("{tool}: expected InvalidRequest, got {other:?}"),
+        ProtocolError::InvalidParameters(_) | ProtocolError::InvalidRequest(_) => {}
+        other => panic!("{tool}: expected InvalidParameters or InvalidRequest, got {other:?}"),
     }
 }
 
@@ -116,7 +120,7 @@ async fn seed_physiology(
     let tenant_id: TenantId = tenant.parse().expect("valid tenant id");
     executor
         .resources
-        .repos
+        .repos()
         .user_physiological_profile
         .upsert_user_physiological_profile(tenant_id, user_id, &profile)
         .await?;
@@ -132,7 +136,7 @@ async fn test_endurance_tools_registered() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())

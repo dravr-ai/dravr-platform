@@ -24,10 +24,10 @@ mod notification_scheduling_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_mcp_server::routes::notifications::NotificationRoutes;
     use pierre_notifications::models::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
+    use pierre_routes_social::NotificationRoutes;
     use serde_json::{json, Value};
     use std::sync::Arc;
 
@@ -361,6 +361,7 @@ mod notification_scheduling_tests {
 
         // Look up the user's tenant
         let tenants = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -368,7 +369,7 @@ mod notification_scheduling_tests {
             .unwrap();
         let tenant_id = CommereTenantId(tenants[0].id.0);
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         let params = CreateNotificationParams {

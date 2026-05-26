@@ -17,23 +17,20 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
 };
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
+    ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-        ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig,
-        LogLevel, LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig,
-        SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
-        WeatherServiceConfig,
-    },
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
 };
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;

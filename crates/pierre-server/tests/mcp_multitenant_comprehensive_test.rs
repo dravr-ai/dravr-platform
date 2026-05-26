@@ -12,11 +12,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::models::{Tenant, User};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    mcp::multitenant::{McpRequest, MultiTenantMcpServer},
-    models::{Tenant, User},
-};
+use pierre_mcp_schema::McpRequest;
+use pierre_mcp_server::mcp::multitenant::MultiTenantMcpServer;
 use serde_json::json;
 use serial_test::serial;
 use std::collections::HashMap;
@@ -141,7 +140,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
         bcrypt::hash("test_password", 4)?,
         Some("Auth Test User".to_owned()),
     );
-    resources.repos.users.create(&user).await?;
+    resources.common.repos.users.create(&user).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -283,7 +282,7 @@ async fn test_tools_call_with_valid_authentication() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -310,7 +309,7 @@ async fn test_tools_call_with_missing_params() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     // Test request with missing params
     let request = McpRequest {
@@ -338,7 +337,7 @@ async fn test_connect_strava_tool() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -365,7 +364,7 @@ async fn test_connect_fitbit_tool() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -392,7 +391,7 @@ async fn test_get_connection_status_tool() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -419,7 +418,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -450,7 +449,7 @@ async fn test_provider_tools_without_connection() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     // Test provider-specific tools that require connection
     let provider_tools = [
@@ -490,7 +489,7 @@ async fn test_intelligence_tools() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     // Test intelligence tools that don't require provider
     let tools = [
@@ -584,7 +583,7 @@ async fn test_handle_authenticated_tool_call_edge_cases() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.database).await?;
+    let (_user, token) = create_test_user_with_auth(&resources.coach.database).await?;
 
     // Test with invalid tool name
     let request = McpRequest {
@@ -626,7 +625,7 @@ async fn test_concurrent_requests() -> Result<()> {
             "password".to_owned(),
             Some(format!("Concurrent User {i}")),
         );
-        resources.repos.users.create(&user).await?;
+        resources.common.repos.users.create(&user).await?;
 
         // Create tenant for this user
         let tenant_slug = format!("concurrent-tenant-{i}");
@@ -637,18 +636,20 @@ async fn test_concurrent_requests() -> Result<()> {
             "starter".to_owned(),
             user.id,
         );
-        resources.repos.tenants.create(&tenant).await?;
+        resources.common.repos.tenants.create(&tenant).await?;
 
         // Link user to tenant via user_tenants table
         resources
+            .common
             .repos
             .users
             .update_tenant_id(user.id, tenant.id)
             .await?;
 
         let token = resources
+            .auth
             .auth_manager
-            .generate_token(&user, &resources.jwks_manager)?;
+            .generate_token(&user, &resources.auth.jwks_manager)?;
         user_tokens.push((user, token));
     }
 

@@ -9,12 +9,12 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::config::environment::HttpClientConfig;
+use pierre_config::environment::HttpClientConfig;
 use pierre_mcp_server::constants::{init_server_config, oauth_providers};
-use pierre_mcp_server::providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
-use pierre_mcp_server::providers::coros_provider::CorosProvider;
-use pierre_mcp_server::providers::registry::{get_supported_providers, global_registry};
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
+use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::coros_provider::CorosProvider;
+use pierre_providers::registry::{get_supported_providers, global_registry};
 use std::sync::Once;
 
 /// Ensure HTTP clients and server config are initialized only once across all tests

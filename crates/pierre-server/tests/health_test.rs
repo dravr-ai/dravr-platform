@@ -12,9 +12,9 @@
 
 mod common;
 
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::health::{HealthChecker, HealthStatus};
 use std::sync::Arc;
 

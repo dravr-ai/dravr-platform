@@ -17,10 +17,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::protocols::universal::{
-    UniversalRequest, UniversalResponse, UniversalToolExecutor,
-};
-use pierre_mcp_server::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::ProtocolError;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;

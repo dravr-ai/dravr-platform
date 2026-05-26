@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, missing_docs)]
 
-use pierre_mcp_server::permissions::{
+use pierre_core::permissions::{
     impersonation::{ImpersonationSession, PermissionDelegation},
     Permissions, UserRole,
 };

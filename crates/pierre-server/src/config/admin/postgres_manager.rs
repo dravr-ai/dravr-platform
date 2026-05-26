@@ -5,11 +5,11 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
-use super::types::{
-    AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
-};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_config::admin_types::{
+    AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
+};
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};

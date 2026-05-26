@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Integration test for the billing webhook → DB → tier mutation pipeline
 // ABOUTME: Drives dispatch_billing_event with synthetic BillingEvents (no provider HTTP layer involved)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 #![allow(
     missing_docs,
@@ -18,7 +18,7 @@ use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_mcp_server::routes::billing::dispatch_billing_event;
+use pierre_routes_billing::dispatch_billing_event;
 use uuid::Uuid;
 
 const TEST_PROVIDER: &str = "dummy";
@@ -124,7 +124,9 @@ async fn subscription_upserted_flips_tier_and_plan() {
         "active",
     )));
 
-    dispatch_billing_event(&repos, TEST_PROVIDER, &event)
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &event)
         .await
         .expect("dispatch should succeed");
 
@@ -186,7 +188,9 @@ async fn subscription_canceled_downgrades_to_starter() {
         "professional",
         "active",
     )));
-    dispatch_billing_event(&repos, TEST_PROVIDER, &upsert)
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
         .await
         .unwrap();
 
@@ -195,7 +199,7 @@ async fn subscription_canceled_downgrades_to_starter() {
         canceled_at: Some(Utc::now()),
     };
 
-    dispatch_billing_event(&repos, TEST_PROVIDER, &cancel)
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &cancel)
         .await
         .expect("dispatch should succeed");
 
@@ -231,14 +235,16 @@ async fn payment_failed_flips_status_to_past_due() {
         "professional",
         "active",
     )));
-    dispatch_billing_event(&repos, TEST_PROVIDER, &upsert)
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
         .await
         .unwrap();
 
     let payment_failed = BillingEvent::PaymentFailed {
         provider_subscription_id: subscription_id.clone(),
     };
-    dispatch_billing_event(&repos, TEST_PROVIDER, &payment_failed)
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &payment_failed)
         .await
         .expect("payment_failed dispatch should succeed");
 
@@ -291,9 +297,16 @@ async fn ignored_event_is_a_noop() {
     let (user_id, _tenant_id) = seed_starter_user_and_tenant(&db).await;
     let repos = db.repositories();
 
-    dispatch_billing_event(&repos, TEST_PROVIDER, &BillingEvent::Ignored)
-        .await
-        .expect("ignored events should dispatch cleanly");
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        &BillingEvent::Ignored,
+    )
+    .await
+    .expect("ignored events should dispatch cleanly");
 
     // No subscription row, no tier flip.
     assert!(repos

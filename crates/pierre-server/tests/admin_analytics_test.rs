@@ -20,20 +20,19 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{AddMessageParams, ConversationTurnId, InsertLlmUsage, TenantId};
-use pierre_mcp_server::{
-    mcp::resources::ServerContext,
-    models::{Tenant, User, UserStatus},
-    permissions::UserRole,
-    routes::WebAdminRoutes,
-};
+use pierre_core::models::{Tenant, User, UserStatus};
+use pierre_core::permissions::UserRole;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_web_admin::WebAdminRoutes;
 use serde_json::Value;
 use serial_test::serial;
 use std::sync::Arc;
 use uuid::Uuid;
 
 /// Build a `WebAdminRoutes` router backed by the given server resources
+#[allow(clippy::needless_pass_by_value)]
 fn build_admin_analytics_router(resources: Arc<ServerContext>) -> axum::Router {
-    WebAdminRoutes::routes(resources)
+    WebAdminRoutes::routes(resources.web_admin_context())
 }
 
 /// Create an admin user from scratch with `is_admin` set before insertion
@@ -55,7 +54,7 @@ async fn create_admin_user_and_token(
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     // Create tenant for the admin user
     let tenant_id = TenantId::new();
@@ -69,8 +68,15 @@ async fn create_admin_user_and_token(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
     resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+    resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -95,7 +101,7 @@ async fn create_regular_user_and_token(resources: &Arc<ServerContext>, email: &s
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     // Create tenant for the regular user
     let tenant_id = TenantId::new();
@@ -109,8 +115,15 @@ async fn create_regular_user_and_token(resources: &Arc<ServerContext>, email: &s
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
     resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+    resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -153,6 +166,7 @@ async fn seed_llm_usage(
             call_sequence: None,
         };
         resources
+            .common
             .repos
             .llm_usage
             .insert_llm_usage(&params)
@@ -176,6 +190,7 @@ async fn seed_conversations_and_messages(
     for i in 0..conversation_count {
         let title = format!("Test Conversation {i}");
         let convo = resources
+            .common
             .repos
             .chat
             .create_conversation(user_id, tenant_id, &title, "gemini-2.0-flash", None, None)
@@ -195,7 +210,13 @@ async fn seed_conversations_and_messages(
                 prompt_tokens: Some(30),
                 model: Some("gemini-2.0-flash"),
             };
-            resources.repos.chat.add_message(&params).await.unwrap();
+            resources
+                .common
+                .repos
+                .chat
+                .add_message(&params)
+                .await
+                .unwrap();
             total_messages += 1;
         }
     }
@@ -215,7 +236,12 @@ async fn test_recent_activity_returns_seeded_data() -> Result<()> {
         create_admin_user_and_token(&resources, "analytics_admin@test.com").await;
 
     // Look up tenant for seeding data
-    let tenants = resources.repos.tenants.list_for_user(user_id).await?;
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await?;
     let tenant = tenants.first().expect("admin user should have a tenant");
     let tenant_id = tenant.id;
     let user_id_str = user_id.to_string();
@@ -421,7 +447,12 @@ async fn test_recent_activity_cost_estimation() -> Result<()> {
     let (user_id, auth_token) =
         create_admin_user_and_token(&resources, "cost_admin@test.com").await;
 
-    let tenants = resources.repos.tenants.list_for_user(user_id).await?;
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await?;
     let tenant = tenants.first().expect("admin user should have a tenant");
     let tenant_id_str = tenant.id.to_string();
     let user_id_str = user_id.to_string();
@@ -475,7 +506,12 @@ async fn test_recent_activity_respects_limit() -> Result<()> {
     let (user_id, auth_token) =
         create_admin_user_and_token(&resources, "limit_admin@test.com").await;
 
-    let tenants = resources.repos.tenants.list_for_user(user_id).await?;
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await?;
     let tenant = tenants.first().expect("admin user should have a tenant");
     let tenant_id = tenant.id;
     let tenant_id_str = tenant_id.to_string();

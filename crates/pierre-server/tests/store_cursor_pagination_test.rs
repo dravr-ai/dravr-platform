@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::DateTime;
-use pierre_mcp_server::pagination::{Cursor, StoreCursor, StoreSortOrder};
+use pierre_core::pagination::{Cursor, StoreCursor, StoreSortOrder};
 
 // ============================================================================
 // StoreCursor Encoding/Decoding Tests

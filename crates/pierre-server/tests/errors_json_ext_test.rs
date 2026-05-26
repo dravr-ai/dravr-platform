@@ -9,7 +9,7 @@
 //! This module validates the `JsonResultExt` trait and helper functions
 //! for creating JSON-specific error messages with proper context.
 
-use pierre_mcp_server::errors::{AppError, ErrorCode, JsonResultExt};
+use pierre_core::errors::{AppError, ErrorCode, JsonResultExt};
 use std::error::Error;
 
 #[test]

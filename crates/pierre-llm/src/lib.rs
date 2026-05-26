@@ -44,6 +44,8 @@ pub mod embeddings;
 mod gemini;
 /// Groq LLM provider implementation
 mod groq;
+/// LLM startup probe state shared with pierre-server's /ready and /health/llm routes
+pub mod health;
 /// Generic LLM-as-judge helpers for structured JSON verdicts
 pub mod judge;
 /// Generic OpenAI-compatible LLM provider

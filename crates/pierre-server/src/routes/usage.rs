@@ -20,13 +20,13 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::{
-    errors::AppError,
-    mcp::resources::ServerContext,
-    middleware::AuthenticatedUser,
-    models::TenantId,
-    services::usage_counter::{LimitCheckResult, UsageCounterService},
-};
+use crate::mcp::resources::ServerContext;
+use pierre_auth::auth::AuthResult;
+use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_middleware::AuthenticatedUser;
+use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Usage status response containing all quota information
 #[derive(Debug, Serialize)]
@@ -85,15 +85,13 @@ impl UsageRoutes {
             .with_state(resources)
     }
 
-    /// Get user's `tenant_id` (defaults to `user_id` if no tenant)
+    /// Resolve the caller's tenant via the canonical resolver. Errors if
+    /// the user has no tenants — no user-id fallback.
     pub(crate) async fn get_tenant_id(
-        user_id: uuid::Uuid,
+        auth: &AuthResult,
         resources: &Arc<ServerContext>,
     ) -> Result<TenantId, AppError> {
-        let tenants = resources.repos.tenants.list_for_user(user_id).await?;
-        Ok(tenants
-            .first()
-            .map_or_else(|| TenantId::from(user_id), |t| t.id))
+        require(resolve_tenant(resources, auth, TenantMode::Required).await?)
     }
 
     /// GET /api/usage/status - Get current usage quota status
@@ -102,13 +100,13 @@ impl UsageRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
+        let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
         let user_id_str = auth.user_id.to_string();
         let tenant_id_str = tenant_id.to_string();
 
         // When admin config is not available (e.g., PostgreSQL deployment where
         // AdminConfigService is SQLite-only), return default quota values
-        let Some(admin_config) = resources.admin_config.as_ref() else {
+        let Some(admin_config) = resources.coach.admin_config.as_ref() else {
             let default_limit = LimitCheckResult {
                 allowed: true,
                 current: 0,
@@ -118,6 +116,7 @@ impl UsageRoutes {
                 resets_at: String::new(),
             };
             let conversation_count = resources
+                .common
                 .repos
                 .chat
                 .count_conversations(&user_id_str, tenant_id)
@@ -144,8 +143,10 @@ impl UsageRoutes {
             return Ok((StatusCode::OK, Json(response)).into_response());
         };
 
-        let usage_svc =
-            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+        let usage_svc = UsageCounterService::new(
+            resources.common.repos.usage_counters.as_ref(),
+            admin_config.as_ref(),
+        );
 
         // Fetch all counter statuses in parallel-friendly sequence
         let daily_messages = usage_svc
@@ -169,6 +170,7 @@ impl UsageRoutes {
 
         // Get resource counts for conversations and coaches
         let conversation_count = resources
+            .common
             .repos
             .chat
             .count_conversations(&user_id_str, tenant_id)

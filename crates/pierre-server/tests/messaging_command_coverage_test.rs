@@ -25,13 +25,13 @@ mod coverage {
     };
     use axum::http::StatusCode;
     use chrono::Utc;
+    use pierre_commands::load_command_definitions;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
-    use pierre_mcp_server::commands::load_command_definitions;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -91,7 +91,7 @@ mod coverage {
         user.approved_by = Some(user.id);
         user.approved_at = Some(Utc::now());
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -104,7 +104,13 @@ mod coverage {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
 
         (user_id, tenant_id)
     }
@@ -193,7 +199,7 @@ mod coverage {
         channel: TestChannel,
         sender_id: &str,
     ) {
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
         let link_id = Uuid::new_v4().to_string();
         db.create_channel_link(&CreateChannelLinkParams {
             id: &link_id,
@@ -209,6 +215,7 @@ mod coverage {
         // Seed a real chat_conversation so pierre_conversation_id satisfies its
         // FK against chat_conversations(id).
         let conversation = resources
+            .common
             .repos
             .chat
             .create_conversation(
@@ -332,7 +339,7 @@ mod coverage {
         };
 
         let secrets = ChannelSecrets::generate();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         for channel in TestChannel::ALL {
             upsert_config_for_channel(db, tenant_id, channel, &secrets).await;
@@ -393,7 +400,7 @@ mod coverage {
             messenger: String::new(),
         };
         let secrets = ChannelSecrets::generate();
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         upsert_config_for_channel(db, tenant_id, TestChannel::Telegram, &secrets).await;
         create_link_and_session(

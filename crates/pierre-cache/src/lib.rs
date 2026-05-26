@@ -35,6 +35,11 @@ pub mod redaction;
 /// Redis connection and retry configuration
 pub mod redis_config;
 
+/// Unified `Cache` wrapper dispatching to in-memory or Redis backends
+mod cache;
+
+pub use cache::Cache;
+
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
     TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_STATS_SECS, TTL_TRAINING_HISTORY_SECS,

@@ -9,12 +9,12 @@
 
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
-use pierre_mcp_server::models::{
+use pierre_core::models::{
     Activity, ActivityBuilder, Athlete, AuthorizationCode, EncryptedToken, HeartRateZone,
     PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant, TenantId, User,
     UserStatus, UserTier,
 };
-use pierre_mcp_server::permissions::UserRole;
+use pierre_core::permissions::UserRole;
 use uuid::Uuid;
 
 /// Test data for creating sample activities

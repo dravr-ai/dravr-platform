@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use pierre_mcp_server::services::eval_harness::{
+use pierre_services::eval_harness::{
     browse_fixtures_from, delete_fixture_from, read_fixture_text_from, write_fixture_to,
 };
 

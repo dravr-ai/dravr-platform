@@ -14,7 +14,7 @@
 
 #![allow(clippy::unwrap_used)] // Test assertions - unwrap is idiomatic
 
-use pierre_mcp_server::types::json_schemas;
+use pierre_mcp_schema::json_schemas;
 use serde_json::json;
 
 // ============================================================================

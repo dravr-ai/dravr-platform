@@ -1,0 +1,34 @@
+# ABOUTME: HTTP middleware layer — auth, tenant resolution, CSRF, CORS, rate limiting, redaction, tracing
+# ABOUTME: Uses MiddlewareCtx trait to stay decoupled from pierre-server's ServerContext
+
+[package]
+name = "pierre-middleware"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "HTTP middleware layer for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros", "ws"] }
+bitflags = "2"
+chrono = { version = "0.4", features = ["serde"] }
+http = "1"
+jsonwebtoken = "9"
+regex = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

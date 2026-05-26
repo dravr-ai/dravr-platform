@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::LlmProviderType;
-use pierre_mcp_server::llm::{LlmCapabilities, OpenAiCompatibleConfig, OpenAiCompatibleProvider};
+use pierre_config::environment::LlmProviderType;
+use pierre_llm::{LlmCapabilities, OpenAiCompatibleConfig, OpenAiCompatibleProvider};
 use std::env;
 
 /// Live-Ollama tests gate on `RUN_LOCAL_LLM_TESTS=1` so they skip silently on
@@ -364,7 +364,7 @@ fn test_vllm_capabilities_include_json_mode() {
 
 #[tokio::test]
 async fn test_openai_compatible_health_check() {
-    use pierre_mcp_server::llm::LlmProvider;
+    use pierre_llm::LlmProvider;
     require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
@@ -377,7 +377,7 @@ async fn test_openai_compatible_health_check() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete() {
-    use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
+    use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
     require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");
@@ -394,7 +394,7 @@ async fn test_openai_compatible_complete() {
 
 #[tokio::test]
 async fn test_openai_compatible_complete_with_tools() {
-    use pierre_mcp_server::llm::{ChatMessage, ChatRequest, FunctionDeclaration, Tool};
+    use pierre_llm::{ChatMessage, ChatRequest, FunctionDeclaration, Tool};
     use serde_json::json;
     require_local_llm!();
 
@@ -436,7 +436,7 @@ async fn test_openai_compatible_complete_with_tools() {
 #[tokio::test]
 async fn test_openai_compatible_streaming() {
     use futures_util::StreamExt;
-    use pierre_mcp_server::llm::{ChatMessage, ChatRequest, LlmProvider};
+    use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
     require_local_llm!();
 
     let config = OpenAiCompatibleConfig::ollama("qwen2.5:7b");

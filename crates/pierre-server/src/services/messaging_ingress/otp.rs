@@ -19,16 +19,16 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::{
+use crate::mcp::resources::ServerContext;
+use crate::routes::messaging::linking::generate_link_code;
+use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
     KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR, KEY_LINK_IDENTITY_COLLISION,
     KEY_LINK_INCORRECT_CODE, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
     KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
 };
-use crate::mcp::resources::ServerContext;
-use crate::routes::messaging::linking::generate_link_code;
-use crate::services::analytics::{analytics, hash_id};
+use pierre_services::analytics::{analytics, hash_id};
 
 /// Parameters for the OTP code verification step of the channel linking flow
 struct OtpVerificationParams<'a> {
@@ -59,7 +59,7 @@ pub(super) async fn handle_logout(
     channel: &str,
     sender_id: &str,
 ) -> OutgoingMessage {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     if let Err(e) = db
         .logout_channel_sender(tenant_id, channel, sender_id)
@@ -85,6 +85,7 @@ pub(super) async fn handle_logout(
         channel_type,
         sender_id,
         resources
+            .mcp
             .messaging_strings_registry
             .get(KEY_LINK_LOGOUT_COMPLETE, DEFAULT_LOCALE),
     )
@@ -168,7 +169,7 @@ pub(super) async fn handle_otp_flow(
     sender_id: &str,
     content: &MessageContent,
 ) -> Option<OutgoingMessage> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     // Handle cancel command: invalidate any active flow
     if is_cancel_command(content) {
@@ -183,6 +184,7 @@ pub(super) async fn handle_otp_flow(
                 channel_type,
                 sender_id,
                 resources
+                    .mcp
                     .messaging_strings_registry
                     .get(KEY_LINK_CANCELLED, DEFAULT_LOCALE),
             ));
@@ -246,18 +248,20 @@ async fn validate_email_user(
     sender_id: &str,
     email: &str,
 ) -> Result<User, OutgoingMessage> {
-    let db_user: &dyn UserRepository = resources.repos.users.as_ref();
+    let db_user: &dyn UserRepository = resources.common.repos.users.as_ref();
 
     // Cross-tenant user lookup by email
     let user = match db_user.get_by_email(email).await {
         Ok(Some(u)) => u,
         Ok(None) => {
             let register_url = resources
+                .common
                 .config
                 .frontend_url
                 .as_deref()
-                .unwrap_or(&resources.config.base_url);
+                .unwrap_or(&resources.common.config.base_url);
             let template = resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_NO_ACCOUNT, DEFAULT_LOCALE);
             return Err(otp_reply(
@@ -272,6 +276,7 @@ async fn validate_email_user(
                 channel_type,
                 sender_id,
                 resources
+                    .mcp
                     .messaging_strings_registry
                     .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
             ));
@@ -279,7 +284,7 @@ async fn validate_email_user(
     };
 
     // Verify user belongs to a tenant (shared bot model: accept any tenant the user belongs to)
-    let db_tenant: &dyn TenantRepository = resources.repos.tenants.as_ref();
+    let db_tenant: &dyn TenantRepository = resources.common.repos.tenants.as_ref();
     let tenants = match db_tenant.list_for_user(user.id).await {
         Ok(t) => t,
         Err(e) => {
@@ -288,6 +293,7 @@ async fn validate_email_user(
                 channel_type,
                 sender_id,
                 resources
+                    .mcp
                     .messaging_strings_registry
                     .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
             ));
@@ -299,6 +305,7 @@ async fn validate_email_user(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_NO_TENANT, DEFAULT_LOCALE),
         ));
@@ -317,7 +324,7 @@ async fn generate_and_send_otp(
     state_id: &str,
     email: &str,
 ) -> Result<String, OutgoingMessage> {
-    let db_msg: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db_msg: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     let otp_code = generate_otp();
     let otp_hashed = hash_otp(&otp_code);
@@ -331,6 +338,7 @@ async fn generate_and_send_otp(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         ));
@@ -338,12 +346,13 @@ async fn generate_and_send_otp(
 
     // Send the OTP code via email
     let channel_display_name = channel_type.to_string();
-    let Some(email_svc) = &resources.email_service else {
+    let Some(email_svc) = &resources.common.email_service else {
         warn!("Email service not configured, cannot send OTP for channel linking");
         return Err(otp_reply(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_EMAIL_NOT_CONFIGURED, DEFAULT_LOCALE),
         ));
@@ -358,6 +367,7 @@ async fn generate_and_send_otp(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_EMAIL_SEND_FAILED, DEFAULT_LOCALE),
         ));
@@ -383,6 +393,7 @@ async fn handle_email_step(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_INVALID_EMAIL, DEFAULT_LOCALE),
         );
@@ -409,6 +420,7 @@ async fn handle_email_step(
     );
 
     let template = resources
+        .mcp
         .messaging_strings_registry
         .get(KEY_LINK_OTP_SENT, DEFAULT_LOCALE);
     otp_reply(
@@ -444,6 +456,7 @@ async fn handle_otp_mismatch(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_TOO_MANY_ATTEMPTS, DEFAULT_LOCALE),
         );
@@ -451,6 +464,7 @@ async fn handle_otp_mismatch(
 
     let remaining = (MAX_OTP_ATTEMPTS - attempts).to_string();
     let template = resources
+        .mcp
         .messaging_strings_registry
         .get(KEY_LINK_INCORRECT_CODE, DEFAULT_LOCALE);
     otp_reply(
@@ -466,8 +480,8 @@ async fn handle_otp_mismatch(
 async fn create_verified_channel_link(
     params: &OtpVerificationParams<'_>,
 ) -> Result<User, OutgoingMessage> {
-    let db_user: &dyn UserRepository = params.resources.repos.users.as_ref();
-    let db_msg: &dyn MessagingRepository = params.resources.repos.messaging.as_ref();
+    let db_user: &dyn UserRepository = params.resources.common.repos.users.as_ref();
+    let db_msg: &dyn MessagingRepository = params.resources.common.repos.messaging.as_ref();
 
     let Ok(Some(user)) = db_user.get_by_email(params.email).await else {
         return Err(otp_reply(
@@ -475,6 +489,7 @@ async fn create_verified_channel_link(
             params.sender_id,
             params
                 .resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_VERIFICATION_ERROR, DEFAULT_LOCALE),
         ));
@@ -501,6 +516,7 @@ async fn create_verified_channel_link(
             params.sender_id,
             params
                 .resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_IDENTITY_COLLISION, DEFAULT_LOCALE),
         ));
@@ -529,12 +545,13 @@ async fn handle_otp_verification_step(
             params.sender_id,
             params
                 .resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_OTP_PROMPT, DEFAULT_LOCALE),
         );
     }
 
-    let db_msg: &dyn MessagingRepository = params.resources.repos.messaging.as_ref();
+    let db_msg: &dyn MessagingRepository = params.resources.common.repos.messaging.as_ref();
 
     // Hash input and compare against stored hash
     let input_hash = hash_otp(trimmed);
@@ -550,6 +567,7 @@ async fn handle_otp_verification_step(
                 params.sender_id,
                 params
                     .resources
+                    .mcp
                     .messaging_strings_registry
                     .get(KEY_LINK_SESSION_EXPIRED, DEFAULT_LOCALE),
             );
@@ -644,6 +662,7 @@ pub(super) async fn start_otp_flow(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         );
@@ -657,6 +676,7 @@ pub(super) async fn start_otp_flow(
             channel_type,
             sender_id,
             resources
+                .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         );

@@ -27,12 +27,12 @@ mod command_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use pierre_core::models::ConnectionType;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, InsertMessageParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
     use std::sync::Arc;
@@ -63,7 +63,7 @@ mod command_tests {
         user.approved_at = Some(Utc::now());
 
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -76,12 +76,19 @@ mod command_tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
 
         // Onboarding gate: register a synthetic provider so messaging-ingress
         // (`services::onboarding_gate::require_connected_provider`) lets the
         // turn through. Test exercises command dispatch, not provider data.
         resources
+            .common
             .repos
             .provider_connections
             .register_connection(
@@ -98,7 +105,7 @@ mod command_tests {
     }
 
     async fn setup_linked_user(resources: &ServerContext) -> (axum::Router, Uuid, TenantId) {
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
         let (user_id, tenant_id) = create_test_user(resources, "cmduser@test.com").await;
 
         // Configure Telegram channel
@@ -136,6 +143,7 @@ mod command_tests {
         // FK. Before the messaging_* FK migration, tests passed a random UUID
         // that never existed; now the column references chat_conversations(id).
         let conversation = resources
+            .common
             .repos
             .chat
             .create_conversation(
@@ -248,7 +256,7 @@ mod command_tests {
     async fn test_logout_retains_history() {
         let resources = create_test_server_resources().await.unwrap();
         let (router, _user_id, tenant_id) = setup_linked_user(&resources).await;
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let session = db
             .get_session_by_channel_identity(tenant_id, "telegram", SENDER_ID, None)
@@ -451,14 +459,15 @@ mod command_tests {
 
     #[tokio::test]
     async fn test_privacy_on_handler_enables_consent() {
-        use pierre_mcp_server::services::commands::privacy::PrivacyOnHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::privacy::PrivacyOnHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
 
         // Confirm initial state: analytics_consent is false
         let before = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -473,7 +482,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/privacy on".to_owned(),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
@@ -484,6 +493,7 @@ mod command_tests {
 
         // Verify the database reflects the enabled state
         let after = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -496,20 +506,22 @@ mod command_tests {
 
     #[tokio::test]
     async fn test_privacy_off_handler_disables_consent() {
-        use pierre_mcp_server::services::commands::privacy::PrivacyOffHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::privacy::PrivacyOffHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
 
         // Seed with consent enabled so we can verify the toggle
         resources
+            .common
             .repos
             .users
             .update_analytics_consent(user_id, true)
             .await
             .unwrap();
         let before = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -524,7 +536,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/privacy off".to_owned(),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
@@ -535,6 +547,7 @@ mod command_tests {
 
         // Verify the database reflects the disabled state
         let after = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -585,6 +598,7 @@ mod command_tests {
             success_criteria: None,
         };
         let coach = resources
+            .common
             .repos
             .coaches
             .create(user_id, tenant_id, &request)
@@ -595,8 +609,8 @@ mod command_tests {
 
     #[tokio::test]
     async fn coach_select_in_dm_sets_users_default_coach() {
-        use pierre_mcp_server::services::commands::coach::CoachSelectHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::coach::CoachSelectHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -611,6 +625,7 @@ mod command_tests {
 
         // Pre-condition: user has no default coach
         let before = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -625,7 +640,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![coach_id.clone()],
             raw_text: format!("/coach select {coach_id}"),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "fr".to_owned(),
             is_direct_message: true,
             conversation_id: None,
@@ -652,6 +667,7 @@ mod command_tests {
 
         // Post-condition: default_coach_id persisted on the user row.
         let after = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -663,8 +679,8 @@ mod command_tests {
 
     #[tokio::test]
     async fn coach_select_in_dm_clearing_and_reselecting_swaps_coach() {
-        use pierre_mcp_server::services::commands::coach::CoachSelectHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::coach::CoachSelectHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -677,7 +693,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![coach.to_owned()],
             raw_text: format!("/coach select {coach}"),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
@@ -685,6 +701,7 @@ mod command_tests {
 
         CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
         let after_a = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -695,6 +712,7 @@ mod command_tests {
 
         CoachSelectHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
         let after_b = resources
+            .common
             .repos
             .users
             .get_global(user_id)
@@ -706,8 +724,8 @@ mod command_tests {
 
     #[tokio::test]
     async fn coach_list_renders_without_markdown_asterisks() {
-        use pierre_mcp_server::services::commands::coach::CoachListHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::coach::CoachListHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -728,7 +746,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/coach".to_owned(),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
@@ -759,12 +777,12 @@ mod command_tests {
     #[tokio::test]
     async fn test_group_consent_uses_conversation_group_id() {
         use chrono::Utc;
+        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
         use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
-        use pierre_mcp_server::services::commands::group::GroupConsentHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -775,6 +793,7 @@ mod command_tests {
         // coach directly via the repo — `create_test_server_resources`
         // does not auto-seed coaches.
         let coach = resources
+            .common
             .repos
             .coaches
             .create_system_coach(
@@ -826,12 +845,14 @@ mod command_tests {
             now + chrono::Duration::seconds(60),
         );
         resources
+            .common
             .repos
             .groups
             .create_group(tenant_id, &chat_group)
             .await
             .unwrap();
         resources
+            .common
             .repos
             .groups
             .create_group(tenant_id, &other_group)
@@ -851,12 +872,14 @@ mod command_tests {
             display_name: None,
         };
         resources
+            .common
             .repos
             .groups
             .add_member(&mk_member(chat_group_id))
             .await
             .unwrap();
         resources
+            .common
             .repos
             .groups
             .add_member(&mk_member(other_group_id))
@@ -865,6 +888,7 @@ mod command_tests {
 
         // Conversation explicitly bound to the chat group.
         let conversation = resources
+            .common
             .repos
             .chat
             .create_conversation(
@@ -884,7 +908,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec!["yes".to_owned()],
             raw_text: "/group consent yes".to_owned(),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: Some(conversation.id.clone()),
@@ -902,6 +926,7 @@ mod command_tests {
         // that fails under the pre-fix `groups.first()` path because
         // `other_group` (more recently updated) would be chosen.
         let chat_members = resources
+            .common
             .repos
             .groups
             .list_members(&chat_group_id.to_string())
@@ -918,6 +943,7 @@ mod command_tests {
         );
 
         let other_members = resources
+            .common
             .repos
             .groups
             .list_members(&other_group_id.to_string())
@@ -936,8 +962,8 @@ mod command_tests {
 
     #[tokio::test]
     async fn test_privacy_status_handler_reads_current_state() {
-        use pierre_mcp_server::services::commands::privacy::PrivacyStatusHandler;
-        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+        use pierre_commands::privacy::PrivacyStatusHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -948,7 +974,7 @@ mod command_tests {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/privacy".to_owned(),
-            resources: Arc::clone(&resources),
+            ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
@@ -960,6 +986,7 @@ mod command_tests {
 
         // Flip to enabled and re-run
         resources
+            .common
             .repos
             .users
             .update_analytics_consent(user_id, true)

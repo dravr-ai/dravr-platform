@@ -17,13 +17,13 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
+use pierre_core::models::{Tenant, TenantId, User};
 use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
     mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, TenantId, User},
     routes::tenants::TenantRoutes,
 };
 use serde_json::json;
@@ -92,7 +92,7 @@ impl TenantTestSetup {
 
         // Generate JWT token for the user
         let jwt_token = auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         Ok(Self {
@@ -246,6 +246,7 @@ async fn test_create_tenant_duplicate_slug() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -294,6 +295,7 @@ async fn test_list_tenants_success() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -430,6 +432,7 @@ async fn test_tenant_ownership() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -473,6 +476,7 @@ async fn test_switch_tenant_success() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -569,6 +573,7 @@ async fn test_switch_tenant_non_member() {
     );
     setup
         .resources
+        .common
         .repos
         .users
         .create(&other_user)
@@ -591,6 +596,7 @@ async fn test_switch_tenant_non_member() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant)
@@ -661,6 +667,7 @@ async fn test_switch_between_multiple_tenants() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant1)
@@ -669,6 +676,7 @@ async fn test_switch_between_multiple_tenants() {
 
     setup
         .resources
+        .common
         .repos
         .tenants
         .create(&tenant2)

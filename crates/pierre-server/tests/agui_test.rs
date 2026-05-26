@@ -7,12 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::models::TenantId;
 use pierre_mcp_server::agui::emitter::{AgUiSink, BroadcastSink, NoopSink};
 use pierre_mcp_server::agui::events::AgUiEventKind;
 use pierre_mcp_server::agui::{
     AgUiEvent, AgUiEventFilter, AuthorizedSubscribe, PublishOutcome, RunOwner, RunRegistry,
 };
-use pierre_mcp_server::models::TenantId;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 

@@ -24,10 +24,10 @@ mod notification_routes_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_mcp_server::routes::notifications::NotificationRoutes;
     use pierre_notifications::models::{CreateNotificationParams, NotificationCategory};
     use pierre_notifications::NotificationService;
     use pierre_notifications::TenantId as CommereTenantId;
+    use pierre_routes_social::NotificationRoutes;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -442,6 +442,7 @@ mod notification_routes_tests {
             .unwrap();
 
         let tenant_a = resources
+            .common
             .repos
             .tenants
             .list_for_user(user_a.id)
@@ -449,6 +450,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
         let tenant_b = resources
+            .common
             .repos
             .tenants
             .list_for_user(user_b.id)
@@ -456,7 +458,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Create 3 notifications for user A
@@ -534,6 +536,7 @@ mod notification_routes_tests {
             .unwrap();
 
         let tenant_id = resources
+            .common
             .repos
             .tenants
             .list_for_user(user.id)
@@ -541,7 +544,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
         // Create 2 unread notifications

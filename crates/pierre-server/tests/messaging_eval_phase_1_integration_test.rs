@@ -56,14 +56,14 @@ mod phase_1_integration {
         TokenUsage,
     };
     use pierre_core::models::ConnectionType;
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::permissions::UserRole;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_mcp_server::permissions::UserRole;
-    use pierre_mcp_server::routes::llm_consumption::LlmConsumptionRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use pierre_routes_admin::LlmConsumptionRoutes;
     use serde_json::{json, Value};
     use serial_test::serial;
     use sha2::Sha256;
@@ -175,7 +175,7 @@ mod phase_1_integration {
         user.approved_by = Some(user.id);
         user.approved_at = Some(Utc::now());
         let user_id = user.id;
-        resources.repos.users.create(&user).await.unwrap();
+        resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -188,8 +188,15 @@ mod phase_1_integration {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        resources.repos.tenants.create(&tenant).await.unwrap();
         resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
+        resources
+            .common
             .repos
             .users
             .update_tenant_id(user_id, tenant_id)
@@ -200,6 +207,7 @@ mod phase_1_integration {
         // pipeline reaches the LLM step. The mock provider serves the actual
         // data fetch; the gate just needs any row in `provider_connections`.
         resources
+            .common
             .repos
             .provider_connections
             .register_connection(
@@ -213,8 +221,9 @@ mod phase_1_integration {
             .unwrap();
 
         let token = resources
+            .auth
             .auth_manager
-            .generate_token(&user, &resources.jwks_manager)
+            .generate_token(&user, &resources.auth.jwks_manager)
             .unwrap();
         (user_id, tenant_id, format!("Bearer {token}"))
     }
@@ -224,6 +233,7 @@ mod phase_1_integration {
         tenant_id: TenantId,
     ) -> Option<Uuid> {
         let pool = resources
+            .coach
             .database
             .sqlite_pool()
             .expect("test fixture runs against SQLite");
@@ -257,7 +267,7 @@ mod phase_1_integration {
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
         let (admin_user_id, tenant_id, admin_auth) =
             create_admin_user_in_tenant(&resources, "phase-1-integration@example.com").await;
-        let db: &dyn MessagingRepository = &*resources.repos.messaging;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let signing_secret = "phase1_slack_secret";
         db.upsert_channel_config(&UpsertChannelConfigParams {

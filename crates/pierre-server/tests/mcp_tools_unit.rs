@@ -11,7 +11,8 @@
 
 mod common;
 
-use pierre_mcp_server::mcp::schema::*;
+use pierre_mcp_schema::*;
+use pierre_mcp_server::tools::registry_builtin::get_tools;
 
 /// Minimum tool count enforced by [`test_tool_registry_minimum_size`]. Grows
 /// monotonically as new `McpTool` impls are added — the test is an
@@ -264,6 +265,7 @@ fn test_initialize_response() {
         "2025-06-18".to_owned(),
         "pierre-mcp-server-multitenant".to_owned(),
         "0.1.0".to_owned(),
+        "http://localhost:8081",
     );
 
     assert_eq!(response.protocol_version, "2025-06-18");

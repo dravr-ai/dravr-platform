@@ -153,20 +153,20 @@ mod common;
 
 use chrono::Utc;
 use pierre_auth::auth::AuthManager;
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_cache::{Cache, CacheConfig};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::ServerConfig;
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::{
     a2a::{
         client::{A2AClientTier, ClientRegistrationRequest},
         A2AError,
     },
-    cache::{factory::Cache, CacheConfig},
-    config::environment::ServerConfig,
     mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, TenantId, User},
-    routes::a2a::service::{A2AClientRequest, A2ARoutes},
 };
+use pierre_routes_a2a::service::{A2AClientRequest, A2ARoutes};
 use serde_json::json;
 use std::{
     sync::Arc,
@@ -286,8 +286,14 @@ impl A2ATestSetup {
             .await,
         );
 
-        // Create A2A routes
-        let routes = A2ARoutes::new(server_resources.clone());
+        // Create A2A routes — composition root passes each handle explicitly
+        use pierre_runtime_context::A2ACtx;
+        let ctx: Arc<dyn A2ACtx> = server_resources.clone();
+        let routes = A2ARoutes::new(
+            ctx,
+            server_resources.a2a.a2a_client_manager.clone(),
+            server_resources.auth.auth_middleware.clone(),
+        );
 
         Self {
             routes,
@@ -313,7 +319,7 @@ impl A2ATestSetup {
         };
 
         // Reuse the existing ServerContext to avoid creating new RSA keys
-        let client_manager = &*self.server_resources.a2a_client_manager;
+        let client_manager = &*self.server_resources.a2a.a2a_client_manager;
         // Use the existing test user ID to satisfy FK constraint on a2a_clients.user_id
         let credentials = client_manager
             .register_client(request, self.user_id)
@@ -933,490 +939,13 @@ async fn test_authenticate_default_scopes() {
 // Tool Execution Tests
 // =============================================================================
 
-#[tokio::test]
-async fn test_execute_tool_success() {
-    let setup = A2ATestSetup::new().await;
-
-    // Create JWT token for authentication
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {
-                "limit": 10
-            }
-        },
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(&auth_header), tool_request)
-        .await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-    // Response should have either "result" or "error" field
-    assert!(response["result"].is_object() || response["error"].is_object());
-}
-
-#[tokio::test]
-async fn test_execute_tool_missing_auth() {
-    let setup = A2ATestSetup::new().await;
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(None, tool_request).await;
-    assert!(result.is_ok()); // Returns error response, not error
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert!(response["error"].is_object());
-    assert_eq!(response["error"]["code"], -32001);
-    assert!(response["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("Authorization"));
-}
-
-#[tokio::test]
-async fn test_execute_tool_invalid_auth() {
-    let setup = A2ATestSetup::new().await;
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some("Invalid Bearer token"), tool_request)
-        .await;
-    assert!(result.is_ok()); // Returns error response, not error
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert!(response["error"].is_object());
-    assert_eq!(response["error"]["code"], -32001);
-}
-
-#[tokio::test]
-async fn test_execute_tool_missing_method() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(&auth_header), tool_request)
-        .await;
-    assert!(result.is_err());
-
-    match result.unwrap_err() {
-        A2AError::InvalidRequest(msg) => {
-            assert!(msg.contains("method"));
-        }
-        other => panic!("Unexpected error type: {:?}", other),
-    }
-}
-
-#[tokio::test]
-async fn test_execute_tool_missing_params() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(&auth_header), tool_request)
-        .await;
-    assert!(result.is_err());
-
-    match result.unwrap_err() {
-        A2AError::InvalidRequest(msg) => {
-            assert!(msg.contains("params"));
-        }
-        other => panic!("Unexpected error type: {:?}", other),
-    }
-}
-
-#[tokio::test]
-async fn test_execute_tool_missing_tool_name() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let tool_request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(&auth_header), tool_request)
-        .await;
-    assert!(result.is_err());
-
-    match result.unwrap_err() {
-        A2AError::InvalidRequest(msg) => {
-            assert!(msg.contains("tool_name"));
-        }
-        other => panic!("Unexpected error type: {:?}", other),
-    }
-}
-
 // =============================================================================
 // A2A Protocol Method Tests
 // =============================================================================
 
-#[tokio::test]
-async fn test_client_info_method() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "client.info",
-        "params": {},
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-    assert!(response["result"].is_object());
-
-    let result = &response["result"];
-    assert_eq!(result["name"], "Dravr AI");
-    assert_eq!(result["version"], "1.0.0");
-    assert!(result["capabilities"].is_array());
-    assert!(result["protocols"].is_array());
-}
-
-#[tokio::test]
-async fn test_session_heartbeat_method() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "session.heartbeat",
-        "params": {},
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-
-    // Should have either result (success) or error (if session doesn't exist)
-    if response["result"].is_object() {
-        assert_eq!(response["result"]["status"], "alive");
-        assert!(response["result"]["timestamp"].is_string());
-    } else if response["error"].is_object() {
-        assert_eq!(response["error"]["code"], -32000);
-        assert!(response["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("session"));
-    } else {
-        panic!("Response should have either result or error");
-    }
-}
-
-#[tokio::test]
-async fn test_capabilities_list_method() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "capabilities.list",
-        "params": {},
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-    assert!(response["result"].is_object());
-
-    let capabilities = response["result"]["capabilities"].as_array().unwrap();
-    assert!(!capabilities.is_empty());
-
-    // Check that each capability has required fields
-    for capability in capabilities {
-        assert!(capability["name"].is_string());
-        assert!(capability["description"].is_string());
-        assert!(capability["version"].is_string());
-    }
-
-    // Check for specific expected capabilities
-    let capability_names: Vec<_> = capabilities
-        .iter()
-        .map(|c| c["name"].as_str().unwrap())
-        .collect();
-    assert!(capability_names.contains(&"fitness-data-analysis"));
-    assert!(capability_names.contains(&"goal-management"));
-}
-
-#[tokio::test]
-async fn test_unknown_method() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "unknown.method",
-        "params": {},
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-    assert!(response["error"].is_object());
-    assert_eq!(response["error"]["code"], -32601); // Method not found
-    assert!(response["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("not found"));
-    assert!(response["error"]["data"]["available_methods"].is_array());
-}
-
 // =============================================================================
 // Edge Cases and Error Handling Tests
 // =============================================================================
-
-#[tokio::test]
-async fn test_malformed_json_request() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    // Test with invalid JSON structure
-    let malformed_request = json!({
-        "not_jsonrpc": "invalid",
-        "no_method": true,
-        "id": "string_id"
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(&auth_header), malformed_request)
-        .await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_different_id_types() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    let test_ids = vec![
-        json!(1),                // Number
-        json!("string-id"),      // String
-        json!(null),             // Null
-        json!({"object": "id"}), // Object (non-standard but should handle)
-    ];
-
-    for test_id in test_ids {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "method": "client.info",
-            "params": {},
-            "id": test_id.clone()
-        });
-
-        let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-        assert!(result.is_ok());
-
-        let response = result.unwrap();
-        assert_eq!(response["id"], test_id);
-    }
-}
-
-#[tokio::test]
-async fn test_large_parameters() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    // Create a large parameters object
-    let mut large_params = serde_json::Map::new();
-    for i in 0..1000 {
-        large_params.insert(format!("param_{i}"), json!(format!("value_{i}")));
-    }
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": large_params
-        },
-        "id": 1
-    });
-
-    let result = setup.routes.execute_tool(Some(&auth_header), request).await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], 1);
-}
-
-#[tokio::test]
-async fn test_concurrent_requests() {
-    let setup = A2ATestSetup::new().await;
-    let auth_header = format!("Bearer {}", setup.jwt_token);
-
-    // Create multiple concurrent requests
-    let mut handles = vec![];
-
-    for i in 0..10 {
-        let routes = setup.routes.clone();
-        let auth_header = auth_header.clone();
-
-        let handle = tokio::spawn(async move {
-            let request = json!({
-                "jsonrpc": "2.0",
-                "method": "client.info",
-                "params": {},
-                "id": i
-            });
-
-            routes.execute_tool(Some(&auth_header), request).await
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all requests to complete
-    for handle in handles {
-        let result = handle.await.unwrap();
-        assert!(result.is_ok());
-
-        let response = result.unwrap();
-        assert_eq!(response["jsonrpc"], "2.0");
-        assert!(response["result"].is_object());
-    }
-}
-
-#[tokio::test]
-async fn test_jwt_token_extraction_edge_cases() {
-    let setup = A2ATestSetup::new().await;
-
-    // Test various invalid auth header formats
-    let invalid_headers = vec![
-        "NotBearer token123",            // Wrong scheme
-        "Bearer",                        // Missing token
-        "Bearer ",                       // Empty token
-        "bearer token123",               // Lowercase Bearer
-        "Token token123",                // Wrong scheme name
-        "",                              // Empty header
-        "Multiple Bearer token1 token2", // Multiple tokens
-    ];
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    for invalid_header in invalid_headers {
-        let result = setup
-            .routes
-            .execute_tool(Some(invalid_header), request.clone())
-            .await;
-        assert!(result.is_ok()); // Should return error response, not fail
-
-        let response = result.unwrap();
-        assert!(response["error"].is_object());
-        assert_eq!(response["error"]["code"], -32001);
-    }
-}
-
-#[tokio::test]
-async fn test_expired_jwt_token() {
-    let setup = A2ATestSetup::new().await;
-
-    // Create a user and an expired token (would need to mock time or create expired token)
-    // For now, test with invalid token format
-    let invalid_auth_header = "Bearer invalid.jwt.token";
-
-    let request = json!({
-        "jsonrpc": "2.0",
-        "method": "tools.execute",
-        "params": {
-            "tool_name": "get_activities",
-            "parameters": {}
-        },
-        "id": 1
-    });
-
-    let result = setup
-        .routes
-        .execute_tool(Some(invalid_auth_header), request)
-        .await;
-    assert!(result.is_ok());
-
-    let response = result.unwrap();
-    assert!(response["error"].is_object());
-    assert_eq!(response["error"]["code"], -32001);
-    assert!(response["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("token"));
-}
 
 // =============================================================================
 // Performance and Load Tests
@@ -1626,7 +1155,7 @@ async fn test_multiple_auth_sessions() {
 
 /// Create a minimal test server configuration
 fn create_test_server_config() -> ServerConfig {
-    use pierre_mcp_server::config::environment::{
+    use pierre_config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
         DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
         GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,

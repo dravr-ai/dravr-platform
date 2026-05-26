@@ -148,33 +148,28 @@
 mod common;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
+    DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
+    FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig,
+    HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
+    OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
+    RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
+    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
+};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
-        DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
-        FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig,
-        HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
-        OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-        RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-        SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-        TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
-    },
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::{
-        auth::{AuthService, OAuthService},
-        RegisterRequest,
-    },
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
 };
+use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::time::{sleep, Duration};
@@ -718,8 +713,8 @@ async fn test_oauth_callback_error_handling() {
 
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     // Test invalid state parameter (not stored server-side, so consumed state fails)
@@ -1015,8 +1010,8 @@ async fn test_oauth_state_csrf_protection() {
 
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
 
     let user_id = uuid::Uuid::new_v4();
@@ -1213,8 +1208,9 @@ async fn test_connection_status_tracking() {
     );
 
     let auth_routes = AuthService::new(
-        server_resources.auth(),
-        server_resources.config(),
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
         server_resources.data(),
     );
     let register_request = RegisterRequest {
@@ -1229,8 +1225,8 @@ async fn test_connection_status_tracking() {
     // Check initial connection status
     let oauth_routes = OAuthService::new(
         server_resources.data(),
-        server_resources.config(),
-        server_resources.notification(),
+        server_resources.common.config.clone(),
+        server_resources.auth.oauth_notification_sender.clone(),
     );
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
 

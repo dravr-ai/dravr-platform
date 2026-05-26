@@ -13,9 +13,7 @@ use crate::{
     config::routes::configuration::{
         ConfigurationRoutes as ConfigService, UpdateConfigurationRequest,
     },
-    errors::AppError,
     mcp::resources::ServerContext,
-    middleware::AuthenticatedUser,
 };
 use axum::{
     extract::State,
@@ -24,6 +22,8 @@ use axum::{
     routing::{get, put},
     Json, Router,
 };
+use pierre_core::errors::AppError;
+use pierre_middleware::AuthenticatedUser;
 use std::sync::Arc;
 
 /// Configuration management routes

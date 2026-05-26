@@ -152,7 +152,8 @@
 
 mod common;
 
-use pierre_mcp_server::mcp::schema::*;
+use pierre_mcp_schema::*;
+use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::json;
 
 /// Test that the initialize response has the correct structure
@@ -164,6 +165,7 @@ fn test_initialize_response_format() {
         "2025-11-25".to_owned(),
         "pierre-mcp-server".to_owned(),
         "1.0.0".to_owned(),
+        "http://localhost:8081",
     );
 
     // Serialize to JSON and verify structure
@@ -396,6 +398,7 @@ fn test_round_trip_serialization() {
         "2025-11-25".to_owned(),
         "pierre-mcp-server".to_owned(),
         "1.0.0".to_owned(),
+        "http://localhost:8081",
     );
 
     // Serialize

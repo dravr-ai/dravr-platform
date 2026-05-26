@@ -19,9 +19,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::protocols::universal::{
-    UniversalRequest, UniversalResponse, UniversalToolExecutor,
-};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
 use std::env;
 use std::time::Duration;
@@ -141,7 +139,7 @@ async fn test_nutrition_tools_registered() -> Result<()> {
 
     let tool_names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())

@@ -5,9 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 #![allow(missing_docs)]
 
-use pierre_mcp_server::providers::circuit_breaker::{
-    CircuitBreaker, CircuitBreakerConfig, CircuitState,
-};
+use pierre_providers::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 use std::time::Duration;
 
 #[test]

@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: In-tree DummyProvider for the BillingProvider trait — drives tests + local dev only
 // ABOUTME: Returns deterministic example.test URLs and forges a stub event from the webhook body
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 //! # Dummy billing provider
 //!

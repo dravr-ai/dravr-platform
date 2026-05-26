@@ -1,0 +1,60 @@
+// ABOUTME: Tier 6 text guardrails stage — disclaimer prepending, blocked-topic rejection, length caps
+// ABOUTME: Provides apply_text_guardrails — post-LLM sanitizer for assistant reply text
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Tier 6 text guardrails.
+//!
+//! Post-processes the assistant reply content:
+//!
+//! - Prepends a safety disclaimer when a guardrail trigger is detected in
+//!   the reply.
+//! - Rejects replies that exceed the configured length ceiling with a
+//!   graceful fallback message.
+//! - Rejects replies that reference blocked topics.
+//!
+//! Reads the active rules from
+//! [`pierre_contremaitre::harness_config_registry::HarnessConfigRegistry`], so the
+//! disclaimer text, blocked-topic list, length cap, and trigger keywords
+//! reflect whatever the admin most recently saved via
+//! `PUT /admin/settings/harness`.
+
+use std::sync::Arc;
+
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
+};
+use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
+
+/// Apply the live admin-configured text guardrails to an assistant reply.
+///
+/// Returns the (possibly disclaimer-prepended) reply, or a graceful
+/// fallback string from the `messaging_strings_registry` when guardrails
+/// reject the response. `locale` is the BCP-47 short code resolved upstream;
+/// `None` triggers the registry's `DEFAULT_LOCALE` fallback.
+pub fn apply_text_guardrails(
+    harness_config_registry: &Arc<HarnessConfigRegistry>,
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    reply: &str,
+    locale: Option<&str>,
+) -> String {
+    let locale = locale.unwrap_or(DEFAULT_LOCALE);
+    let rules = harness_config_registry.current_guardrails();
+    match rules.apply(reply, locale) {
+        GuardrailOutcome::Allowed(text) => text,
+        GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
+            tracing::warn!(
+                length,
+                cap,
+                "guardrails: trimming over-long response to safe fallback"
+            );
+            messaging_strings_registry.get(KEY_GUARDRAIL_TOO_LONG, locale)
+        }
+        GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
+            tracing::warn!(topic, "guardrails: blocked topic in coach response");
+            messaging_strings_registry.get(KEY_GUARDRAIL_BLOCKED_TOPIC, locale)
+        }
+    }
+}

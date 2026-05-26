@@ -13,13 +13,11 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_mcp_server::{
-    cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
-    config::environment::*,
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::User,
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
-};
+use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
+use pierre_config::environment::*;
+use pierre_core::models::User;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use uuid::Uuid;
@@ -243,7 +241,7 @@ async fn test_sleep_recovery_tools_registered() -> Result<()> {
     // Verify all 5 sleep/recovery tools are registered
     let tool_names: Vec<String> = executor
         .resources
-        .tool_registry
+        .tool_registry()
         .tool_names()
         .iter()
         .map(|n| (*n).to_owned())
@@ -278,7 +276,7 @@ async fn test_analyze_sleep_quality_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Sleep Test User".to_owned()),
     );
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test with optimal sleep data
     let sleep_data = json!({
@@ -381,7 +379,7 @@ async fn test_calculate_recovery_score_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Recovery Test User".to_owned()),
     );
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test with explicit activity_provider parameter (new cross-provider API)
     let request = UniversalRequest {
@@ -459,7 +457,7 @@ async fn test_suggest_rest_day_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Rest Day Test User".to_owned()),
     );
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test recommendation for rest day
     let sleep_data = json!({
@@ -610,7 +608,7 @@ async fn test_track_sleep_trends_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Trends Test User".to_owned()),
     );
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     let sleep_history = generate_test_sleep_history();
 
@@ -657,7 +655,7 @@ async fn test_optimize_sleep_schedule_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Optimize Test User".to_owned()),
     );
-    executor.resources.repos.users.create(&user).await?;
+    executor.resources.repos().users.create(&user).await?;
 
     // Test with sleep history and training schedule
     let sleep_history = vec![

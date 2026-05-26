@@ -6,13 +6,13 @@
 
 //! Persona conformance rule helpers — pure-function coverage.
 //!
-//! [`pierre_mcp_server::persona_contracts::PersonaContractRegistry`]
+//! [`pierre_contremaitre::persona_contracts::PersonaContractRegistry`]
 //! drives the live behaviour, but its inputs are all detector functions
 //! (`count_words`, `longest_bullet_run`, `detects_label_value_block`,
 //! `has_unglossed_acronym`, `is_bullet_line`) that have no external
 //! dependencies and are cheap to test directly.
 
-use pierre_mcp_server::services::chat_pipeline::stages::persona_conformance::{
+use pierre_chat_pipeline::stages::persona_conformance::{
     count_words, detects_label_value_block, has_unglossed_acronym, is_bullet_line,
     longest_bullet_run,
 };

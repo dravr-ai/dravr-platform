@@ -8,12 +8,12 @@
 #![allow(missing_docs)]
 
 use async_trait::async_trait;
-use pierre_mcp_server::errors::{AppError, AppResult};
-use pierre_mcp_server::mcp::schema::JsonSchema;
-use pierre_mcp_server::tools::{
-    AuthMethod, McpTool, NotificationType, ToolCapabilities, ToolError, ToolExecutionContext,
-    ToolNotification, ToolRegistry, ToolResult,
-};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_mcp_schema::JsonSchema;
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tools_core::{NotificationType, ToolError, ToolNotification, ToolResult};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -317,7 +317,7 @@ mod auth_method_tests {
 
 mod audited_tool_tests {
     use super::*;
-    use pierre_mcp_server::tools::decorators::AuditedTool;
+    use pierre_tool_runtime::decorators::AuditedTool;
 
     struct AdminStubTool;
 

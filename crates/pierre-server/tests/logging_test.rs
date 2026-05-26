@@ -10,7 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::logging::{LogFormat, LoggingConfig};
+use pierre_logging::{LogFormat, LoggingConfig};
 use serial_test::serial;
 use std::env;
 

@@ -10,11 +10,9 @@
 
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
-use pierre_mcp_server::{
-    models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
-    permissions::UserRole,
-};
 use uuid::Uuid;
 
 mod common;

@@ -1,0 +1,42 @@
+# ABOUTME: Coaches/roster/store REST routes extracted from pierre-server
+# ABOUTME: Decoupled via CoachesCtx + MiddlewareCtx; mounted by the composition root
+
+[package]
+name = "pierre-routes-coaches"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Coach CRUD, version history, store browse/install, and coach-athlete roster routes for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-services = { version = "0.3.0", path = "../pierre-services" }
+pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
+
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[features]
+default = []
+client-notifications = ["dep:pierre-notifications", "pierre-runtime-context/client-notifications"]
+openapi = ["dep:utoipa", "pierre-core/openapi"]
+
+[dependencies.utoipa]
+version = "5.4"
+optional = true
+features = ["axum_extras", "chrono", "uuid"]
+
+[lints]
+workspace = true

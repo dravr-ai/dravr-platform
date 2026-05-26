@@ -18,14 +18,12 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-        SecurityHeadersConfig, ServerConfig,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    routes::auth::AuthRoutes,
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -90,19 +88,19 @@ impl ForgotPasswordTestSetup {
     }
 
     fn routes(&self) -> axum::Router {
-        AuthRoutes::routes(self.resources.clone())
+        AuthRoutes::routes(self.resources.auth_routes_context())
     }
 
     /// Create a test user and return their UUID and email
     async fn create_user(&self) -> anyhow::Result<(uuid::Uuid, String)> {
-        let (_, user) = common::create_test_user(&self.resources.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
         Ok((user.id, user.email))
     }
 
     /// Create a test user with a specific email
     async fn create_user_with_email(&self, email: &str) -> anyhow::Result<(uuid::Uuid, String)> {
         let (_, user) =
-            common::create_test_user_with_email(&self.resources.database, email).await?;
+            common::create_test_user_with_email(&self.resources.coach.database, email).await?;
         Ok((user.id, user.email))
     }
 }
@@ -235,6 +233,7 @@ async fn test_forgot_password_full_flow() {
     // Store a known token via the repository directly
     setup
         .resources
+        .common
         .repos
         .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 15)
@@ -309,6 +308,7 @@ async fn test_forgot_password_code_single_use() {
     let code_hash = format!("{:x}", Sha256::digest(test_code.as_bytes()));
     setup
         .resources
+        .common
         .repos
         .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 15)
@@ -358,6 +358,7 @@ async fn test_forgot_password_expired_code_rejected() {
     let code_hash = format!("{:x}", Sha256::digest(test_code.as_bytes()));
     setup
         .resources
+        .common
         .repos
         .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 0)

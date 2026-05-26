@@ -150,27 +150,26 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_core::models::CoachingPersona;
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_mcp_server::{
-    config::environment::{
-        AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-        ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig,
-        LogLevel, LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-        OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig,
-        SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
-        WeatherServiceConfig,
-    },
-    constants::oauth_providers,
-    intelligence::{
-        ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-        TrendIndicators,
-    },
-    mcp::resources::{ServerContext, ServerContextOptions},
-    models::{Tenant, User, UserOAuthToken, UserStatus, UserTier},
-    permissions::UserRole,
-    protocols::universal::{UniversalRequest, UniversalToolExecutor},
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
+    ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_intelligence::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
+use pierre_mcp_server::{
+    constants::oauth_providers,
+    mcp::resources::{ServerContext, ServerContextOptions},
+};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use serial_test::serial;
 use std::{env, path::PathBuf, sync::Arc};
@@ -688,6 +687,17 @@ async fn test_connection_status_with_oauth_manager() {
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
 
+    // Provision a tenant for the user — Finding D requires explicit tenant_id
+    // on every UniversalRequest; falling back to user_id is no longer permitted.
+    let tenant = Tenant::new(
+        "OAuth Status Test Tenant".to_owned(),
+        "oauth-status-test-tenant".to_owned(),
+        Some("oauth-status.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id,
+    );
+    repos.tenants.create(&tenant).await.unwrap();
+
     // Set up environment for OAuth providers
     env::set_var("STRAVA_CLIENT_ID", "test_client");
     env::set_var("STRAVA_CLIENT_SECRET", "test_secret");
@@ -700,7 +710,7 @@ async fn test_connection_status_with_oauth_manager() {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant.id.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
@@ -874,11 +884,22 @@ async fn test_concurrent_token_operations() {
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
 
-    // Store valid token
+    // Provision a tenant — Finding D requires explicit tenant_id on every request
+    let tenant = Tenant::new(
+        "Concurrent Token Test Tenant".to_owned(),
+        "concurrent-token-test-tenant".to_owned(),
+        Some("concurrent-token.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id,
+    );
+    repos.tenants.create(&tenant).await.unwrap();
+    let tenant_id_str = tenant.id.to_string();
+
+    // Store valid token (scoped to the provisioned tenant)
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
     let oauth_token = UserOAuthToken::new(
         user_id,
-        "00000000-0000-0000-0000-000000000000".to_owned(),
+        tenant_id_str.clone(),
         oauth_providers::STRAVA.to_owned(),
         "valid_token".to_owned(),
         Some("refresh_token".to_owned()),
@@ -897,13 +918,14 @@ async fn test_concurrent_token_operations() {
     for _i in 0..5 {
         let executor_clone = executor.clone();
         let user_id_str = user_id.to_string();
+        let request_tenant_id = tenant_id_str.clone();
         let handle = tokio::spawn(async move {
             let request = UniversalRequest {
                 user_id: user_id_str,
                 tool_name: "get_connection_status".to_owned(),
                 parameters: json!({}),
                 protocol: "test".to_owned(),
-                tenant_id: None,
+                tenant_id: Some(request_tenant_id),
                 progress_token: None,
                 cancellation_token: None,
                 progress_reporter: None,

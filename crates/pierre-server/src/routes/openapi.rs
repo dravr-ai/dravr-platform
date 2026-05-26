@@ -16,7 +16,7 @@ use axum::Router;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::routes::coaches::{
+use pierre_routes_coaches::coaches::{
     CoachResponse, CoachesMetadata, CreateCoachBody, HideCoachResponse, ListCoachesQuery,
     ListCoachesResponse, RecordUsageResponse, SearchCoachesQuery, ToggleFavoriteResponse,
     UpdateCoachBody,

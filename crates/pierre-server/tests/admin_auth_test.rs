@@ -9,14 +9,11 @@
 
 mod common;
 
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_mcp_server::admin::{
-    auth::AdminAuthService,
-    jwt::AdminJwtManager,
-    models::{AdminPermission, AdminPermissions},
-};
 #[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_routes_admin::auth::{jwt::AdminJwtManager, service::AdminAuthService};
 
 #[tokio::test]
 async fn test_admin_authentication_flow() {

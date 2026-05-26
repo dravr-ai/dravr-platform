@@ -2042,6 +2042,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range-header"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2351,6 +2357,21 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64",
+ "js-sys",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
 ]
 
 [[package]]
@@ -2911,11 +2932,42 @@ dependencies = [
 name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
+ "bcrypt",
  "chrono",
+ "pierre-auth",
+ "pierre-config",
  "pierre-core",
+ "pierre-database",
+ "pierre-jsonrpc",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-tool-runtime",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-agui"
+version = "0.3.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "dashmap",
+ "futures-util",
+ "pierre-core",
+ "pierre-middleware",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2935,7 +2987,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "http",
- "jsonwebtoken",
+ "jsonwebtoken 10.3.0",
  "num-traits",
  "pierre-core",
  "pierre-database",
@@ -2953,6 +3005,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "x509-parser",
  "zeroize",
 ]
 
@@ -2969,6 +3022,131 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-chat-pipeline"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "pierre-agui",
+ "pierre-config",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-enforme",
+ "pierre-evals",
+ "pierre-groups",
+ "pierre-llm",
+ "pierre-memory",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-sse",
+ "pierre-tool-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "whatlang",
+]
+
+[[package]]
+name = "pierre-cli"
+version = "0.3.0"
+dependencies = [
+ "bcrypt",
+ "chrono",
+ "clap",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-database",
+ "pierre-evals",
+ "pierre-seeders",
+ "pierre-services",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-coach-parser"
+version = "0.3.0"
+dependencies = [
+ "pierre-core",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
+name = "pierre-commands"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-groups",
+ "pierre-messaging",
+ "pierre-runtime-context",
+ "pierre-services",
+ "serde",
+ "serde_yaml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-config"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-core",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-middleware",
+ "reqwest 0.12.28",
+ "reqwest-middleware",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-contremaitre"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "dravr-tronc",
+ "hex",
+ "pierre-core",
+ "pierre-database",
+ "pierre-evals",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-memory",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tokio",
+ "tracing",
+ "urlencoding",
  "uuid",
 ]
 
@@ -3027,6 +3205,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-email"
+version = "0.3.0"
+dependencies = [
+ "html-escape",
+ "pierre-core",
+ "reqwest 0.12.28",
+ "serde",
+ "tracing",
+]
+
+[[package]]
 name = "pierre-enforme"
 version = "0.3.0"
 dependencies = [
@@ -3050,6 +3239,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-external"
+version = "0.3.0"
+dependencies = [
+ "pierre-cache",
+ "pierre-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pierre-formatters"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toon-format",
+ "tracing",
+]
+
+[[package]]
 name = "pierre-groups"
 version = "0.3.0"
 dependencies = [
@@ -3066,6 +3278,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-health"
+version = "0.3.0"
+dependencies = [
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pierre-intelligence"
 version = "0.3.0"
 dependencies = [
@@ -3074,13 +3300,27 @@ dependencies = [
  "dravr-cageux",
  "hex",
  "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "pierre-weather",
  "rayon",
+ "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
  "tracing",
+ "urlencoding",
  "uuid",
+]
+
+[[package]]
+name = "pierre-jsonrpc"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3090,6 +3330,7 @@ dependencies = [
  "async-trait",
  "bitflags",
  "bytes",
+ "chrono",
  "embacle",
  "futures-util",
  "pierre-core",
@@ -3098,6 +3339,52 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-logging"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "dravr-sciotte",
+ "dravr-tronc",
+ "pierre-contremaitre",
+ "pierre-core",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-mcp-schema"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "pierre-config",
+ "pierre-core",
+ "pierre-jsonrpc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pierre-mcp-transport"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "html-escape",
+ "http",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-database",
+ "pierre-mcp-schema",
+ "pierre-runtime-context",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -3118,6 +3405,29 @@ name = "pierre-messaging"
 version = "0.3.0"
 dependencies = [
  "dravr-canot",
+]
+
+[[package]]
+name = "pierre-middleware"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bitflags",
+ "chrono",
+ "http",
+ "jsonwebtoken 9.3.1",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-core",
+ "pierre-database",
+ "pierre-runtime-context",
+ "regex",
+ "serde",
+ "serde_json",
+ "tower-http",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3142,18 +3452,396 @@ dependencies = [
  "futures-util",
  "hex",
  "num-traits",
+ "pierre-auth",
+ "pierre-cache",
  "pierre-core",
+ "pierre-database",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
+ "sqlx",
  "subtle",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "pierre-routes-a2a"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "pierre-a2a",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-mcp-transport",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-tool-runtime",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-admin"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "bcrypt",
+ "chrono",
+ "jsonwebtoken 9.3.1",
+ "pierre-auth",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-email",
+ "pierre-evals",
+ "pierre-llm",
+ "pierre-memory",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tool-runtime",
+ "rand 0.9.4",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-auth"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "base64",
+ "chrono",
+ "dravr-sciotte",
+ "hex",
+ "hmac",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "pierre-email",
+ "pierre-enforme",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
+ "pierre-middleware",
+ "pierre-providers",
+ "pierre-routes-admin",
+ "pierre-runtime-context",
+ "pierre-services",
+ "rand 0.9.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-billing"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "pierre-core",
+ "pierre-database",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "serde",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-coaches"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "pierre-auth",
+ "pierre-coach-parser",
+ "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "pierre-middleware",
+ "pierre-notifications",
+ "pierre-runtime-context",
+ "pierre-services",
+ "serde",
+ "serde_json",
+ "tracing",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-dashboard"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-database",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "serde",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-identity"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "bcrypt",
+ "hex",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-database",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-social"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "chrono-tz",
+ "pierre-auth",
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "pierre-groups",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-middleware",
+ "pierre-notifications",
+ "pierre-providers",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tool-runtime",
+ "rand 0.9.4",
+ "serde",
+ "serde_json",
+ "tracing",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-routes-web-admin"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "pierre-auth",
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tool-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-runtime-context"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-groups",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-notifications",
+ "pierre-providers",
+ "serde_json",
+]
+
+[[package]]
+name = "pierre-seeders"
+version = "0.3.0"
+dependencies = [
+ "bcrypt",
+ "chrono",
+ "clap",
+ "glob",
+ "pierre-coach-parser",
+ "pierre-core",
+ "pierre-database",
+ "pierre-intelligence",
+ "rand 0.9.4",
+ "rand_chacha 0.9.0",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-services"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bcrypt",
+ "chrono",
+ "dashmap",
+ "dravr-equilibre",
+ "dravr-tronc",
+ "futures-util",
+ "hex",
+ "pierre-agui",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-coach-parser",
+ "pierre-config",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-enforme",
+ "pierre-evals",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
+ "pierre-memory",
+ "pierre-messaging",
+ "pierre-notifications",
+ "pierre-providers",
+ "pierre-runtime-context",
+ "pierre-weather",
+ "rand 0.9.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-sse"
+version = "0.3.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "chrono",
+ "dashmap",
+ "futures-util",
+ "pierre-auth",
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
+ "pierre-middleware",
+ "pierre-runtime-context",
+ "pierre-services",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-tool-runtime"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bitflags",
+ "chrono",
+ "futures-util",
+ "lru",
+ "num-traits",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-config",
+ "pierre-contremaitre",
+ "pierre-core",
+ "pierre-database",
+ "pierre-enforme",
+ "pierre-evals",
+ "pierre-external",
+ "pierre-formatters",
+ "pierre-intelligence",
+ "pierre-llm",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
+ "pierre-memory",
+ "pierre-notifications",
+ "pierre-providers",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tools-core",
+ "pierre-weather",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-tools-core"
+version = "0.3.0"
+dependencies = [
+ "pierre-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3198,25 +3886,55 @@ dependencies = [
  "hmac",
  "html-escape",
  "http",
- "jsonwebtoken",
+ "jsonwebtoken 10.3.0",
  "lru",
  "num-traits",
  "opentelemetry",
  "opentelemetry_sdk",
  "pierre-a2a",
+ "pierre-agui",
  "pierre-auth",
  "pierre-cache",
+ "pierre-chat-pipeline",
+ "pierre-coach-parser",
+ "pierre-commands",
+ "pierre-config",
+ "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
+ "pierre-email",
  "pierre-enforme",
  "pierre-evals",
+ "pierre-external",
+ "pierre-formatters",
  "pierre-groups",
+ "pierre-health",
  "pierre-intelligence",
+ "pierre-jsonrpc",
  "pierre-llm",
+ "pierre-logging",
+ "pierre-mcp-schema",
+ "pierre-mcp-transport",
  "pierre-memory",
  "pierre-messaging",
+ "pierre-middleware",
  "pierre-notifications",
  "pierre-providers",
+ "pierre-routes-a2a",
+ "pierre-routes-admin",
+ "pierre-routes-auth",
+ "pierre-routes-billing",
+ "pierre-routes-coaches",
+ "pierre-routes-dashboard",
+ "pierre-routes-identity",
+ "pierre-routes-social",
+ "pierre-routes-web-admin",
+ "pierre-runtime-context",
+ "pierre-seeders",
+ "pierre-services",
+ "pierre-sse",
+ "pierre-tool-runtime",
+ "pierre-tools-core",
  "pierre-weather",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
@@ -3254,7 +3972,6 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "whatlang",
- "x509-parser",
  "zeroize",
 ]
 
@@ -4969,12 +5686,19 @@ checksum = "a28f0d049ccfaa566e14e9663d304d8577427b368cb4710a20528690287a738b"
 dependencies = [
  "bitflags",
  "bytes",
+ "futures-core",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
+ "http-range-header",
+ "httpdate",
+ "mime",
+ "mime_guess",
+ "percent-encoding",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
@@ -5607,7 +6331,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

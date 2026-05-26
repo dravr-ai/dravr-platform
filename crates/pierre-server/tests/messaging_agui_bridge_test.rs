@@ -7,12 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_contremaitre::MessagingStringsRegistry;
+use pierre_core::models::TenantId;
 use pierre_mcp_server::agui::{AgUiEvent, RunOwner, RunRegistry};
-use pierre_mcp_server::contremaitre::MessagingStringsRegistry;
-use pierre_mcp_server::models::TenantId;
-use pierre_mcp_server::services::messaging_status_bridge::spawn_status_consumer;
 use pierre_messaging::agui_status::StatusAdapter;
 use pierre_messaging::channels::slack::agui_status::SlackStatusAdapter;
+use pierre_services::messaging_status_bridge::spawn_status_consumer;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

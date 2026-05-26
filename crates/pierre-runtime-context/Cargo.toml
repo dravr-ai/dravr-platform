@@ -1,0 +1,33 @@
+# ABOUTME: Narrow runtime-context traits — each represents the slice of pierre-server's
+# ABOUTME: ServerContext that a single extractable subsystem actually needs
+
+[package]
+name = "pierre-runtime-context"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Narrow runtime-context traits decoupling pierre-server subsystems from ServerContext"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["billing"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
+pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
+
+async-trait = "0.1"
+serde_json = "1.0"
+
+[features]
+default = []
+client-notifications = ["dep:pierre-notifications"]
+
+[lints]
+workspace = true

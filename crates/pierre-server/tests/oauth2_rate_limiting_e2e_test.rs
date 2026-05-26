@@ -15,12 +15,12 @@ use pierre_auth::{
     },
     rate_limiting::OAuth2RateLimitConfig,
 };
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::Arc,

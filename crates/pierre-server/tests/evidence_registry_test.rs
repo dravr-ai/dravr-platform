@@ -8,9 +8,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::contremaitre::evidence_registry::parse_evidence_markdown;
-use pierre_mcp_server::contremaitre::manifest::compute_sha256;
-use pierre_mcp_server::contremaitre::EvidenceRegistry;
+use pierre_contremaitre::evidence_registry::parse_evidence_markdown;
+use pierre_contremaitre::manifest::compute_sha256;
+use pierre_contremaitre::EvidenceRegistry;
 use pierre_memory::ClaimCategory;
 
 const NUTRITION_MD: &str = "---

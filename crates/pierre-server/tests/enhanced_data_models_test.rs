@@ -9,7 +9,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::models::{ActivityBuilder, *};
+use pierre_core::models::{ActivityBuilder, *};
 
 #[test]
 fn test_enhanced_activity_with_power_metrics() {

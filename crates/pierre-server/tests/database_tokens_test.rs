@@ -8,13 +8,11 @@
 #![allow(missing_docs)]
 
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::{OAuthTokenRepository, UserRepository};
 use pierre_database::database::Database;
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_mcp_server::models::{
-    DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier,
-};
-use pierre_mcp_server::permissions::UserRole;
 use uuid::Uuid;
 
 #[tokio::test]

@@ -15,16 +15,18 @@ use common::{
     generate_test_token,
 };
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
 };
 use pierre_database::database::{Coach, StoreListingsManager};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::TenantId;
-use pierre_mcp_server::routes::store::{
+use pierre_routes_coaches::build_store_router;
+use pierre_routes_coaches::store::{
     BrowseCoachesResponse, CategoriesResponse, InstallCoachResponse, InstallationsResponse,
-    SearchCoachesResponse, StoreCoachDetail, StoreRoutes, UninstallCoachResponse,
+    SearchCoachesResponse, StoreCoachDetail, UninstallCoachResponse,
 };
+use std::sync::Arc;
 use uuid::Uuid;
 
 use axum::http::StatusCode;
@@ -37,13 +39,13 @@ use tokio::time::{sleep, Duration};
 
 async fn setup_test_environment() -> (axum::Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Generate a JWT token for the user
     let token = generate_test_token(&resources, &user).await;
 
     // Create the store router
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     (router, format!("Bearer {token}"))
 }
@@ -56,7 +58,7 @@ async fn create_published_coach(
     title: &str,
     category: CoachCategory,
 ) -> Coach {
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool.clone());
     let store_listings_manager = StoreListingsManager::new(sqlite_pool);
 
@@ -117,9 +119,10 @@ async fn test_browse_store_empty() {
 #[tokio::test]
 async fn test_browse_store_with_published_coaches() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -149,7 +152,7 @@ async fn test_browse_store_with_published_coaches() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/coaches")
         .header("authorization", &auth_token)
@@ -167,9 +170,10 @@ async fn test_browse_store_with_published_coaches() {
 #[tokio::test]
 async fn test_browse_store_with_category_filter() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -198,7 +202,7 @@ async fn test_browse_store_with_category_filter() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/coaches?category=training")
         .header("authorization", &auth_token)
@@ -217,9 +221,10 @@ async fn test_browse_store_with_category_filter() {
 #[serial]
 async fn test_browse_store_with_cursor_pagination() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -249,7 +254,7 @@ async fn test_browse_store_with_cursor_pagination() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page
     let response = AxumTestRequest::get("/api/store/coaches?limit=2")
@@ -303,9 +308,10 @@ async fn test_browse_store_with_cursor_pagination() {
 #[serial]
 async fn test_cursor_pagination_with_popular_sort() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -316,7 +322,7 @@ async fn test_cursor_pagination_with_popular_sort() {
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
     // Create coaches with different install counts
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let store_listings_manager = StoreListingsManager::new(sqlite_pool);
 
     for i in 1..=5 {
@@ -340,7 +346,7 @@ async fn test_cursor_pagination_with_popular_sort() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page sorted by popular
     let response = AxumTestRequest::get("/api/store/coaches?limit=2&sort_by=popular")
@@ -383,9 +389,10 @@ async fn test_cursor_pagination_with_popular_sort() {
 #[serial]
 async fn test_cursor_pagination_with_title_sort() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -410,7 +417,7 @@ async fn test_cursor_pagination_with_title_sort() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get first page sorted by title
     let response = AxumTestRequest::get("/api/store/coaches?limit=2&sort_by=title")
@@ -449,9 +456,10 @@ async fn test_cursor_pagination_with_title_sort() {
 #[serial]
 async fn test_cursor_invalid_for_different_sort_order() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -474,7 +482,7 @@ async fn test_cursor_invalid_for_different_sort_order() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Get cursor from newest sort
     let response = AxumTestRequest::get("/api/store/coaches?limit=1&sort_by=newest")
@@ -500,9 +508,10 @@ async fn test_cursor_invalid_for_different_sort_order() {
 #[tokio::test]
 async fn test_browse_store_sort_by_popular() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -530,7 +539,7 @@ async fn test_browse_store_sort_by_popular() {
     .await;
 
     // Simulate installs to make coach2 more popular
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let store_listings_manager = StoreListingsManager::new(sqlite_pool);
     store_listings_manager
         .increment_install_count(&coach2.id.to_string())
@@ -543,7 +552,7 @@ async fn test_browse_store_sort_by_popular() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/coaches?sort_by=popular")
         .header("authorization", &auth_token)
@@ -573,9 +582,10 @@ async fn test_browse_store_unauthorized() {
 #[tokio::test]
 async fn test_get_coach_detail() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -596,7 +606,7 @@ async fn test_get_coach_detail() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get(&format!("/api/store/coaches/{}", coach.id))
         .header("authorization", &auth_token)
@@ -643,9 +653,10 @@ async fn test_get_coach_detail_invalid_id() {
 #[tokio::test]
 async fn test_search_coaches() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -674,7 +685,7 @@ async fn test_search_coaches() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/search?q=marathon")
         .header("authorization", &auth_token)
@@ -723,9 +734,10 @@ async fn test_search_coaches_no_results() {
 #[tokio::test]
 async fn test_list_categories() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -762,7 +774,7 @@ async fn test_list_categories() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/categories")
         .header("authorization", &auth_token)
@@ -813,9 +825,10 @@ async fn test_list_categories_empty() {
 #[tokio::test]
 async fn test_install_coach() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -835,12 +848,13 @@ async fn test_install_coach() {
     .await;
 
     // Create a second user who will install the coach
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token)
@@ -857,9 +871,10 @@ async fn test_install_coach() {
 #[tokio::test]
 async fn test_install_coach_already_installed() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -879,12 +894,13 @@ async fn test_install_coach_already_installed() {
     .await;
 
     // Create a second user
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Install once
     AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
@@ -917,9 +933,10 @@ async fn test_install_coach_not_found() {
 #[tokio::test]
 async fn test_install_increments_install_count() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -941,12 +958,13 @@ async fn test_install_increments_install_count() {
     let original_count = 0;
 
     // Create a second user to install
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token)
@@ -970,9 +988,10 @@ async fn test_install_increments_install_count() {
 #[tokio::test]
 async fn test_uninstall_coach() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -992,12 +1011,13 @@ async fn test_uninstall_coach() {
     .await;
 
     // Create a second user to install then uninstall
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Install first
     let install_response =
@@ -1025,9 +1045,10 @@ async fn test_uninstall_coach() {
 #[tokio::test]
 async fn test_uninstall_coach_not_from_store() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -1038,7 +1059,7 @@ async fn test_uninstall_coach_not_from_store() {
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
     // Create a regular coach (not from Store - no forked_from)
-    let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
+    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let coaches_manager = CoachesManager::new(sqlite_pool);
     let system_request = CreateSystemCoachRequest {
         title: "Not From Store".to_owned(),
@@ -1056,7 +1077,7 @@ async fn test_uninstall_coach_not_from_store() {
 
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::delete(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token)
@@ -1111,9 +1132,10 @@ async fn test_list_installations_empty() {
 #[tokio::test]
 async fn test_list_installations() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let tenants = resources
+        .common
         .repos
         .tenants
         .list_for_user(user_id)
@@ -1141,12 +1163,13 @@ async fn test_list_installations() {
     .await;
 
     // Create a second user to install
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     // Install both coaches
     AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach1.id))
@@ -1179,10 +1202,12 @@ async fn test_published_coaches_visible_cross_tenant() {
     let resources = create_test_server_resources().await.unwrap();
 
     // User 1 in tenant 1 creates a published coach
-    let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
-        .await
-        .unwrap();
+    let (user1_id, _user1) =
+        create_test_user_with_email(&resources.coach.database, "user1@example.com")
+            .await
+            .unwrap();
     let tenants1 = resources
+        .common
         .repos
         .tenants
         .list_for_user(user1_id)
@@ -1202,12 +1227,13 @@ async fn test_published_coaches_visible_cross_tenant() {
     .await;
 
     // User 2 in tenant 2 should see the published coach
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token2 = generate_test_token(&resources, &user2).await;
     let auth_token2 = format!("Bearer {token2}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     let response = AxumTestRequest::get("/api/store/coaches")
         .header("authorization", &auth_token2)
@@ -1226,10 +1252,12 @@ async fn test_installations_isolated_per_user() {
     let resources = create_test_server_resources().await.unwrap();
 
     // User 1 creates a published coach
-    let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
-        .await
-        .unwrap();
+    let (user1_id, _user1) =
+        create_test_user_with_email(&resources.coach.database, "user1@example.com")
+            .await
+            .unwrap();
     let tenants1 = resources
+        .common
         .repos
         .tenants
         .list_for_user(user1_id)
@@ -1249,12 +1277,13 @@ async fn test_installations_isolated_per_user() {
     .await;
 
     // User 2 installs the coach
-    let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
     let token2 = generate_test_token(&resources, &user2).await;
     let auth_token2 = format!("Bearer {token2}");
-    let router = StoreRoutes::router(&resources);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
     AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token2)
@@ -1262,9 +1291,10 @@ async fn test_installations_isolated_per_user() {
         .await;
 
     // User 3 should have no installations
-    let (_user3_id, user3) = create_test_user_with_email(&resources.database, "user3@example.com")
-        .await
-        .unwrap();
+    let (_user3_id, user3) =
+        create_test_user_with_email(&resources.coach.database, "user3@example.com")
+            .await
+            .unwrap();
     let token3 = generate_test_token(&resources, &user3).await;
     let auth_token3 = format!("Bearer {token3}");
 

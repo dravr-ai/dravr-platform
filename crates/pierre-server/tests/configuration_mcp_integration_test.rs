@@ -11,7 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::mcp::schema::get_tools;
+use pierre_mcp_server::tools::registry_builtin::get_tools;
 
 #[test]
 fn test_configuration_tools_in_mcp_schema() {

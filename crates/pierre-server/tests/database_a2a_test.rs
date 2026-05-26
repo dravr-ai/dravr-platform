@@ -10,18 +10,16 @@
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{A2ARepository, ApiKeyRepository, UserRepository},
     database::{a2a::A2AUsage, Database},
 };
-use pierre_mcp_server::{
-    a2a::{
-        auth::A2AClient,
-        client::A2ASession,
-        protocol::{A2ATask, TaskStatus},
-    },
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
+use pierre_mcp_server::a2a::{
+    auth::A2AClient,
+    client::A2ASession,
+    protocol::{A2ATask, TaskStatus},
 };
 use uuid::Uuid;
 

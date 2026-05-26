@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_mcp_server::intelligence::algorithms::{TssAlgorithm, Vo2maxAlgorithm};
-use pierre_mcp_server::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_intelligence::algorithms::{TssAlgorithm, Vo2maxAlgorithm};
 
 // === TSS Algorithm Integration Tests ===
 

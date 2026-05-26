@@ -18,17 +18,19 @@ use crate::constants::{
         ERROR_AUTHENTICATION, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND, ERROR_SERIALIZATION,
         ERROR_VERSION_MISMATCH, MSG_AUTHENTICATION, MSG_SERIALIZATION, MSG_VERSION_MISMATCH,
     },
+    get_server_config,
     protocol::{server_name_multitenant, SERVER_VERSION},
 };
 use crate::mcp::resources::ServerContext;
-use crate::mcp::schema::{
-    get_tools, CompleteRequest, CompleteResult, Completion, InitializeRequest, InitializeResponse,
-    OAuthAppCredentials, Root,
-};
-use crate::models::AuthRequest;
-use crate::types::json_schemas;
+use crate::tools::registry_builtin::get_tools;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
+use pierre_core::models::AuthRequest;
+use pierre_mcp_schema::json_schemas;
+use pierre_mcp_schema::{
+    CompleteRequest, CompleteResult, Completion, InitializeRequest, InitializeResponse,
+    OAuthAppCredentials, Root,
+};
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
 use std::collections::HashMap;
@@ -39,8 +41,7 @@ use uuid::Uuid;
 /// MCP protocol handlers
 pub struct ProtocolHandler;
 
-// Re-export types from multitenant module to avoid duplication
-pub use super::multitenant::{McpError, McpRequest, McpResponse};
+use pierre_mcp_schema::{McpRequest, McpResponse};
 
 /// Default ID for notifications and error responses that don't have a request ID
 fn default_request_id() -> Value {
@@ -62,8 +63,9 @@ fn extract_user_id_from_token(
     };
 
     let claims = resources
+        .auth
         .auth_manager
-        .validate_token(token, &resources.jwks_manager)
+        .validate_token(token, &resources.auth.jwks_manager)
         .map_err(|e| {
             error!("Authentication failed: {}", e);
             Box::new(McpResponse::error(
@@ -215,23 +217,21 @@ impl ProtocolHandler {
             Self::SUPPORTED_VERSIONS
         );
 
-        // Create successful initialize response with negotiated version
-        let init_response = if let Some(resources) = resources {
-            // Use dynamic HTTP port from server configuration
-            InitializeResponse::new_with_ports(
-                negotiated_version,
-                server_name_multitenant(),
-                SERVER_VERSION.to_owned(),
-                resources.config.http_port,
-            )
-        } else {
-            // Fallback to default (hardcoded port)
-            InitializeResponse::new(
-                negotiated_version,
-                server_name_multitenant(),
-                SERVER_VERSION.to_owned(),
-            )
-        };
+        // Resolve the public OAuth origin: prefer the configured base_url, fall back
+        // to localhost on the runtime HTTP port (or 8081 if no ServerContext is wired).
+        let http_port = resources
+            .as_ref()
+            .map_or(8081, |r| r.common.config.http_port);
+        let base_url = get_server_config().map_or_else(
+            || format!("http://localhost:{http_port}"),
+            |c| c.base_url.clone(),
+        );
+        let init_response = InitializeResponse::new(
+            negotiated_version,
+            server_name_multitenant(),
+            SERVER_VERSION.to_owned(),
+            &base_url,
+        );
 
         match serde_json::to_value(&init_response) {
             Ok(result) => McpResponse::success(Some(request_id), result),
@@ -276,8 +276,9 @@ impl ProtocolHandler {
         // Extract user_id from auth context if available
         let user_id = request.auth_token.as_ref().and_then(|auth_token| {
             match resources
+                .auth
                 .auth_manager
-                .validate_token(auth_token, &resources.jwks_manager)
+                .validate_token(auth_token, &resources.auth.jwks_manager)
             {
                 Ok(claims) => {
                     if let Ok(id) = Uuid::parse_str(&claims.sub) {
@@ -334,7 +335,13 @@ impl ProtocolHandler {
         match uri.as_str() {
             "oauth://notifications" => {
                 // Get unread notifications
-                match resources.repos.notifications.get_unread(user_id).await {
+                match resources
+                    .common
+                    .repos
+                    .notifications
+                    .get_unread(user_id)
+                    .await
+                {
                     Ok(notifications) => {
                         let response_data = serde_json::json!({
                             "contents": [{
@@ -432,8 +439,9 @@ impl ProtocolHandler {
 
         // Validate token and extract user_id
         match resources
+            .auth
             .auth_manager
-            .validate_token(auth_token, &resources.jwks_manager)
+            .validate_token(auth_token, &resources.auth.jwks_manager)
         {
             Ok(claims) => Uuid::parse_str(&claims.sub).map_or_else(
                 |_| {
@@ -466,6 +474,7 @@ impl ProtocolHandler {
             // Use default redirect URI for MCP clients
             let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:mcp");
             resources
+                .common
                 .repos
                 .oauth_tokens
                 .store_user_oauth_app(

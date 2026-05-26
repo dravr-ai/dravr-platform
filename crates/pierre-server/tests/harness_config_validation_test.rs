@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::routes::admin::harness_config::{validate_document, HarnessConfigDocument};
+use pierre_contremaitre::harness_config_document::{validate_document, HarnessConfigDocument};
 
 #[test]
 fn default_document_is_valid() {

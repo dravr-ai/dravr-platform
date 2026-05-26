@@ -13,9 +13,9 @@ use pierre_core::models::UserTier;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::services::usage_counter::{LimitCheckResult, UsageCounterService};
+use pierre_core::errors::AppError;
+use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Outcome of the pre-chat quota check that the response-building code
 /// hands to [`apply_usage_warning_headers`]. Tuple members are
@@ -34,7 +34,7 @@ const QUOTA_BYPASS_USER_IDS_ENV: &str = "QUOTA_BYPASS_USER_IDS";
 /// here because quotas key on the user, not on a single tenant
 /// membership).
 async fn resolve_user_tier(resources: &Arc<ServerContext>, user_id: Uuid) -> UserTier {
-    match resources.repos.users.get_global(user_id).await {
+    match resources.common.repos.users.get_global(user_id).await {
         Ok(Some(user)) => user.tier,
         _ => UserTier::Starter,
     }
@@ -88,7 +88,7 @@ pub async fn check_pre_chat_quotas_scoped(
     user_uuid: Uuid,
     scope: &PreChatScope<'_>,
 ) -> Result<UsageWarning, AppError> {
-    let Some(ref admin_config) = resources.admin_config else {
+    let Some(ref admin_config) = resources.coach.admin_config else {
         debug!("Admin config not available, skipping quota check");
         return Ok(None);
     };
@@ -99,7 +99,10 @@ pub async fn check_pre_chat_quotas_scoped(
     }
 
     let tier = resolve_user_tier(resources, user_uuid).await;
-    let usage_svc = UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
+    let usage_svc = UsageCounterService::new(
+        resources.common.repos.usage_counters.as_ref(),
+        admin_config.as_ref(),
+    );
 
     // Daily message cap (allows 1.5x burst).
     let daily_msg_check = usage_svc

@@ -180,8 +180,9 @@ TODOS_FRONTEND=$(rg "TODO|FIXME|XXX" frontend/ -g "!*.json" -g "!*.md" -g "!*.lo
 TODOS=$((TODOS_SRC + TODOS_TESTS + TODOS_SDK + TODOS_FRONTEND))
 PRODUCTION_MOCKS=$(rg "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Magic input anti-patterns: tools that generate fake data based on special input values
-# Excludes: synthetic_provider.rs (legitimate provider), registry.rs (provider registration), spi.rs (provider interface)
-MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ crates/pierre-server/src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+# Excludes: synthetic_provider.rs (legitimate provider), registry.rs (provider registration), spi.rs (provider interface),
+#           auth.rs (AuthService legitimately bypasses OAuth for the synthetic provider behind the provider-synthetic feature flag)
+MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" -g "!**/protocol/auth.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
 PROBLEMATIC_UNDERSCORE_NAMES=$(rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 CFG_TEST_IN_SRC=$(rg "#\[cfg\(test\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' -o -r '$0' --no-line-number 2>/dev/null \
@@ -1011,7 +1012,7 @@ printf "│ %-35s │ %5d │ " "Magic input anti-patterns" "$MAGIC_INPUT_ANTIPA
 if [ "$MAGIC_INPUT_ANTIPATTERNS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Tools require explicit input"
 else
-    FIRST_MAGIC=$(get_first_location 'rg "SyntheticProvider::new|SyntheticProvider::from_seed|generate_.*_data\(|if.*provider.*==.*synthetic" crates/pierre-server/src/tools/ crates/pierre-server/src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -n')
+    FIRST_MAGIC=$(get_first_location 'rg "SyntheticProvider::new|SyntheticProvider::from_seed|generate_.*_data\(|if.*provider.*==.*synthetic" crates/pierre-server/src/tools/ -g "!*synthetic_provider.rs" -g "!**/protocol/auth.rs" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_MAGIC"
     VALIDATION_FAILED=true
 fi
@@ -1203,6 +1204,96 @@ if [ -n "$HEAVY_DUPES" ]; then
     VALIDATION_FAILED=true
 else
     echo -e "${GREEN}  ✅ No heavy crate duplication detected${NC}"
+fi
+
+# ============================================================================
+# TENANT FALLBACK BAN
+# ============================================================================
+# Forbid the security anti-pattern `TenantId::from(<user_id-shaped>)` in
+# non-test code. Every tenant resolution must go through
+# `pierre_runtime_context::resolve_tenant` (which never fabricates a
+# tenant id from a user uuid). Tests may keep using it for synthetic
+# fixtures.
+echo -e "${BLUE}🔍 Checking tenant-resolution policy (no TenantId::from(user_id) in non-test code)...${NC}"
+TENANT_FALLBACK_HITS=$(grep -rEn \
+    'TenantId::from\((\*?user_id|\&user_id|\*?auth\.user_id|\*?ctx\.user_id|\*?u\.user_id)\b' \
+    crates/ \
+    --include='*.rs' \
+    2>/dev/null \
+    | grep -v '/tests/' \
+    | grep -v '^crates/pierre-runtime-context/src/tenant\.rs:' \
+    || true)
+if [ -n "$TENANT_FALLBACK_HITS" ]; then
+    echo -e "${RED}❌ FORBIDDEN: TenantId::from(user_id) fallback in non-test code.${NC}"
+    echo -e "${RED}Every tenant resolution must go through pierre_runtime_context::resolve_tenant.${NC}"
+    echo -e "${RED}Offending sites:${NC}"
+    echo "$TENANT_FALLBACK_HITS"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ No user-id tenant fallbacks in non-test code${NC}"
+fi
+
+# ============================================================================
+# FACADE-SHIM RE-EXPORT BAN  (register item #12)
+# ============================================================================
+# Two-tier rule. Tier 1 is the hard ban; Tier 2 is the advisory survey
+# of the residual migration scope.
+#
+# Tier 1 (strict — fails CI):
+#   No `pub use pierre_*::*` glob re-exports anywhere under
+#   crates/pierre-server/src/. Globs are catastrophic because they pull
+#   every type/fn/macro the upstream crate exposes, making downstream
+#   callers ungreppable (a test referring to
+#   `pierre_mcp_server::intelligence::PerformancePredictor` gives no
+#   hint which crate actually owns `PerformancePredictor`). Even
+#   inside a deliberate facade like lib.rs, re-exports MUST name what
+#   they expose.
+#
+# Tier 2 (advisory — prints, does not fail):
+#   Non-glob `pub use pierre_*` re-exports outside lib.rs. These are
+#   the facade-compat shims that the dated plan
+#   (claude_docs/compat_shim_deletion_plan_2026-05-25.md) phases P1-P6
+#   migrate. The advisory list shrinks per phase; when it reaches
+#   zero, promote Tier 2 to strict and the plan closes.
+echo -e "${BLUE}🔍 Checking facade-shim re-export ban (no pub use pierre_*::* globs in pierre-server)...${NC}"
+
+# Tier 1: glob ban (strict)
+GLOB_REEXPORTS=$(grep -rEn \
+    '^\s*pub use pierre_[a-z_]+(::[a-zA-Z_]+)*::\*' \
+    crates/pierre-server/src \
+    --include='*.rs' \
+    2>/dev/null \
+    || true)
+if [ -n "$GLOB_REEXPORTS" ]; then
+    echo -e "${RED}❌ FORBIDDEN: pub use pierre_*::* glob re-exports in pierre-server/src.${NC}"
+    echo -e "${RED}Globs make downstream callers ungreppable. Name what you re-export,${NC}"
+    echo -e "${RED}or migrate callers to the canonical crate path.${NC}"
+    echo -e "${RED}Offending sites:${NC}"
+    echo "$GLOB_REEXPORTS"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ Tier 1: no pub use pierre_*::* globs${NC}"
+fi
+
+# Tier 2: non-glob outside lib.rs (strict — promoted from advisory after #12 P6 closed)
+NONGLOB_OUTSIDE_LIB=$(grep -rEn \
+    '^\s*pub use pierre_' \
+    crates/pierre-server/src \
+    --include='*.rs' \
+    2>/dev/null \
+    | grep -v '^crates/pierre-server/src/lib\.rs:' \
+    | grep -vE '::\*$' \
+    || true)
+NONGLOB_COUNT=$(echo -n "$NONGLOB_OUTSIDE_LIB" | grep -c '^' || true)
+if [ "$NONGLOB_COUNT" -gt 0 ]; then
+    echo -e "${RED}❌ FORBIDDEN: $NONGLOB_COUNT non-glob pub-use pierre_* re-exports outside lib.rs${NC}"
+    echo -e "${RED}Facade shim re-exports are banned. Migrate callers to the canonical crate path,${NC}"
+    echo -e "${RED}or move the alias to lib.rs if it is a deliberate binary-public-API rename.${NC}"
+    echo -e "${RED}Offending sites:${NC}"
+    echo "$NONGLOB_OUTSIDE_LIB"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ Tier 2: no non-glob pub-use pierre_* re-exports outside lib.rs (gist item #12 closed)${NC}"
 fi
 
 # ============================================================================

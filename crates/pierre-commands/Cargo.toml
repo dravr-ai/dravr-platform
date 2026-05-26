@@ -1,0 +1,36 @@
+# ABOUTME: Slash-command catalog loader (YAML → CommandDefinition) for chat/messaging surfaces
+# ABOUTME: Leaf crate — pierre-messaging defines the command types; this crate parses the catalog
+
+[package]
+name = "pierre-commands"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Slash-command catalog loader for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+# Group coaching handlers (/coach select group create, /group invite). Disabled
+# when tools-groups is off in the host so the dispatch + handler layer still
+# compiles without dragging in the group service surface.
+tools-groups = []
+
+[dependencies]
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
+pierre-messaging = { version = "0.3.0", path = "../pierre-messaging" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-services = { version = "0.3.0", path = "../pierre-services" }
+
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

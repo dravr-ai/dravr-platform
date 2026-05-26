@@ -12,10 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use futures_util::stream;
 use pierre_core::errors::AppError;
-use pierre_mcp_server::llm::chain_guard::{
-    CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD,
-};
-use pierre_mcp_server::llm::{
+use pierre_llm::chain_guard::{CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
     StreamChunk, TokenUsage,
 };

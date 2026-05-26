@@ -18,13 +18,13 @@ use pierre_auth::{
         models::{AuthorizeRequest, ClientRegistrationRequest, TokenRequest},
     },
 };
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::models::{Tenant, TenantId, User};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 

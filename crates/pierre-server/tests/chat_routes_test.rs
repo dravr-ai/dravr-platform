@@ -23,12 +23,13 @@ use serde_json::json;
 
 async fn setup_test_environment() -> (axum::Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     // Generate a JWT token for the user
     let token = resources
+        .auth
         .auth_manager
-        .generate_token(&user, &resources.jwks_manager)
+        .generate_token(&user, &resources.auth.jwks_manager)
         .unwrap();
 
     // Create the chat router

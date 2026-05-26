@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::sse::manager::{ConnectionMetadata, ConnectionType, SseManager};
+use pierre_sse::manager::{ConnectionMetadata, ConnectionType, SseManager};
 use uuid::Uuid;
 
 // =============================================================================
@@ -334,7 +334,7 @@ async fn test_send_a2a_task_update_nonexistent_task() {
 
 #[tokio::test]
 async fn test_send_mcp_request_nonexistent_session() {
-    use pierre_mcp_server::jsonrpc::JsonRpcRequest;
+    use pierre_jsonrpc::JsonRpcRequest;
     use std::collections::HashMap;
 
     let manager = SseManager::new(10);

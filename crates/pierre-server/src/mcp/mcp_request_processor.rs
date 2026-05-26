@@ -9,19 +9,15 @@
 // - Resource Arc sharing for concurrent request processing
 // - JSON value ownership for MCP protocol serialization
 
-use super::{
-    multitenant::{McpError, McpRequest, McpResponse},
-    protocol::ProtocolHandler,
-    resources::ServerContext,
-    schema::{CreateMessageRequest, ToolSchema},
-    tenant_isolation::extract_tenant_context_internal,
-    tool_handlers::ToolHandlers,
-};
+use super::{protocol::ProtocolHandler, resources::ServerContext, tool_handlers::ToolHandlers};
 use crate::constants::errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND};
 use crate::constants::protocol::{mcp_protocol_version, JSONRPC_VERSION};
 use crate::constants::tools::PUBLIC_DISCOVERY_TOOLS;
-use crate::errors::{AppError, AppResult};
-use crate::models::TenantId;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantId;
+use pierre_mcp_schema::{CreateMessageRequest, ToolSchema};
+use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
+use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
@@ -271,6 +267,7 @@ impl McpRequestProcessor {
 
         match self
             .resources
+            .auth
             .auth_middleware
             .authenticate_request(Some(token))
             .await
@@ -304,7 +301,7 @@ impl McpRequestProcessor {
         active_tenant_id: Option<TenantId>,
     ) -> Vec<ToolSchema> {
         if let Ok(Some(tenant_ctx)) = extract_tenant_context_internal(
-            &self.resources.repos,
+            &self.resources.common.repos,
             Some(user_id),
             active_tenant_id,
             None,
@@ -316,7 +313,7 @@ impl McpRequestProcessor {
                     "tools/list: admin user in tenant {}, returning all tools",
                     tenant_ctx.tenant_id
                 );
-                return self.resources.tool_registry.all_schemas();
+                return self.resources.mcp.tool_registry.all_schemas();
             }
 
             debug!(
@@ -329,12 +326,13 @@ impl McpRequestProcessor {
         // Authenticated but no tenant context: return user-visible tools
         // (non-admin tools from registry, no tenant filtering)
         debug!("tools/list: authenticated user without tenant, returning user-visible tools");
-        self.resources.tool_registry.user_visible_schemas()
+        self.resources.mcp.tool_registry.user_visible_schemas()
     }
 
     /// Return public discovery tools (safe subset for unauthenticated clients)
     fn public_discovery_tools(&self) -> Vec<ToolSchema> {
         self.resources
+            .mcp
             .tool_registry
             .list_schemas_by_names(PUBLIC_DISCOVERY_TOOLS)
     }
@@ -356,6 +354,7 @@ impl McpRequestProcessor {
     async fn tenant_filtered_tools(&self, tenant_id: TenantId) -> Vec<ToolSchema> {
         match self
             .resources
+            .mcp
             .tool_selection
             .get_effective_tools(tenant_id)
             .await
@@ -375,10 +374,12 @@ impl McpRequestProcessor {
                 // Get catalog-based enabled tools, filtered to non-admin only
                 let mut schemas = self
                     .resources
+                    .mcp
                     .tool_registry
                     .list_schemas_by_name_set(&enabled_names);
                 schemas.retain(|s| {
                     self.resources
+                        .mcp
                         .tool_registry
                         .get(&s.name)
                         .is_none_or(|tool| !tool.capabilities().is_admin_only())
@@ -388,6 +389,7 @@ impl McpRequestProcessor {
                 // Uses all_catalogued_names so disabled-in-catalog tools aren't re-added
                 let uncatalogued = self
                     .resources
+                    .mcp
                     .tool_registry
                     .uncatalogued_user_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
@@ -403,6 +405,7 @@ impl McpRequestProcessor {
                 if !missing_public.is_empty() {
                     let floor = self
                         .resources
+                        .mcp
                         .tool_registry
                         .list_schemas_by_names(&missing_public);
                     schemas.extend(floor);
@@ -415,7 +418,7 @@ impl McpRequestProcessor {
                     "tools/list: failed to get tenant tools for {}: {}, falling back to user-visible",
                     tenant_id, e
                 );
-                self.resources.tool_registry.user_visible_schemas()
+                self.resources.mcp.tool_registry.user_visible_schemas()
             }
         }
     }
@@ -500,7 +503,7 @@ impl McpRequestProcessor {
 
     /// Handle the sampling/createMessage MCP method
     async fn handle_create_message(&self, request: &McpRequest) -> Result<McpResponse, AppError> {
-        let Some(sampling_peer) = &self.resources.sampling_peer else {
+        let Some(sampling_peer) = &self.resources.sse.sampling_peer else {
             return Ok(Self::mcp_error(
                 request,
                 ERROR_METHOD_NOT_FOUND,

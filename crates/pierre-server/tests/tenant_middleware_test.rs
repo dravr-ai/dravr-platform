@@ -14,8 +14,8 @@
 //! - Integration tests with real JWT tokens and database
 
 use pierre_auth::tenant::{TenantContext, TenantRole};
-use pierre_mcp_server::middleware::tenant::{require_tenant_context, ExtractedTenantContext};
-use pierre_mcp_server::models::TenantId;
+use pierre_core::models::TenantId;
+use pierre_middleware::tenant::{require_tenant_context, ExtractedTenantContext};
 use uuid::Uuid;
 
 /// Test that `ExtractedTenantContext` correctly handles None case

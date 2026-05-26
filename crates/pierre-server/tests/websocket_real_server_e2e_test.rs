@@ -13,15 +13,12 @@ mod common;
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::AuthManager;
+use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    config::environment::RateLimitConfig,
-    models::{User, UserStatus, UserTier},
-    permissions::UserRole,
-    routes::websocket::WebSocketRoutes,
-    websocket::WebSocketManager,
-};
+use pierre_mcp_server::{routes::websocket::WebSocketRoutes, websocket::WebSocketManager};
 use rand::Rng;
 use serde_json::json;
 use std::{net::TcpListener, sync::Arc, time::Duration};
@@ -81,7 +78,7 @@ impl TestServer {
 
         let repos = Arc::new(self.database.repositories());
         let ws_manager = Arc::new(WebSocketManager::new(
-            repos,
+            &repos,
             &self.auth_manager,
             &jwks_manager,
             rate_limit_config,

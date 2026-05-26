@@ -16,8 +16,8 @@ use tracing::info;
 use pierre_auth::auth::AuthResult;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::channel_error_reply::ChannelErrorReply;
-use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_services::channel_error_reply::ChannelErrorReply;
 
 use super::locale::resolve_messaging_locale;
 use super::ResolvedSession;
@@ -48,13 +48,13 @@ pub(super) struct SlashCommandContext<'a> {
     pub is_direct_message: bool,
 }
 
-/// Resolve and execute slash commands against [`crate::services::commands::dispatch`].
+/// Resolve and execute slash commands against [`pierre_commands::dispatch`].
 ///
 /// Returns `Some(OutgoingMessage)` if the message was a recognized command,
 /// `None` if it should be passed through to the LLM pipeline.
 ///
 /// Delegates parsing + handler execution + analytics to
-/// [`crate::services::commands::dispatch::try_dispatch`] — the single
+/// [`pierre_commands::dispatch::try_dispatch`] — the single
 /// authority for every chat surface. This function's remaining job is
 /// messaging-specific: resolving auth/tenant/locale from the channel link
 /// and wrapping the outcome into an [`OutgoingMessage`] for the renderer.
@@ -88,8 +88,24 @@ pub(super) async fn try_handle_slash_command(
         resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
     let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
 
+    // Slash dispatch requires both the command-name catalog and the
+    // handler-name map. They live on ServerContext alongside the rest of
+    // the registries; the dispatcher takes them as explicit refs so the
+    // pierre-commands crate stays free of ServerContext.
+    let Some(cmd_registry) = resources.common.command_registry.as_ref() else {
+        // Registries not configured (test contexts that skip the
+        // commands/ catalog). Treat as "not a command" so the caller
+        // falls through to the LLM pipeline.
+        return None;
+    };
+    let handler_registry = resources.common.command_handler_registry.as_ref()?;
+    let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
+        Arc::<ServerContext>::clone(resources);
+
     let outcome = match try_dispatch(DispatchRequest {
-        resources,
+        ctx: &ctx_dyn,
+        command_registry: cmd_registry,
+        command_handler_registry: handler_registry,
         user_id: user_uuid,
         tenant_id: user_tenant,
         channel_type: channel,
@@ -106,7 +122,11 @@ pub(super) async fn try_handle_slash_command(
             // correlation id and returns a channel-safe body. Never
             // interpolate the raw error into the reply text by hand —
             // the grep gate in architectural-validation.sh blocks it.
-            let (body, _correlation_id) = e.to_channel_reply(resources, &locale, "command");
+            let (body, _correlation_id) = e.to_channel_reply(
+                &resources.mcp.messaging_strings_registry,
+                &locale,
+                "command",
+            );
             return Some(OutgoingMessage {
                 channel_type,
                 recipient_id: reply_target,

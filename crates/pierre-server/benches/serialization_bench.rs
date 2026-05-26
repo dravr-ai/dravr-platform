@@ -20,9 +20,9 @@ mod common;
 use chrono::{Duration, Utc};
 use common::fixtures::{generate_activities, ActivityBatchSize};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use pierre_mcp_server::intelligence::metrics::AdvancedMetrics;
-use pierre_mcp_server::intelligence::training_load::{TrainingLoad, TssDataPoint};
-use pierre_mcp_server::models::{Activity, SleepSession, SleepStage, SleepStageType};
+use pierre_core::models::{Activity, SleepSession, SleepStage, SleepStageType};
+use pierre_intelligence::metrics::AdvancedMetrics;
+use pierre_intelligence::training_load::{TrainingLoad, TssDataPoint};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

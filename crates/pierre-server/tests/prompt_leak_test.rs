@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::models::TenantId;
-use pierre_mcp_server::services::prompt_leak::{harden_system_prompt, scan_assistant_reply};
+use pierre_services::prompt_leak::{harden_system_prompt, scan_assistant_reply};
 use uuid::Uuid;
 
 fn tenant() -> TenantId {

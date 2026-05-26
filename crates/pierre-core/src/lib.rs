@@ -67,6 +67,15 @@ pub mod tokens;
 /// Plain-text markdown stripper for messaging output
 pub mod markdown;
 
+/// HTML escaping utilities for XSS prevention in server-rendered templates
+pub mod html;
+
+/// Authorization header parsing helpers (bearer token extraction, API key detection)
+pub mod auth_header;
+
+/// Small constructor helpers for common `AppError` patterns
+pub mod error_helpers;
+
 /// LLM provider trait and shared types for pluggable AI model integration
 #[cfg(feature = "llm")]
 pub mod llm;

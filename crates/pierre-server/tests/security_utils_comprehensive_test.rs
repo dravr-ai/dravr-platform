@@ -14,8 +14,8 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use pierre_core::models::{EncryptedToken, User, UserTier};
 use pierre_database::database::generate_encryption_key;
-use pierre_mcp_server::models::{EncryptedToken, User, UserTier};
 use uuid::Uuid;
 
 #[tokio::test]

@@ -12,7 +12,7 @@ use chrono::{Duration, Utc};
 use pierre_core::models::TenantId;
 use pierre_database::database::{generate_encryption_key, Database as SqliteDatabase};
 use pierre_database::repositories::{HarnessMemoryRepository, InsertCoachFollowupParams};
-use pierre_mcp_server::services::coach_followup_scheduler::tick;
+use pierre_services::coach_followup_scheduler::tick;
 use sqlx::Executor;
 use uuid::Uuid;
 

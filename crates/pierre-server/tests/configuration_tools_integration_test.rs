@@ -14,14 +14,10 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
+use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{
-    mcp::{
-        multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},
-        resources::ServerContext,
-    },
-    models::{Tenant, TenantId, User},
-};
+use pierre_mcp_schema::{McpRequest, McpResponse};
+use pierre_mcp_server::mcp::{multitenant::MultiTenantMcpServer, resources::ServerContext};
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
@@ -136,9 +132,9 @@ async fn make_tool_request(
 async fn test_all_configuration_tools_available() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, token) = create_authenticated_user(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
     )
     .await?;
 
@@ -198,9 +194,9 @@ async fn test_all_configuration_tools_available() -> Result<()> {
 async fn test_configuration_catalog_has_expected_structure() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, token) = create_authenticated_user(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
     )
     .await?;
 
@@ -267,9 +263,9 @@ async fn test_configuration_tools_require_authentication() -> Result<()> {
 async fn test_configuration_tools_with_invalid_parameters() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_user_id, token) = create_authenticated_user(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
     )
     .await?;
 
@@ -306,17 +302,17 @@ async fn test_multitenant_isolation_for_configuration_tools() -> Result<()> {
 
     // Create two different users
     let (user1_id, token1) = create_authenticated_user(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
     )
     .await?;
 
     // Create a second user with different tenant for isolation testing
     let (user2_id, token2) = create_authenticated_user_with_different_tenant(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
         "config_test2@example.com",
     )
     .await?;
@@ -347,9 +343,9 @@ async fn test_multitenant_isolation_for_configuration_tools() -> Result<()> {
 async fn test_configuration_tools_integration_summary() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, token) = create_authenticated_user(
-        &resources.database,
-        &resources.auth_manager,
-        &resources.jwks_manager,
+        &resources.coach.database,
+        &resources.auth.auth_manager,
+        &resources.auth.jwks_manager,
     )
     .await?;
 

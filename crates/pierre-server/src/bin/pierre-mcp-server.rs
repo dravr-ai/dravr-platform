@@ -15,21 +15,16 @@
 use clap::{error::ErrorKind, Parser};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
+use pierre_cache::Cache;
+use pierre_config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-#[cfg(feature = "provider-synthetic")]
-use pierre_mcp_server::providers::set_synthetic_database_pool;
-#[cfg(feature = "provider-sciotte")]
-use pierre_mcp_server::routes::auth::init_sciotte_limiter;
-use pierre_mcp_server::services::chat_provider_factory::spawn_llm_health_probe;
+use pierre_mcp_server::cache::cache_from_env;
 use pierre_mcp_server::{
-    cache::factory::Cache,
-    config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig},
     constants::init_server_config,
-    errors::{AppError, AppResult},
     features::FeatureConfig,
-    logging,
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerContext, ServerContextOptions},
@@ -37,6 +32,11 @@ use pierre_mcp_server::{
     },
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
+#[cfg(feature = "provider-synthetic")]
+use pierre_providers::synthetic_provider::set_synthetic_database_pool;
+#[cfg(feature = "provider-sciotte")]
+use pierre_routes_auth::init_sciotte_limiter;
+use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
@@ -149,7 +149,7 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
         config.http_port = http_port;
     }
 
-    logging::init_from_env()?;
+    pierre_logging::init_from_env()?;
     info!("Starting Dravr API - Production Mode");
     info!("{}", config.summary());
 
@@ -498,7 +498,7 @@ fn initialize_global_configs(config: &ServerConfig) -> Result<()> {
 }
 
 async fn initialize_cache() -> Result<Cache> {
-    let cache = Cache::from_env().await?;
+    let cache = cache_from_env().await?;
     info!("Cache initialized successfully");
     Ok(cache)
 }
@@ -690,7 +690,7 @@ async fn create_server(
 
     // Initialize synthetic provider database pool for non-OAuth activity access
     #[cfg(feature = "provider-synthetic")]
-    if let Some(pool) = resources_instance.database.sqlite_pool() {
+    if let Some(pool) = resources_instance.coach.database.sqlite_pool() {
         set_synthetic_database_pool(Arc::new(pool.clone()));
         info!("Synthetic provider database pool initialized");
     }
@@ -711,20 +711,44 @@ async fn create_server(
 fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
+    // Install the MCP protocol-stream factory on the SSE manager now that
+    // the composition-root Arc<ServerContext> exists. The SSE crate
+    // doesn't know about the concrete McpProtocolStream type
+    // (ToolHandlers dispatch lives in pierre-server); the factory closes
+    // over the resources handle so each per-session stream gets it.
+    #[cfg(feature = "transport-sse")]
+    {
+        use pierre_mcp_server::sse::protocol::McpProtocolStreamFactory;
+        let factory = Arc::new(McpProtocolStreamFactory {
+            resources: Arc::clone(&resources),
+        });
+        // Ignore the result: a second install attempt is a startup-time
+        // logic bug, not a runtime condition worth aborting on (the first
+        // factory has already won). Surface via tracing for visibility.
+        if resources
+            .sse
+            .sse_manager
+            .install_protocol_factory(factory)
+            .is_err()
+        {
+            tracing::warn!("SseManager protocol factory already installed; skipping");
+        }
+    }
+
     // Spawn LLM startup health probe — populates resources.llm_health so
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route
     // (Cloud Run startup probe is /health by default and stays unaffected).
     spawn_llm_health_probe(
-        Arc::clone(&resources.llm_health),
-        resources.chat_provider.as_ref().map(Arc::clone),
+        Arc::clone(&resources.common.llm_health),
+        resources.common.chat_provider.as_ref().map(Arc::clone),
     );
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::start_outbound_worker;
-        start_outbound_worker(Arc::clone(&resources.repos.messaging));
+        start_outbound_worker(Arc::clone(&resources.common.repos.messaging));
         info!("Messaging outbound retry worker started");
     }
 
@@ -732,9 +756,9 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     {
         use pierre_mcp_server::start_followup_scheduler;
         start_followup_scheduler(
-            Arc::clone(&resources.repos.memory),
+            Arc::clone(&resources.common.repos.memory),
             #[cfg(feature = "client-notifications")]
-            resources.notification_service.clone(),
+            resources.common.notification_service.clone(),
         );
     }
 
@@ -968,11 +992,13 @@ fn display_a2a_endpoints(host: &str, port: u16) {
         name: "A2A Protocol:",
         endpoints: &[
             ("A2A Status:", "GET", "/a2a/status"),
-            ("A2A Tools:", "GET", "/a2a/tools"),
-            ("A2A Execute:", "POST", "/a2a/execute"),
-            ("A2A Monitoring:", "GET", "/a2a/monitoring"),
-            ("Client Tools:", "GET", "/a2a/client/tools"),
-            ("Client Execute:", "POST", "/a2a/client/execute"),
+            ("Agent Card:", "GET", "/.well-known/agent-card.json"),
+            ("Clients (list/create):", "GET/POST", "/a2a/clients"),
+            ("Client (get/delete):", "GET/DELETE", "/a2a/clients/{id}"),
+            ("Client Usage:", "GET", "/a2a/clients/{id}/usage"),
+            ("Client Rate Limit:", "GET", "/a2a/clients/{id}/rate-limit"),
+            ("Dashboard Overview:", "GET", "/a2a/dashboard/overview"),
+            ("Dashboard Analytics:", "GET", "/a2a/dashboard/analytics"),
         ],
     };
     display_endpoint_category(&category, host, port);

@@ -7,8 +7,8 @@
 //! Tests for chat tool loop strategies.
 
 use pierre_core::llm::MessageRole;
-use pierre_mcp_server::llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
-use pierre_mcp_server::routes::chat_tool_loop::{
+use pierre_llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
+use pierre_tool_runtime::tool_execution::{
     extract_activity_list, format_tool_results_as_text, generate_tool_catalog,
     inject_tool_catalog_into_system_prompt, parse_tool_call_blocks, strip_tool_call_blocks,
 };

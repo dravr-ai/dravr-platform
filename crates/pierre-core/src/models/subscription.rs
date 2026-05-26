@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Provider-agnostic subscription domain model — rows mirrored from any BillingProvider impl
 // ABOUTME: Webhook handlers upsert keyed on (provider, provider_customer_id); status mirrors RFC-style lifecycle
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

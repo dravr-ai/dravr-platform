@@ -1,5 +1,5 @@
 // ABOUTME: CRUD handlers for /api/chat/conversations — create/list/get/update/delete + messages
-// ABOUTME: No LLM dispatch; pure chat_orchestration + chat repo calls
+// ABOUTME: No LLM dispatch; pure chat_pipeline persistence + chat repo calls
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,12 +15,12 @@ use axum::{
 
 use uuid::Uuid;
 
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
-use crate::middleware::AuthenticatedUser;
-use crate::services::chat_orchestration;
+use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
+use pierre_core::errors::AppError;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::TenantId;
+use pierre_middleware::AuthenticatedUser;
 
 use super::common::get_tenant_id;
 use super::dto::{
@@ -38,7 +38,12 @@ async fn verify_group_membership(
     group_id: &str,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let member = resources.repos.groups.get_member(group_id, user_id).await?;
+    let member = resources
+        .common
+        .repos
+        .groups
+        .get_member(group_id, user_id)
+        .await?;
     match member {
         Some(m) if m.left_at.is_none() => Ok(()),
         _ => Err(AppError::new(
@@ -85,11 +90,11 @@ pub async fn create_conversation(
     Json(request): Json<CreateConversationRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
     // Enforce max_active_conversations limit from admin config
-    if let Some(ref admin_config) = resources.admin_config {
+    if let Some(ref admin_config) = resources.coach.admin_config {
         let max_conversations = admin_config
             .get_value(
                 "usage_quotas.max_active_conversations",
@@ -102,6 +107,7 @@ pub async fn create_conversation(
             .unwrap_or(2);
 
         let current_count = resources
+            .common
             .repos
             .chat
             .count_conversations(&user_id_str, tenant_id)
@@ -122,8 +128,8 @@ pub async fn create_conversation(
         verify_group_membership(&resources, gid, auth.user_id).await?;
     }
 
-    let result = chat_orchestration::create_conversation(
-        resources.repos.chat.as_ref(),
+    let result = create_conversation_row(
+        resources.common.repos.chat.as_ref(),
         &user_id_str,
         tenant_id,
         &request.title,
@@ -163,9 +169,10 @@ pub async fn list_conversations(
     Query(query): Query<ListConversationsQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
 
     let conversations = resources
+        .common
         .repos
         .chat
         .list_conversations(
@@ -203,9 +210,10 @@ pub async fn get_conversation(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
 
     let conv = resources
+        .common
         .repos
         .chat
         .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
@@ -234,9 +242,10 @@ pub async fn update_conversation(
     Json(request): Json<UpdateConversationRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
 
     let updated = resources
+        .common
         .repos
         .chat
         .update_conversation_title(
@@ -253,6 +262,7 @@ pub async fn update_conversation(
 
     // Fetch and return the updated conversation (proper REST response)
     let conv = resources
+        .common
         .repos
         .chat
         .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
@@ -280,9 +290,10 @@ pub async fn delete_conversation(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
 
     let deleted = resources
+        .common
         .repos
         .chat
         .delete_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
@@ -302,10 +313,11 @@ pub async fn get_messages(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(auth.user_id, &resources).await?;
+    let tenant_id = get_tenant_id(&auth, &resources).await?;
 
     // Verify user owns this conversation
     resources
+        .common
         .repos
         .chat
         .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
@@ -313,6 +325,7 @@ pub async fn get_messages(
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
     let messages = resources
+        .common
         .repos
         .chat
         .get_messages(&conversation_id, &auth.user_id.to_string())

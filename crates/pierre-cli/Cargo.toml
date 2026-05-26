@@ -1,0 +1,41 @@
+# ABOUTME: pierre-cli — admin CLI for pierre-server (user create, token generate, seeds)
+# ABOUTME: Separated from pierre-mcp-server for binary-size and dependency clarity
+
+[package]
+name = "pierre-cli"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Unified admin CLI for the Pierre MCP Server (users, tokens, seeders)"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[[bin]]
+name = "pierre-cli"
+path = "src/main.rs"
+
+[features]
+default = []
+postgresql = ["pierre-database/postgresql", "pierre-services?/postgresql"]
+tools-verification = ["dep:pierre-evals", "dep:pierre-services", "pierre-services/tools-verification", "pierre-services/health-sync"]
+
+[dependencies]
+# Workspace crates
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
+pierre-services = { version = "0.3.0", path = "../pierre-services", optional = true }
+
+bcrypt = "0.16"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "std", "env"], default-features = false }
+serde_json = "1.0"
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std"], default-features = false }
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

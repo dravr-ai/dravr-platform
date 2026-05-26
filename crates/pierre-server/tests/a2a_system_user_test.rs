@@ -7,10 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::backends::{factory::Database, DatabaseProvider, UserRepository};
 use pierre_mcp_server::a2a::system_user::A2ASystemUserService;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::constants::init_server_config;
 use std::env;
 use std::sync::{Arc, Once};

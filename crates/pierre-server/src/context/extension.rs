@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::mcp::sampling_peer::SamplingPeer;
-use crate::mcp::schema::ProgressNotification;
-use crate::protocols::universal::types::CancellationToken;
+use pierre_mcp_schema::ProgressNotification;
+use pierre_mcp_transport::sampling_peer::SamplingPeer;
+use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};

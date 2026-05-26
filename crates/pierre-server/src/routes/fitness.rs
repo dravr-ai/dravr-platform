@@ -13,9 +13,7 @@ use crate::{
     config::routes::fitness::{
         FitnessConfigurationRoutes as FitnessService, SaveFitnessConfigRequest,
     },
-    errors::AppError,
     mcp::resources::ServerContext,
-    middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Query, State},
@@ -24,6 +22,8 @@ use axum::{
     routing::{delete, get, put},
     Json, Router,
 };
+use pierre_core::errors::AppError;
+use pierre_middleware::AuthenticatedUser;
 use serde::Deserialize;
 use std::sync::Arc;
 

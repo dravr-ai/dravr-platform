@@ -12,7 +12,8 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::routes::coaches::CoachesRoutes;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_coaches::build_coaches_router;
 
 use axum::http::StatusCode;
 use serde_json::json;
@@ -69,10 +70,10 @@ Some text without any section headers.
 
 async fn setup_test_environment() -> (axum::Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
 
     let token = generate_test_token(&resources, &user).await;
-    let router = CoachesRoutes::routes(resources);
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
 
     (router, format!("Bearer {token}"))
 }

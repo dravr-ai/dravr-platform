@@ -31,7 +31,7 @@ use helpers::messaging_eval::{
     assert_citation_grounded, assert_guardrail, CitationFixture, CitationMismatch, Tolerances,
 };
 use helpers::synthetic_data::SyntheticDataBuilder;
-use pierre_mcp_server::models::Activity;
+use pierre_core::models::Activity;
 
 /// Seed ten synthetic runs, each exactly 5 km. Makes the expected
 /// fixture trivially `{ count: 10, total_distance_km: 50.0 }` and

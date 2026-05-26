@@ -11,9 +11,9 @@
 mod helpers;
 
 use helpers::test_utils::{create_synthetic_provider_with_scenario, TestScenario};
-use pierre_mcp_server::models::{Activity, SportType};
-use pierre_mcp_server::pagination::PaginationParams;
-use pierre_mcp_server::providers::core::FitnessProvider;
+use pierre_core::models::{Activity, SportType};
+use pierre_core::pagination::PaginationParams;
+use pierre_providers::core::FitnessProvider;
 
 #[tokio::test]
 async fn test_get_athlete_with_synthetic_data() {

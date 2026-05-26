@@ -8,10 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_mcp_server::intelligence::{
-    RiskLevel, TrainingLoad, TrainingLoadCalculator, TrainingStatus,
-};
-use pierre_mcp_server::models::{Activity, SportType};
+use pierre_core::models::{Activity, SportType};
+use pierre_intelligence::{RiskLevel, TrainingLoad, TrainingLoadCalculator, TrainingStatus};
 
 fn create_test_activity(
     date: DateTime<Utc>,
@@ -19,7 +17,7 @@ fn create_test_activity(
     avg_power: Option<u32>,
     avg_hr: Option<u32>,
 ) -> Activity {
-    use pierre_mcp_server::models::ActivityBuilder;
+    use pierre_core::models::ActivityBuilder;
 
     let mut builder = ActivityBuilder::new(
         format!("test_{}", date.timestamp()),

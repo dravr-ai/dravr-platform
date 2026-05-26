@@ -7,8 +7,9 @@
 // Test files don't require documentation - this is a rustc lint (not clippy)
 #![allow(missing_docs)]
 
-use pierre_mcp_server::config::{LlmModelConfig, LlmProviderType};
-use pierre_mcp_server::llm::{
+use pierre_config::environment::LlmProviderType;
+use pierre_config::types::LlmModelConfig;
+use pierre_llm::{
     ChatMessage, ChatRequest, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
     LlmProviderRegistry, MessageRole,
 };

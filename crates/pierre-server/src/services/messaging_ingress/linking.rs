@@ -13,12 +13,12 @@ use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::{
+use crate::mcp::resources::ServerContext;
+use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
 };
-use crate::mcp::resources::ServerContext;
-use crate::services::analytics::{analytics, hash_id};
-use crate::services::user_status_gate::messaging_key_for_status;
+use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::user_status_gate::messaging_key_for_status;
 
 use super::locale::resolve_messaging_locale;
 
@@ -134,8 +134,9 @@ pub(super) async fn link_time_reply(
     channel: &str,
     sender_id: &str,
 ) -> String {
-    let reg = &resources.messaging_strings_registry;
+    let reg = &resources.mcp.messaging_strings_registry;
     match resources
+        .auth
         .auth_middleware
         .authenticate_channel(tenant_id, channel, sender_id)
         .await
@@ -154,6 +155,7 @@ pub(super) async fn link_time_reply(
         Err(e) => {
             if let Some(key) = messaging_key_for_status(e.code) {
                 let locale = resources
+                    .common
                     .repos
                     .messaging
                     .get_channel_link_locale(tenant_id, channel, sender_id)
@@ -182,7 +184,7 @@ async fn consume_and_link(
     sender_id: &str,
     code: &str,
 ) -> String {
-    let reg = &resources.messaging_strings_registry;
+    let reg = &resources.mcp.messaging_strings_registry;
     match execute_link_code(db, tenant_id, channel, sender_id, code).await {
         Ok(user_id) => {
             info!(channel = %channel, user_id = %user_id, channel_user_id = %sender_id, "Channel linked via deep link");
@@ -218,7 +220,7 @@ pub(super) async fn handle_linking_command(
     sender_id: &str,
     code: &str,
 ) -> OutgoingMessage {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
     let response_text = consume_and_link(resources, db, tenant_id, channel, sender_id, code).await;
 
@@ -249,7 +251,7 @@ pub(super) async fn hydrate_analytics_consent(resources: &ServerContext, user_id
     let Ok(parsed) = Uuid::parse_str(user_id) else {
         return;
     };
-    match resources.repos.users.get_global(parsed).await {
+    match resources.common.repos.users.get_global(parsed).await {
         Ok(Some(user)) => {
             analytics().hydrate_consent(&hashed_user, user.analytics_consent);
         }

@@ -13,7 +13,7 @@ use pierre_auth::security::{
     audit_security_headers, headers::SecurityConfig, EncryptedData, EncryptionMetadata,
     TenantEncryptionManager,
 };
-use pierre_mcp_server::models::TenantId;
+use pierre_core::models::TenantId;
 use std::collections::HashMap;
 
 // =============================================================================

@@ -9,13 +9,11 @@
 
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_database::{
     backends::{OAuthTokenRepository, ProfileRepository, UserRepository},
     database::Database,
-};
-use pierre_mcp_server::{
-    models::{TenantId, User, UserStatus, UserTier},
-    permissions::UserRole,
 };
 use uuid::Uuid;
 
@@ -455,7 +453,7 @@ async fn test_user_fitness_profile() {
 
 #[tokio::test]
 async fn test_provider_last_sync() {
-    use pierre_mcp_server::models::UserOAuthToken;
+    use pierre_core::models::UserOAuthToken;
 
     let db = create_test_database().await;
     let user = create_test_user("sync_test@example.com", Some("Sync Test".to_owned()));
@@ -554,7 +552,7 @@ async fn test_user_serialization_in_database() {
 
 #[tokio::test]
 async fn test_user_with_encrypted_tokens() {
-    use pierre_mcp_server::models::UserOAuthToken;
+    use pierre_core::models::UserOAuthToken;
 
     let db = create_test_database().await;
 

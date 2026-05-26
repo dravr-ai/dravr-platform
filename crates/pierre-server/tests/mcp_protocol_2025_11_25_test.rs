@@ -7,12 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_mcp_schema::McpRequest;
+use pierre_mcp_schema::ToolAnnotations;
 use pierre_mcp_server::constants::errors::ERROR_VERSION_MISMATCH;
-use pierre_mcp_server::mcp::{
-    multitenant::McpRequest,
-    protocol::ProtocolHandler,
-    schema::{get_tools, ToolAnnotations},
-};
+use pierre_mcp_server::mcp::protocol::ProtocolHandler;
+use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::json;
 
 mod common;

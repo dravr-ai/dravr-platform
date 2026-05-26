@@ -15,13 +15,13 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
+#[cfg(feature = "postgresql")]
+use pierre_config::environment::PostgresPoolConfig;
+use pierre_config::environment::RateLimitConfig;
+use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-#[cfg(feature = "postgresql")]
-use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::config::environment::RateLimitConfig;
-use pierre_mcp_server::middleware::McpAuthMiddleware;
-use pierre_mcp_server::models::User;
+use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 
 #[tokio::test]

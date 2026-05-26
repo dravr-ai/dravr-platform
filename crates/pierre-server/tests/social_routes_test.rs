@@ -12,9 +12,7 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user_with_email};
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::routes::social::{
-    ListFriendsResponse, PendingRequestsResponse, SocialRoutes,
-};
+use pierre_routes_social::{ListFriendsResponse, PendingRequestsResponse, SocialRoutes};
 
 use axum::http::StatusCode;
 use serde_json::json;
@@ -28,24 +26,28 @@ async fn setup_two_users() -> (axum::Router, String, String, String, String) {
     let resources = create_test_server_resources().await.unwrap();
 
     // Create first user (sender)
-    let (user1_id, user1) = create_test_user_with_email(&resources.database, "user1@example.com")
-        .await
-        .unwrap();
+    let (user1_id, user1) =
+        create_test_user_with_email(&resources.coach.database, "user1@example.com")
+            .await
+            .unwrap();
 
     // Create second user (receiver)
-    let (user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
-        .await
-        .unwrap();
+    let (user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "user2@example.com")
+            .await
+            .unwrap();
 
     // Generate JWT tokens for both users
     let token1 = resources
+        .auth
         .auth_manager
-        .generate_token(&user1, &resources.jwks_manager)
+        .generate_token(&user1, &resources.auth.jwks_manager)
         .unwrap();
 
     let token2 = resources
+        .auth
         .auth_manager
-        .generate_token(&user2, &resources.jwks_manager)
+        .generate_token(&user2, &resources.auth.jwks_manager)
         .unwrap();
 
     // Create the social router

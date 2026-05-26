@@ -22,9 +22,9 @@ mod helpers;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::{CreateLinkStateParams, MessagingRepository};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::models::{Tenant, TenantId, User};
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
@@ -36,7 +36,7 @@ async fn seed_tenant_with_owner(resources: &ServerContext) -> (Uuid, TenantId) {
     let email = format!("owner-{}@test.local", Uuid::new_v4());
     let user = User::new(email, "hash".to_owned(), Some("Tenant Owner".to_owned()));
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -49,7 +49,13 @@ async fn seed_tenant_with_owner(resources: &ServerContext) -> (Uuid, TenantId) {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    resources.repos.tenants.create(&tenant).await.unwrap();
+    resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
     (user_id, tenant_id)
 }
 
@@ -89,6 +95,7 @@ async fn create_channel_initiated_link_state(
 /// `seed_tenant_with_owner`).
 async fn add_user_to_tenant(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
     resources
+        .common
         .repos
         .users
         .update_tenant_id(user_id, tenant_id)
@@ -114,7 +121,7 @@ async fn create_test_user_with_password(
         Some("Test User".to_owned()),
     );
     let user_id = user.id;
-    resources.repos.users.create(&user).await.unwrap();
+    resources.common.repos.users.create(&user).await.unwrap();
     user_id
 }
 
@@ -125,7 +132,7 @@ async fn create_test_user_with_password(
 #[tokio::test]
 async fn test_link_page_renders_for_valid_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -159,7 +166,7 @@ async fn test_link_page_renders_for_valid_code() {
 #[tokio::test]
 async fn test_link_page_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -209,7 +216,7 @@ async fn test_link_page_nonexistent_code() {
 #[tokio::test]
 async fn test_link_auth_login_success() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -252,7 +259,7 @@ async fn test_link_auth_login_success() {
 #[tokio::test]
 async fn test_link_auth_wrong_password() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -297,7 +304,7 @@ async fn test_link_auth_wrong_password() {
 #[tokio::test]
 async fn test_link_auth_register_success() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -340,7 +347,7 @@ async fn test_link_auth_register_success() {
 #[tokio::test]
 async fn test_link_auth_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -381,7 +388,7 @@ async fn test_link_auth_expired_code() {
 #[tokio::test]
 async fn test_link_auth_double_submit() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
@@ -447,7 +454,7 @@ async fn test_link_auth_double_submit() {
 #[tokio::test]
 async fn test_link_auth_register_duplicate_email() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code =
@@ -487,7 +494,7 @@ async fn test_link_auth_register_duplicate_email() {
 #[tokio::test]
 async fn test_link_auth_cross_tenant_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (_owner_a, tenant_a) = seed_tenant_with_owner(&resources).await;
     let (_owner_b, tenant_b) = seed_tenant_with_owner(&resources).await;
 
@@ -536,7 +543,7 @@ async fn test_link_auth_cross_tenant_rejected() {
 #[tokio::test]
 async fn test_link_callback_channel_mismatch_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.repos.messaging;
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
     let (owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
     let owner_id_str = owner_id.to_string();
 

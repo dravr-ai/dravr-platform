@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::synthetic_data::{SyntheticDataBuilder, TrainingPattern};
-use pierre_mcp_server::providers::synthetic_provider::SyntheticProvider;
+use pierre_providers::synthetic_provider::SyntheticProvider;
 
 /// Test scenarios for intelligence testing
 #[derive(Debug, Clone, Copy)]
@@ -47,7 +47,7 @@ pub fn create_synthetic_provider_with_scenario(scenario: TestScenario) -> Synthe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_mcp_server::providers::core::FitnessProvider;
+    use pierre_providers::core::FitnessProvider;
 
     #[test]
     fn test_all_test_scenario_variants() {

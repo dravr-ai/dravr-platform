@@ -18,15 +18,15 @@ use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
-};
-use crate::errors::AppError;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
-use crate::services::analytics::{analytics, hash_id};
-use crate::services::chat_orchestration;
-use crate::services::messaging_group_bind::resolve_or_create_channel_group;
+use pierre_chat_pipeline::stages::persistence::create_conversation;
+use pierre_contremaitre::messaging_strings::{
+    format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
+};
+use pierre_core::errors::AppError;
+use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::messaging_group_bind::resolve_or_create_channel_group;
 
 use super::linking::hydrate_analytics_consent;
 use super::ResolvedSession;
@@ -52,7 +52,7 @@ pub(super) struct ChannelChatRef<'a> {
 /// row owned by a previous linker (post-rebind), or row owned by a
 /// different tenant. Without this self-heal, every message in such a
 /// session fails the ownership check in
-/// `chat_pipeline::stages::persistence` and the user gets the generic
+/// `pierre_chat_pipeline::stages::persistence` and the user gets the generic
 /// "Conversation not found" error reply.
 async fn resolve_session_conversation(
     resources: &ServerContext,
@@ -65,6 +65,7 @@ async fn resolve_session_conversation(
 ) -> Result<String, AppError> {
     if let Some(id) = session["pierre_conversation_id"].as_str() {
         if resources
+            .common
             .repos
             .chat
             .get_conversation(id, user_id, tenant_id)
@@ -103,8 +104,8 @@ async fn forge_fresh_session_conversation(
     // correctly. When the user has no default, leave it null and the
     // downstream attribution panels will simply skip the row.
     let coach_id = resolve_default_coach_id(resources, user_id).await;
-    let conversation = chat_orchestration::create_conversation(
-        resources.repos.chat.as_ref(),
+    let conversation = create_conversation(
+        resources.common.repos.chat.as_ref(),
         user_id,
         tenant_id,
         &title,
@@ -159,7 +160,13 @@ async fn record_coach_usage(
 /// missing attribution.
 async fn resolve_default_coach_id(resources: &ServerContext, user_id_str: &str) -> Option<String> {
     let parsed = Uuid::parse_str(user_id_str).ok()?;
-    let user = resources.repos.users.get_global(parsed).await.ok()??;
+    let user = resources
+        .common
+        .repos
+        .users
+        .get_global(parsed)
+        .await
+        .ok()??;
     user.default_coach_id
 }
 
@@ -181,7 +188,7 @@ pub(super) async fn resolve_linked_session(
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<Option<ResolvedSession>, AppError> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     // Channel link is the source of truth for "is this sender currently bound
     // to a Pierre user". `logout_channel_sender` deletes only the link and
@@ -248,7 +255,7 @@ async fn resume_existing_session(
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<ResolvedSession, AppError> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let session_id = session["id"]
         .as_str()
         .ok_or_else(|| AppError::internal("Session missing id field"))?
@@ -326,7 +333,7 @@ async fn open_new_session(
     chat_ref: ChannelChatRef<'_>,
     is_direct_message: bool,
 ) -> Result<ResolvedSession, AppError> {
-    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let user_id = linked_user_id.to_owned();
 
     let group_id_opt = resolve_group_for_new_session(
@@ -341,8 +348,8 @@ async fn open_new_session(
 
     let title = format!("Messaging: {channel_type}");
     let coach_id = resolve_default_coach_id(resources, &user_id).await;
-    let conversation = chat_orchestration::create_conversation(
-        resources.repos.chat.as_ref(),
+    let conversation = create_conversation(
+        resources.common.repos.chat.as_ref(),
         &user_id,
         tenant_id,
         &title,
@@ -417,8 +424,11 @@ async fn resolve_group_for_new_session(
     let chat_title_hint = chat_ref
         .chat_title
         .map_or_else(|| format!("{channel_type} group {chat_id}"), str::to_owned);
+    let auth = resources.common.repos.auth_repos();
+    let coach = resources.common.repos.coach_repos();
     match resolve_or_create_channel_group(
-        resources,
+        &auth,
+        &coach,
         tenant_id,
         channel_type,
         chat_id,
@@ -455,7 +465,7 @@ async fn ensure_conversation_group_binding(
     user_id: &str,
     conversation_id: &str,
 ) {
-    let chat_repo = resources.repos.chat.as_ref();
+    let chat_repo = resources.common.repos.chat.as_ref();
     let Ok(already_bound) =
         conversation_already_bound(chat_repo, conversation_id, user_id, tenant_id).await
     else {
@@ -544,8 +554,11 @@ async fn resolve_group_for_retrofit(
     user_id: &str,
     chat_title_hint: &str,
 ) -> Option<String> {
+    let auth = resources.common.repos.auth_repos();
+    let coach = resources.common.repos.coach_repos();
     match resolve_or_create_channel_group(
-        resources,
+        &auth,
+        &coach,
         tenant_id,
         channel_type,
         channel_chat_id,
@@ -599,6 +612,7 @@ pub(super) async fn create_link_and_prompt(
     if let Err(e) = db.create_link_state(&params).await {
         error!(error = %e, "Failed to create link state for unlinked user");
         let body = resources
+            .mcp
             .messaging_strings_registry
             .get(KEY_LINK_FALLBACK_PROMPT, DEFAULT_LOCALE);
         return OutgoingMessage {
@@ -615,6 +629,7 @@ pub(super) async fn create_link_and_prompt(
     let link_url = format!("{base_url}/messaging/link/{code}");
 
     let template = resources
+        .mcp
         .messaging_strings_registry
         .get(KEY_LINK_INITIAL_PROMPT, DEFAULT_LOCALE);
     let body = format_template(&template, &[&link_url]);
