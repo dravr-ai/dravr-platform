@@ -1234,8 +1234,22 @@ async fn test_connection_status_tracking() {
     );
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
 
-    // Verify initial state - strava, garmin, fitbit, whoop, coros, terra OAuth providers
-    assert_eq!(statuses.len(), 6);
+    // Verify every OAuth provider registered by the current feature set
+    // starts disconnected. The exact provider list narrows over time
+    // (a3ecd1b6 cut server-full from 6 providers to Strava/Whoop only) —
+    // derive the expected count from the registry instead of hard-coding,
+    // so adding or removing a provider feature in Cargo.toml doesn't
+    // silently break this test.
+    let expected_oauth_provider_count = server_resources
+        .data()
+        .provider_registry()
+        .oauth_providers()
+        .len();
+    assert_eq!(statuses.len(), expected_oauth_provider_count);
+    assert!(
+        expected_oauth_provider_count > 0,
+        "test setup must register at least one OAuth provider"
+    );
     for status in &statuses {
         assert!(!status.connected);
         assert!(status.expires_at.is_none());
