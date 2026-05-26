@@ -13,7 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
-use pierre_mcp_server::coaches::{classify_drift, DbCoachRow, DriftOutcome};
+use pierre_coach_parser::drift::{classify_drift, DbCoachRow, DriftOutcome};
 
 fn row(source: &str, hash: Option<&str>) -> DbCoachRow {
     DbCoachRow {
