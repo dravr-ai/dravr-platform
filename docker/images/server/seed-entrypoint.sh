@@ -22,24 +22,19 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
-VERB="$1"
-shift
-
-# The drift-check verb is identical to the seed verb in setup terms: it also
-# needs a fresh contremaitre clone so the binary can compute file hashes for
-# the same set of `prompts/coaches/<category>/<slug>/en.md` files. The
-# wrapping `if` below clones for either entry point and rewrites the
-# command we exec at the end.
-case "$VERB" in
-    seed|check-drift)
-        DOMAIN="$1"
-        shift
-        ;;
-    *)
-        echo "Unknown verb '$VERB' (expected: seed | check-drift)" >&2
-        exit 64
-        ;;
-esac
+# Cloud Run job args historically pass DOMAIN as $1 (bootstrap | coaches |
+# mobility | synthetic-activities | ...) and the script prepends `seed`.
+# The drift-check Job is the one exception: it passes `check-drift` as $1
+# followed by the domain. Branch on which calling convention we're in.
+if [ "$1" = "check-drift" ]; then
+    VERB="check-drift"
+    DOMAIN="$2"
+    shift 2
+else
+    VERB="seed"
+    DOMAIN="$1"
+    shift
+fi
 
 # Coach definitions live in the dravr-contremaitre repo as the single source
 # of truth. Clone a shallow snapshot to a temp dir and point the binary at
