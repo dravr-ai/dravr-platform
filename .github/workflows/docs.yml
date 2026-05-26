@@ -5,7 +5,7 @@ name: "Publish: API Docs (mdBook)"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'book/**'
       - '.github/workflows/docs.yml'

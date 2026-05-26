@@ -4,7 +4,7 @@ name: "CI: Backend (PostgreSQL)"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'crates/pierre-database/**'
       - 'crates/pierre-server/src/database/**'

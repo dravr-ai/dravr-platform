@@ -5,7 +5,7 @@ name: "CI: API Contract Validation"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'crates/pierre-server/src/routes/**'
       - 'crates/pierre-server/src/models/**'
