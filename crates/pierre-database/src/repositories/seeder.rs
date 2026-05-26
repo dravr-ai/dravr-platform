@@ -238,6 +238,16 @@ pub trait SeederRepository: Send + Sync {
         tenant_id: &str,
     ) -> AppResult<Option<(String, Option<String>)>>;
 
+    /// Look up `(source, content_hash)` for a coach by slug, tenant-agnostic.
+    ///
+    /// Used by `pierre-cli check-drift coaches` (the daily contremaitre→DB
+    /// drift gate); not used by the seed write path. Returns `None` when
+    /// no row matches the slug.
+    async fn seed_find_coach_drift_info(
+        &self,
+        slug: &str,
+    ) -> AppResult<Option<(String, Option<String>)>>;
+
     /// Insert a coach record
     async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()>;
 
