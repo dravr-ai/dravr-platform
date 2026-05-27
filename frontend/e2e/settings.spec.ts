@@ -95,7 +95,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       contentType: 'application/json',
       body: JSON.stringify([
         { provider: 'strava', connected: false },
-        { provider: 'fitbit', connected: false },
+        { provider: 'whoop', connected: false },
       ]),
     });
   });

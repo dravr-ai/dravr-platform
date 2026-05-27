@@ -1,5 +1,5 @@
 // ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches chat
-// ABOUTME: Same OAuth flow as ConnectionsScreen but stripped chrome (no back button) — the user can only exit via OAuth success
+// ABOUTME: Mirrors the web OnboardingConnectProvider flow: Sciotte modal for sciotte providers, BYO modal for Whoop, awaiting-consent overlay
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,8 +17,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
-import { Card } from '../../components/ui';
+import { PRIMARY_PALETTE, PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
+import { Card, Button } from '../../components/ui';
+import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
@@ -31,16 +33,33 @@ import type { ExtendedProviderStatus } from '../../types';
  *
  * Intentionally has NO back button or skip card. The user reaches it only
  * because RootLayoutNav saw `needs_provider_connection: true`; the only way
- * out is to complete OAuth on one of the listed providers, at which point
- * RootLayoutNav re-runs and routes to the chat stack.
+ * out is to complete OAuth on one of the listed providers (or sign out via
+ * the escape hatch at the bottom), at which point RootLayoutNav re-runs and
+ * routes to the chat stack.
  */
 export function OnboardingConnectScreen() {
   const colors = useThemeColors();
   const queryClient = useQueryClient();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  // Sciotte (credential login) target for the modal — null when closed.
+  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  // Whoop is BYO-OAuth-app: users register their own developer app at
+  // developer.whoop.com and paste client_id/secret before the OAuth dance can
+  // run. Open the setup modal in-place so first-touch users never need to
+  // leave the onboarding gate.
+  const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // Tracks an in-flight OAuth in ASWebAuthenticationSession. Shows an
+  // "awaiting consent" overlay with a Cancel button so the user is never
+  // stranded if they background the app mid-flow.
+  const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
+  // Bridges the gap between a successful connect and the RootLayoutNav route
+  // flip: renders the "Provider connected — preparing your dashboard…"
+  // spinner instead of the static cards while onboarding-status refetches.
+  const [justConnected, setJustConnected] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -60,42 +79,123 @@ export function OnboardingConnectScreen() {
     }
   }, [isAuthenticated, loadStatus]);
 
-  const handleConnect = async (providerId: string, _providerName: string) => {
-    try {
-      setConnectingProvider(providerId);
-      const returnUrl = getOAuthCallbackUrl();
-      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl);
-      const result = await WebBrowser.openAuthSessionAsync(oauthResponse.authorization_url, returnUrl);
+  // Safety net: if RootLayoutNav never flips (onboarding-status refetch races,
+  // OAuth callback never lands, etc.) auto-revert to the cards so the user
+  // isn't pinned on the spinner forever. 30s is plenty for a successful
+  // refetch; anything longer is a hung state we should escape.
+  useEffect(() => {
+    if (!justConnected) return undefined;
+    const timer = setTimeout(() => {
+      setJustConnected(null);
+      setConnectError(
+        'Couldn’t confirm the connection. If you completed the connect flow, pull to refresh; otherwise try again.',
+      );
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [justConnected]);
 
-      if (result.type === 'success' && result.url) {
-        if (!result.url.startsWith(returnUrl)) {
-          Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+  const finalizeConnection = useCallback(
+    async (providerName: string) => {
+      // Invalidate the onboarding-status query so RootLayoutNav re-evaluates
+      // and routes the user into the chat stack.
+      await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+      await loadStatus();
+      setJustConnected(providerName);
+    },
+    [queryClient, loadStatus],
+  );
+
+  // Standard OAuth flow used by providers with a built-in client_id/secret on
+  // the platform (currently only WHOOP once the user has registered a BYO
+  // app). Sciotte providers handle their own credential flow via the modal.
+  const launchOAuth = useCallback(
+    async (providerId: string, providerName: string) => {
+      try {
+        setConnectingProvider(providerId);
+        setConnectError(null);
+        setAwaitingOAuthFor(providerId);
+        const returnUrl = getOAuthCallbackUrl();
+        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl);
+        const result = await WebBrowser.openAuthSessionAsync(
+          oauthResponse.authorization_url,
+          returnUrl,
+        );
+        setAwaitingOAuthFor(null);
+
+        if (result.type === 'success' && result.url) {
+          if (!result.url.startsWith(returnUrl)) {
+            Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+            return;
+          }
+          const parsed = Linking.parse(result.url);
+          const success = parsed.queryParams?.success === 'true';
+          const error = parsed.queryParams?.error as string | undefined;
+          if (success) {
+            await finalizeConnection(providerName);
+          } else if (error) {
+            setConnectError(`Failed to connect ${providerName}: ${error}`);
+          } else {
+            // No explicit success/error — refetch to see if the row landed.
+            await finalizeConnection(providerName);
+          }
+        }
+        // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
+      } catch (err) {
+        setAwaitingOAuthFor(null);
+        const message = err instanceof Error ? err.message : 'Failed to connect';
+        console.error('Onboarding OAuth flow failed:', err);
+        if (providerId === 'whoop') {
+          // No BYO app registered yet — open the in-place setup modal so the
+          // first-run user never needs to navigate to Settings.
+          setShowWhoopSetup(true);
           return;
         }
-        const parsed = Linking.parse(result.url);
-        const success = parsed.queryParams?.success === 'true';
-        const error = parsed.queryParams?.error as string | undefined;
-        if (success) {
-          // Invalidate the onboarding-status query so RootLayoutNav re-evaluates
-          // and routes the user into the chat stack.
-          await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
-        } else if (error) {
-          Alert.alert('Connection Failed', `Failed to connect: ${error}`);
-        }
+        setConnectError(message);
+      } finally {
+        setConnectingProvider(null);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect';
-      console.error('Onboarding OAuth flow failed:', err);
-      Alert.alert('Error', message);
-    } finally {
-      setConnectingProvider(null);
+    },
+    [finalizeConnection],
+  );
+
+  const handleConnect = (provider: ExtendedProviderStatus) => {
+    setConnectError(null);
+    if (provider.provider.startsWith('sciotte')) {
+      setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+      return;
     }
+    if (provider.provider === 'whoop') {
+      // Skip the speculative OAuth init for Whoop — open the setup modal
+      // directly. Modal pre-populates from any existing app, so returning
+      // users only need to re-enter the secret (which we never persist).
+      setShowWhoopSetup(true);
+      return;
+    }
+    void launchOAuth(provider.provider, provider.display_name);
   };
 
+  // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
+  // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Filter
+  // out the bare `strava` row — official OAuth is reached exclusively through
+  // the Sciotte modal's "Use my own Strava OAuth app" button, so a separate
+  // strava card would just duplicate the entry. Mirror its `connected` state
+  // onto the Sciotte card so the badge appears in the right place.
+  const visibleProviders = (() => {
+    const stravaConnected = providers.find((p) => p.provider === 'strava' && p.connected);
+    return providers
+      .filter((p) => p.provider !== 'strava')
+      .filter((p) => p.requires_oauth || p.provider.startsWith('sciotte'))
+      .map((p) =>
+        p.provider === 'sciotte' && stravaConnected && !p.connected
+          ? { ...p, connected: true }
+          : p,
+      );
+  })();
+
   const renderProvider = (provider: ExtendedProviderStatus) => {
-    // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
-    // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown
-    // ids fall back to a neutral slate tile.
+    // Provider display config (colors, icons, descriptions). Unknown ids fall
+    // back to a neutral slate tile so the screen never crashes on an
+    // unexpected payload.
     const config: Record<string, { color: string; icon: string; description: string }> = {
       sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, swimming' },
       sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities + health metrics' },
@@ -103,9 +203,8 @@ export function OnboardingConnectScreen() {
     };
     const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: 'Fitness data' };
     const isConnecting = connectingProvider === provider.provider;
-    if (!provider.requires_oauth) {
-      return null;
-    }
+    const isConnected = provider.connected;
+
     return (
       <Card key={provider.provider} className="mb-3">
         <View className="flex-row items-center">
@@ -119,24 +218,69 @@ export function OnboardingConnectScreen() {
             <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
             <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{c.description}</Text>
           </View>
-          <TouchableOpacity
-            className="px-5 py-2 rounded-full"
-            style={{ backgroundColor: c.color }}
-            onPress={() => void handleConnect(provider.provider, provider.display_name)}
-            disabled={isConnecting}
-            activeOpacity={0.7}
-            accessibilityLabel={`Connect ${provider.display_name}`}
-          >
-            {isConnecting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text className="text-sm font-semibold text-on-surface">Connect</Text>
-            )}
-          </TouchableOpacity>
+          {isConnected ? (
+            <View className="bg-success/15 px-3 py-1.5 rounded-full">
+              <Text className="text-xs text-success font-semibold">Connected</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              className="px-5 py-2 rounded-full"
+              style={{ backgroundColor: c.color }}
+              onPress={() => handleConnect(provider)}
+              disabled={isConnecting}
+              activeOpacity={0.7}
+              accessibilityLabel={`Connect ${provider.display_name}`}
+            >
+              {isConnecting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text className="text-sm font-semibold text-on-surface">Connect</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </Card>
     );
   };
+
+  // Post-connect spinner: full-screen so the static "Connected" badge doesn't
+  // flash before RootLayoutNav flips. Matches the web onboarding UX.
+  if (justConnected) {
+    return (
+      <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
+        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+        <Text className="mt-4 text-base font-medium text-text-primary text-center">
+          {justConnected} connected — preparing your dashboard…
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Awaiting OAuth consent — covers the gap between
+  // openAuthSessionAsync starting and the user returning from the in-app
+  // browser. Cancel button drops back to the cards so they're never trapped.
+  if (awaitingOAuthFor) {
+    const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
+    return (
+      <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
+        <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
+        <Text className="mt-4 text-base font-semibold text-text-primary text-center">
+          Awaiting {friendlyName} consent…
+        </Text>
+        <Text className="mt-2 text-sm text-text-tertiary text-center">
+          Finish the authorisation in the browser. We&apos;ll route you to your
+          dashboard automatically once {friendlyName} confirms.
+        </Text>
+        <View className="mt-6">
+          <Button
+            title="Cancel and try a different provider"
+            variant="secondary"
+            onPress={() => setAwaitingOAuthFor(null)}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="onboarding-screen">
@@ -150,7 +294,7 @@ export function OnboardingConnectScreen() {
           </Text>
           <Text className="text-base text-text-secondary leading-6">
             Connect a fitness service to get started. Dravr coaches you on the activities your
-            provider already tracks — without one, there's nothing for the model to read.
+            provider already tracks — without one, there&apos;s nothing for the model to read.
           </Text>
         </View>
 
@@ -159,13 +303,57 @@ export function OnboardingConnectScreen() {
             <ActivityIndicator size="large" color={colors.tokens.primary} />
           </View>
         ) : (
-          providers.map(renderProvider)
+          visibleProviders.map(renderProvider)
+        )}
+
+        {connectError && (
+          <View
+            accessibilityLiveRegion="polite"
+            className="mt-4 rounded-lg border border-error/40 bg-error/10 px-4 py-3"
+          >
+            <Text className="text-sm text-error">{connectError}</Text>
+          </View>
         )}
 
         <Text className="text-xs text-text-tertiary text-center mt-6">
           Your credentials are encrypted at rest and used only to fetch your activity data.
         </Text>
+
+        <View className="mt-8">
+          <Button
+            title="Sign Out"
+            variant="secondary"
+            onPress={() => void logout()}
+            fullWidth
+          />
+        </View>
       </ScrollView>
+
+      <SciotteLoginModal
+        visible={sciotteTarget !== null}
+        onClose={() => setSciotteTarget(null)}
+        onConnected={() => {
+          const target = sciotteTarget ?? 'strava';
+          const friendly = target === 'garmin' ? 'Garmin' : 'Strava';
+          setSciotteTarget(null);
+          void finalizeConnection(friendly);
+        }}
+        target={sciotteTarget ?? 'strava'}
+      />
+
+      <OAuthAppSetupModal
+        visible={showWhoopSetup}
+        onClose={() => setShowWhoopSetup(false)}
+        onSaved={() => {
+          setShowWhoopSetup(false);
+          // BYO credentials are persisted; kick off the standard OAuth dance.
+          // launchOAuth handles success → finalizeConnection.
+          void launchOAuth('whoop', 'WHOOP');
+        }}
+        provider="whoop"
+        displayName="WHOOP"
+        devPortalUrl="https://developer.whoop.com/"
+      />
     </SafeAreaView>
   );
 }

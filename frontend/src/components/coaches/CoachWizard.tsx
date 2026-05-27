@@ -56,7 +56,11 @@ const CATEGORIES: Array<{ key: CoachCategory; label: string; color: string }> = 
   { key: 'custom', label: 'Custom', color: '#00241a' },
 ];
 
-const PROVIDERS = ['Strava', 'Garmin', 'Fitbit', 'Whoop', 'Coros', 'Terra'];
+// After the 2026-Q2 provider cleanup only Strava, Garmin, and Whoop are
+// supported; Fitbit/Coros/Terra are feature-gated off until we ship dedicated
+// integrations. Keep this list in sync with the provider surfaces in
+// ProviderConnectionCards and ConnectionsScreen (mobile).
+const PROVIDERS = ['Strava', 'Garmin', 'Whoop'];
 const ACTIVITY_TYPES = ['Run', 'Ride', 'Swim', 'Walk', 'Hike', 'Workout', 'Yoga'];
 
 const CONTEXT_WINDOW_SIZE = 128000;

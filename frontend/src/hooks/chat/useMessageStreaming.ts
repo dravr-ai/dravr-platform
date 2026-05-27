@@ -80,8 +80,9 @@ interface UseMessageStreamingReturn {
   handleActionClick: (action: MessageAction) => Promise<void>;
 }
 
-// List of trusted OAuth provider domains
-const TRUSTED_OAUTH_DOMAINS = ['strava.com', 'fitbit.com', 'garmin.com', 'whoop.com', 'coros.com'];
+// List of trusted OAuth provider domains. Limited to the providers we support
+// after the 2026-Q2 cleanup; fitbit/coros/terra are feature-gated off.
+const TRUSTED_OAUTH_DOMAINS = ['strava.com', 'garmin.com', 'whoop.com'];
 
 // Check if hostname matches a trusted domain
 const isTrustedDomain = (hostname: string): boolean => {
@@ -245,7 +246,6 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
       if (connectingProvider && fullContent) {
         const oauthUrlMatch = fullContent.match(/https?:\/\/[^\s<>[\]()]+oauth[^\s<>[\]()]*/i) ||
                              fullContent.match(/https?:\/\/[^\s<>[\]()]*strava\.com[^\s<>[\]()]*/i) ||
-                             fullContent.match(/https?:\/\/[^\s<>[\]()]*fitbit\.com[^\s<>[\]()]*/i) ||
                              fullContent.match(/https?:\/\/[^\s<>[\]()]*garmin\.com[^\s<>[\]()]*/i) ||
                              fullContent.match(/https?:\/\/[^\s<>[\]()]*whoop\.com[^\s<>[\]()]*/i);
 
