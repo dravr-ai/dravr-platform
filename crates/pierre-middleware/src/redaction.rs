@@ -16,7 +16,7 @@
 //! ## Usage
 //!
 //! ```rust
-//! use pierre_mcp_server::middleware::redaction::{RedactionConfig, redact_headers, mask_email};
+//! use pierre_middleware::redaction::{RedactionConfig, redact_headers, mask_email};
 //!
 //! let config = RedactionConfig::default();
 //! let headers = [

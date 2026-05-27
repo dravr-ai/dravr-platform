@@ -27,7 +27,7 @@
 //! ## Usage
 //!
 //! ```rust
-//! use pierre_mcp_server::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
+//! use pierre_jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 //! # use serde_json::json;
 //! # let params = json!({"key": "value"});
 //! # let result = json!({"status": "ok"});

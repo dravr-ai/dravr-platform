@@ -19,7 +19,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::formatters::{OutputFormat, format_output};
+//! use pierre_formatters::{OutputFormat, format_output};
 //!
 //! let activities = vec!["morning_run", "evening_ride"];
 //! let format = OutputFormat::Toon;
