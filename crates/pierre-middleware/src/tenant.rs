@@ -21,7 +21,7 @@
 //!
 //! ```rust,no_run
 //! use axum::{Router, routing::get, Extension};
-//! use pierre_mcp_server::middleware::tenant::{tenant_context_middleware, ExtractedTenantContext};
+//! use pierre_middleware::tenant::{tenant_context_middleware, ExtractedTenantContext};
 //! use pierre_auth::tenant::TenantContext;
 //!
 //! async fn handler(

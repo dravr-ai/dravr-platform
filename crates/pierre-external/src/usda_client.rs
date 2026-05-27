@@ -21,7 +21,7 @@
 //!
 //! # Example
 //! ```rust,no_run
-//! use pierre_mcp_server::external::usda_client::{UsdaClient, UsdaClientConfig};
+//! use pierre_external::usda_client::{UsdaClient, UsdaClientConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = UsdaClientConfig {

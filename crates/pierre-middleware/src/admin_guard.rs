@@ -15,13 +15,13 @@
 //! ```rust,no_run
 //! use pierre_auth::auth::AuthResult;
 //! use pierre_database::database::repositories::UserRepository;
-//! use pierre_mcp_server::middleware::admin_guard::require_admin;
+//! use pierre_middleware::admin_guard::require_admin;
 //! use std::sync::Arc;
 //!
 //! async fn admin_handler(
 //!     auth: AuthResult,
 //!     users: Arc<dyn UserRepository>,
-//! ) -> Result<String, pierre_mcp_server::errors::AppError> {
+//! ) -> Result<String, pierre_core::errors::AppError> {
 //!     let admin_user = require_admin(auth.user_id, &users).await?;
 //!     Ok(format!("Welcome admin: {}", admin_user.email))
 //! }
