@@ -24,6 +24,7 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
+use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::registry::ToolRegistry;
 use pierre_core::errors::AppError;
@@ -183,11 +184,6 @@ pub struct ToolLoopResult {
     /// rephrase a generic refusal.
     pub pending_provider_auth_required: Option<String>,
 }
-
-/// Metadata key set on a tool's `UniversalResponse` when the underlying
-/// `AppError` was `ProviderAuthRequired`. The tool loop scans this key to
-/// know it should exit early without continuing iteration.
-pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 
 // ============================================================================
 // API Tool Loop (Gemini/Groq native function calling)

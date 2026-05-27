@@ -6,8 +6,9 @@
 
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::TokenData;
-use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
-use crate::tool_execution::META_AUTH_REQUIRED_PROVIDER;
+use crate::protocol::types::{
+    UniversalResponse, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+};
 use pierre_auth::tenant::TenantOAuthClient;
 use pierre_config::environment::{default_provider, get_oauth_config, OAuthProviderConfig};
 use pierre_core::models::{Activity, TenantId};
