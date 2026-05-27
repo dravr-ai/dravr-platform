@@ -131,6 +131,15 @@ pub struct UniversalResponse {
     pub metadata: Option<HashMap<String, Value>>,
 }
 
+/// Metadata key set on a tool's `UniversalResponse` when the underlying
+/// `AppError` was `ProviderAuthRequired`. The tool loop scans this key to
+/// know it should exit early without continuing iteration.
+///
+/// Lives here (rather than in the `client-chat`-gated `tool_execution`
+/// module) so it can be shared with always-compiled callers such as
+/// [`provider_helpers`](super::provider_helpers).
+pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
+
 /// Universal tool definition with handler function
 #[derive(Debug, Clone)]
 pub struct UniversalTool {

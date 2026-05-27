@@ -27,7 +27,6 @@ pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 axum = { version = "0.8", features = ["macros"] }
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
-jsonwebtoken = "9.3"
 rand = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
