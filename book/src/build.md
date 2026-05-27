@@ -189,6 +189,8 @@ lto = "fat"          # cross-crate optimization
 
 Pierre uses compile-time feature flags for modular deployments. The architecture supports fine-grained control over protocols, transports, clients, tools, and providers.
 
+**Inventory (workspace-wide):** 69 unique feature flags wired through 1,263 `#[cfg(feature = ...)]` sites. Five axes — `client-*` (route groups), `tools-*` (~15 per-tool-family compilation gates), `transport-*` (stdio/http/sse/websocket), `protocol-*` (rest/mcp/a2a), `provider-*` (per-fitness-provider), plus one-offs (`admin-jwt`, `billing`, `analytics-posthog`, `agui`, `toon`, `oauth`, `testing`, `telemetry`, `openapi`).
+
 ### Database Features
 
 ```toml
