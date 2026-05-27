@@ -224,7 +224,7 @@ impl Error for FormatError {}
 ///
 /// # Example
 /// ```rust,no_run
-/// use pierre_mcp_server::formatters::{format_output, OutputFormat};
+/// use pierre_formatters::{format_output, OutputFormat};
 ///
 /// let activities = vec!["activity1", "activity2"];
 /// if let Ok(output) = format_output(&activities, OutputFormat::Toon) {
@@ -269,7 +269,7 @@ pub fn format_output<T: Serialize>(
 ///
 /// # Example
 /// ```rust,no_run
-/// use pierre_mcp_server::formatters::{format_output_with_telemetry, OutputFormat};
+/// use pierre_formatters::{format_output_with_telemetry, OutputFormat};
 ///
 /// let activities = vec!["activity1", "activity2"];
 /// if let Ok((output, metrics)) = format_output_with_telemetry(&activities, OutputFormat::Toon, "get_activities") {

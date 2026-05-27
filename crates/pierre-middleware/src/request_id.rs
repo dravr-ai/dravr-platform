@@ -31,7 +31,7 @@ pub const REQUEST_ID_HEADER: &str = "x-request-id";
 ///
 /// ```rust,no_run
 /// use axum::{Router, routing::get, middleware};
-/// use pierre_mcp_server::middleware::request_id::request_id_middleware;
+/// use pierre_middleware::request_id::request_id_middleware;
 ///
 /// # async fn handler() -> &'static str { "" }
 /// let app: Router<()> = Router::new()
@@ -71,7 +71,7 @@ pub async fn request_id_middleware(mut req: Request, next: Next) -> Response {
 ///
 /// ```rust,no_run
 /// use axum::Extension;
-/// use pierre_mcp_server::middleware::request_id::RequestId;
+/// use pierre_middleware::request_id::RequestId;
 ///
 /// async fn handler(Extension(request_id): Extension<RequestId>) -> String {
 ///     format!("Request ID: {}", request_id.0)

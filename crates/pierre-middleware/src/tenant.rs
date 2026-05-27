@@ -104,7 +104,7 @@ impl ExtractedTenantContext {
 ///
 /// ```rust,no_run
 /// use axum::{Router, routing::get, middleware};
-/// use pierre_mcp_server::middleware::tenant::tenant_context_middleware;
+/// use pierre_middleware::tenant::tenant_context_middleware;
 /// use pierre_runtime_context::MiddlewareCtx;
 /// use std::sync::Arc;
 ///
@@ -406,8 +406,8 @@ async fn get_user_default_tenant(user_id: Uuid, repos: &AuthRepos) -> Option<Ten
 ///
 /// ```rust,no_run
 /// use axum::{Extension, response::IntoResponse};
-/// use pierre_mcp_server::middleware::tenant::{ExtractedTenantContext, require_tenant_context};
-/// use pierre_mcp_server::errors::AppError;
+/// use pierre_middleware::tenant::{ExtractedTenantContext, require_tenant_context};
+/// use pierre_core::errors::AppError;
 ///
 /// async fn protected_handler(
 ///     Extension(tenant_ctx): Extension<ExtractedTenantContext>,
