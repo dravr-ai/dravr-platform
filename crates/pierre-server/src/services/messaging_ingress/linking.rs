@@ -184,14 +184,16 @@ pub(super) async fn link_time_reply(
                     let email =
                         super::resolve_channel_user_email(resources, tenant_id, channel, sender_id)
                             .await;
-                    match email {
-                        Some(email) => reg.render(
-                            KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
-                            &locale,
-                            &[&connect_url, &email],
-                        ),
-                        None => reg.render(key, &locale, &[&connect_url]),
-                    }
+                    email.map_or_else(
+                        || reg.render(key, &locale, &[&connect_url]),
+                        |email| {
+                            reg.render(
+                                KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+                                &locale,
+                                &[&connect_url, &email],
+                            )
+                        },
+                    )
                 } else {
                     reg.get(key, &locale)
                 }

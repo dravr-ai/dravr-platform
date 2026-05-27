@@ -70,11 +70,15 @@ echo -e "\n${BLUE}[3/5] Checking for shadow tool registries...${NC}"
 # Look for get_tools functions outside the canonical registry and known delegators.
 # Excluded: registry.rs (canonical), traits.rs (trait def), mcp_request_processor.rs
 # (delegates to registry), executor.rs (delegates to self.registry), schema/mod.rs
-# (test helper that instantiates ToolRegistry — documented as non-production).
+# (test helper that instantiates ToolRegistry — documented as non-production),
+# registry_builtin.rs (thin `get_tools()` delegator used by mcp::protocol::handle_tools_list
+# — constructs a ToolRegistry via register_builtin_tools and returns schemas; no
+# parallel state).
 SHADOW_TOOLS=$(grep -rn 'fn get_tools\|fn list_tools\|fn tool_schemas' \
     crates/pierre-server/src/ \
     --include='*.rs' 2>/dev/null \
     | grep -v 'registry.rs' \
+    | grep -v 'registry_builtin.rs' \
     | grep -v 'traits.rs' \
     | grep -v 'mcp_request_processor.rs' \
     | grep -v 'executor.rs' \
