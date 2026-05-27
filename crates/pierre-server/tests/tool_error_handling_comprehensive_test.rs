@@ -498,8 +498,10 @@ async fn test_calculate_daily_nutrition_all_missing() -> Result<()> {
 
     let request = create_request("calculate_daily_nutrition", json!({}));
 
-    let result = executor.execute_tool(request).await?;
-    assert!(!result.success, "Should fail with all missing params");
+    // Post-refactor (2b98ba43): schema validation runs before the tool body,
+    // so missing-all-params surfaces as `Err` rather than `Ok(failed_response)`.
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err(), "Should fail with all missing params");
 
     Ok(())
 }
