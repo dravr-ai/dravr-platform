@@ -45,7 +45,7 @@
 //!
 //! ```rust,no_run
 //! use pierre_config::environment::ServerConfig;
-//! use pierre_mcp_server::errors::AppResult;
+//! use pierre_core::errors::AppResult;
 //!
 //! #[tokio::main]
 //! async fn main() -> AppResult<()> {
