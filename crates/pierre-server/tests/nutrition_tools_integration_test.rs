@@ -892,8 +892,8 @@ async fn test_analyze_meal_nutrition_no_api_key() -> Result<()> {
         "analyze_meal_nutrition",
         json!({
             "ingredients": [
-                {"fdc_id": 171_477, "grams": 150.0},
-                {"fdc_id": 171_688, "grams": 100.0}
+                {"fdc_id": 171_477, "amount_g": 150.0},
+                {"fdc_id": 171_688, "amount_g": 100.0}
             ]
         }),
     );
@@ -1068,7 +1068,7 @@ async fn test_analyze_meal_nutrition_with_api_key() -> Result<()> {
         "analyze_meal_nutrition",
         json!({
             "ingredients": [
-                {"fdc_id": 171_477, "grams": 150.0}
+                {"fdc_id": 171_477, "amount_g": 150.0}
             ]
         }),
     );
