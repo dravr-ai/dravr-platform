@@ -414,7 +414,7 @@ impl Display for BoundedUserLabel {
 /// # Examples
 ///
 /// ```
-/// use pierre_mcp_server::middleware::redaction::redact_session_id;
+/// use pierre_middleware::redaction::redact_session_id;
 ///
 /// let sid = "session_a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 /// let redacted = redact_session_id(sid);

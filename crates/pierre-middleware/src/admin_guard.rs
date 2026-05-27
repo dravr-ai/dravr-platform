@@ -62,9 +62,9 @@ use uuid::Uuid;
 ///
 /// ```rust,no_run
 /// use pierre_auth::auth::AuthResult;
-/// use pierre_mcp_server::middleware::admin_guard::require_admin;
+/// use pierre_middleware::admin_guard::require_admin;
 ///
-/// # async fn example(auth: AuthResult, users: std::sync::Arc<dyn pierre_database::database::repositories::UserRepository>) -> Result<(), pierre_mcp_server::errors::AppError> {
+/// # async fn example(auth: AuthResult, users: std::sync::Arc<dyn pierre_database::database::repositories::UserRepository>) -> Result<(), pierre_core::errors::AppError> {
 /// let admin = require_admin(auth.user_id, &users).await?;
 /// println!("Admin {} authorized", admin.email);
 /// # Ok(())
