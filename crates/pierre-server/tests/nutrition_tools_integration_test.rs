@@ -320,13 +320,19 @@ async fn test_calculate_daily_nutrition_missing_parameters() -> Result<()> {
         }),
     );
 
-    let response = executor.execute_tool(request).await?;
-
-    assert!(!response.success, "Should fail with missing parameter");
-    assert!(response.error.is_some(), "Error message should be present");
+    // Post-refactor (2b98ba43): schema validation runs before the tool body,
+    // so missing required params surface as `Err` rather than
+    // `Ok(failed_response)`. The test's intent — "missing weight_kg is
+    // rejected" — is preserved with the new contract.
+    let result = executor.execute_tool(request).await;
     assert!(
-        response.error.unwrap().contains("weight_kg"),
-        "Error should mention missing parameter"
+        result.is_err(),
+        "Should fail with missing weight_kg parameter"
+    );
+    let err = result.err().unwrap().to_string();
+    assert!(
+        err.contains("weight_kg"),
+        "Error should mention the missing parameter: {err}"
     );
 
     Ok(())
@@ -348,10 +354,10 @@ async fn test_calculate_daily_nutrition_invalid_gender() -> Result<()> {
         }),
     );
 
-    let response = executor.execute_tool(request).await?;
-
-    assert!(!response.success, "Should fail with invalid gender");
-    assert!(response.error.is_some());
+    // Post-refactor (2b98ba43): schema validation rejects invalid enums as
+    // `Err` rather than `Ok(failed_response)`.
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err(), "Should fail with invalid gender");
 
     Ok(())
 }
@@ -372,10 +378,8 @@ async fn test_calculate_daily_nutrition_invalid_activity_level() -> Result<()> {
         }),
     );
 
-    let response = executor.execute_tool(request).await?;
-
-    assert!(!response.success, "Should fail with invalid activity level");
-    assert!(response.error.is_some());
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err(), "Should fail with invalid activity level");
 
     Ok(())
 }
@@ -396,10 +400,8 @@ async fn test_calculate_daily_nutrition_invalid_training_goal() -> Result<()> {
         }),
     );
 
-    let response = executor.execute_tool(request).await?;
-
-    assert!(!response.success, "Should fail with invalid training goal");
-    assert!(response.error.is_some());
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err(), "Should fail with invalid training goal");
 
     Ok(())
 }
@@ -421,9 +423,8 @@ async fn test_calculate_daily_nutrition_boundary_age() -> Result<()> {
         }),
     );
 
-    let response = executor.execute_tool(request).await?;
-
-    assert!(!response.success, "Should fail with unrealistic age");
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err(), "Should fail with unrealistic age");
 
     Ok(())
 }
@@ -890,7 +891,7 @@ async fn test_analyze_meal_nutrition_no_api_key() -> Result<()> {
     let request = create_test_request(
         "analyze_meal_nutrition",
         json!({
-            "foods": [
+            "ingredients": [
                 {"fdc_id": 171_477, "grams": 150.0},
                 {"fdc_id": 171_688, "grams": 100.0}
             ]
@@ -925,19 +926,27 @@ async fn test_analyze_meal_nutrition_empty_foods() -> Result<()> {
     let request = create_test_request(
         "analyze_meal_nutrition",
         json!({
-            "foods": []
+            "ingredients": []
         }),
     );
 
-    // Empty array should either succeed with zero totals or fail gracefully
-    let response = executor.execute_tool(request).await?;
-
-    if response.success {
-        let result = response.result.unwrap();
-        assert!(
-            result["total_calories"].as_f64().unwrap().abs() < 0.1,
-            "Empty foods should have zero or near-zero calories"
-        );
+    // Empty array should either succeed with zero totals or fail gracefully.
+    // Post-refactor (2b98ba43) the schema validator rejects empty arrays as
+    // invalid input, so accept either outcome here — the test's intent was
+    // "tool doesn't crash on an empty list."
+    match executor.execute_tool(request).await {
+        Ok(response) => {
+            if response.success {
+                let result = response.result.unwrap();
+                assert!(
+                    result["total_calories"].as_f64().unwrap().abs() < 0.1,
+                    "Empty foods should have zero or near-zero calories"
+                );
+            }
+        }
+        Err(_) => {
+            // Validator rejected empty list — also acceptable.
+        }
     }
 
     Ok(())
@@ -951,7 +960,7 @@ async fn test_analyze_meal_nutrition_invalid_food_entry() -> Result<()> {
     let request = create_test_request(
         "analyze_meal_nutrition",
         json!({
-            "foods": [
+            "ingredients": [
                 {"fdc_id": 171_477}
             ]
         }),
@@ -1062,7 +1071,7 @@ async fn test_analyze_meal_nutrition_with_api_key() -> Result<()> {
     let request = create_test_request(
         "analyze_meal_nutrition",
         json!({
-            "foods": [
+            "ingredients": [
                 {"fdc_id": 171_477, "grams": 150.0}
             ]
         }),
