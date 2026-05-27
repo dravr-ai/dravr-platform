@@ -350,16 +350,10 @@ async fn test_oauth_authorization_url_generation() {
     assert!(strava_auth.state.contains(&user_id.to_string()));
     assert_eq!(strava_auth.expires_in_minutes, 10);
 
-    // Test Garmin OAuth URL generation (Garmin uses OAuth 1.0a, different structure)
-    let garmin_auth = oauth_routes
-        .get_auth_url(user_id, tenant_id, "garmin")
-        .await
-        .unwrap();
-
-    // Just verify we got a valid auth URL back (Garmin uses OAuth 1.0a, different parameters)
-    assert!(!garmin_auth.authorization_url.is_empty());
-    assert!(garmin_auth.state.contains(&user_id.to_string()));
-    assert_eq!(garmin_auth.expires_in_minutes, 10);
+    // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
+    // Garmin data now flows through Sciotte's headless login (`sciotte_garmin`).
+    // The Strava block above is the canonical OAuth-URL-generation check
+    // for this test's intent.
 }
 
 #[tokio::test]
@@ -796,24 +790,26 @@ async fn test_connection_status_no_providers() {
 
     let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
 
-    // After pluggable provider architecture, we have 6 OAuth providers: strava, garmin, fitbit, whoop, coros, terra
-    // (synthetic provider doesn't use OAuth)
-    assert_eq!(statuses.len(), 6);
-
-    let strava_status = statuses.iter().find(|s| s.provider == "strava").unwrap();
-    assert!(!strava_status.connected);
-    assert!(strava_status.expires_at.is_none());
-    assert!(strava_status.scopes.is_none());
-
-    let garmin_status = statuses.iter().find(|s| s.provider == "garmin").unwrap();
-    assert!(!garmin_status.connected);
-    assert!(garmin_status.expires_at.is_none());
-    assert!(garmin_status.scopes.is_none());
-
-    let fitbit_status = statuses.iter().find(|s| s.provider == "fitbit").unwrap();
-    assert!(!fitbit_status.connected);
-    assert!(fitbit_status.expires_at.is_none());
-    assert!(fitbit_status.scopes.is_none());
+    // Verify every OAuth provider registered by the current feature set
+    // starts disconnected. The exact list narrows over time (Garmin / Fitbit
+    // / Coros / Terra were removed in a3ecd1b6's provider cleanup, leaving
+    // Strava + Whoop today). Derive count + iterate so a future provider
+    // addition or removal doesn't silently break this test.
+    let expected_oauth_provider_count = server_resources
+        .data()
+        .provider_registry()
+        .oauth_providers()
+        .len();
+    assert_eq!(statuses.len(), expected_oauth_provider_count);
+    assert!(
+        expected_oauth_provider_count > 0,
+        "test setup must register at least one OAuth provider"
+    );
+    for status in &statuses {
+        assert!(!status.connected);
+        assert!(status.expires_at.is_none());
+        assert!(status.scopes.is_none());
+    }
 }
 
 #[tokio::test]
@@ -1578,12 +1574,7 @@ async fn test_oauth_urls_contain_required_parameters() {
     assert!(strava_params.contains_key("scope"));
     assert!(strava_params.contains_key("state"));
 
-    // Test Garmin URL parameters (OAuth 1.0a uses different flow)
-    let garmin_auth = oauth_routes
-        .get_auth_url(user_id, tenant_id, "garmin")
-        .await
-        .unwrap();
-    // Garmin uses OAuth 1.0a, so it has different URL structure - just verify we got a valid URL
-    assert!(!garmin_auth.authorization_url.is_empty());
-    assert!(garmin_auth.state.contains(&user_id.to_string()));
+    // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
+    // Garmin flows through Sciotte's headless login (`sciotte_garmin`).
+    // The Strava parameter coverage above is the canonical check.
 }
