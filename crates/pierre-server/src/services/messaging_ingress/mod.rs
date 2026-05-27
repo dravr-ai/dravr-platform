@@ -888,14 +888,16 @@ async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingM
             )
             .await;
             let registry = &inputs.resources.mcp.messaging_strings_registry;
-            match email {
-                Some(email) => registry.render(
-                    KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
-                    &locale,
-                    &[&connect_url, &email],
-                ),
-                None => registry.render(key, &locale, &[&connect_url]),
-            }
+            email.map_or_else(
+                || registry.render(key, &locale, &[&connect_url]),
+                |email| {
+                    registry.render(
+                        KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
+                        &locale,
+                        &[&connect_url, &email],
+                    )
+                },
+            )
         } else {
             inputs
                 .resources
