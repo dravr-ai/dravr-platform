@@ -305,7 +305,26 @@ export function ConnectionsScreen() {
           </View>
         ) : (
           <View className="gap-3">
-            {providers.map(renderProvider)}
+            {/* After the 2026-Q2 provider cleanup the API surfaces only three:
+                sciotte, sciotte_garmin, and whoop. Filter out the bare `strava`
+                row — official OAuth is reached exclusively through the Sciotte
+                modal's "Use my own Strava OAuth app" button, so a separate
+                strava card would just duplicate the entry. Mirror its
+                `connected` state onto the Sciotte card so the badge appears in
+                the right place. Mirrors frontend/src/components/ProviderConnectionCards.tsx. */}
+            {(() => {
+              const stravaConnected = providers.find(
+                (p) => p.provider === 'strava' && p.connected,
+              );
+              const visible = providers
+                .filter((p) => p.provider !== 'strava')
+                .map((p) =>
+                  p.provider === 'sciotte' && stravaConnected && !p.connected
+                    ? { ...p, connected: true }
+                    : p,
+                );
+              return visible.map(renderProvider);
+            })()}
           </View>
         )}
 

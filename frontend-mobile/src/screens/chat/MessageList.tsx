@@ -150,14 +150,14 @@ const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } 
         return { isOAuth: true, provider: 'Strava' };
       }
     }
-    if (hostname === 'www.fitbit.com' || hostname === 'fitbit.com') {
-      if (parsedUrl.pathname.includes('/oauth2/authorize')) {
-        return { isOAuth: true, provider: 'Fitbit' };
-      }
-    }
     if (hostname.endsWith('.garmin.com') || hostname === 'garmin.com') {
       if (url.includes('oauth')) {
         return { isOAuth: true, provider: 'Garmin' };
+      }
+    }
+    if (hostname.endsWith('.whoop.com') || hostname === 'whoop.com') {
+      if (url.includes('oauth')) {
+        return { isOAuth: true, provider: 'WHOOP' };
       }
     }
     return { isOAuth: false, provider: null };

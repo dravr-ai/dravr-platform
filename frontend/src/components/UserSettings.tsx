@@ -522,14 +522,15 @@ export default function UserSettings() {
     }
   };
 
-  // Display config for fitness providers (matching mobile)
+  // Display config for fitness providers (matching mobile). After the 2026-Q2
+  // provider cleanup the API surfaces only sciotte / sciotte_garmin / whoop
+  // (plus the synthetic dev providers); fitbit/coros/terra are feature-gated
+  // off until we ship dedicated integrations. `strava` is retained so legacy
+  // rows still display correctly when surfaced through the disconnect flow.
   const PROVIDER_DISPLAY: Record<string, { color: string; description: string }> = {
     strava: { color: '#FC4C02', description: 'Running, cycling, and swimming activities' },
     garmin: { color: '#007CC3', description: 'Activities and health metrics from Garmin devices' },
-    fitbit: { color: '#00B0B9', description: 'Activity, sleep, and heart rate data' },
     whoop: { color: '#000000', description: 'Recovery, strain, and sleep metrics' },
-    terra: { color: '#16A34A', description: 'Aggregate data from multiple fitness platforms' },
-    coros: { color: '#E91E63', description: 'Training and performance data from COROS devices' },
     synthetic: { color: '#9C27B0', description: 'Synthetic test data for development' },
     synthetic_sleep: { color: '#673AB7', description: 'Synthetic sleep data for development' },
     sciotte: { color: '#F97316', description: 'Running, cycling, and swimming activities' },
