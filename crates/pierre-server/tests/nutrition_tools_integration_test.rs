@@ -933,19 +933,15 @@ async fn test_analyze_meal_nutrition_empty_foods() -> Result<()> {
     // Empty array should either succeed with zero totals or fail gracefully.
     // Post-refactor (2b98ba43) the schema validator rejects empty arrays as
     // invalid input, so accept either outcome here — the test's intent was
-    // "tool doesn't crash on an empty list."
-    match executor.execute_tool(request).await {
-        Ok(response) => {
-            if response.success {
-                let result = response.result.unwrap();
-                assert!(
-                    result["total_calories"].as_f64().unwrap().abs() < 0.1,
-                    "Empty foods should have zero or near-zero calories"
-                );
-            }
-        }
-        Err(_) => {
-            // Validator rejected empty list — also acceptable.
+    // "tool doesn't crash on an empty list." `if let Ok` covers the success
+    // path; the implicit Err branch is acceptable and produces no assertion.
+    if let Ok(response) = executor.execute_tool(request).await {
+        if response.success {
+            let result = response.result.unwrap();
+            assert!(
+                result["total_calories"].as_f64().unwrap().abs() < 0.1,
+                "Empty foods should have zero or near-zero calories"
+            );
         }
     }
 
