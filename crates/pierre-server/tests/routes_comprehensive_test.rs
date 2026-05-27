@@ -1274,25 +1274,10 @@ async fn test_oauth_get_auth_url_strava() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_oauth_get_auth_url_fitbit() -> Result<()> {
-    common::init_server_config();
-    let (oauth_routes, tenant_id, _database) = create_test_oauth_routes().await?;
-    let user_id = Uuid::new_v4();
-
-    let response = oauth_routes
-        .get_auth_url(user_id, tenant_id, "fitbit")
-        .await?;
-
-    // Fitbit is now fully implemented with provider-fitbit feature
-    assert!(response.authorization_url.contains("fitbit.com"));
-    assert!(response.authorization_url.contains("authorize"));
-    assert!(!response.state.is_empty());
-    assert!(!response.instructions.is_empty());
-    assert!(response.expires_in_minutes > 0);
-
-    Ok(())
-}
+// `test_oauth_get_auth_url_fitbit` was removed in a3ecd1b6's provider cleanup
+// (Fitbit / Garmin / Coros / Terra OAuth providers excluded from the default
+// build). The `unsupported_provider` test below covers the rejection contract
+// for any provider no longer registered, including Fitbit.
 
 #[tokio::test]
 async fn test_oauth_get_auth_url_unsupported_provider() -> Result<()> {
