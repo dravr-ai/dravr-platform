@@ -43,6 +43,17 @@ Using npm/yarn for project dependencies will corrupt the project by creating con
    git commit
    git push
    ```
+4. **MANDATORY cleanup after squash-merge lands on main**:
+   ```bash
+   git branch -D feature/my-feature            # delete local branch
+   git push origin --delete feature/my-feature # delete remote branch
+   git worktree remove <worktree-path>         # if work was done in a worktree
+   ```
+   Step 4 is non-negotiable. Squash-merge produces a new SHA on main, so the
+   feature branch's commits are gone — the branch is dead the moment the
+   squash commit lands. Leaving it on origin accumulates dead refs (we hit
+   80+ stale `feature/extract-*` branches once, all already merged). The
+   agent MUST run step 4 in the same session as step 3, not "later."
 
 ### Bug Fixes
 - Bug fixes go directly to `main` branch (no feature branch needed)
