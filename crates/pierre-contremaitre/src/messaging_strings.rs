@@ -187,14 +187,17 @@ pub const KEY_ACCOUNT_SUSPENDED: &str = "messaging.account.suspended";
 /// surface is the chat itself.
 pub const KEY_NO_PROVIDER_CONNECTED: &str = "messaging.account.no_provider";
 
-/// Key: same as [`KEY_NO_PROVIDER_CONNECTED`] but explicitly names the
-/// account email the user must log in with. Surfaced when the onboarding
-/// gate fires and the user's email is resolvable from the channel link
-/// (which is the common case — the gate fires *after* `authenticate_channel`
-/// succeeds). `{0}` = dravr web connect URL, `{1}` = user's account email.
-/// Falls back to [`KEY_NO_PROVIDER_CONNECTED`] when the email lookup fails
-/// (transient DB hiccup, user deleted between channel-link resolution and
-/// the email fetch, etc.).
+/// Key: no-provider denial that explicitly names the account email.
+///
+/// Same as [`KEY_NO_PROVIDER_CONNECTED`] but with `{1}` set to the user's
+/// email so the chat reply tells them which account to sign in with.
+/// Surfaced when the onboarding gate fires and the email is resolvable
+/// from the channel link (the common case — the gate fires *after*
+/// `authenticate_channel` succeeds). `{0}` = dravr web connect URL,
+/// `{1}` = user's account email. Falls back to
+/// [`KEY_NO_PROVIDER_CONNECTED`] when the email lookup fails (transient
+/// DB hiccup, user deleted between channel-link resolution and email
+/// fetch, etc.).
 pub const KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "messaging.account.no_provider_with_email";
 
 /// Key: a connected fitness provider needs to be (re)authenticated.
