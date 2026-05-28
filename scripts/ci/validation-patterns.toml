@@ -35,6 +35,13 @@ critical = [
     "return Ok\\(\\); // placeholder",
     "return Err.*not implemented",
     "not yet.*implemented",
+    # Stub-confession comments that advertise a capability but return an empty
+    # collection "for now" (e.g. resources/list, prompts/list returning []).
+    # The capability must be honestly implemented or not advertised — never
+    # faked behind a deferred-empty stub.
+    "empty resources list for now",
+    "empty prompts list for now",
+    "empty .{0,30} list for now",
     "reserved for future",
     "Intelligence analysis requires authenticated provider access",
     "requires authenticated provider access",

@@ -9,8 +9,12 @@
 // - Resource Arc sharing for concurrent request processing
 // - JSON value ownership for MCP protocol serialization
 
+use super::prompt_templates::{self, PromptGetOutcome};
+use super::resource_catalog;
 use super::{protocol::ProtocolHandler, resources::ServerContext, tool_handlers::ToolHandlers};
-use crate::constants::errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND};
+use crate::constants::errors::{
+    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
+};
 use crate::constants::protocol::{mcp_protocol_version, JSONRPC_VERSION};
 use crate::constants::tools::PUBLIC_DISCOVERY_TOOLS;
 use pierre_core::errors::{AppError, AppResult};
@@ -136,8 +140,13 @@ impl McpRequestProcessor {
             "tools/list" => Ok(self.handle_tools_list(&request).await),
             "tools/call" => self.handle_tools_call(&request).await,
             "authenticate" => Ok(Self::handle_authenticate(&request)),
-            method if method.starts_with("resources/") => Ok(Self::handle_resources(&request)),
-            method if method.starts_with("prompts/") => Ok(Self::handle_prompts(&request)),
+            "resources/list" => Ok(self.handle_resources_list(&request).await),
+            "resources/read" => Ok(self.handle_resources_read(&request).await),
+            "prompts/list" => Ok(Self::handle_prompts_list(&request)),
+            "prompts/get" => Ok(Self::handle_prompts_get(&request)),
+            method if method.starts_with("resources/") || method.starts_with("prompts/") => {
+                Ok(Self::handle_unknown_method(&request))
+            }
             method if method.starts_with("sampling/") => self.handle_sampling(&request).await,
             method if method.starts_with("completion/") => Ok(Self::handle_completion(&request)),
             method if method.starts_with("roots/") => Ok(Self::handle_roots(&request)),
@@ -172,11 +181,11 @@ impl McpRequestProcessor {
                     "listChanged": true
                 },
                 "resources": {
-                    "subscribe": true,
-                    "listChanged": true
+                    "subscribe": false,
+                    "listChanged": false
                 },
                 "prompts": {
-                    "listChanged": true
+                    "listChanged": false
                 },
                 "sampling": {}
             },
@@ -441,30 +450,167 @@ impl McpRequestProcessor {
         Ok(response)
     }
 
-    /// Handle resources requests
-    fn handle_resources(request: &McpRequest) -> McpResponse {
-        debug!("Handling resources request: {}", request.method);
+    /// Handle the resources/list MCP method.
+    ///
+    /// Lists the global coach marketplace — only publicly published coaches are
+    /// exposed, with no tenant or auth threading. Each coach surfaces as a
+    /// `dravr://coaches/{id}` `text/markdown` resource.
+    async fn handle_resources_list(&self, request: &McpRequest) -> McpResponse {
+        debug!("Handling resources/list request");
 
-        // Return empty resources list for now
+        let published = match self
+            .resources
+            .store_listings_repository()
+            .get_published_coaches(None, None, Some(resource_catalog::list_limit()), Some(0))
+            .await
+        {
+            Ok(coaches) => coaches,
+            Err(e) => {
+                error!("resources/list: failed to load published coaches: {e}");
+                return Self::mcp_error(
+                    request,
+                    ERROR_INTERNAL_ERROR,
+                    "Failed to load coach catalog",
+                );
+            }
+        };
+
         McpResponse {
             jsonrpc: JSONRPC_VERSION.to_owned(),
             id: request.id.clone(),
-            result: Some(serde_json::json!({ "resources": [] })),
+            result: Some(resource_catalog::list_resources(&published)),
             error: None,
         }
     }
 
-    /// Handle prompts requests
-    fn handle_prompts(request: &McpRequest) -> McpResponse {
-        debug!("Handling prompts request: {}", request.method);
+    /// Handle the resources/read MCP method.
+    ///
+    /// Reads a single published coach addressed by a `dravr://coaches/{id}`
+    /// URI and returns its reconstructed markdown document.
+    async fn handle_resources_read(&self, request: &McpRequest) -> McpResponse {
+        debug!("Handling resources/read request");
 
-        // Return empty prompts list for now
+        let Some(uri) = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("uri"))
+            .and_then(|uri| uri.as_str())
+        else {
+            return Self::mcp_error(request, ERROR_INVALID_PARAMS, "Missing 'uri' parameter");
+        };
+
+        let Some(coach_id) = resource_catalog::coach_id_from_uri(uri) else {
+            return Self::mcp_error(
+                request,
+                ERROR_INVALID_PARAMS,
+                "Unsupported resource URI scheme",
+            );
+        };
+
+        let published = match self
+            .resources
+            .store_listings_repository()
+            .get_published_coach(coach_id)
+            .await
+        {
+            Ok(Some(coach_with_listing)) => coach_with_listing,
+            Ok(None) => {
+                return Self::mcp_error(request, ERROR_INVALID_PARAMS, "Resource not found");
+            }
+            Err(e) => {
+                error!("resources/read: failed to load coach: {e}");
+                return Self::mcp_error(request, ERROR_INTERNAL_ERROR, "Failed to load coach");
+            }
+        };
+
+        match resource_catalog::read_resource(&published.coach) {
+            Ok(result) => McpResponse {
+                jsonrpc: JSONRPC_VERSION.to_owned(),
+                id: request.id.clone(),
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => {
+                error!("resources/read: failed to render coach markdown: {e}");
+                Self::mcp_error(request, ERROR_INTERNAL_ERROR, "Failed to render resource")
+            }
+        }
+    }
+
+    /// Handle the prompts/list MCP method.
+    ///
+    /// Advertises the curated, user-invokable analysis prompt templates with
+    /// their typed argument schemas.
+    fn handle_prompts_list(request: &McpRequest) -> McpResponse {
+        debug!("Handling prompts/list request");
+
         McpResponse {
             jsonrpc: JSONRPC_VERSION.to_owned(),
             id: request.id.clone(),
-            result: Some(serde_json::json!({ "prompts": [] })),
+            result: Some(prompt_templates::list_prompts()),
             error: None,
         }
+    }
+
+    /// Handle the prompts/get MCP method.
+    ///
+    /// Assembles the prompt messages for a curated template given the
+    /// client-supplied argument values.
+    fn handle_prompts_get(request: &McpRequest) -> McpResponse {
+        debug!("Handling prompts/get request");
+
+        let Some(name) = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("name"))
+            .and_then(|name| name.as_str())
+        else {
+            return Self::mcp_error(request, ERROR_INVALID_PARAMS, "Missing 'name' parameter");
+        };
+
+        let arguments = Self::extract_prompt_arguments(request);
+
+        match prompt_templates::get_prompt(name, &arguments) {
+            PromptGetOutcome::Found(result) => McpResponse {
+                jsonrpc: JSONRPC_VERSION.to_owned(),
+                id: request.id.clone(),
+                result: Some(result),
+                error: None,
+            },
+            PromptGetOutcome::UnknownPrompt(prompt) => Self::mcp_error(
+                request,
+                ERROR_INVALID_PARAMS,
+                &format!("Unknown prompt: {prompt}"),
+            ),
+            PromptGetOutcome::MissingArgument { prompt, argument } => Self::mcp_error(
+                request,
+                ERROR_INVALID_PARAMS,
+                &format!("Prompt '{prompt}' requires argument '{argument}'"),
+            ),
+        }
+    }
+
+    /// Extract the `arguments` object from a prompts/get request into a string map.
+    ///
+    /// Non-string argument values are stringified so templates always receive a
+    /// usable value; missing or malformed `arguments` yields an empty map.
+    fn extract_prompt_arguments(request: &McpRequest) -> HashMap<String, String> {
+        request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("arguments"))
+            .and_then(|arguments| arguments.as_object())
+            .map(|map| {
+                map.iter()
+                    .map(|(key, value)| {
+                        let text = value
+                            .as_str()
+                            .map_or_else(|| value.to_string(), str::to_owned);
+                        (key.clone(), text)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Handle completion requests
