@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AppResult;
 
 pub mod dummy;
+#[cfg(feature = "billing-stripe")]
+pub mod stripe;
 
 /// Inputs for [`BillingProvider::start_checkout`].
 ///

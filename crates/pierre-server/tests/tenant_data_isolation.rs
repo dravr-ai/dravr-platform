@@ -518,6 +518,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,

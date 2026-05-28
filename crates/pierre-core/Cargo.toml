@@ -19,6 +19,10 @@ llm = ["dep:async-trait", "dep:tokio-stream", "dep:embacle"]
 # Pluggable billing provider trait + DummyProvider (async-trait)
 billing = ["dep:async-trait"]
 
+# Real Stripe billing provider — StripeProvider adapter over dravr-stripe.
+# Production binaries enable this; trait-only consumers stay vendor-free.
+billing-stripe = ["billing", "dep:dravr-stripe"]
+
 # HTTP response support (IntoResponse for AppError)
 http-response = ["dep:axum", "dep:http"]
 
@@ -118,6 +122,12 @@ dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag
 
 # Time-series storage engine for metric persistence
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
+
+# Standalone Stripe billing capability — gated behind the `billing-stripe`
+# feature so the trait-only `billing` feature stays vendor-free. The
+# StripeProvider adapter in src/billing/stripe.rs maps these types onto the
+# BillingProvider trait DTOs.
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", rev = "a6ee369720556a152618fc61ce883070e8ed2b3f", optional = true }
 
 # Optional: OpenAPI schema generation
 # `uuid` and `chrono` features provide `ToSchema` impls for `Uuid` and

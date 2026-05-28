@@ -476,6 +476,7 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -546,6 +547,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,

@@ -8,6 +8,7 @@ use super::{ServerContext, ServerContextOptions};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::Cache;
+use pierre_core::billing::BillingProvider;
 use pierre_database::backends::factory::Database;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -26,6 +27,7 @@ pub struct ServerContextBuilder {
     jwks_manager: Option<Arc<JwksManager>>,
     llm_provider: Option<Arc<dyn LlmProvider>>,
     chat_provider: Option<Arc<ChatProvider>>,
+    billing_provider: Option<Arc<dyn BillingProvider>>,
 }
 
 impl ServerContextBuilder {
@@ -42,6 +44,7 @@ impl ServerContextBuilder {
             jwks_manager: None,
             llm_provider: None,
             chat_provider: None,
+            billing_provider: None,
         }
     }
 
@@ -110,6 +113,15 @@ impl ServerContextBuilder {
         self
     }
 
+    /// Set the billing provider backing `/api/billing/*` and
+    /// `/webhooks/{provider}`. When unset, resources init falls back to the
+    /// in-tree `DummyProvider`.
+    #[must_use]
+    pub fn with_billing_provider(mut self, billing_provider: Arc<dyn BillingProvider>) -> Self {
+        self.billing_provider = Some(billing_provider);
+        self
+    }
+
     /// Build the `ServerContext`
     ///
     /// # Errors
@@ -130,6 +142,7 @@ impl ServerContextBuilder {
             llm_provider: self.llm_provider,
             chat_provider: self.chat_provider,
             extra_tools: Vec::new(),
+            billing_provider: self.billing_provider,
         };
 
         let resources = ServerContext::new(
