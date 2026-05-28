@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-// ABOUTME: AG-UI event → user-facing status text mapping for the mobile chat UI
+// ABOUTME: AG-UI event → user-facing status text mapping shared by web and mobile chat UIs
 // ABOUTME: Mirrors the Telegram/Slack/Discord vocabulary so progress feels consistent cross-channel
 
 /**
  * AG-UI event shape as it appears on the SSE wire.
  *
  * Only fields the progress UI actually consumes are typed; anything
- * else the server includes is preserved as `any` so future fields
- * don't force a mobile redeploy. This matches canot's
+ * else the server includes is preserved (and ignored) so future
+ * fields don't force a client redeploy. This matches canot's
  * `#[serde(other)] Unknown` forward-compat contract on the Rust side.
  */
 export interface AguiEventWire {
@@ -39,7 +39,7 @@ const THINKING_PLACEHOLDER = 'thinking…';
  * The vocabulary matches the channel-side renderers in
  * `dravr-canot/src/agui_status.rs::status_text_for_event`, so a user
  * sees the same "reading your question…" string whether they talk to
- * the assistant over Telegram or the mobile app.
+ * the assistant over Telegram, the mobile app, or the web app.
  *
  * Keep results short (<= 60 chars) so the line fits on one row of
  * the chat progress strip.

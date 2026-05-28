@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
 import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useAgUiProgress } from '../hooks/useAgUiProgress';
 import PromptSuggestions from './PromptSuggestions';
 import { MessageCircle, Plus, Sparkles } from 'lucide-react';
 import { createInsightPrompt, stripContextPrefix } from '@pierre/chat-utils';
@@ -128,6 +129,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  // AG-UI run id for the in-flight turn, or `null` between turns. Sent
+  // as `agui_run_id` with the chat POST so the backend registers the
+  // run; `useAgUiProgress` subscribes to it to surface pipeline
+  // progress (e.g. "reading your question…") while the turn streams.
+  const [aguiRunId, setAguiRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
@@ -185,6 +191,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
   // Drawer state for the Tier 5.5 verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ChatVerdictRow | null>(null);
+
+  // Live pipeline progress for the in-flight turn. The hook subscribes
+  // to the AG-UI SSE stream for `aguiRunId` (Bearer-authed via `token`)
+  // and surfaces a short status line ("reading your question…",
+  // "calling get_activities…") that renders in the streaming bubble
+  // alongside the token-delta text.
+  const { statusText: aguiStatusText } = useAgUiProgress(aguiRunId, token);
 
   const handleAskAboutClaim = useCallback((verdict: ChatVerdictRow) => {
     setNewMessage(
@@ -482,6 +495,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       messages: [...(old?.messages || []), tempUserMessage],
     }));
 
+    // Fresh run id per turn — `useAgUiProgress` subscribes to the
+    // matching AG-UI stream while the chat POST below is in flight.
+    // Reset to null in the `finally` so the subscription closes once
+    // the assistant reply has rendered.
+    const runId = crypto.randomUUID();
+    setAguiRunId(runId);
+
     try {
       // Request SSE — the backend streams ACP token deltas + tool-call
       // observations as they arrive and ends with a `done` event carrying
@@ -497,7 +517,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           'Authorization': `Bearer ${token}`,
           'X-Client-Platform': 'web',
         },
-        body: JSON.stringify({ content: messageContent }),
+        body: JSON.stringify({ content: messageContent, agui_run_id: runId }),
       });
 
       if (!response.ok || !response.body) {
@@ -650,6 +670,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       setIsStreaming(false);
       setStreamingContent('');
     } finally {
+      // Closing the run id collapses the AG-UI progress strip; the
+      // streamed assistant reply is now the source of truth.
+      setAguiRunId(null);
       usageStatus.invalidate();
     }
   }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token, usageStatus]);
@@ -1029,6 +1052,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}
                 streamingContent={streamingContent}
+                progressStatusText={aguiStatusText}
                 errorMessage={errorMessage}
                 errorCountdown={errorCountdown}
                 oauthNotification={oauthNotification}

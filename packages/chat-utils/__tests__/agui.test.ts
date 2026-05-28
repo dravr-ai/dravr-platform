@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 // ABOUTME: Unit tests for statusTextForAguiEvent + isTerminalAguiEvent mapping
-// ABOUTME: Asserts vocabulary parity with dravr-canot so the mobile progress strip matches Telegram/Slack/Discord
+// ABOUTME: Asserts vocabulary parity with dravr-canot so web + mobile progress strips match Telegram/Slack/Discord
 
+import { describe, it, expect } from 'vitest';
 import {
   statusTextForAguiEvent,
   isTerminalAguiEvent,
-} from '../src/utils/aguiStatus';
+} from '../src/agui';
 
 describe('statusTextForAguiEvent', () => {
   it('maps RUN_STARTED to the generic placeholder', () => {
