@@ -72,6 +72,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -110,6 +111,7 @@ async fn test_mcp_ping_request() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -145,6 +147,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -184,6 +187,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -232,6 +236,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -275,6 +280,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -324,6 +330,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -373,6 +380,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -408,6 +416,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -505,6 +514,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -577,6 +587,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -660,6 +671,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -717,6 +729,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -774,6 +787,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -818,6 +832,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -873,6 +888,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,

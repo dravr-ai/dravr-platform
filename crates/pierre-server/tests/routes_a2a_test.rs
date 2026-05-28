@@ -281,6 +281,7 @@ impl A2ATestSetup {
                     llm_provider: None,
                     chat_provider: None,
                     extra_tools: Vec::new(),
+                    billing_provider: None,
                 },
             )
             .await,

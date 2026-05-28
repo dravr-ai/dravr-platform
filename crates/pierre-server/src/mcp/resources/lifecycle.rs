@@ -449,11 +449,15 @@ impl ServerContext {
             a2a_system_user_service,
         };
 
-        // Default to the in-tree DummyProvider so platform binaries
-        // compile and run without a vendor crate. Production binaries
-        // override via ServerContextBuilder::with_billing_provider.
+        // Use the injected billing provider when present (production binaries
+        // pass StripeProvider when Stripe env is configured). Otherwise fall
+        // back to the in-tree DummyProvider so the platform compiles, tests
+        // run, and local dev works without a vendor crate configured.
+        let billing_provider = options
+            .billing_provider
+            .unwrap_or_else(|| Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>);
         let billing = super::slices::BillingSlice {
-            billing_provider: Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>,
+            billing_provider,
             repos: usage_repos_view,
         };
 

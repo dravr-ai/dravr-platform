@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
+use pierre_core::billing::BillingProvider;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
 use pierre_tool_runtime::traits::McpTool;
@@ -45,6 +46,13 @@ pub struct ServerContextOptions {
     /// Production callers leave this empty — the default registry
     /// already holds every user-facing tool.
     pub extra_tools: Vec<Arc<dyn McpTool>>,
+    /// Billing provider backing `/api/billing/*` and `/webhooks/{provider}`.
+    ///
+    /// The production binary wires a real provider (`StripeProvider`) when
+    /// the Stripe environment is configured; otherwise this stays `None` and
+    /// the resources init falls back to the in-tree `DummyProvider` so the
+    /// platform compiles, tests run, and local dev works without a vendor.
+    pub billing_provider: Option<Arc<dyn BillingProvider>>,
 }
 
 impl ServerContextOptions {
@@ -57,6 +65,7 @@ impl ServerContextOptions {
             llm_provider: None,
             chat_provider: None,
             extra_tools: Vec::new(),
+            billing_provider: None,
         }
     }
 
@@ -69,6 +78,7 @@ impl ServerContextOptions {
             llm_provider: None,
             chat_provider: None,
             extra_tools: Vec::new(),
+            billing_provider: None,
         }
     }
 
@@ -97,6 +107,14 @@ impl ServerContextOptions {
     #[must_use]
     pub fn with_chat_provider(mut self, provider: Arc<ChatProvider>) -> Self {
         self.chat_provider = Some(provider);
+        self
+    }
+
+    /// Set the billing provider. When unset, resources init falls back to
+    /// the in-tree `DummyProvider`.
+    #[must_use]
+    pub fn with_billing_provider(mut self, provider: Arc<dyn BillingProvider>) -> Self {
+        self.billing_provider = Some(provider);
         self
     }
 }

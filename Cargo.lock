@@ -1380,6 +1380,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "dravr-stripe"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?rev=a6ee369720556a152618fc61ce883070e8ed2b3f#a6ee369720556a152618fc61ce883070e8ed2b3f"
+dependencies = [
+ "chrono",
+ "dravr-tronc",
+ "hex",
+ "hmac",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-tronc"
 version = "0.3.1"
 source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.3.1#b824d09e73797aabe99a8f003dad6a90df88b323"
@@ -3278,6 +3296,7 @@ dependencies = [
  "dravr-canot",
  "dravr-equilibre",
  "dravr-riviere",
+ "dravr-stripe",
  "embacle",
  "http 1.4.0",
  "rand 0.9.4",
@@ -3997,6 +4016,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-equilibre",
  "dravr-sciotte",
+ "dravr-stripe",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",

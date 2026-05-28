@@ -17,6 +17,8 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
 use pierre_config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig};
+use pierre_core::billing::stripe::StripeProvider;
+use pierre_core::billing::BillingProvider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
@@ -656,6 +658,42 @@ async fn build_chat_provider_singleton() -> Option<Arc<pierre_llm::ChatProvider>
     }
 }
 
+/// Build the production billing provider from environment configuration.
+///
+/// When `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are both present, wires
+/// the real `StripeProvider` (which additionally requires the
+/// `STRIPE_PRICE_PROFESSIONAL` / `STRIPE_PRICE_ENTERPRISE` price ids). When the
+/// Stripe environment is absent, returns `None` so resources init falls back to
+/// the in-tree `DummyProvider` for local dev. A partial / malformed Stripe
+/// configuration is logged and also falls back rather than crashing startup.
+fn build_billing_provider() -> Option<Arc<dyn BillingProvider>> {
+    let stripe_configured = env::var("STRIPE_SECRET_KEY").is_ok_and(|v| !v.trim().is_empty())
+        && env::var("STRIPE_WEBHOOK_SECRET").is_ok_and(|v| !v.trim().is_empty());
+
+    if !stripe_configured {
+        info!("Stripe billing not configured; using DummyProvider");
+        return None;
+    }
+
+    match StripeProvider::from_env() {
+        Ok(provider) => {
+            // secret_fingerprint() is a SHA-256 prefix, never the raw key.
+            info!(
+                secret_fingerprint = %provider.client_fingerprint(),
+                "Stripe billing provider configured"
+            );
+            Some(Arc::new(provider) as Arc<dyn BillingProvider>)
+        }
+        Err(e) => {
+            error!(
+                error = %e,
+                "Stripe env partially configured but StripeProvider::from_env failed; falling back to DummyProvider"
+            );
+            None
+        }
+    }
+}
+
 /// Create server instance with all resources
 async fn create_server(
     database: Database,
@@ -676,6 +714,7 @@ async fn create_server(
     }
 
     let chat_provider_singleton = build_chat_provider_singleton().await;
+    let billing_provider = build_billing_provider();
 
     let resources_instance = ServerContext::new(
         database,
@@ -689,6 +728,7 @@ async fn create_server(
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
             chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
+            billing_provider,
         },
     )
     .await;

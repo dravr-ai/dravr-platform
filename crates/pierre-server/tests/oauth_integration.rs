@@ -219,6 +219,7 @@ async fn test_oauth_authorization_url_generation() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -539,6 +540,7 @@ async fn test_oauth_state_validation() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -777,6 +779,7 @@ async fn test_connection_status_no_providers() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -993,6 +996,7 @@ async fn test_invalid_provider_error() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -1196,6 +1200,7 @@ async fn test_disconnect_provider() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -1547,6 +1552,7 @@ async fn test_oauth_urls_contain_required_parameters() {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,

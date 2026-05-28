@@ -88,6 +88,7 @@ impl SocialRoutesTestSetup {
                     llm_provider: Some(llm_provider), // Inject mock LLM provider for tests
                     chat_provider: None,
                     extra_tools: Vec::new(),
+                    billing_provider: None,
                 },
             )
             .await,

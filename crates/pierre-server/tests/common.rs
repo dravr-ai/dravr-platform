@@ -486,6 +486,7 @@ async fn create_test_server_resources_inner(
                 llm_provider,
                 chat_provider: None,
                 extra_tools,
+                billing_provider: None,
             },
         )
         .await,

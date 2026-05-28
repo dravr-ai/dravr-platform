@@ -562,6 +562,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -747,6 +748,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -855,6 +857,7 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -945,6 +948,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
@@ -1060,6 +1064,7 @@ async fn test_multitenant_server_config() -> Result<()> {
                 llm_provider: None,
                 chat_provider: None,
                 extra_tools: Vec::new(),
+                billing_provider: None,
             },
         )
         .await,
