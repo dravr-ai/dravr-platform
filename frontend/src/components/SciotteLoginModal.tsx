@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { oauthApi } from '../services/api';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
+import { formatTimeout } from './sciotteLoginCopy';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
@@ -70,6 +71,10 @@ export default function SciotteLoginModal({
   // and closes this whole stack via `onConnected`. Only meaningful when
   // `target === 'strava'` — Garmin and others don't expose an OAuth backend.
   const [showOAuthSetup, setShowOAuthSetup] = useState(false);
+  // Server-configured login budget (DRAVR_SCIOTTE_LOGIN_TIMEOUT), fetched on
+  // open. Null until loaded / on fetch failure — the progress copy degrades
+  // to "a few minutes" rather than showing a hardcoded number.
+  const [loginTimeoutSecs, setLoginTimeoutSecs] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -82,6 +87,10 @@ export default function SciotteLoginModal({
       setPassword('');
       setOtpCode('');
       setIsLoading(false);
+      oauthApi
+        .sciotteConfig()
+        .then((cfg) => setLoginTimeoutSecs(cfg.login_timeout_secs))
+        .catch(() => setLoginTimeoutSecs(null));
     }
   }, [isOpen, target]);
 
@@ -435,7 +444,12 @@ export default function SciotteLoginModal({
                 <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px] ghost-border border-t-on-surface" />
                 <p className="text-on-surface/80 text-sm font-medium">{progressLabel}</p>
                 <p className="text-on-surface/40 text-xs mt-2">
-                  {elapsedSecs > 0 ? `${elapsedSecs}s elapsed — this may take up to 30 seconds` : 'This may take up to 30 seconds'}
+                  {(() => {
+                    const budget = loginTimeoutSecs === null ? 'a few minutes' : formatTimeout(loginTimeoutSecs);
+                    return elapsedSecs > 0
+                      ? `${elapsedSecs}s elapsed — this may take up to ${budget}`
+                      : `This may take up to ${budget}`;
+                  })()}
                 </p>
               </div>
             </div>

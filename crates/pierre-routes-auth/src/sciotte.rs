@@ -14,6 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
 use dravr_sciotte::cache::CachedScraper;
+use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::error::LoginResult;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::scraper::ChromeScraper;
@@ -21,7 +22,7 @@ use dravr_sciotte::ActivityScraper;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::sciotte_limiter::{LimiterError, SciotteLimiter, ScrapePermit};
 use pierre_providers::sciotte_provider::SciotteTarget;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -640,6 +641,30 @@ async fn try_reuse_existing_session(
         "Stored Sciotte session is stale — proceeding with fresh login"
     );
     Ok(None)
+}
+
+/// Client-facing sciotte login configuration. Lets the login UI size its
+/// "this may take up to N" progress copy from the server's real timeout
+/// budget instead of a hardcoded constant, so the displayed wait always
+/// matches the deployed `DRAVR_SCIOTTE_LOGIN_TIMEOUT` (set per-environment
+/// in Cloud Run).
+#[derive(Serialize)]
+pub struct SciotteConfigResponse {
+    /// Overall credential-login budget in seconds — the longest the UI
+    /// should tell the user to wait before the server gives up.
+    pub login_timeout_secs: u64,
+}
+
+/// Return the sciotte login timeout budget for the login UI.
+///
+/// Reads the same `ScraperConfig::default()` the scraper itself uses, so the
+/// value reflects `DRAVR_SCIOTTE_LOGIN_TIMEOUT` from the environment (Cloud
+/// Run) with the crate default as the single fallback — no duplicated magic
+/// number on the client.
+pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
+    Json(SciotteConfigResponse {
+        login_timeout_secs: ScraperConfig::default().login_timeout_secs,
+    })
 }
 
 /// Credential-based login via in-process dravr-sciotte

@@ -226,6 +226,10 @@ impl AuthRoutes {
         #[cfg(feature = "provider-sciotte")]
         let router = router
             .route(
+                "/api/providers/sciotte/config",
+                get(sciotte::handle_sciotte_config),
+            )
+            .route(
                 "/api/providers/sciotte/login",
                 post(sciotte::handle_sciotte_login),
             )
