@@ -980,13 +980,7 @@ pub async fn create_test_tenant_with_provider(
         .id;
     repos
         .provider_connections
-        .register_connection(
-            user.id,
-            tenant_id,
-            "strava",
-            &ConnectionType::OAuth,
-            None,
-        )
+        .register_connection(user.id, tenant_id, "strava", &ConnectionType::OAuth, None)
         .await
         .map_err(|e| anyhow::Error::msg(format!("Failed to register provider: {e}")))?;
     Ok((user, token))
