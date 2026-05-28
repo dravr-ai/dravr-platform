@@ -30,7 +30,7 @@ use pierre_runtime_context::DataContext;
 use pierre_services::claim_verification::fallback_corpus;
 #[cfg(feature = "contremaitre")]
 use pierre_services::claim_verification::resolve_corpus;
-use pierre_services::claim_verification::verify_reply_with_config_and_corpus;
+use pierre_services::claim_verification::verify_reply_with_config_and_judge;
 
 /// Localizes the verification warn / block-fallback strings.
 ///
@@ -181,9 +181,20 @@ pub async fn apply_claim_verification(
     let corpus = resolve_corpus(&ctx.evidence_registry);
     #[cfg(not(feature = "contremaitre"))]
     let corpus = fallback_corpus();
-    #[cfg(not(feature = "contremaitre"))]
-    let _ = ctx;
-    let verdicts = verify_reply_with_config_and_corpus(reply, config, &corpus);
+    // Layer 5 LLM judge runs only when a provider is configured; otherwise the
+    // pipeline stays fully deterministic and inconclusive claims settle on the
+    // evidence layer's verdict.
+    let judge = ctx.llm_provider.as_deref();
+    let verdicts = match verify_reply_with_config_and_judge(reply, config, &corpus, judge).await {
+        Ok(verdicts) => verdicts,
+        Err(e) => {
+            tracing::warn!(error = %e, "Tier 5.5 verification failed — skipping claim verdicts");
+            return ClaimVerificationOutcome {
+                content: reply.to_owned(),
+                pending_verdicts: Vec::new(),
+            };
+        }
+    };
     if verdicts.is_empty() {
         return ClaimVerificationOutcome {
             content: reply.to_owned(),

@@ -21,11 +21,14 @@
 
 #[cfg(feature = "contremaitre")]
 use pierre_contremaitre::EvidenceRegistry;
+use pierre_core::errors::AppResult;
 use pierre_evals::{
-    check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
-    extract_heuristic, VerdictOutcome, VerificationConfig,
+    check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
+    evidence_retriever::EvidenceCorpus, extract_heuristic, VerdictOutcome, VerificationConfig,
 };
+use pierre_llm::LlmProvider;
 use pierre_memory::claims::EvidenceStrength;
+use std::slice;
 use std::sync::OnceLock;
 use tracing::{error, warn};
 
@@ -290,11 +293,13 @@ pub fn verify_reply_heuristic_with(
     if claims.is_empty() {
         return Vec::new();
     }
+    // Pass the full sibling set so Layer 4 (consistency) can cross-check each
+    // claim against the others in the same reply.
     claims
-        .into_iter()
+        .iter()
         .map(|claim| {
-            let outcome = check_claim(&claim, corpus, minimum_strength);
-            (claim, outcome)
+            let outcome = check_claim(claim, &claims, corpus, minimum_strength);
+            (claim.clone(), outcome)
         })
         .collect()
 }
@@ -329,15 +334,55 @@ pub fn verify_reply_with_config_and_corpus(
     if claims.is_empty() {
         return Vec::new();
     }
+    // Cross-check Layer 4 against every extracted claim, not just the enabled
+    // ones — a self-contradiction is worth flagging even if the sibling falls
+    // in a category the coach opted out of persisting.
     claims
-        .into_iter()
+        .iter()
         .filter(|claim| config.is_enabled_for(claim.category))
         .map(|claim| {
             let min_strength = config.for_category(claim.category).min_strength;
-            let outcome = check_claim(&claim, corpus, min_strength);
-            (claim, outcome)
+            let outcome = check_claim(claim, &claims, corpus, min_strength);
+            (claim.clone(), outcome)
         })
         .collect()
+}
+
+/// Verify a coach reply honoring the per-coach [`VerificationConfig`], running
+/// the full five-layer pipeline including the LLM judge fallback.
+///
+/// Identical category filtering and per-category `min_strength` handling to
+/// [`verify_reply_with_config_and_corpus`], but each inconclusive claim (one
+/// that layers 1–4 could not resolve) is handed to `judge` as the Layer 5
+/// fallback. Pass `judge: None` to keep the run fully deterministic — in that
+/// case this is the async equivalent of the synchronous variant.
+///
+/// # Errors
+///
+/// Propagates the LLM error when the judge is invoked and the provider call
+/// (or its JSON parse) fails.
+pub async fn verify_reply_with_config_and_judge(
+    coach_reply: &str,
+    config: &VerificationConfig,
+    corpus: &EvidenceCorpus,
+    judge: Option<&dyn LlmProvider>,
+) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
+    if !config.enabled {
+        return Ok(Vec::new());
+    }
+    let claims = extract_heuristic(coach_reply);
+    if claims.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
+        let min_strength = config.for_category(claim.category).min_strength;
+        // Cross-check Layer 4 against every extracted claim, matching the
+        // synchronous variant's semantics.
+        let outcome = check_claim_judged(claim, &claims, corpus, min_strength, judge).await?;
+        out.push((claim.clone(), outcome));
+    }
+    Ok(out)
 }
 
 /// Verify a single caller-provided claim (already extracted) at the given
@@ -347,7 +392,9 @@ pub fn verify_single_claim(
     claim: &ExtractedClaim,
     minimum_strength: EvidenceStrength,
 ) -> VerdictOutcome {
-    check_claim(claim, corpus(), minimum_strength)
+    // A claim verified in isolation has no siblings, so Layer 4 (consistency)
+    // has nothing to compare against and the verdict falls through to evidence.
+    check_claim(claim, slice::from_ref(claim), corpus(), minimum_strength)
 }
 
 /// Verify a single claim against a caller-provided corpus.
@@ -360,7 +407,8 @@ pub fn verify_single_claim_with(
     minimum_strength: EvidenceStrength,
     corpus: &EvidenceCorpus,
 ) -> VerdictOutcome {
-    check_claim(claim, corpus, minimum_strength)
+    // Single-claim path: no siblings for Layer 4 to cross-check against.
+    check_claim(claim, slice::from_ref(claim), corpus, minimum_strength)
 }
 
 /// Warm the corpus at startup and log its size.
