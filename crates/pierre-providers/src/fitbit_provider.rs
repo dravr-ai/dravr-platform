@@ -15,7 +15,7 @@ use super::core::{
 use super::errors::provider::ProviderError;
 use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult};
-use crate::http_client::shared_client;
+use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     Activity, ActivityBuilder, Athlete, HealthMetrics, HeartRateZone, PersonalRecord,
     RecoveryMetrics, SleepSession, SleepStage, SleepStageType, SportType, Stats,
@@ -25,7 +25,6 @@ use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use chrono::{DateTime, TimeZone, Utc};
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::from_str;
 use std::sync::OnceLock;
@@ -220,7 +219,7 @@ struct FitbitRestingHrValue {
 pub struct FitbitProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
-    client: Client,
+    client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }

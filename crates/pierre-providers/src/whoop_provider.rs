@@ -25,7 +25,7 @@ use super::core::{
 use super::errors::provider::ProviderError;
 use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult};
-use crate::http_client::shared_client;
+use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     Activity, ActivityBuilder, Athlete, HealthMetrics, PersonalRecord, RecoveryMetrics,
     SleepSession, SleepStage, SleepStageType, SportType, Stats,
@@ -33,7 +33,6 @@ use crate::models::{
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -197,7 +196,7 @@ struct WhoopRecoveryScore {
 pub struct WhoopProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
-    client: Client,
+    client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }

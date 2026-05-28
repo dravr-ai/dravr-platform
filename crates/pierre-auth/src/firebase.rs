@@ -49,7 +49,6 @@ use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -58,7 +57,7 @@ use x509_parser::prelude::*;
 
 use crate::config::oauth::FirebaseConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::http_client::api_client;
+use pierre_core::http_client::{api_client, SharedHttpClient};
 
 /// Google's Firebase public key endpoint
 const FIREBASE_CERTS_URL: &str =
@@ -127,7 +126,7 @@ pub struct FirebaseAuth {
     /// Firebase configuration
     config: FirebaseConfig,
     /// HTTP client for fetching public keys
-    http_client: &'static Client,
+    http_client: &'static SharedHttpClient,
     /// Cached public keys (Arc for sharing across threads)
     cached_keys: Arc<RwLock<Option<CachedKeys>>>,
 }

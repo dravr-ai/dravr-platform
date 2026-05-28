@@ -13,7 +13,7 @@ use super::utils::{self, RetryConfig};
 use crate::constants::oauth::GARMIN_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
-use crate::http_client::shared_client;
+use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
     Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
@@ -21,7 +21,7 @@ use crate::models::{
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -208,7 +208,7 @@ struct GarminStatsResponse {
 pub struct GarminProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
-    client: Client,
+    client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }

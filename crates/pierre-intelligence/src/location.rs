@@ -11,8 +11,8 @@
 use pierre_core::constants::project::user_agent;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
+use pierre_core::http_client::SharedHttpClient;
 use reqwest::header::USER_AGENT;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -120,7 +120,7 @@ struct NominatimSearchResult {
 
 /// Service for geocoding and location data enrichment
 pub struct LocationService {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     cache: HashMap<String, CacheEntry>,
     forward_cache: HashMap<String, ForwardCacheEntry>,
     cache_duration: Duration,

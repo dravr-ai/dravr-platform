@@ -4,11 +4,31 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use reqwest::{Client, ClientBuilder};
+use reqwest::ClientBuilder;
+use reqwest_middleware::{ClientBuilder as MiddlewareClientBuilder, ClientWithMiddleware};
 use std::env;
 use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::error;
+
+/// Shared outbound HTTP client type.
+///
+/// A `reqwest::Client` wrapped in `reqwest_middleware` so the `telemetry`
+/// feature can layer trace propagation on without changing this type.
+/// Consumers that store a clone of [`api_client`] / [`llm_client`] should hold
+/// this, not `reqwest::Client`.
+pub type SharedHttpClient = ClientWithMiddleware;
+
+/// Request builder produced by [`SharedHttpClient`].
+///
+/// Consumers that store or return a builder derived from the shared client
+/// should name this rather than `reqwest::RequestBuilder`, since the shared
+/// client is middleware-wrapped.
+pub type SharedRequestBuilder = reqwest_middleware::RequestBuilder;
+
+/// Error type returned by `.send()` on a request built from [`SharedHttpClient`].
+/// Wraps the underlying transport error alongside any middleware-layer failure.
+pub type SharedHttpError = reqwest_middleware::Error;
 
 /// Default request timeout for API calls (30 seconds)
 const DEFAULT_API_TIMEOUT_SECS: u64 = 30;
@@ -26,10 +46,16 @@ const DEFAULT_LLM_REQUEST_TIMEOUT_SECS: u64 = 300;
 static API_CLIENT_TIMEOUTS: OnceLock<(u64, u64)> = OnceLock::new();
 
 /// Global shared HTTP client for data-provider API calls (Strava, Garmin, etc.)
-static API_CLIENT: OnceLock<Client> = OnceLock::new();
+static API_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
 
 /// Global shared HTTP client for LLM API calls (Gemini, Groq, `OpenAI`, etc.)
-static LLM_CLIENT: OnceLock<Client> = OnceLock::new();
+static LLM_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
+
+/// Inner `reqwest::Client` backing the LLM pool. Shares the same connection
+/// pool as [`llm_client`] (which is built from a clone of this client) and is
+/// exposed for consumers that require a raw `reqwest::Client` and cannot accept
+/// the middleware wrapper.
+static LLM_INNER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 /// Initialize the API client timeout configuration
 ///
@@ -43,14 +69,14 @@ pub fn initialize_api_client(timeout_secs: u64, connect_timeout_secs: u64) {
 ///
 /// Uses connection pooling with configured timeouts (default: 30s request, 10s connect).
 /// Prefer this over creating new clients for external data APIs.
-pub fn api_client() -> &'static Client {
+pub fn api_client() -> &'static ClientWithMiddleware {
     API_CLIENT.get_or_init(|| {
         let (timeout, connect_timeout) = API_CLIENT_TIMEOUTS
             .get()
             .copied()
             .unwrap_or((DEFAULT_API_TIMEOUT_SECS, DEFAULT_API_CONNECT_TIMEOUT_SECS));
 
-        build_client(timeout, connect_timeout, "api")
+        wrap_client(build_inner_client(timeout, connect_timeout, "api"))
     })
 }
 
@@ -62,8 +88,17 @@ pub fn api_client() -> &'static Client {
 /// Timeouts are configurable via environment variables:
 /// - `LLM_CONNECT_TIMEOUT_SECS` (default: 30)
 /// - `LLM_REQUEST_TIMEOUT_SECS` (default: 300)
-pub fn llm_client() -> &'static Client {
-    LLM_CLIENT.get_or_init(|| {
+pub fn llm_client() -> &'static ClientWithMiddleware {
+    LLM_CLIENT.get_or_init(|| wrap_client(llm_inner_client().clone()))
+}
+
+/// Get the raw `reqwest::Client` backing the LLM pool.
+///
+/// Shares the same connection pool and timeouts as [`llm_client`]. Use this for
+/// consumers that require a `reqwest::Client` and cannot accept the
+/// middleware-wrapped [`SharedHttpClient`].
+pub fn llm_inner_client() -> &'static reqwest::Client {
+    LLM_INNER_CLIENT.get_or_init(|| {
         let connect_secs = env::var("LLM_CONNECT_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -73,18 +108,35 @@ pub fn llm_client() -> &'static Client {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(DEFAULT_LLM_REQUEST_TIMEOUT_SECS);
 
-        build_client(request_secs, connect_secs, "llm")
+        build_inner_client(request_secs, connect_secs, "llm")
     })
 }
 
-/// Build a reqwest client with the given timeouts, falling back to a default on error
-fn build_client(timeout_secs: u64, connect_timeout_secs: u64, label: &str) -> Client {
+/// Build a raw `reqwest::Client` with the given timeouts, falling back to a
+/// default client on error.
+fn build_inner_client(
+    timeout_secs: u64,
+    connect_timeout_secs: u64,
+    label: &str,
+) -> reqwest::Client {
     ClientBuilder::new()
         .timeout(Duration::from_secs(timeout_secs))
         .connect_timeout(Duration::from_secs(connect_timeout_secs))
         .build()
         .unwrap_or_else(|e| {
             error!("Failed to build {label} HTTP client: {e}; falling back to default client");
-            Client::new()
+            reqwest::Client::new()
         })
+}
+
+/// Wrap a `reqwest::Client` in a `ClientWithMiddleware`. The wrapper is a
+/// passthrough unless the `telemetry` feature attaches the trace-propagation
+/// middleware, so the return type is stable across builds.
+fn wrap_client(inner: reqwest::Client) -> ClientWithMiddleware {
+    let builder = MiddlewareClientBuilder::new(inner);
+    // Inject W3C `traceparent` into every outbound request and emit a client
+    // span when the OTLP pipeline is active. No-op when no propagator is set.
+    #[cfg(feature = "telemetry")]
+    let builder = builder.with(reqwest_tracing::TracingMiddleware::default());
+    builder.build()
 }

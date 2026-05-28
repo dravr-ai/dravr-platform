@@ -8,6 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::http_client::SharedHttpError;
 
 /// Errors specific to the contremaitre prompt management system.
 #[derive(Debug)]
@@ -93,6 +94,12 @@ impl From<ContremaitreError> for AppError {
 
 impl From<reqwest::Error> for ContremaitreError {
     fn from(err: reqwest::Error) -> Self {
+        Self::HttpClient(err.to_string())
+    }
+}
+
+impl From<SharedHttpError> for ContremaitreError {
+    fn from(err: SharedHttpError) -> Self {
         Self::HttpClient(err.to_string())
     }
 }

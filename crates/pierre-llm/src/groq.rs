@@ -50,7 +50,7 @@
 //! ```
 
 use async_trait::async_trait;
-use reqwest::Client;
+use pierre_core::http_client::{SharedHttpClient, SharedRequestBuilder as RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -249,7 +249,7 @@ struct GroqErrorDetail {
 /// Provides access to open-source models (Llama, Mixtral) with
 /// extremely fast inference speeds via Groq's Language Processing Units.
 pub struct GroqProvider {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     api_key: String,
     default_model: String,
     fallback_model: String,
@@ -429,7 +429,7 @@ impl GroqProvider {
     }
 
     /// Build an authenticated HTTP request to the Groq API
-    fn build_request(&self, groq_request: &GroqRequest) -> reqwest::RequestBuilder {
+    fn build_request(&self, groq_request: &GroqRequest) -> RequestBuilder {
         self.client
             .post(Self::api_url("chat/completions"))
             .header("Authorization", format!("Bearer {}", self.api_key))

@@ -51,7 +51,7 @@
 //! ```
 
 use async_trait::async_trait;
-use reqwest::Client;
+use pierre_core::http_client::{SharedHttpClient, SharedRequestBuilder as RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -310,7 +310,7 @@ struct CohereErrorResponse {
 
 /// Cohere LLM provider using the v2 chat API
 pub struct CohereProvider {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     api_key: String,
     default_model: String,
     fallback_model: String,
@@ -477,7 +477,7 @@ impl CohereProvider {
     }
 
     /// Build an authenticated HTTP request to the Cohere chat endpoint
-    fn build_request(&self, cohere_request: &CohereRequest) -> reqwest::RequestBuilder {
+    fn build_request(&self, cohere_request: &CohereRequest) -> RequestBuilder {
         self.client
             .post(Self::api_url("chat"))
             .header("Authorization", format!("Bearer {}", self.api_key))

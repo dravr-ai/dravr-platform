@@ -5,9 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
+use crate::http_client::SharedHttpClient;
 use chrono::{TimeZone, Utc};
 use rand::Rng;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::Deserialize;
 use std::env;
 use std::future::Future;
@@ -188,7 +189,7 @@ fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppError {
 /// - Network request fails
 /// - Response parsing fails
 pub async fn api_request_with_retry<T>(
-    client: &Client,
+    client: &SharedHttpClient,
     url: &str,
     access_token: &str,
     provider_name: &str,
@@ -262,7 +263,7 @@ pub struct TokenRefreshResponse {
 /// - Token endpoint returns error
 /// - Response parsing fails
 pub async fn refresh_oauth_token(
-    client: &Client,
+    client: &SharedHttpClient,
     token_url: &str,
     client_id: &str,
     client_secret: &str,

@@ -37,6 +37,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use futures_util::stream::unfold;
 use futures_util::{future, Stream, StreamExt};
+use pierre_core::http_client::SharedHttpError as MiddlewareError;
 
 use super::{ChatStream, StreamChunk};
 use crate::errors::AppError;
@@ -330,7 +331,14 @@ pub fn is_retryable_status(status: u16) -> bool {
 }
 
 /// Check if a request error is retryable (connection/timeout errors)
+///
+/// Operates on the middleware-wrapped error: only the underlying
+/// `reqwest::Error` carries connect/timeout classification; middleware-layer
+/// failures are not treated as retryable transport errors.
 #[must_use]
-pub fn is_retryable_request_error(error: &reqwest::Error) -> bool {
-    error.is_connect() || error.is_timeout()
+pub fn is_retryable_request_error(error: &MiddlewareError) -> bool {
+    match error {
+        MiddlewareError::Reqwest(e) => e.is_connect() || e.is_timeout(),
+        MiddlewareError::Middleware(_) => false,
+    }
 }

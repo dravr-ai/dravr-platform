@@ -13,6 +13,13 @@ publish = false
 [features]
 default = []
 contremaitre = ["dep:pierre-contremaitre"]
+# OpenTelemetry OTLP traces + metrics. Compiled-but-inert until OTEL_EXPORTER_OTLP_ENDPOINT is set.
+telemetry = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
 
 [dependencies]
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
@@ -25,6 +32,13 @@ serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
+
+# OpenTelemetry (optional, enabled by the `telemetry` feature). OTLP over HTTP/protobuf
+# reuses reqwest (native-tls) instead of pulling tonic/gRPC, keeping the telemetry build lighter.
+opentelemetry = { version = "0.22", features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.22", features = ["trace", "metrics", "rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.15", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client"], optional = true }
+tracing-opentelemetry = { version = "0.23", optional = true }
 
 [lints]
 workspace = true

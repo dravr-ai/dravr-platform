@@ -80,7 +80,12 @@ fn main() -> Result<()> {
     // Run the async server on our configured runtime
     runtime.block_on(async {
         let config = setup_configuration(&args)?;
-        bootstrap_server(config, args.stdio).await
+        let result = bootstrap_server(config, args.stdio).await;
+        // Flush buffered OTLP spans/metrics before exit. No-op unless the
+        // `telemetry` feature is compiled in and the pipeline activated.
+        // Runs inside the runtime so batch exporters can drain their workers.
+        pierre_logging::shutdown_telemetry();
+        result
     })
 }
 

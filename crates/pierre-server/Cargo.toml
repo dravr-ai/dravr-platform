@@ -38,7 +38,7 @@ default = ["sqlite", "server-full", "sqlx/migrate"]
 sqlite = []
 postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-health/postgresql", "pierre-intelligence/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
 testing = []
-telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]
+telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-core/telemetry"]
 toon = ["dep:toon-format", "pierre-formatters/toon"]
 analytics-posthog = ["pierre-services/analytics-posthog"]
 
@@ -243,10 +243,6 @@ async-stream = "0.3"
 thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std", "registry", "json"], default-features = false }
-# OpenTelemetry for distributed tracing and request correlation (optional, enable with --features telemetry)
-tracing-opentelemetry = { version = "0.23", optional = true }
-opentelemetry = { version = "0.22", features = ["trace"], optional = true }
-opentelemetry_sdk = { version = "0.22", features = ["trace", "rt-tokio"], optional = true }
 # HTTP tracing middleware
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "timeout", "limit", "set-header", "catch-panic"] }

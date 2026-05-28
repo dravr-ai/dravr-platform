@@ -344,7 +344,9 @@ cargo build --release --no-default-features --features "sqlite,protocol-rest,tra
 ```toml
 oauth = []       # OAuth infrastructure (required for provider auth)
 testing = []     # Test utilities
-telemetry = []   # OpenTelemetry instrumentation
+# OpenTelemetry OTLP traces + metrics. Compiled-but-inert until
+# OTEL_EXPORTER_OTLP_ENDPOINT is set; forwards to the logging/middleware/core crates.
+telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-core/telemetry"]
 openapi = [...]  # SwaggerUI documentation (optional)
 ```
 

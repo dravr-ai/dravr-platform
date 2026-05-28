@@ -19,6 +19,7 @@ use embacle::{
     OpenAiApiRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
 };
 use futures_util::StreamExt;
+use pierre_core::http_client::llm_inner_client;
 use tracing::{debug, info, warn};
 
 use embacle::types::{
@@ -253,7 +254,7 @@ impl CliLlmProvider {
             "Creating OpenAI API runner"
         );
 
-        let client = super::build_llm_http_client().clone();
+        let client = llm_inner_client().clone();
         let runner = OpenAiApiRunner::with_client(config, client).await;
 
         Ok(Self {
