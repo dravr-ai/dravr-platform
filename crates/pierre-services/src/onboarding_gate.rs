@@ -27,10 +27,19 @@
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::ConnectionType;
 use pierre_database::repositories::ProviderConnectionRepository;
 use uuid::Uuid;
 
-/// Returns `true` when the user has at least one row in `provider_connections`.
+/// Returns `true` when the user has at least one *real* (non-synthetic) row in
+/// `provider_connections`.
+///
+/// Synthetic connections (`connection_type = synthetic`) are seed/demo data —
+/// the synthetic-activities seeder registers a `provider = "synthetic"` row for
+/// test users. Those are not real provider links: a user whose only connection
+/// is synthetic still needs to connect a real provider, so synthetic rows must
+/// not satisfy the onboarding gate (otherwise the first-login connect redirect
+/// never fires for seeded users).
 ///
 /// # Errors
 ///
@@ -41,7 +50,9 @@ pub async fn user_has_connected_provider(
     user_id: Uuid,
 ) -> AppResult<bool> {
     let connections = repo.get_for_user(user_id, None).await?;
-    Ok(!connections.is_empty())
+    Ok(connections
+        .iter()
+        .any(|c| c.connection_type != ConnectionType::Synthetic))
 }
 
 /// Returns `Ok(())` when the user has at least one connected provider and

@@ -48,11 +48,35 @@ async fn require_connected_provider_rejects_user_with_no_connections() {
     );
 }
 
-/// Once any provider connection exists, the gate must let the user through —
-/// even with a `Synthetic` connection type. This mirrors how the OAuth
-/// callback registers a row and unblocks chat immediately.
+/// Once a *real* provider connection exists, the gate must let the user
+/// through. This mirrors how the OAuth callback registers a row and unblocks
+/// chat immediately.
 #[tokio::test]
 async fn require_connected_provider_passes_once_a_connection_exists() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
+        .await
+        .expect("connected user must pass the gate");
+}
+
+/// A `Synthetic` (seed/demo) connection must NOT satisfy the gate: synthetic
+/// activities are seeded test data, not a real provider link, so a user whose
+/// only connection is synthetic still needs to connect a real provider. The
+/// synthetic-activities seeder registers a `provider = "synthetic"` row for
+/// test users, which previously masked the first-login connect redirect.
+#[tokio::test]
+async fn require_connected_provider_rejects_synthetic_only() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -71,9 +95,11 @@ async fn require_connected_provider_passes_once_a_connection_exists() {
         .await
         .unwrap();
 
-    onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
-        .await
-        .expect("connected user must pass the gate");
+    let err =
+        onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
+            .await
+            .expect_err("synthetic-only user must still be refused");
+    assert_eq!(err.code, ErrorCode::NoProviderConnected);
 }
 
 /// `user_has_connected_provider` returns the boolean for the
