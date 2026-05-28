@@ -219,6 +219,16 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       return response.data;
     },
 
+    /**
+     * Fetch the sciotte login configuration (timeout budget).
+     * Lets the login UI size its progress copy from the server's real
+     * DRAVR_SCIOTTE_LOGIN_TIMEOUT instead of a hardcoded constant.
+     */
+    async sciotteConfig(): Promise<SciotteConfigResponse> {
+      const response = await axios.get<SciotteConfigResponse>('/api/providers/sciotte/config');
+      return response.data;
+    },
+
     // Aliases for backward compatibility
     getOAuthStatus() {
       return this.getStatus();
@@ -235,6 +245,11 @@ export interface SciotteLoginResponse {
   error?: string;
   options?: Array<{ id: string; label: string }>;
   number?: string;
+}
+
+export interface SciotteConfigResponse {
+  /** Overall credential-login budget in seconds (server-configured). */
+  login_timeout_secs: number;
 }
 
 export type OAuthApi = ReturnType<typeof createOAuthApi>;

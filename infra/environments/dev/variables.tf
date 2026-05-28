@@ -264,9 +264,27 @@ variable "backend_sciotte_acquire_timeout_secs" {
 }
 
 variable "backend_sciotte_permit_max_lifetime_secs" {
-  description = "Maximum seconds a sciotte permit can stay parked across a multi-step OTP/2FA flow before the watchdog evicts it. Used as PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS env var."
+  description = "Maximum seconds a sciotte permit can stay parked across a multi-step OTP/2FA flow before the watchdog evicts it. Used as PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS env var. Must stay above the DRAVR_SCIOTTE_*_TIMEOUT login budget so the watchdog never evicts a permit mid-login."
   type        = number
-  default     = 300
+  default     = 360
+}
+
+variable "backend_sciotte_login_timeout_secs" {
+  description = "Overall sciotte credential-login budget in seconds. Used as DRAVR_SCIOTTE_LOGIN_TIMEOUT env var (dravr-sciotte crate default is 120). Sized for the slowest interactive path: number-match 2FA where the user must tap a number on their phone."
+  type        = number
+  default     = 240
+}
+
+variable "backend_sciotte_password_step_timeout_secs" {
+  description = "Seconds the sciotte scraper waits for the login result after submitting the password. Used as DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT env var (crate default is 30 — too short for a number-match 2FA challenge that surfaces during this poll)."
+  type        = number
+  default     = 240
+}
+
+variable "backend_sciotte_phone_tap_timeout_secs" {
+  description = "Seconds the sciotte scraper waits for a phone tap / number-match approval during 2FA. Used as DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT env var (crate default is 60 — too short for a real human tapping a phone)."
+  type        = number
+  default     = 240
 }
 
 variable "backend_sciotte_watchdog_interval_secs" {

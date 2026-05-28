@@ -376,6 +376,15 @@ module "backend" {
       PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS   = tostring(var.backend_sciotte_watchdog_interval_secs)
       PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS    = tostring(var.backend_sciotte_retry_after_hint_secs)
       PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS  = tostring(var.backend_sciotte_closed_retry_after_secs)
+
+      # Sciotte scraper login-step timeouts (consumed by the dravr-sciotte
+      # crate, not the limiter). The crate's compiled defaults (login 120s,
+      # password-step 30s, phone-tap 60s) are too short for Strava's
+      # number-match 2FA, where the user must read a number off the login
+      # screen and tap it on their phone — a 3-4 minute interactive step.
+      DRAVR_SCIOTTE_LOGIN_TIMEOUT         = tostring(var.backend_sciotte_login_timeout_secs)
+      DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
+      DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
