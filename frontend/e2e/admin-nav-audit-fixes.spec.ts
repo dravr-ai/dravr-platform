@@ -264,6 +264,10 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
       }),
     );
     await navigateToTab(page, 'Memory Worker');
+    // Wait for the breakdown rows to render before reading — the metrics are
+    // fetched async, so reading immediately after navigation finds zero
+    // percentages and the sum is 0.
+    await expect(page.getByText(/\(\d+%\)/).first()).toBeVisible();
     const pcts = await page.getByText(/\(\d+%\)/).allTextContents();
     const sum = pcts
       .map((t) => Number(/\((\d+)%\)/.exec(t)?.[1] ?? 0))
