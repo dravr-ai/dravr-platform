@@ -95,10 +95,9 @@ async fn require_connected_provider_rejects_synthetic_only() {
         .await
         .unwrap();
 
-    let err =
-        onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
-            .await
-            .expect_err("synthetic-only user must still be refused");
+    let err = onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
+        .await
+        .expect_err("synthetic-only user must still be refused");
     assert_eq!(err.code, ErrorCode::NoProviderConnected);
 }
 
