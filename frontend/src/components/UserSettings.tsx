@@ -258,7 +258,13 @@ export default function UserSettings() {
     enabled: isAuthenticated,
   });
 
-  const fitnessProviders: ProviderStatus[] = providersResponse?.providers || [];
+  // Native `strava` (official OAuth) is reached only through the Sciotte
+  // modal's "Use my own Strava OAuth app" button — it must not render as a
+  // second Strava card alongside `sciotte` (the Strava-mirror). Mirrors the
+  // filter in ProviderConnectionCards.
+  const fitnessProviders: ProviderStatus[] = (providersResponse?.providers || []).filter(
+    (p) => p.provider !== 'strava',
+  );
 
   // Fetch OAuth apps
   const { data: oauthAppsResponse, isLoading: isLoadingApps } = useQuery({
