@@ -161,6 +161,14 @@ locals {
     "roles/iam.workloadIdentityPoolAdmin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/resourcemanager.projectIamAdmin",
+    # Manage the monitoring/drift-check stack added in monitoring.tf +
+    # drift_check.tf: log-based metric (logging.configWriter), alert policy +
+    # notification channel (monitoring.editor), and the daily Cloud Scheduler
+    # trigger (cloudscheduler.admin). Without these the runner 403s on every
+    # apply that tries to create those resources.
+    "roles/logging.configWriter",
+    "roles/monitoring.editor",
+    "roles/cloudscheduler.admin",
   ]
 }
 
