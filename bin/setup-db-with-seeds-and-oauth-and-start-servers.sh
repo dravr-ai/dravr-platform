@@ -216,6 +216,15 @@ echo "    Seeding social test data..."
 echo "    Seeding mobility data (stretches, yoga)..."
 "$PIERRE_CLI" seed mobility 2>&1 | tail -3
 
+# Create the phil_test + jf_test users before synthetic seeding. The web/mobile
+# test users are created by `seed social` above, but these two are not created by
+# any seeder, so create them here (idempotent via --force) to keep the script
+# self-contained on a fresh database. Without this, the synthetic step below
+# aborts with "User not found" on a clean checkout.
+echo "    Creating phil_test + jf_test users..."
+"$PIERRE_CLI" user create --email "$PHIL_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
+"$PIERRE_CLI" user create --email "$JF_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
+
 # Seed synthetic activities for test users
 if [ "$SKIP_SYNTHETIC" != "true" ]; then
     echo "    Seeding synthetic activities for test users..."
