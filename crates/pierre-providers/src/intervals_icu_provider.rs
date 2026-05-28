@@ -18,8 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use reqwest::Client;
-use reqwest::{RequestBuilder, Response};
+use reqwest::Response;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -28,7 +27,7 @@ use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use crate::errors::{AppError, AppResult};
-use crate::http_client::shared_client;
+use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::models::{
     Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats, TimeSeriesData,
 };
@@ -53,10 +52,10 @@ static FIRST_INSTANTIATION: OnceLock<()> = OnceLock::new();
 /// HTTP status. Credentials never enter the log line — `RequestBuilder`
 /// owns the `basic_auth` header and we only ever read the URL we built.
 async fn send_traced(
-    req: RequestBuilder,
+    req: SharedRequestBuilder,
     op: &'static str,
     url: &str,
-) -> reqwest::Result<Response> {
+) -> Result<Response, SharedHttpError> {
     info!(provider = "intervals_icu", op, url, "request");
     match req.send().await {
         Ok(response) => {
@@ -151,7 +150,7 @@ pub struct IntervalsIcuProvider {
     /// holds the athlete id (Intervals.icu uses HTTP Basic auth with the
     /// athlete id as username and the API key as password).
     credentials: Arc<RwLock<Option<OAuth2Credentials>>>,
-    http: Client,
+    http: SharedHttpClient,
 }
 
 impl IntervalsIcuProvider {

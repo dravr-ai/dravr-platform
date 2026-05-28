@@ -33,6 +33,9 @@ pub mod rate_limiting;
 pub mod redaction;
 /// Request ID generation and propagation
 pub mod request_id;
+/// HTTP request metrics + inbound W3C trace-context extraction (OTLP telemetry)
+#[cfg(feature = "telemetry")]
+pub mod telemetry;
 /// Tenant context extraction middleware
 pub mod tenant;
 /// Request tracing and context propagation
@@ -101,6 +104,8 @@ pub use redaction::RedactionFeatures;
 pub use request_id::request_id_middleware;
 /// Request ID extractor
 pub use request_id::RequestId;
+#[cfg(feature = "telemetry")]
+pub use telemetry::telemetry_middleware;
 
 // Request tracing and context management
 

@@ -6,3 +6,4 @@
 
 pub use pierre_core::http_client::api_client as shared_client;
 pub use pierre_core::http_client::initialize_api_client as initialize_shared_client;
+pub use pierre_core::http_client::{SharedHttpClient, SharedHttpError, SharedRequestBuilder};

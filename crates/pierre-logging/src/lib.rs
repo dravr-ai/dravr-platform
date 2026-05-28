@@ -12,6 +12,11 @@ pub mod tenant;
 /// Google Cloud Logging structured-JSON formatter
 pub mod gcp;
 
+/// OpenTelemetry OTLP pipeline (traces + metrics), compiled only with the
+/// `telemetry` feature and dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+#[cfg(feature = "telemetry")]
+pub mod otel;
+
 /// Re-export tenant logging utilities
 pub use tenant::{
     record_performance_metrics, record_request_context, record_tenant_context, ProviderApiContext,
@@ -44,6 +49,11 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
+
+#[cfg(feature = "telemetry")]
+use opentelemetry_sdk::trace::Tracer;
+#[cfg(feature = "telemetry")]
+use std::sync::OnceLock;
 
 /// Per-event closure type for the chromiumoxide teardown suppression
 /// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
@@ -225,6 +235,35 @@ pub enum LogFormat {
     Gcp,
 }
 
+/// Whether the OTLP telemetry pipeline will activate at startup.
+///
+/// True only when the `telemetry` feature is compiled in **and**
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` is set — the "off by default, enabled on
+/// demand" contract. This is the single source of truth read by both
+/// `LogFeatures.telemetry` and the pipeline builder.
+#[must_use]
+pub fn telemetry_enabled() -> bool {
+    cfg!(feature = "telemetry")
+        && env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok_and(|v| !v.is_empty())
+}
+
+/// Live OTLP pipeline handle, set once during [`LoggingConfig::init`] and
+/// drained by [`shutdown_telemetry`] on graceful shutdown.
+#[cfg(feature = "telemetry")]
+static TELEMETRY_HANDLE: OnceLock<otel::TelemetryHandle> = OnceLock::new();
+
+/// Flush and shut down the OTLP telemetry pipeline if it was activated.
+///
+/// No-op when the `telemetry` feature is disabled or telemetry never started.
+/// Call this on the graceful-shutdown path so batch exporters drain their
+/// final buffered spans and metrics instead of dropping them.
+pub fn shutdown_telemetry() {
+    #[cfg(feature = "telemetry")]
+    if let Some(handle) = TELEMETRY_HANDLE.get() {
+        handle.shutdown();
+    }
+}
+
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
@@ -239,7 +278,7 @@ impl Default for LoggingConfig {
             service_version: env!("CARGO_PKG_VERSION").to_owned(),
             environment: "development".into(),
             features: LogFeatures {
-                telemetry: false,
+                telemetry: telemetry_enabled(),
                 truncate_mcp: true, // Default to readable logs
             },
             request_id_header: "x-request-id".into(),
@@ -288,12 +327,41 @@ impl LoggingConfig {
                 .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned()),
             environment,
             features: LogFeatures {
-                telemetry: is_production || env::var("ENABLE_TELEMETRY").is_ok(),
+                // Off by default; activates only with the `telemetry` feature
+                // compiled in AND OTEL_EXPORTER_OTLP_ENDPOINT set.
+                telemetry: telemetry_enabled(),
                 truncate_mcp: env::var("MCP_LOG_TRUNCATE")
                     .map_or(true, |v| v != "false" && v != "0"), // Default to true (truncated) unless explicitly disabled
             },
             request_id_header: env::var("REQUEST_ID_HEADER")
                 .unwrap_or_else(|_| "x-request-id".into()),
+        }
+    }
+
+    /// Build the OTLP pipeline (if active) and return its tracer for the
+    /// subscriber layer. Reads `self.features.telemetry` (the off-by-default
+    /// gate) and stores the live handle for `shutdown_telemetry`. A build
+    /// failure is logged to stderr and degrades to logs-only rather than
+    /// aborting startup. Runs before the subscriber is installed, so it does
+    /// not use tracing macros.
+    #[cfg(feature = "telemetry")]
+    fn init_telemetry(&self) -> Option<Tracer> {
+        if !self.features.telemetry {
+            return None;
+        }
+        match otel::build_telemetry(self) {
+            Ok(Some(handle)) => {
+                let tracer = handle.tracer();
+                // `set` only errors if a handle is already installed (double
+                // init); the first pipeline stays authoritative.
+                let _ = TELEMETRY_HANDLE.set(handle);
+                Some(tracer)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                eprintln!("OpenTelemetry init failed, continuing without telemetry: {e}");
+                None
+            }
         }
     }
 
@@ -379,6 +447,13 @@ impl LoggingConfig {
         #[cfg(feature = "contremaitre")]
         let notify_layer = Self::build_notify_layer(&self.environment);
 
+        // Build the OTLP pipeline once (if active) and reuse its tracer across
+        // the format branches. `Option<Tracer>` is subscriber-agnostic, so the
+        // actual `OpenTelemetryLayer<S, _>` is constructed inside each branch
+        // where `S` is known. `None` (telemetry off) makes the layer a no-op.
+        #[cfg(feature = "telemetry")]
+        let otel_tracer = self.init_telemetry();
+
         // Per-layer filter that suppresses chromiumoxide's expected
         // post-close WS-reset error events during the short teardown
         // window sciotte advertises. Built fresh per sink so both the
@@ -409,6 +484,8 @@ impl LoggingConfig {
                 );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
+                #[cfg(feature = "telemetry")]
+                let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
                 r.init();
             }
             LogFormat::Pretty => {
@@ -433,6 +510,8 @@ impl LoggingConfig {
                 );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
+                #[cfg(feature = "telemetry")]
+                let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
                 r.init();
             }
             LogFormat::Compact => {
@@ -454,6 +533,8 @@ impl LoggingConfig {
                 );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
+                #[cfg(feature = "telemetry")]
+                let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
                 r.init();
             }
             LogFormat::Gcp => {
@@ -474,6 +555,8 @@ impl LoggingConfig {
                 );
                 #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
+                #[cfg(feature = "telemetry")]
+                let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
                 r.init();
             }
         }
@@ -615,7 +698,9 @@ impl LoggingConfig {
             service_version: env!("CARGO_PKG_VERSION").to_owned(),
             environment: "production".into(),
             features: LogFeatures {
-                telemetry: true,
+                // Endpoint-driven, even on Cloud Run: traces export only when
+                // OTEL_EXPORTER_OTLP_ENDPOINT is configured on the revision.
+                telemetry: telemetry_enabled(),
                 truncate_mcp: false, // Production wants full logs
             },
             request_id_header: "x-request-id".into(),

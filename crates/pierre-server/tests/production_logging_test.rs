@@ -20,7 +20,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_logging::{LogFormat, LoggingConfig};
+use pierre_logging::{telemetry_enabled, LogFormat, LoggingConfig};
 use pierre_middleware::{request_id_middleware, RequestId};
 use std::error::Error;
 use tower::ServiceExt;
@@ -298,10 +298,37 @@ fn test_gcp_logging_configuration() {
     assert_eq!(gcp_config.level, "info");
     assert_eq!(gcp_config.environment, "production");
     assert!(matches!(gcp_config.format, LogFormat::Gcp));
-    assert!(gcp_config.features.telemetry);
+    // Telemetry is no longer hardcoded on for Cloud Run; it is endpoint-driven
+    // (off unless the `telemetry` feature is compiled in AND
+    // OTEL_EXPORTER_OTLP_ENDPOINT is set). The config flag must mirror that
+    // single source of truth.
+    assert_eq!(gcp_config.features.telemetry, telemetry_enabled());
     assert!(
         !gcp_config.features.truncate_mcp,
         "Production wants full logs"
+    );
+}
+
+/// Telemetry is off by default and only activates with the `telemetry` feature
+/// compiled in AND `OTEL_EXPORTER_OTLP_ENDPOINT` set. This guards against
+/// re-introducing the old `is_production || ENABLE_TELEMETRY` auto-enable: every
+/// constructor must mirror `telemetry_enabled()`, and in this (non-telemetry)
+/// test build that is `false` regardless of environment variables.
+#[test]
+fn test_telemetry_off_by_default() {
+    if !cfg!(feature = "telemetry") {
+        assert!(
+            !telemetry_enabled(),
+            "telemetry must be inert without the `telemetry` feature, even if env vars are set"
+        );
+    }
+
+    let enabled = telemetry_enabled();
+    assert_eq!(LoggingConfig::default().features.telemetry, enabled);
+    assert_eq!(LoggingConfig::from_env().features.telemetry, enabled);
+    assert_eq!(
+        LoggingConfig::for_gcp_cloud_run().features.telemetry,
+        enabled
     );
 }
 

@@ -43,7 +43,9 @@
 //! ```
 
 use async_trait::async_trait;
-use reqwest::Client;
+use pierre_core::http_client::{
+    SharedHttpClient, SharedHttpError as MiddlewareError, SharedRequestBuilder as RequestBuilder,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -330,7 +332,7 @@ const FALLBACK_MODELS: &[&str] = &[
 
 /// LLM provider for OpenAI-compatible APIs (Ollama, vLLM, LM Studio, etc.)
 pub struct OpenAiCompatibleProvider {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     config: OpenAiCompatibleConfig,
     available_models: Vec<String>,
 }
@@ -569,8 +571,16 @@ impl OpenAiCompatibleProvider {
             .collect()
     }
 
+    /// Whether a middleware-wrapped send error is a transport connect failure.
+    ///
+    /// Only the underlying `reqwest::Error` carries connect classification;
+    /// middleware-layer failures are not connection errors.
+    fn is_connect_error(error: &MiddlewareError) -> bool {
+        matches!(error, MiddlewareError::Reqwest(e) if e.is_connect())
+    }
+
     /// Add authorization header if API key is configured
-    fn add_auth_header(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    fn add_auth_header(&self, request: RequestBuilder) -> RequestBuilder {
         if let Some(ref api_key) = self.config.api_key {
             request.header("Authorization", format!("Bearer {api_key}"))
         } else {
@@ -647,7 +657,7 @@ impl OpenAiCompatibleProvider {
                     "Failed to send request to {}: {}",
                     self.config.provider_name, e
                 );
-                if e.is_connect() {
+                if Self::is_connect_error(&e) {
                     AppError::external_service(
                         "LocalLLM",
                         format!(
@@ -786,7 +796,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     "Failed to send request to {}: {}",
                     self.config.provider_name, e
                 );
-                if e.is_connect() {
+                if Self::is_connect_error(&e) {
                     AppError::external_service(
                         "LocalLLM",
                         format!(
@@ -880,7 +890,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     "Failed to send streaming request to {}: {}",
                     self.config.provider_name, e
                 );
-                if e.is_connect() {
+                if Self::is_connect_error(&e) {
                     AppError::external_service(
                         "LocalLLM",
                         format!(
@@ -925,7 +935,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             .await
             .map_err(|e| {
                 error!("{} health check failed: {}", self.config.provider_name, e);
-                if e.is_connect() {
+                if Self::is_connect_error(&e) {
                     AppError::external_service(
                         "LocalLLM",
                         format!(

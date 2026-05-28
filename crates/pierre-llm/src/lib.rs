@@ -90,9 +90,9 @@ pub use prompts::{
 };
 pub use provider::ChatProvider;
 
-use pierre_core::http_client::llm_client;
+use pierre_core::http_client::{llm_client, SharedHttpClient};
 
 /// Returns the shared LLM HTTP client from pierre-core (300s timeout, connection pooled)
-pub(crate) fn build_llm_http_client() -> &'static reqwest::Client {
+pub(crate) fn build_llm_http_client() -> &'static SharedHttpClient {
     llm_client()
 }

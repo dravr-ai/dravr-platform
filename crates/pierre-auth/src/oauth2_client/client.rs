@@ -361,6 +361,7 @@ struct TokenResponse {
 pub mod strava {
     use super::{DateTime, Deserialize, OAuth2Token, PkceParams, Utc};
     use pierre_core::errors::{AppError, AppResult};
+    use pierre_core::http_client::SharedHttpClient;
     use serde_json;
 
     /// Strava OAuth 2.0 token response with athlete information
@@ -519,7 +520,7 @@ pub mod strava {
     ///
     /// Returns an error if the token refresh request fails or response is invalid
     pub async fn refresh_strava_token(
-        client: &reqwest::Client,
+        client: &SharedHttpClient,
         client_id: &str,
         client_secret: &str,
         refresh_token: &str,
@@ -575,6 +576,7 @@ pub mod strava {
 pub mod fitbit {
     use super::{Deserialize, Duration, OAuth2Token, PkceParams, Utc};
     use pierre_core::errors::{AppError, AppResult};
+    use pierre_core::http_client::SharedHttpClient;
     use serde_json;
 
     /// Fitbit OAuth 2.0 token response with user information
@@ -735,7 +737,7 @@ pub mod fitbit {
     ///
     /// Returns an error if the token refresh request fails or response is invalid
     pub async fn refresh_fitbit_token(
-        client: &reqwest::Client,
+        client: &SharedHttpClient,
         client_id: &str,
         client_secret: &str,
         refresh_token: &str,
@@ -789,6 +791,7 @@ pub mod fitbit {
 pub mod whoop {
     use super::{Duration, OAuth2Token, Utc};
     use pierre_core::errors::{AppError, AppResult};
+    use pierre_core::http_client::SharedHttpClient;
     use serde::Deserialize;
 
     /// WHOOP OAuth 2.0 token response
@@ -815,7 +818,7 @@ pub mod whoop {
     ///
     /// Returns an error if the token refresh request fails or response is invalid
     pub async fn refresh_whoop_token(
-        client: &reqwest::Client,
+        client: &SharedHttpClient,
         client_id: &str,
         client_secret: &str,
         refresh_token: &str,

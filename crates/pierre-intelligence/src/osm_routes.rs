@@ -7,9 +7,9 @@
 use pierre_core::constants::project::user_agent;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
+use pierre_core::http_client::SharedHttpClient;
 use pierre_core::models::SportType;
 use reqwest::header::USER_AGENT;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -99,7 +99,7 @@ pub enum RouteSource {
 
 /// Service for discovering routes and trails near a location
 pub struct RouteDiscoveryService {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     cache: HashMap<String, CachedRoutes>,
     overpass_mirrors: Vec<String>,
 }

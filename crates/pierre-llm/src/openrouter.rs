@@ -56,7 +56,7 @@
 //! ```
 
 use async_trait::async_trait;
-use reqwest::Client;
+use pierre_core::http_client::{SharedHttpClient, SharedRequestBuilder as RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -273,7 +273,7 @@ struct OpenRouterErrorDetail {
 /// OpenAI-compatible gateway. Model selection happens per-request via
 /// the `model` slug (e.g. `anthropic/claude-3.5-sonnet`).
 pub struct OpenRouterProvider {
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     api_key: String,
     default_model: String,
     fallback_model: String,
@@ -464,7 +464,7 @@ impl OpenRouterProvider {
 
     /// Build an authenticated HTTP request to the `OpenRouter` API,
     /// applying ranking headers when configured.
-    fn build_request(&self, body: &OpenRouterRequest) -> reqwest::RequestBuilder {
+    fn build_request(&self, body: &OpenRouterRequest) -> RequestBuilder {
         let mut builder = self
             .client
             .post(Self::api_url("chat/completions"))

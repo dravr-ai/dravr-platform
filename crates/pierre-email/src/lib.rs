@@ -15,7 +15,7 @@ pub mod templates;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
-use reqwest::Client;
+use pierre_core::http_client::SharedHttpClient;
 use serde::Serialize;
 use tracing::{info, warn};
 
@@ -34,7 +34,7 @@ struct ResendEmailPayload {
 /// Email service backed by the Resend transactional email API
 pub struct ResendEmailService {
     /// HTTP client for API requests
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     /// Resend API key
     api_key: String,
     /// Sender email address (e.g., "Pierre <noreply@pierre.dev>")

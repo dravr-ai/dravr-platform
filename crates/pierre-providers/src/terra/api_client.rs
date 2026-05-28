@@ -14,9 +14,8 @@
 //! - Deauthenticating users
 
 use crate::errors::provider::ProviderError;
-use crate::http_client::shared_client;
+use crate::http_client::{shared_client, SharedHttpClient};
 use chrono::{DateTime, Utc};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -47,7 +46,7 @@ impl Default for TerraApiConfig {
 /// Terra API client for REST operations
 pub struct TerraApiClient {
     config: TerraApiConfig,
-    client: &'static Client,
+    client: &'static SharedHttpClient,
 }
 
 /// Response from widget session generation

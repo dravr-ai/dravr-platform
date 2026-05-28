@@ -65,6 +65,8 @@ use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
 use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
+#[cfg(feature = "telemetry")]
+use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
@@ -973,6 +975,13 @@ impl MultiTenantMcpServer {
         // panic in TraceLayer span machinery, the request-id middleware, or
         // any handler converts to a 500 response instead of unwinding past
         // tokio and killing the container.
+        // OTLP request metrics + inbound W3C trace-context extraction. Applied
+        // innermost so it runs inside the TraceLayer span — `Span::current()`
+        // is then the per-request span that `set_parent` chains to the caller's
+        // trace. Inert unless the `telemetry` feature is active. `MatchedPath`
+        // (low-cardinality route label) is still visible here via Router::layer.
+        #[cfg(feature = "telemetry")]
+        let app = app.layer(middleware::from_fn(telemetry_middleware));
         let app = app
             .layer(
                 TraceLayer::new_for_http()

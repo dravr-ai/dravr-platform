@@ -40,7 +40,7 @@
 
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client as shared_client;
-use reqwest::Client;
+use pierre_core::http_client::SharedHttpClient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -229,7 +229,7 @@ impl RateLimiter {
 /// USDA `FoodData` Central API Client
 pub struct UsdaClient {
     config: UsdaClientConfig,
-    http_client: &'static Client,
+    http_client: &'static SharedHttpClient,
     search_cache: Arc<RwLock<HashMap<String, CacheEntry<FoodSearchPaginatedResponse>>>>,
     details_cache: Arc<RwLock<HashMap<u64, CacheEntry<FoodDetails>>>>,
     rate_limiter: Arc<RwLock<RateLimiter>>,

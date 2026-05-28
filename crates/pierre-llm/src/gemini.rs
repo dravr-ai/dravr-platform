@@ -58,7 +58,7 @@ tokio::task_local! {
     /// reference across the scope boundary.
     pub static LAST_CACHED_TOKENS: Arc<AtomicU32>;
 }
-use reqwest::Client;
+use pierre_core::http_client::SharedHttpClient;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};
@@ -282,7 +282,7 @@ struct StreamingResponse {
 /// Google Gemini LLM provider
 pub struct GeminiProvider {
     api_key: String,
-    client: &'static Client,
+    client: &'static SharedHttpClient,
     default_model: String,
     /// Fallback model when default fails (rate limits, errors)
     fallback_model: String,

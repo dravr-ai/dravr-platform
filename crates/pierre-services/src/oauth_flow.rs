@@ -26,7 +26,7 @@ use pierre_auth::oauth2_client::{
 };
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::http_client::api_client;
+use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_schema::OAuthCompletedNotification;
@@ -875,7 +875,7 @@ impl OAuthService {
 
     /// Log bridge notification response
     fn log_bridge_notification_result(
-        result: Result<reqwest::Response, reqwest::Error>,
+        result: Result<reqwest::Response, SharedHttpError>,
         provider: &str,
     ) {
         match result {

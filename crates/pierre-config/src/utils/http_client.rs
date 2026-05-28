@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::environment::HttpClientConfig;
-use pierre_core::http_client::{api_client as core_api_client, initialize_api_client};
+use pierre_core::http_client::{
+    api_client as core_api_client, initialize_api_client, SharedHttpClient,
+};
 use reqwest::{Client, ClientBuilder};
 use reqwest_middleware::{ClientBuilder as MiddlewareClientBuilder, ClientWithMiddleware};
 use std::sync::OnceLock;
@@ -58,9 +60,9 @@ pub fn initialize_http_clients(config: HttpClientConfig) {
 /// Prefer this over creating new clients for better performance.
 ///
 /// # Returns
-/// A reference to the shared `reqwest::Client`
+/// A reference to the shared `SharedHttpClient`
 #[must_use]
-pub fn shared_client() -> &'static Client {
+pub fn shared_client() -> &'static SharedHttpClient {
     core_api_client()
 }
 
@@ -72,12 +74,9 @@ pub fn shared_client() -> &'static Client {
 /// # Returns
 /// A reference to the shared `ClientWithMiddleware`
 pub fn shared_client_with_retry() -> &'static ClientWithMiddleware {
-    SHARED_CLIENT_WITH_RETRY.get_or_init(|| {
-        // Wrap the core shared client in middleware
-        let base_client = shared_client().clone();
-        // NOTE: Retry middleware removed - add tower-based retry if needed
-        MiddlewareClientBuilder::new(base_client).build()
-    })
+    // The core shared client is already a `ClientWithMiddleware`; reuse it
+    // directly rather than re-wrapping.
+    SHARED_CLIENT_WITH_RETRY.get_or_init(|| shared_client().clone())
 }
 
 /// Create a new HTTP client with custom timeout settings
