@@ -1,21 +1,29 @@
 // ABOUTME: LLM-as-judge invocation backed by pierre_llm::judge::ask_for_json
-// ABOUTME: Layer 2 of the eval harness — rubric-based 1-5 scoring with text rationale
+// ABOUTME: Rubric scoring for the eval harness plus the bullshit detector's Layer 5 claim judge
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # LLM-as-Judge Invocation
 //!
-//! Wraps the lifted [`pierre_llm::judge::ask_for_json`] helper with a typed
-//! [`JudgeVerdict`] so eval consumers don't have to redefine the JSON
-//! envelope. Verdicts include both a numeric score (1–5) and a short
-//! free-text justification the report layer can pretty-print.
+//! Wraps the lifted [`pierre_llm::judge::ask_for_json`] helper with typed
+//! verdicts so consumers don't have to redefine the JSON envelope. Two
+//! distinct judges live here:
+//!
+//! - [`judge_response`] — rubric-based 1–5 scoring of a whole coach reply
+//!   against the golden fixtures, used by the eval report layer.
+//! - [`judge_claim`] — the bullshit detector's **Layer 5** fallback. When
+//!   layers 1–4 cannot reach a confident verdict on a single claim, the
+//!   claim is handed to the LLM with the retrieved evidence (if any) and
+//!   asked to return a structured supported / contradicted / unverifiable
+//!   judgement.
 
 use std::fmt::Write as _;
 
 use pierre_core::errors::AppResult;
 use pierre_llm::judge::ask_for_json;
 use pierre_llm::LlmProvider;
+use pierre_memory::ClaimStatus;
 use serde::{Deserialize, Serialize};
 
 use crate::rubrics::Rubric;
@@ -134,6 +142,83 @@ fn build_system_prompt(rubrics: &[Rubric]) -> String {
         );
     }
     s
+}
+
+/// JSON shape the Layer 5 claim judge is asked to return.
+#[derive(Debug, Clone, Deserialize)]
+struct RawClaimJudgement {
+    verdict: String,
+    confidence: f32,
+    rationale: String,
+}
+
+/// A structured judgement for a single claim, produced by [`judge_claim`].
+#[derive(Debug, Clone)]
+pub struct ClaimJudgement {
+    /// Mapped verdict status for the claim.
+    pub status: ClaimStatus,
+    /// Judge confidence in `[0.0, 1.0]`, clamped from the raw response.
+    pub confidence: f32,
+    /// Short free-text justification from the judge.
+    pub rationale: String,
+}
+
+const CLAIM_JUDGE_SYSTEM_PROMPT: &str = r#"You are the final-stage fact checker in a sports-science
+verification pipeline. Earlier deterministic layers could not reach a confident verdict on the
+claim below, so you are the tiebreaker. Judge ONLY whether the claim is consistent with mainstream
+sports-science and exercise-physiology consensus.
+
+Return strict JSON of the form:
+
+{"verdict":"<supported|contradicted|unverifiable>","confidence":<0.0-1.0>,"rationale":"<one sentence>"}
+
+- "supported" — the claim aligns with well-established consensus.
+- "contradicted" — the claim conflicts with well-established consensus.
+- "unverifiable" — the claim is too vague, too speculative, or outside any consensus to judge.
+
+Be conservative: prefer "unverifiable" over guessing. Use the exact verdict strings above."#;
+
+/// Judge a single claim with the configured LLM provider — the bullshit
+/// detector's Layer 5 fallback.
+///
+/// `evidence_context` carries any propositions Layer 3 retrieved (possibly
+/// empty) so the judge can ground its verdict instead of relying on parametric
+/// memory alone. The raw verdict string is mapped to a [`ClaimStatus`];
+/// anything the model returns outside the three known verdicts is treated as
+/// [`ClaimStatus::Unverifiable`] so a drifty model never fabricates support.
+///
+/// # Errors
+///
+/// Returns the LLM call error if the judge fails or its response cannot be
+/// parsed into the expected JSON envelope.
+pub async fn judge_claim(
+    provider: &dyn LlmProvider,
+    claim_text: &str,
+    evidence_context: &str,
+) -> AppResult<ClaimJudgement> {
+    let evidence_block = if evidence_context.trim().is_empty() {
+        "No corpus evidence was retrieved for this claim.".to_owned()
+    } else {
+        format!("Retrieved evidence:\n{evidence_context}")
+    };
+    let user_prompt = format!(
+        "## Claim\n{claim_text}\n\n## Context\n{evidence_block}\n\nReturn the JSON object only.",
+    );
+
+    let raw: RawClaimJudgement =
+        ask_for_json(provider, CLAIM_JUDGE_SYSTEM_PROMPT, &user_prompt, 0.1).await?;
+
+    let status = match raw.verdict.trim().to_lowercase().as_str() {
+        "supported" => ClaimStatus::Supported,
+        "contradicted" => ClaimStatus::Contradicted,
+        _ => ClaimStatus::Unverifiable,
+    };
+
+    Ok(ClaimJudgement {
+        status,
+        confidence: raw.confidence.clamp(0.0, 1.0),
+        rationale: raw.rationale,
+    })
 }
 
 #[cfg(test)]

@@ -23,6 +23,8 @@
 
 /// Tier 5.5 Layer 0 — claim extraction from coach replies.
 pub mod claim_extractor;
+/// Tier 5.5 Layer 4 — consistency cross-check against sibling claims.
+pub mod consistency;
 /// Deterministic structural and content checks (Layer 1).
 pub mod deterministic;
 /// Tier 5.5 Layer 2 — deterministic per-category bounds.
@@ -43,19 +45,20 @@ pub mod report;
 pub mod rhetoric_detector;
 /// Rubric definitions used by the judge.
 pub mod rubrics;
-/// Tier 5.5 pipeline synthesis — runs claims through layers 1–3 and emits a verdict.
+/// Tier 5.5 pipeline synthesis — runs claims through layers 1–5 and emits a verdict.
 pub mod verdict_engine;
 /// Tier 5.5 per-coach verification config loaded from YAML frontmatter.
 pub mod verification_config;
 
 pub use claim_extractor::{extract_heuristic, extract_with_llm, ExtractedClaim};
+pub use consistency::{find_contradiction, ConsistencyConflict};
 pub use deterministic::{DeterministicCheck, DeterministicReport};
 pub use evidence_retriever::{EvidenceCorpus, EvidenceMatch, EvidenceRecord};
 pub use fixtures::{GoldenCase, GoldenFixture, Turn};
-pub use judge::{JudgeVerdict, RubricScore};
+pub use judge::{ClaimJudgement, JudgeVerdict, RubricScore};
 pub use multi_turn::{MultiTurnEvaluator, MultiTurnReport};
 pub use report::{EvalSummary, RubricKind};
 pub use rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 pub use rubrics::Rubric;
-pub use verdict_engine::{check_claim, VerdictOutcome};
+pub use verdict_engine::{check_claim, check_claim_judged, check_reply, VerdictOutcome};
 pub use verification_config::{CategoryConfig, VerificationConfig, VerificationFallback};
