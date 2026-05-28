@@ -983,12 +983,12 @@ pub async fn create_test_tenant_with_provider(
         .register_connection(
             user.id,
             tenant_id,
-            "synthetic",
-            &ConnectionType::Synthetic,
+            "strava",
+            &ConnectionType::OAuth,
             None,
         )
         .await
-        .map_err(|e| anyhow::Error::msg(format!("Failed to register synthetic provider: {e}")))?;
+        .map_err(|e| anyhow::Error::msg(format!("Failed to register provider: {e}")))?;
     Ok((user, token))
 }
 
