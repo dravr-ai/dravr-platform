@@ -14,3 +14,10 @@ export { stripContextPrefix } from './message';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';
+
+// AG-UI progress event → status text mapping (shared by web + mobile)
+export {
+  statusTextForAguiEvent,
+  isTerminalAguiEvent,
+  type AguiEventWire,
+} from './agui';

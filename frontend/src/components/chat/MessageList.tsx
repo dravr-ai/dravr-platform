@@ -30,6 +30,10 @@ interface MessageListProps {
   isLoading: boolean;
   isStreaming: boolean;
   streamingContent: string;
+  /** Live AG-UI pipeline status for the in-flight turn (e.g. "calling
+   *  get_activities…"), or `null` when no progress is known. Rendered
+   *  in the streaming bubble alongside the token-delta text. */
+  progressStatusText?: string | null;
   errorMessage: string | null;
   errorCountdown: number | null;
   oauthNotification: OAuthNotification | null;
@@ -61,6 +65,7 @@ export default function MessageList({
   isLoading,
   isStreaming,
   streamingContent,
+  progressStatusText,
   errorMessage,
   errorCountdown,
   oauthNotification,
@@ -193,6 +198,15 @@ export default function MessageList({
                 {linkifyUrls(streamingContent)}
               </Markdown>
             </div>
+            {/* Live pipeline progress (tool calls / steps) below the
+                streamed text so the user sees what the model is doing
+                even after the first tokens arrive. */}
+            {progressStatusText && (
+              <div className="mt-1 flex items-center gap-2 text-on-surface-variant text-xs">
+                <div className="pierre-spinner w-3 h-3"></div>
+                <span>{progressStatusText}</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -209,7 +223,7 @@ export default function MessageList({
             </div>
             <div className="flex items-center gap-2 text-on-surface-variant text-sm">
               <div className="pierre-spinner w-4 h-4"></div>
-              <span>Thinking...</span>
+              <span>{progressStatusText ?? 'Thinking...'}</span>
             </div>
           </div>
         </div>

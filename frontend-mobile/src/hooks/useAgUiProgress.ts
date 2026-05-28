@@ -11,7 +11,7 @@ import {
   statusTextForAguiEvent,
   isTerminalAguiEvent,
   type AguiEventWire,
-} from '../utils/aguiStatus';
+} from '@pierre/chat-utils';
 
 const JWT_KEY = 'pierre.jwt_token';
 

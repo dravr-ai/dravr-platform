@@ -21,6 +21,10 @@
     "./activity": {
       "types": "./src/activity.ts",
       "import": "./src/activity.ts"
+    },
+    "./agui": {
+      "types": "./src/agui.ts",
+      "import": "./src/agui.ts"
     }
   },
   "scripts": {
