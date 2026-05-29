@@ -116,7 +116,6 @@ fn server_production_includes_runtime_dependencies() {
             "tools-all",
             "toon",
             "health-sync",
-            "contremaitre",
             "analytics-posthog",
         ],
     );
@@ -140,7 +139,6 @@ fn server_full_includes_runtime_dependencies() {
             "provider-whoop",
             "provider-sciotte",
             "health-sync",
-            "contremaitre",
         ],
     );
 }
