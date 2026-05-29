@@ -402,6 +402,20 @@ impl McpTool for GetActivitiesTool {
 
         let cache = context.resources.cache();
 
+        // Resolve the user's IANA timezone once so activity start times can be
+        // rendered in local time for display (start_date stays UTC for stable
+        // windowing/sorting). Best effort: any lookup failure or unset timezone
+        // falls back to UTC only. Used by both the cached and fresh paths.
+        let user_timezone = context
+            .resources
+            .repos()
+            .users
+            .get_global(context.user_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|u| u.timezone);
+
         // Cache hit short-circuits the auth+fetch round-trip. Skip when
         // auto-promoting because the cache key does not include mode — a
         // cached summary cannot satisfy a detail-promoted response.
@@ -419,6 +433,7 @@ impl McpTool for GetActivitiesTool {
                 default_time_window_applied,
                 analysis_type,
                 weather_provider: weather_provider.clone(),
+                user_timezone: user_timezone.clone(),
             })
             .await
             {
@@ -534,6 +549,7 @@ impl McpTool for GetActivitiesTool {
             default_time_window_applied,
             analysis_type,
             backfill_temps: &backfill_temps,
+            user_timezone,
         });
 
         handler_bridge::map_universal_response("get_activities", Ok(response))

@@ -3946,6 +3946,7 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.11.1",
  "chrono",
+ "chrono-tz",
  "futures-util",
  "lru",
  "num-traits",
