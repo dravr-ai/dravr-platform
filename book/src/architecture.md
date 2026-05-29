@@ -48,9 +48,9 @@ Pierre Fitness Platform is a multi-protocol fitness data platform that connects 
 
 ## Core Components
 
-### Protocols Layer (`crates/pierre-server/src/protocols/`)
-- `universal/` - protocol-agnostic business logic
-- shared by mcp and a2a protocols
+### Protocol-Agnostic Tool Layer (`crates/pierre-tool-runtime/src/protocol/`)
+- protocol-agnostic business logic shared by the mcp and a2a protocols
+- `protocol/executor.rs` runs a tool independent of transport; `protocols/converter.rs` adapts protocol-specific payloads
 - dozens of fitness tools (activities, analysis, goals, sleep, recovery, nutrition, configuration)
 
 ### MCP Implementation (`crates/pierre-server/src/mcp/`)
@@ -58,18 +58,18 @@ Pierre Fitness Platform is a multi-protocol fitness data platform that connects 
 - sse transport for streaming
 - tool registry and execution
 
-### OAuth2 Server (`crates/pierre-server/src/routes/oauth2.rs`, `crates/pierre-auth/`)
+### OAuth2 Server (`crates/pierre-routes-identity/src/oauth2.rs`, `crates/pierre-auth/`)
 - rfc 7591 dynamic client registration
 - rfc 7636 pkce support
 - jwt access tokens for mcp clients
 
-### OAuth2 Client (`crates/pierre-server/src/services/oauth_flow.rs`)
+### OAuth2 Client (`crates/pierre-routes-auth/src/oauth.rs`, `crates/pierre-services/`)
 - pierre connects to fitness providers as oauth client
 - pkce support for enhanced security
 - automatic token refresh
 - multi-tenant credential isolation
 
-### Providers (`crates/pierre-server/src/providers/`, re-exporting `crates/pierre-providers/`)
+### Providers (`crates/pierre-providers/`)
 - **pluggable provider architecture**: factory pattern with runtime registration
 - **feature flags**: compile-time provider selection (`provider-strava`, `provider-garmin`, `provider-fitbit`, `provider-whoop`, `provider-coros`, `provider-terra`, `provider-synthetic`)
 - **service provider interface (spi)**: `ProviderDescriptor` trait for external provider registration
@@ -87,7 +87,7 @@ Pierre Fitness Platform is a multi-protocol fitness data platform that connects 
 - **zero code changes**: add new providers without modifying tools or connection handlers
 - **unified oauth token management**: per-provider credentials with automatic refresh
 
-### Intelligence (`crates/pierre-server/src/intelligence/`, `crates/pierre-intelligence/`)
+### Intelligence (`crates/pierre-intelligence/`, re-exporting `dravr-cageux`)
 - activity analysis and insights
 - performance trend detection
 - training load calculation
@@ -104,25 +104,13 @@ Pierre Fitness Platform is a multi-protocol fitness data platform that connects 
 
 The database layer implements the repository pattern with focused, cohesive repositories:
 
-**18 focused repositories** (`crates/pierre-database/src/repositories/`):
-1. `UserRepository` - user account management
-2. `OAuthTokenRepository` - oauth token storage (tenant-scoped)
-3. `ApiKeyRepository` - api key management
-4. `UsageRepository` - usage tracking and analytics
-5. `A2ARepository` - agent-to-agent management
-6. `ProfileRepository` - user profiles and goals
-7. `InsightRepository` - ai-generated insights
-8. `AdminRepository` - admin token management
-9. `TenantRepository` - multi-tenant management
-10. `OAuth2ServerRepository` - oauth 2.0 server functionality
-11. `SecurityRepository` - key rotation and audit
-12. `NotificationRepository` - oauth notifications
-13. `FitnessConfigRepository` - fitness configuration management
-14. `RecipeRepository` - recipe and nutrition management
-15. `CoachesRepository` - custom AI coach personas
-16. `ToolSelectionRepository` - per-tenant tool configuration
-17. `MobilityRepository` - stretching and yoga routines
-18. `SocialRepository` - friend connections and shared insights
+Focused repository modules live under `crates/pierre-database/src/repositories/`
+(27 modules), each owning one domain. Representative examples:
+
+- **identity & access**: `users`, `oauth`, `api_keys`, `tenants`, `security`, `admin`
+- **fitness data**: `health`, `workouts`, `mobility`, `data_source`, `weather`, `insights`
+- **coaching & social**: `coaches`, `roster`, `social`, `messaging`, `recipes`, `harness_memory`
+- **platform**: `usage`, `a2a`, `notifications`, `feature_flags`, `tool_selection`, `fitness_config`, `claim_verdicts`, `chat`, `seeder`
 
 **repository construction pattern**:
 ```rust
@@ -144,7 +132,7 @@ let users = user_repo.list_by_status("active", Some(tenant_id)).await?;
 - **testability**: mock individual repositories independently
 - **maintainability**: changes isolated to specific repositories
 
-### Authentication (`crates/pierre-auth/`, `crates/pierre-server/src/services/auth.rs`)
+### Authentication (`crates/pierre-auth/`)
 - jwt token generation/validation
 - api key management
 - rate limiting per tenant
@@ -156,7 +144,7 @@ Pierre Fitness Platform uses structured error types for precise error handling a
 ### Error Type Hierarchy
 
 ```
-AppError (crates/pierre-server/src/errors.rs)
+AppError (crates/pierre-core/src/errors/mod.rs)
 ├── Database(DatabaseError)
 ├── Provider(ProviderError)
 ├── Authentication
@@ -167,21 +155,21 @@ AppError (crates/pierre-server/src/errors.rs)
 
 ### Error Types
 
-**DatabaseError** (`crates/pierre-database/src/errors.rs`):
+**DatabaseError** (`crates/pierre-core/src/errors/database.rs`):
 - `NotFound`: entity not found (user, token, oauth client)
 - `QueryFailed`: database query execution failure
 - `ConstraintViolation`: unique constraint or foreign key violations
 - `ConnectionFailed`: database connection issues
 - `TransactionFailed`: transaction commit/rollback errors
 
-**ProviderError** (`crates/pierre-providers/src/errors.rs`):
+**ProviderError** (`crates/pierre-core/src/errors/provider.rs`):
 - `ApiError`: fitness provider api errors (status code + message)
 - `AuthenticationFailed`: oauth token invalid or expired
 - `RateLimitExceeded`: provider rate limit hit
 - `NetworkError`: network connectivity issues
 - `Unavailable`: provider temporarily unavailable
 
-**AppError** (`crates/pierre-server/src/errors.rs`):
+**AppError** (`crates/pierre-core/src/errors/mod.rs`):
 - application-level errors with error codes
 - http status code mapping
 - structured error responses with context
@@ -195,7 +183,7 @@ pub async fn fetch_activities(provider: &Strava) -> Result<Vec<Activity>, Provid
 pub async fn process_request(req: Request) -> Result<Response, AppError>
 ```
 
-**AppResult type alias** (`crates/pierre-server/src/errors.rs`):
+**AppResult type alias** (`crates/pierre-core/src/errors/mod.rs`):
 ```rust
 pub type AppResult<T> = Result<T, AppError>;
 ```
@@ -234,7 +222,7 @@ Http status mapping:
 - `AppError::Authentication` → 401
 - `AppError::Authorization` → 403
 
-Implementation: `crates/pierre-server/src/errors.rs`, `crates/pierre-database/src/errors.rs`, `crates/pierre-providers/src/errors.rs`
+Implementation: `crates/pierre-core/src/errors/` (`mod.rs` → `AppError`/`AppResult`, `database.rs` → `DatabaseError`, `provider.rs` → `ProviderError`)
 
 ## Request Flow
 
@@ -358,12 +346,13 @@ Implementation: `sdk/src/bridge.ts`, `sdk/src/cli.ts`
 **rust→typescript type generation**: auto-generates TypeScript interfaces from server JSON schemas.
 
 ```
-crates/pierre-server/src/mcp/schema.rs (tool definitions)
-    ↓ npm run generate-types
-sdk/src/types.ts (47 parameter interfaces)
+crates/pierre-mcp-schema/src/ (tool definitions)
+    ↓ bun run generate-types  (scripts/sdk/generate-sdk-types.js)
+@pierre/mcp-types  (generated parameter interfaces)
+    ↑ re-exported by sdk/src/types.ts
 ```
 
-**type-safe json schemas** (`crates/pierre-server/src/types/json_schemas.rs`):
+**type-safe json schemas** (`crates/pierre-mcp-schema/src/json_schemas.rs`):
 - replaces dynamic `serde_json::Value` with typed structs
 - compile-time validation via serde
 - fail-fast error handling with clear error messages
@@ -371,10 +360,10 @@ sdk/src/types.ts (47 parameter interfaces)
 
 **generated types include**:
 - `ToolParamsMap` - maps tool names to parameter types
-- `ToolName` - union type of all 47 tool names
+- `ToolName` - union type of all tool names (`sdk/src/response-schemas.ts`, `keyof typeof ToolResponseSchemaMap`)
 - common data types: `Activity`, `Athlete`, `Stats`, `FitnessConfig`
 
-Usage: `npm run generate-types` (requires running server on port 8081)
+Usage: `bun run generate-types`
 
 ## Workspace Architecture
 
@@ -423,75 +412,44 @@ The dependency graph is a DAG with `pierre_mcp_server` (the binary) at the apex.
 
 ## File Structure
 
+The workspace has 47 crates under `crates/*` — the full catalog (LOC, role, key
+deps) is in [Appendix A](#appendix-a-crate-catalog). Most subsystems that once
+lived under `pierre-server/src/` have been extracted into their own crates;
+`pierre-server` is now a thin orchestration shell that wires the libraries
+together and hosts the in-binary routes. Each library crate owns a cohesive
+subsystem — for example:
+
+- protocol-agnostic tool layer → `pierre-tool-runtime/src/protocol/`
+- OAuth2 server endpoints → `pierre-routes-identity/`; OAuth client flow → `pierre-routes-auth/` + `pierre-services/`
+- fitness-intelligence engine → `pierre-intelligence/` (re-exporting `dravr-cageux`)
+- structured errors → `pierre-core/src/errors/`
+- HTTP/PII middleware → `pierre-middleware/`
+- MCP tool schemas → `pierre-mcp-schema/`
+
+What remains inside the binary crate:
+
 ```
-crates/
-├── pierre-core/              # foundation: errors, models, config, constants, redaction
-├── pierre-database/          # repository traits + sqlite/postgres backends
-├── pierre-auth/              # auth, oauth2 server, jwt, csrf
-├── pierre-providers/         # fitness data providers (Strava, Garmin, etc.)
-├── pierre-intelligence/      # bridge re-exporting dravr-cageux
-├── pierre-llm/               # LLM providers (Gemini, Groq, OpenAI-compatible, Ollama)
-│   └── src/prompts/          # system prompts and prompt templates
-├── pierre-cache/             # cache backends (memory LRU, Redis)
-├── pierre-memory/            # coaching memory facts/sessions/notes
-├── pierre-evals/             # coaching eval harness
-├── pierre-groups/            # group coaching business logic
-├── pierre-messaging/         # bridge re-exporting dravr-canot
-├── pierre-notifications/     # bridge re-exporting dravr-commere
-├── pierre-a2a/               # A2A protocol types (feature-gated: protocol-a2a)
-└── pierre-server/            # main binary + orchestration
-    └── src/
-        ├── bin/                  # binaries (pierre-mcp-server, pierre-cli, seeders)
-        ├── lib.rs                # public api
-        ├── context/              # focused di contexts (auth, data, config, notification, security, extension)
-        ├── mcp/                  # mcp protocol (json-rpc 2.0, sse transport, ServerResources)
-        ├── jsonrpc/              # json-rpc plumbing
-        ├── protocols/            # protocol-agnostic universal layer
-        ├── routes/               # http handlers (rest + protocol endpoints)
-        │   ├── oauth2.rs         # oauth2 server endpoints
-        │   ├── social/           # social feature endpoints
-        │   ├── admin/            # admin endpoints
-        │   └── ...
-        ├── services/             # business-logic services
-        │   ├── auth.rs           # authentication service
-        │   ├── oauth_flow.rs     # oauth2 client flow (pierre → providers)
-        │   ├── health_sync.rs    # provider health sync
-        │   └── ...
-        ├── providers/            # local provider plumbing (re-exports pierre-providers)
-        ├── intelligence/         # intelligence layer
-        ├── tools/                # tool execution engine (ToolRegistry, McpTool impls)
-        ├── middleware/           # http middleware (auth, redaction, csrf)
-        ├── permissions/          # rbac
-        ├── models/               # request/response models
-        ├── types/                # type-safe json schemas
-        ├── formatters/           # response formatters
-        ├── config/               # runtime configuration
-        ├── constants/            # server-only constants (re-exports pierre-core where shared)
-        ├── llm/                  # llm integration (re-exports pierre-llm)
-        ├── cache/                # caching layer (re-exports pierre-cache)
-        ├── coaches/              # coach personas
-        ├── commands/             # command handlers
-        ├── contremaitre/         # contremaitre integration
-        ├── email/                # transactional email
-        ├── external/             # external service clients
-        ├── insight_samples/      # canonical insight samples
-        ├── logging.rs, logging/  # tracing setup
-        ├── seeders/              # data seeders
-        ├── sse/                  # server-sent events
-        ├── agui/                 # admin/agent UI plumbing
-        ├── a2a/                  # a2a protocol (re-exports pierre-a2a)
-        ├── admin/                # admin auth + ops
-        ├── errors.rs             # AppError + AppResult
-        ├── features.rs           # feature-flag plumbing
-        ├── health.rs             # health endpoint internals
-        ├── pagination.rs         # pagination glue
-        ├── test_utils.rs         # shared test helpers
-        ├── utils/                # misc utilities
-        └── websocket.rs          # websocket transport
-sdk/                              # typescript mcp client
-├── src/bridge.ts                 # stdio→http bridge
-├── src/types.ts                  # auto-generated types
-└── test/                         # integration tests
+crates/pierre-server/
+└── src/
+    ├── bin/                  # pierre-mcp-server.rs (the server entrypoint)
+    ├── lib.rs                # crate root / public wiring
+    ├── context/              # focused di contexts (auth, data, config, notification, security, extension)
+    ├── mcp/                  # mcp protocol surface (request processor, protocol, resources, transport manager, tool handlers)
+    ├── routes/               # in-binary http handlers (chat, mcp, endurance, health, usage, webhooks, …) + admin/, api_keys/, chat/, messaging/, tenants/
+    ├── services/             # binary-local services (slack/discord gateways, chat verdicts, memory facts, training-history compute)
+    ├── tools/                # built-in tool registration + the endurance tools that reach into server internals
+    ├── config/               # runtime configuration assembly (mod.rs, admin/, routes/)
+    ├── types/                # binary-local type glue
+    ├── sse/                  # server-sent events wiring
+    ├── cache.rs              # cache wiring
+    ├── features.rs           # feature-flag plumbing
+    ├── protocols_a2a.rs      # a2a protocol wiring (feature-gated)
+    ├── test_utils.rs         # shared test helpers
+    └── websocket.rs          # websocket transport
+sdk/                          # typescript mcp client
+├── src/bridge.ts             # stdio→http bridge
+├── src/types.ts              # auto-generated types
+└── test/                     # integration tests
 ```
 
 ## Security Layers
@@ -543,6 +501,11 @@ The pierre-server-side wiring that registers the built-in set lives in
 
 Zero-overhead algorithm dispatch using rust enums instead of hardcoded formulas.
 
+> The algorithm engine itself lives in the external `dravr-cageux` crate and is
+> re-exported into the platform via `pierre-intelligence` (`pub use dravr_cageux::algorithms`).
+> The platform configures it through environment variables (surfaced in the admin
+> UI by `pierre-config`); the code paths below refer to `dravr-cageux`.
+
 ### Design Pattern
 
 Fitness intelligence uses enum-based dependency injection for all calculation algorithms:
@@ -555,7 +518,7 @@ pub enum VdotAlgorithm {
 }
 
 impl VdotAlgorithm {
-    pub fn calculate_vdot(&self, distance: f64, time: f64) -> Result<f64, AppError> {
+    pub fn calculate_vdot(&self, distance: f64, time: f64) -> IntelligenceResult<f64> {
         match self {
             Self::Daniels => Self::calculate_daniels(distance, time),
             Self::Riegel { exponent } => Self::calculate_riegel(distance, time, *exponent),
@@ -576,71 +539,74 @@ impl VdotAlgorithm {
 
 ### Algorithm Types
 
-Nine algorithm categories with multiple variants each. Source paths are under
-`crates/pierre-server/src/intelligence/algorithms/` unless noted otherwise.
+Nine algorithm domains, one enum file each under `dravr-cageux` (`src/algorithms/`),
+with multiple variants each. The `selection:` line notes how the variant is chosen —
+environment variable, intelligence config file, or in code (see Configuration
+Integration below for which are wired).
 
-1. **max heart rate** (`max_heart_rate.rs`)
+1. **max heart rate** (`maxhr.rs`)
    - fox, tanaka, nes, gulati
-   - environment: `PIERRE_MAXHR_ALGORITHM`
+   - selection: env `PIERRE_MAXHR_ALGORITHM`
 
 2. **training impulse (trimp)** (`trimp.rs`)
    - bannister male/female, edwards, lucia, hybrid
-   - environment: `PIERRE_TRIMP_ALGORITHM`
+   - selection: in code
 
 3. **training stress score (tss)** (`tss.rs`)
    - avg_power, normalized_power, hybrid
-   - environment: `PIERRE_TSS_ALGORITHM`
+   - selection: env `PIERRE_TSS_ALGORITHM`
 
 4. **vdot** (`vdot.rs`)
    - daniels, riegel, hybrid
-   - environment: `PIERRE_VDOT_ALGORITHM`
+   - selection: in code
 
 5. **training load** (`training_load.rs`)
    - ema, sma, wma, kalman filter
-   - environment: `PIERRE_TRAINING_LOAD_ALGORITHM`
+   - selection: in code
 
 6. **recovery aggregation** (`recovery_aggregation.rs`)
    - weighted, additive, multiplicative, minmax, neural
-   - environment: `PIERRE_RECOVERY_ALGORITHM`
+   - selection: in code
 
 7. **functional threshold power (ftp)** (`ftp.rs`)
    - 20min_test, 8min_test, ramp_test, from_vo2max, hybrid
-   - environment: `PIERRE_FTP_ALGORITHM`
+   - selection: config field `ftp`
 
 8. **lactate threshold heart rate (lthr)** (`lthr.rs`)
    - from_maxhr, from_30min, from_race, lab_test, hybrid
-   - environment: `PIERRE_LTHR_ALGORITHM`
+   - selection: config field `lthr`
 
-9. **vo2max estimation** (`vo2max_estimation.rs`)
+9. **vo2max estimation** (`vo2max.rs`)
    - from_vdot, cooper, rockport, astrand, bruce, hybrid
-   - environment: `PIERRE_VO2MAX_ALGORITHM`
+   - selection: config field `vo2max`
 
 ### Configuration Integration
 
-Algorithms configured via `crates/pierre-server/src/config/intelligence/algorithms.rs`:
+Algorithms configured via `dravr-cageux` (`src/config/intelligence/algorithms.rs`); the platform exposes the env-var knobs through `pierre-config`'s admin definitions:
 
 ```rust
 pub struct AlgorithmConfig {
-    pub max_heart_rate: String,     // PIERRE_MAXHR_ALGORITHM
-    pub trimp: String,               // PIERRE_TRIMP_ALGORITHM
-    pub tss: String,                 // PIERRE_TSS_ALGORITHM
-    pub vdot: String,                // PIERRE_VDOT_ALGORITHM
-    pub training_load: String,       // PIERRE_TRAINING_LOAD_ALGORITHM
-    pub recovery_aggregation: String, // PIERRE_RECOVERY_ALGORITHM
-    pub ftp: String,                 // PIERRE_FTP_ALGORITHM
-    pub lthr: String,                // PIERRE_LTHR_ALGORITHM
-    pub vo2max: String,              // PIERRE_VO2MAX_ALGORITHM
+    pub tss: String,     // TSS: avg_power | normalized_power | hybrid
+    pub maxhr: String,   // Max HR: fox | tanaka | nes | gulati
+    pub ftp: String,     // FTP: 20min_test | from_vo2max | ramp_test | ...
+    pub lthr: String,    // LTHR: from_maxhr | from_30min | ...
+    pub vo2max: String,  // VO2max: from_vdot | cooper_test | ...
+    pub tss_fallback: TssFallbackConfig, // pace-based TSS fallback (no power/HR)
 }
 ```
 
-Defaults optimized for balanced accuracy vs data requirements.
+Defaults are optimized for balanced accuracy vs data requirements. Only `tss` and
+`maxhr` are overridable at runtime via environment variable (`PIERRE_TSS_ALGORITHM`,
+`PIERRE_MAXHR_ALGORITHM`); `ftp`/`lthr`/`vo2max` are set through the intelligence
+config file. The remaining algorithm domains (vdot, trimp, training load, recovery
+aggregation) expose the same enum-DI pattern but are selected in code rather than
+from a config field.
 
 ### Enforcement
 
 Automated validation ensures no hardcoded algorithms bypass the enum system.
 
-Validation script: `scripts/validate-algorithm-di.sh`
-Patterns defined: `scripts/ci/validation-patterns.toml`
+Patterns defined: `scripts/ci/validation-patterns.toml` (parsed by `scripts/ci/parse-validation-patterns.py`); the algorithm engine and its own DI tests live in `dravr-cageux`.
 
 Checks for:
 - hardcoded formulas (e.g., `220 - age`)
@@ -663,7 +629,7 @@ pub enum TssAlgorithm {
 }
 
 impl TssAlgorithm {
-    fn calculate_hybrid(&self, activity: &Activity, ...) -> Result<f64, AppError> {
+    fn calculate_hybrid(&self, activity: &Activity, ...) -> IntelligenceResult<f64> {
         Self::calculate_np_tss(activity, ...)
             .or_else(|_| Self::calculate_avg_power_tss(activity, ...))
     }
@@ -677,17 +643,17 @@ Hybrid algorithms maximize reliability while preferring accuracy when data avail
 All intelligence calculations use algorithm enums:
 
 ```rust
-use crate::intelligence::algorithms::vdot::VdotAlgorithm;
-use crate::config::intelligence_config::get_config;
+use pierre_intelligence::algorithms::vdot::VdotAlgorithm;
 
-let config = get_config();
-let algorithm = VdotAlgorithm::from_str(&config.algorithms.vdot)?;
+// Each domain enum implements FromStr for config-string selection; vdot is
+// currently selected in code:
+let algorithm = VdotAlgorithm::Daniels;
 let vdot = algorithm.calculate_vdot(5000.0, 1200.0)?; // 5K in 20:00
 ```
 
 No hardcoded formulas anywhere in intelligence layer.
 
-Implementation: `crates/pierre-server/src/intelligence/algorithms/`, `crates/pierre-server/src/config/intelligence/algorithms.rs`, `scripts/validate-algorithm-di.sh`
+Implementation: `dravr-cageux` (`src/algorithms/`, `src/config/intelligence/algorithms.rs`), re-exported via `pierre-intelligence`; enforcement patterns in `scripts/ci/validation-patterns.toml`
 
 ## PII Redaction
 
@@ -706,7 +672,7 @@ Redaction patterns:
 - uuid: `[REDACTED-UUID]`
 
 Enabled via `LOG_FORMAT=json` for structured logging.
-Implementation: `crates/pierre-server/src/middleware/redaction.rs`
+Implementation: `crates/pierre-middleware/src/redaction.rs`
 
 ## Cursor Pagination
 
