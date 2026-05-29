@@ -186,4 +186,4 @@ jobs:
           path: |
             frontend/src/types/api-generated.ts
             frontend-mobile/src/types/api-generated.ts
-          retention-days: 7
+          retention-days: 1

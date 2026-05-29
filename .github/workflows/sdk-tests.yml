@@ -250,5 +250,5 @@ jobs:
         with:
           name: sdk-test-results
           path: sdk/test-results/
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore

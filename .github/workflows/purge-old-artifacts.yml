@@ -41,8 +41,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # dravr-platform is ~45% of org artifact storage. External dravr-*
-          # repos age out via retention-days: 7 on their release.yml uploads.
+          # dravr-platform dominates org artifact storage. External dravr-*
+          # release workflows attach binaries directly to the GitHub Release
+          # (canot, sciotte) or age out via short retention (enforme), so they
+          # do not accumulate against the org Actions-artifact quota.
           # Add more repos here once RELEASE_PAT (cross-repo actions:write)
           # is provisioned on dravr-platform.
           REPOS=(
