@@ -11,7 +11,7 @@ use crate::protocols::ProtocolError;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
-use pierre_intelligence::{SleepAnalyzer, TrainingLoadCalculator};
+use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator};
 use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
@@ -106,7 +106,11 @@ async fn fetch_and_calculate_recovery_adjustment(
 
 /// Calculate fitness metrics using CTL/ATL/TSS methodology
 /// Calculate fitness metrics using proper 3-component formula with `TrainingLoadCalculator`
-fn calculate_fitness_metrics(activities: &[Activity], timeframe: &str) -> serde_json::Value {
+fn calculate_fitness_metrics(
+    activities: &[Activity],
+    timeframe: &str,
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     use chrono::{Duration, Utc};
     use TrainingLoadCalculator;
 
@@ -147,7 +151,7 @@ fn calculate_fitness_metrics(activities: &[Activity], timeframe: &str) -> serde_
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted_activities = filtered_activities.clone();
     sorted_activities.sort_by_key(Activity::start_date);
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator
         .calculate_training_load(&sorted_activities, None, None, None, None, None)
         .ok();
@@ -471,7 +475,11 @@ pub fn handle_calculate_fitness_score(
                             );
                         }
 
-                        let mut analysis = calculate_fitness_metrics(&activities, timeframe);
+                        let mut analysis = calculate_fitness_metrics(
+                            &activities,
+                            timeframe,
+                            &executor.cageux_config().algorithms,
+                        );
 
                         // If sleep_provider is specified, fetch recovery data and adjust score
                         let recovery_info = if let Some(sleep_provider_name) = sleep_provider {

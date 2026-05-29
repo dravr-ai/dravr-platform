@@ -460,7 +460,8 @@ pub fn handle_calculate_recovery_score(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load (TSB)
-        let training_load_calculator = TrainingLoadCalculator::new();
+        let training_load_calculator =
+            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {
@@ -571,12 +572,19 @@ pub fn handle_calculate_recovery_score(
                     .and_then(|v| {
                         serde_json::from_value::<RecoveryAggregationAlgorithm>(v.clone()).ok()
                     })
-                    .unwrap_or(RecoveryAggregationAlgorithm::WeightedAverage {
-                        tsb_weight_full: config.recovery_scoring.tsb_weight_full,
-                        sleep_weight_full: config.recovery_scoring.sleep_weight_full,
-                        hrv_weight_full: config.recovery_scoring.hrv_weight_full,
-                        tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
-                        sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
+                    .unwrap_or_else(|| {
+                        // No per-call override: honor the configured recovery
+                        // selection, defaulting to weighted-average with the
+                        // tenant's configured recovery-scoring weights.
+                        executor.cageux_config().algorithms.recovery_algorithm(
+                            RecoveryAggregationAlgorithm::WeightedAverage {
+                                tsb_weight_full: config.recovery_scoring.tsb_weight_full,
+                                sleep_weight_full: config.recovery_scoring.sleep_weight_full,
+                                hrv_weight_full: config.recovery_scoring.hrv_weight_full,
+                                tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
+                                sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
+                            },
+                        )
                     });
 
                 // Calculate holistic recovery score
@@ -798,7 +806,8 @@ pub fn handle_suggest_rest_day(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load
-        let training_load_calculator = TrainingLoadCalculator::new();
+        let training_load_calculator =
+            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {
@@ -904,12 +913,19 @@ pub fn handle_suggest_rest_day(
                     .and_then(|v| {
                         serde_json::from_value::<RecoveryAggregationAlgorithm>(v.clone()).ok()
                     })
-                    .unwrap_or(RecoveryAggregationAlgorithm::WeightedAverage {
-                        tsb_weight_full: config.recovery_scoring.tsb_weight_full,
-                        sleep_weight_full: config.recovery_scoring.sleep_weight_full,
-                        hrv_weight_full: config.recovery_scoring.hrv_weight_full,
-                        tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
-                        sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
+                    .unwrap_or_else(|| {
+                        // No per-call override: honor the configured recovery
+                        // selection, defaulting to weighted-average with the
+                        // tenant's configured recovery-scoring weights.
+                        executor.cageux_config().algorithms.recovery_algorithm(
+                            RecoveryAggregationAlgorithm::WeightedAverage {
+                                tsb_weight_full: config.recovery_scoring.tsb_weight_full,
+                                sleep_weight_full: config.recovery_scoring.sleep_weight_full,
+                                hrv_weight_full: config.recovery_scoring.hrv_weight_full,
+                                tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
+                                sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
+                            },
+                        )
                     });
 
                 // Calculate recovery score
@@ -1345,7 +1361,8 @@ pub fn handle_optimize_sleep_schedule(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load
-        let training_load_calculator = TrainingLoadCalculator::new();
+        let training_load_calculator =
+            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {

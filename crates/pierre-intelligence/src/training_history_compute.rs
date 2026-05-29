@@ -12,10 +12,13 @@
 //!
 //! Frameworks:
 //!
-//! - `ctl` / `atl` / `tsb` / `daily_load` — Coggan TSS-based EMA
-//!   (42-day chronic, 7-day acute). Same exponential filter cageux's
-//!   `TrainingLoadCalculator` exposes; we replicate the math here so the
-//!   per-day rollup is self-contained.
+//! - `ctl` / `atl` / `tsb` / `daily_load` — Coggan TSS-based EMA. The CTL/ATL
+//!   window lengths come from the configured algorithm parameters (default
+//!   42-day chronic, 7-day acute), and per-activity TSS honors the configured
+//!   TSS algorithm. This is a deliberate per-calendar-day EMA series: the
+//!   single-snapshot `TrainingLoadCalculator` cannot emit one value per day,
+//!   so the day-by-day rollup is computed here. Per-day algorithm *selection*
+//!   beyond EMA (SMA/WMA/Kalman) is not modeled by this dense series.
 //! - `acwr` — Gabbett 7d / 28d ratio. `None` until 28+ days of data.
 //! - `monotony` — Foster (mean weekly daily-load / std dev). `None` until
 //!   7+ days of non-zero load.
@@ -26,6 +29,7 @@
 //! deterministic-output rule: never substitute zero for "insufficient
 //! history".
 
+use crate::AlgorithmConfig;
 use chrono::{Duration, NaiveDate};
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
@@ -76,6 +80,7 @@ pub fn compute_training_history(
     inputs: AthleteInputs,
     from: NaiveDate,
     to: NaiveDate,
+    algorithm_config: &AlgorithmConfig,
 ) -> Vec<DailyTrainingState> {
     if to < from {
         return Vec::new();
@@ -86,15 +91,24 @@ pub fn compute_training_history(
         return Vec::new();
     }
 
+    // CTL/ATL window lengths come from the configured algorithm parameters.
+    let ctl_window_days = algorithm_config.params.training_load_ctl_days;
+    let atl_window_days = algorithm_config.params.training_load_atl_days;
+
     // Anchor the warm-up window so CTL/ATL EMAs converge before `from`.
-    let warmup = from - Duration::days(CTL_WINDOW_DAYS + 30);
+    let warmup = from - Duration::days(ctl_window_days + 30);
     let activity_dates: Vec<(NaiveDate, f64)> = activities
         .iter()
         .filter(|a| {
             let d = a.start_date().date_naive();
             d >= warmup && d <= to
         })
-        .map(|a| (a.start_date().date_naive(), tss_for(a, inputs)))
+        .map(|a| {
+            (
+                a.start_date().date_naive(),
+                tss_for(a, inputs, algorithm_config),
+            )
+        })
         .collect();
 
     // Build daily load map across [warmup, to].
@@ -114,8 +128,8 @@ pub fn compute_training_history(
         cursor += Duration::days(1);
     }
 
-    let ctl_alpha = ema_alpha(CTL_WINDOW_DAYS);
-    let atl_alpha = ema_alpha(ATL_WINDOW_DAYS);
+    let ctl_alpha = ema_alpha(ctl_window_days);
+    let atl_alpha = ema_alpha(atl_window_days);
     let mut ctl_series: Vec<(NaiveDate, f64)> = Vec::with_capacity(daily_load.len());
     let mut atl_series: Vec<(NaiveDate, f64)> = Vec::with_capacity(daily_load.len());
     let mut ctl_prev = 0.0_f64;
@@ -162,14 +176,16 @@ pub fn compute_training_history(
     out
 }
 
-fn tss_for(activity: &Activity, inputs: AthleteInputs) -> f64 {
-    let calc = MetricsCalculator::new().with_user_data(
-        inputs.ftp_watts,
-        inputs.lthr,
-        inputs.max_hr,
-        inputs.resting_hr,
-        inputs.weight_kg,
-    );
+fn tss_for(activity: &Activity, inputs: AthleteInputs, algorithm_config: &AlgorithmConfig) -> f64 {
+    let calc = MetricsCalculator::new()
+        .with_user_data(
+            inputs.ftp_watts,
+            inputs.lthr,
+            inputs.max_hr,
+            inputs.resting_hr,
+            inputs.weight_kg,
+        )
+        .with_algorithm_config(algorithm_config.clone());
     calc.calculate_metrics(activity)
         .map(|m| m.training_stress_score.unwrap_or(0.0))
         .unwrap_or(0.0)

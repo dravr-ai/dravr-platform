@@ -20,7 +20,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{Activity, SportProfile};
 use pierre_groups::service::{HIGH_FATIGUE_TSB_THRESHOLD, OVERREACHING_TSB_THRESHOLD};
-use pierre_intelligence::TrainingLoadCalculator;
+use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -71,7 +71,13 @@ async fn build_single_snapshot(
         _ => return default_snapshot(user_id, display_name, now),
     };
 
-    build_snapshot_from_activities(user_id, display_name, &activities, now)
+    build_snapshot_from_activities(
+        user_id,
+        display_name,
+        &activities,
+        now,
+        &resources.cageux_config().algorithms,
+    )
 }
 
 /// Fetch recent activities for a member from their primary connected provider.
@@ -111,13 +117,14 @@ fn build_snapshot_from_activities(
     display_name: &str,
     activities: &[Activity],
     now: chrono::DateTime<Utc>,
+    algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Compute training load (CTL/ATL/TSB)
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator.calculate_training_load(
         &sorted, None, // FTP
         None, // LTHR

@@ -18,7 +18,8 @@ use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::training_load::TrainingLoad;
 use pierre_intelligence::{
-    PatternDetector, PerformancePredictor, RiskLevel, TrainingLoadCalculator, TrainingStatus,
+    AlgorithmConfig, PatternDetector, PerformancePredictor, RiskLevel, TrainingLoadCalculator,
+    TrainingStatus,
 };
 use pierre_mcp_schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
@@ -138,6 +139,7 @@ async fn generate_recommendations_via_sampling(
 fn generate_training_recommendations(
     activities: &[Activity],
     recommendation_type: &str,
+    algorithm_config: &AlgorithmConfig,
 ) -> serde_json::Value {
     if activities.is_empty() {
         return serde_json::json!({
@@ -166,17 +168,24 @@ fn generate_training_recommendations(
     }
 
     match recommendation_type {
-        "training_plan" => generate_training_plan_recommendations(&recent_activities),
-        "recovery" => generate_recovery_recommendations(&recent_activities),
+        "training_plan" => {
+            generate_training_plan_recommendations(&recent_activities, algorithm_config)
+        }
+        "recovery" => generate_recovery_recommendations(&recent_activities, algorithm_config),
         "intensity" => generate_intensity_recommendations(&recent_activities),
-        "goal_specific" => generate_goal_specific_recommendations(&recent_activities),
+        "goal_specific" => {
+            generate_goal_specific_recommendations(&recent_activities, algorithm_config)
+        }
         "nutrition" => generate_nutrition_recommendations(&recent_activities),
-        _ => generate_comprehensive_recommendations(&recent_activities),
+        _ => generate_comprehensive_recommendations(&recent_activities, algorithm_config),
     }
 }
 
 /// Generate weekly training plan recommendations using training load analysis
-fn generate_training_plan_recommendations(activities: &[Activity]) -> serde_json::Value {
+fn generate_training_plan_recommendations(
+    activities: &[Activity],
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     // Analyze volume progression to detect spikes
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     let weekly_schedule = PatternDetector::detect_weekly_schedule(activities);
@@ -186,7 +195,7 @@ fn generate_training_plan_recommendations(activities: &[Activity]) -> serde_json
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate training load metrics
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -332,13 +341,16 @@ fn process_tsb_recommendations(
 }
 
 /// Generate recovery recommendations using TSB and overtraining signals
-fn generate_recovery_recommendations(activities: &[Activity]) -> serde_json::Value {
+fn generate_recovery_recommendations(
+    activities: &[Activity],
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate TSB (Training Stress Balance)
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -523,7 +535,10 @@ fn generate_intensity_recommendations(activities: &[Activity]) -> serde_json::Va
 }
 
 /// Generate goal-specific recommendations using performance prediction
-fn generate_goal_specific_recommendations(activities: &[Activity]) -> serde_json::Value {
+fn generate_goal_specific_recommendations(
+    activities: &[Activity],
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     use HashMap;
     use PerformancePredictor;
 
@@ -565,7 +580,9 @@ fn generate_goal_specific_recommendations(activities: &[Activity]) -> serde_json
 
     // Generate race time predictions if we have performance data
     if let Some((distance, time)) = best_performance {
-        if let Ok(predictions) = PerformancePredictor::generate_race_predictions(distance, time) {
+        if let Ok(predictions) =
+            PerformancePredictor::generate_race_predictions(distance, time, algorithm_config)
+        {
             race_predictions = Some(serde_json::json!({
                 "based_on": format!("{:.1}km in {}", distance / METERS_PER_KILOMETER, PerformancePredictor::format_time(time)),
                 "vdot": predictions.vdot,
@@ -788,13 +805,16 @@ fn generate_nutrition_recommendations(activities: &[Activity]) -> serde_json::Va
 }
 
 /// Generate comprehensive recommendations combining all analyses
-fn generate_comprehensive_recommendations(activities: &[Activity]) -> serde_json::Value {
+fn generate_comprehensive_recommendations(
+    activities: &[Activity],
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Comprehensive analysis using all available modules
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -1010,12 +1030,17 @@ pub fn handle_generate_recommendations(
                                     generate_training_recommendations(
                                         &activities,
                                         recommendation_type,
+                                        &executor.cageux_config().algorithms,
                                     )
                                 }
                             }
                         } else {
                             // Fall back to static recommendations
-                            generate_training_recommendations(&activities, recommendation_type)
+                            generate_training_recommendations(
+                                &activities,
+                                recommendation_type,
+                                &executor.cageux_config().algorithms,
+                            )
                         };
 
                         // Report completion

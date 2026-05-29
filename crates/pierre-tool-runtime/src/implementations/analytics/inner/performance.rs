@@ -11,7 +11,7 @@ use crate::protocols::ProtocolError;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
-use pierre_intelligence::{PerformancePredictor, TrainingLoadCalculator};
+use pierre_intelligence::{AlgorithmConfig, PerformancePredictor, TrainingLoadCalculator};
 use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
@@ -19,7 +19,11 @@ use std::pin::Pin;
 use tracing::warn;
 
 /// Predict race performance using VDOT methodology from `PerformancePredictor`
-fn predict_race_performance(activities: &[Activity], target_sport: &str) -> serde_json::Value {
+fn predict_race_performance(
+    activities: &[Activity],
+    target_sport: &str,
+    algorithm_config: &AlgorithmConfig,
+) -> serde_json::Value {
     use PerformancePredictor;
 
     // Filter activities by sport type
@@ -57,11 +61,18 @@ fn predict_race_performance(activities: &[Activity], target_sport: &str) -> serd
     let best_time = best_activity.duration_seconds() as f64;
 
     // Generate race predictions using PerformancePredictor (includes VDOT calculation)
-    match PerformancePredictor::generate_race_predictions(best_distance, best_time) {
+    match PerformancePredictor::generate_race_predictions(
+        best_distance,
+        best_time,
+        algorithm_config,
+    ) {
         Ok(race_predictions) => {
             // Calculate confidence based on data quality
-            let confidence =
-                calculate_prediction_confidence(&running_activities, &best_activity.start_date());
+            let confidence = calculate_prediction_confidence(
+                &running_activities,
+                &best_activity.start_date(),
+                algorithm_config,
+            );
 
             // Convert predictions HashMap to JSON array format for consistency
             let predictions_array: Vec<serde_json::Value> = race_predictions
@@ -132,6 +143,7 @@ fn predict_race_performance(activities: &[Activity], target_sport: &str) -> serd
 fn calculate_prediction_confidence(
     activities: &[&Activity],
     best_activity_date: &chrono::DateTime<chrono::Utc>,
+    algorithm_config: &AlgorithmConfig,
 ) -> String {
     use chrono::Utc;
     use TrainingLoadCalculator;
@@ -150,7 +162,7 @@ fn calculate_prediction_confidence(
     let mut owned_activities: Vec<_> = activities.iter().copied().cloned().collect();
     // Sort oldest-first — EMA calculation requires chronological order
     owned_activities.sort_by_key(Activity::start_date);
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     let ctl_score = if let Ok(training_load) =
         calculator.calculate_training_load(&owned_activities, None, None, None, None, None)
     {
@@ -288,7 +300,11 @@ pub fn handle_predict_performance(
                             );
                         }
 
-                        let prediction = predict_race_performance(&activities, target_sport);
+                        let prediction = predict_race_performance(
+                            &activities,
+                            target_sport,
+                            &executor.cageux_config().algorithms,
+                        );
 
                         // Report completion
                         if let Some(reporter) = &request.progress_reporter {

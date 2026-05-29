@@ -7,7 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::PerformancePredictor;
+use pierre_intelligence::{AlgorithmConfig, PerformancePredictor};
+
+/// Default algorithm config (daniels VDOT) for table-verification tests.
+fn cfg() -> AlgorithmConfig {
+    AlgorithmConfig::default()
+}
 
 /// Test VDOT 50 predictions against Jack Daniels' VDOT tables
 ///
@@ -22,10 +27,10 @@ fn test_vdot_50_against_daniels_tables() {
     let vdot = 50.0;
 
     // Get predictions from our implementation
-    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0).unwrap();
-    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0).unwrap();
-    let time_half = PerformancePredictor::predict_time_vdot(vdot, 21_097.5).unwrap();
-    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0).unwrap();
+    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0, &cfg()).unwrap();
+    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0, &cfg()).unwrap();
+    let time_half = PerformancePredictor::predict_time_vdot(vdot, 21_097.5, &cfg()).unwrap();
+    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0, &cfg()).unwrap();
 
     // Jack Daniels' reference times for VDOT 50
     let reference_5k = 1171.0;
@@ -86,9 +91,9 @@ fn test_vdot_50_against_daniels_tables() {
 fn test_vdot_60_against_daniels_tables() {
     let vdot = 60.0;
 
-    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0).unwrap();
-    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0).unwrap();
-    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0).unwrap();
+    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0, &cfg()).unwrap();
+    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0, &cfg()).unwrap();
+    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0, &cfg()).unwrap();
 
     let reference_5k = 999.0;
     let reference_10k = 2080.0;
@@ -133,9 +138,9 @@ fn test_vdot_60_against_daniels_tables() {
 fn test_vdot_40_against_daniels_tables() {
     let vdot = 40.0;
 
-    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0).unwrap();
-    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0).unwrap();
-    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0).unwrap();
+    let time_5k = PerformancePredictor::predict_time_vdot(vdot, 5_000.0, &cfg()).unwrap();
+    let time_10k = PerformancePredictor::predict_time_vdot(vdot, 10_000.0, &cfg()).unwrap();
+    let time_marathon = PerformancePredictor::predict_time_vdot(vdot, 42_195.0, &cfg()).unwrap();
 
     let reference_5k = 1484.0;
     let reference_10k = 3102.0;

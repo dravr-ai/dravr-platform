@@ -10,7 +10,7 @@ use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor
 use crate::protocols::ProtocolError;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
-use pierre_intelligence::{SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
+use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
@@ -144,6 +144,7 @@ fn analyze_detailed_training_load(
     activities: &[Activity],
     timeframe: &str,
     params: &UserPhysiologicalParams,
+    algorithm_config: &AlgorithmConfig,
 ) -> serde_json::Value {
     use TrainingLoadCalculator;
 
@@ -160,7 +161,7 @@ fn analyze_detailed_training_load(
     let mut sorted_activities = activities.to_vec();
     sorted_activities.sort_by_key(Activity::start_date);
 
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
 
     // Pass user physiological data for accurate TSS calculation.
     // When present, enables power-based (FTP) or HR-based (LTHR) TSS
@@ -488,8 +489,12 @@ pub fn handle_analyze_training_load(
                         let physio_params =
                             fetch_user_physiological_params(executor, user_uuid).await;
 
-                        let mut analysis =
-                            analyze_detailed_training_load(&activities, timeframe, &physio_params);
+                        let mut analysis = analyze_detailed_training_load(
+                            &activities,
+                            timeframe,
+                            &physio_params,
+                            &executor.cageux_config().algorithms,
+                        );
 
                         // Fire intelligence-driven notification triggers based on computed metrics
                         #[cfg(feature = "client-notifications")]

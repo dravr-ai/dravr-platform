@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_intelligence::config::intelligence::VO2MaxCalculator;
+use pierre_intelligence::AlgorithmConfig;
 
 #[test]
 fn test_vo2_max_calculator_creation() {
@@ -65,8 +66,9 @@ fn test_elite_vs_beginner_zones() {
 fn test_trimp_calculation() {
     let calc = VO2MaxCalculator::new(50.0, 50, 180, 0.85, 1.0);
 
-    let trimp_male = calc.calculate_trimp(140, 30.0, "M");
-    let trimp_female = calc.calculate_trimp(140, 30.0, "F");
+    let config = AlgorithmConfig::default();
+    let trimp_male = calc.calculate_trimp(140, 30.0, "M", &config);
+    let trimp_female = calc.calculate_trimp(140, 30.0, "F", &config);
 
     // TRIMP should be positive
     assert!(trimp_male > 0.0);
