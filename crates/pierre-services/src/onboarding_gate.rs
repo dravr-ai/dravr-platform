@@ -31,21 +31,43 @@ use pierre_core::models::ConnectionType;
 use pierre_database::repositories::ProviderConnectionRepository;
 use uuid::Uuid;
 
-/// Returns `true` when the user has at least one *real* (non-synthetic) row in
-/// `provider_connections`.
+/// Returns `true` when the user has at least one row in `provider_connections`
+/// — including `Synthetic` (seed/demo) connections.
 ///
-/// Synthetic connections (`connection_type = synthetic`) are seed/demo data —
-/// the synthetic-activities seeder registers a `provider = "synthetic"` row for
-/// test users. Those are not real provider links: a user whose only connection
-/// is synthetic still needs to connect a real provider, so synthetic rows must
-/// not satisfy the onboarding gate (otherwise the first-login connect redirect
-/// never fires for seeded users).
+/// This is the **coach-access** gate: synthetic connections carry seeded
+/// activity data the LLM coach can legitimately discuss, so a demo user with
+/// only synthetic data is allowed through (mirrors how the OAuth callback
+/// unblocks chat). For the *connect-a-real-provider* onboarding decision, use
+/// [`user_has_real_provider`] instead.
 ///
 /// # Errors
 ///
 /// Propagates the repository error if the query against `provider_connections`
 /// fails.
 pub async fn user_has_connected_provider(
+    repo: &Arc<dyn ProviderConnectionRepository>,
+    user_id: Uuid,
+) -> AppResult<bool> {
+    let connections = repo.get_for_user(user_id, None).await?;
+    Ok(!connections.is_empty())
+}
+
+/// Returns `true` when the user has at least one *real* (non-`Synthetic`)
+/// provider connection.
+///
+/// Drives the first-login connect-provider redirect (`GET
+/// /api/me/onboarding-status`). The synthetic-activities seeder registers a
+/// `provider = "synthetic"` row for test/demo users; that's seeded data, not a
+/// real provider link, so it must NOT suppress the redirect — a user whose only
+/// connection is synthetic still needs to connect a real provider. Distinct from
+/// [`user_has_connected_provider`] (the coach-access gate), which counts
+/// synthetic so demos can chat about their seeded data.
+///
+/// # Errors
+///
+/// Propagates the repository error if the query against `provider_connections`
+/// fails.
+pub async fn user_has_real_provider(
     repo: &Arc<dyn ProviderConnectionRepository>,
     user_id: Uuid,
 ) -> AppResult<bool> {
