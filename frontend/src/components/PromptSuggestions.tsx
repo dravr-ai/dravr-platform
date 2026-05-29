@@ -6,7 +6,7 @@
 
 import { useState, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Users, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react';
+import { X, Users, Eye, EyeOff, Pencil, Trash2, ChevronRight } from 'lucide-react';
 import { coachesApi } from '../services/api';
 import { Card } from './ui';
 import type { Coach } from '@pierre/shared-types';
@@ -28,7 +28,9 @@ export default function PromptSuggestions({ onSelectPrompt, onEditCoach, onDelet
     error,
   } = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
-    queryFn: () => coachesApi.list(),
+    // personalize: tag system coaches with match_score + recommended so the
+    // grid can surface a curated "Recommended for you" set instead of all 26.
+    queryFn: () => coachesApi.list({ personalize: true }),
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     retry: 2,
   });
@@ -213,6 +215,17 @@ function CoachesSection({
   isShowing: boolean;
 }) {
   const [showHelp, setShowHelp] = useState(false);
+  const [browseAllExpanded, setBrowseAllExpanded] = useState(false);
+
+  // Split system coaches into a curated "Recommended for you" set (from the
+  // backend's recommended flag + match_score) and a collapsible "Browse all".
+  // Falls back to a flat list when personalization isn't present.
+  const recommendedSystem = systemCoaches
+    .filter((c) => c.recommended)
+    .sort((a, b) => (b.match_score ?? 0) - (a.match_score ?? 0));
+  const recommendedIds = new Set(recommendedSystem.map((c) => c.id));
+  const browseSystem = systemCoaches.filter((c) => !recommendedIds.has(c.id));
+  const hasRecommendations = recommendedSystem.length > 0;
 
   return (
     <Card variant="dark" className="p-3 mt-4">
@@ -282,27 +295,87 @@ function CoachesSection({
         </div>
       )}
 
-      {/* System Coaches section - below user coaches */}
+      {/* System Coaches section - below user coaches. When personalization
+          surfaces recommendations, show a curated "Recommended for you" set
+          and tuck the rest behind a collapsible "Browse all". */}
       {systemCoaches.length > 0 && (
         <div className={userCoaches.length > 0 ? 'pt-3 border-t ghost-border' : ''}>
-          <h4 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
-            <span className="text-base">🏛️</span>
-            System Coaches
-            <span className="text-xs text-outline font-normal">({systemCoaches.length})</span>
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {systemCoaches.map((coach) => (
-              <CoachCard
-                key={coach.id}
-                coach={coach}
-                onSelectPrompt={onSelectPrompt}
-                onEditCoach={onEditCoach}
-                onDeleteCoach={onDeleteCoach}
-                onHideCoach={onHideCoach}
-                isHiding={isHiding}
-              />
-            ))}
-          </div>
+          {hasRecommendations ? (
+            <>
+              <h4 className="text-sm font-medium text-on-surface mb-2 flex items-center gap-2">
+                <span className="text-base">⭐</span>
+                Recommended for you
+                <span className="text-xs text-outline font-normal">({recommendedSystem.length})</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {recommendedSystem.map((coach) => (
+                  <CoachCard
+                    key={coach.id}
+                    coach={coach}
+                    onSelectPrompt={onSelectPrompt}
+                    onEditCoach={onEditCoach}
+                    onDeleteCoach={onDeleteCoach}
+                    onHideCoach={onHideCoach}
+                    isHiding={isHiding}
+                  />
+                ))}
+              </div>
+
+              {browseSystem.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setBrowseAllExpanded((v) => !v)}
+                    className="flex items-center gap-2 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors mb-2"
+                    aria-expanded={browseAllExpanded}
+                  >
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform ${browseAllExpanded ? 'rotate-90' : ''}`}
+                    />
+                    <span className="text-base">🏛️</span>
+                    Browse all
+                    <span className="text-xs text-outline font-normal">({browseSystem.length})</span>
+                  </button>
+                  {browseAllExpanded && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {browseSystem.map((coach) => (
+                        <CoachCard
+                          key={coach.id}
+                          coach={coach}
+                          onSelectPrompt={onSelectPrompt}
+                          onEditCoach={onEditCoach}
+                          onDeleteCoach={onDeleteCoach}
+                          onHideCoach={onHideCoach}
+                          isHiding={isHiding}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <h4 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
+                <span className="text-base">🏛️</span>
+                System Coaches
+                <span className="text-xs text-outline font-normal">({systemCoaches.length})</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {systemCoaches.map((coach) => (
+                  <CoachCard
+                    key={coach.id}
+                    coach={coach}
+                    onSelectPrompt={onSelectPrompt}
+                    onEditCoach={onEditCoach}
+                    onDeleteCoach={onDeleteCoach}
+                    onHideCoach={onHideCoach}
+                    isHiding={isHiding}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
