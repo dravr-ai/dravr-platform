@@ -118,7 +118,10 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
             .await
             .expect("initialize returns a response"),
     );
-    eprintln!("INIT_DEBUG: {}", serde_json::to_string_pretty(&init).unwrap());
+    eprintln!(
+        "INIT_DEBUG: {}",
+        serde_json::to_string_pretty(&init).unwrap()
+    );
     let capabilities = init
         .get("capabilities")
         .expect("initialize result has capabilities");
