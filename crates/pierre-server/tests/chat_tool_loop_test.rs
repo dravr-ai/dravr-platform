@@ -10,7 +10,7 @@ use pierre_core::llm::MessageRole;
 use pierre_llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
 use pierre_tool_runtime::tool_execution::{
     extract_activity_list, format_tool_results_as_text, generate_tool_catalog,
-    inject_tool_catalog_into_system_prompt, parse_tool_call_blocks, strip_tool_call_blocks,
+    inject_tool_catalog_into_system_prompt, parse_tool_call_blocks, strip_simulation_artifacts,
 };
 
 #[test]
@@ -82,7 +82,7 @@ fn test_parse_tool_call_without_arguments() {
 }
 
 #[test]
-fn test_strip_tool_call_blocks() {
+fn test_strip_simulation_artifacts_removes_tool_calls() {
     let content = r#"Let me fetch your data.
 
 <tool_call>
@@ -91,7 +91,7 @@ fn test_strip_tool_call_blocks() {
 
 And some more text."#;
 
-    let stripped = strip_tool_call_blocks(content);
+    let stripped = strip_simulation_artifacts(content);
     assert_eq!(
         stripped,
         "Let me fetch your data.\n\n\n\nAnd some more text."
@@ -100,9 +100,28 @@ And some more text."#;
 }
 
 #[test]
+fn test_strip_simulation_artifacts_removes_echoed_tool_results() {
+    // Weak CLI models parrot the injected `<tool_result>` turn back into their
+    // reply; strip_simulation_artifacts removes that scaffolding too, not just
+    // `<tool_call>` blocks, so neither leaks to the user.
+    let content = r#"Here is your summary.
+
+<tool_result>
+{"activities": 3}
+</tool_result>
+
+You ran three times."#;
+
+    let stripped = strip_simulation_artifacts(content);
+    assert!(!stripped.contains("<tool_result>"));
+    assert!(stripped.contains("Here is your summary."));
+    assert!(stripped.contains("You ran three times."));
+}
+
+#[test]
 fn test_strip_preserves_no_tool_calls() {
     let content = "Just plain text with no tool calls.";
-    let stripped = strip_tool_call_blocks(content);
+    let stripped = strip_simulation_artifacts(content);
     assert_eq!(stripped, content);
 }
 
