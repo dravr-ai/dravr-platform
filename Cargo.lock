@@ -1302,7 +1302,7 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.20",
  "hex",
  "http 1.4.0",
  "reqwest 0.12.28",
@@ -1360,6 +1360,29 @@ dependencies = [
 name = "dravr-sciotte"
 version = "0.5.20"
 source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.20#92da3419c73ad80c3e155a764f49b76e04be55c7"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "chrono",
+ "dirs 6.0.0",
+ "futures",
+ "moka",
+ "reqwest 0.12.28",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "dravr-sciotte"
+version = "0.5.21"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.21#5044154504ee5ef8a6fb911ff13dde81b894a924"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2226,7 +2249,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration 0.7.0",
  "tokio",
  "tower-service",
@@ -3484,7 +3507,7 @@ name = "pierre-logging"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.21",
  "dravr-tronc",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3590,7 +3613,7 @@ dependencies = [
  "bitflags 2.11.1",
  "chrono",
  "dravr-equilibre",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.21",
  "embacle",
  "futures-util",
  "hex",
@@ -3670,7 +3693,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.21",
  "embacle",
  "hex",
  "hmac",
@@ -4021,7 +4044,7 @@ dependencies = [
  "dashmap",
  "dirs 5.0.1",
  "dravr-equilibre",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.21",
  "dravr-stripe",
  "dravr-tronc",
  "ed25519-dalek",
@@ -4312,7 +4335,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4349,7 +4372,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
