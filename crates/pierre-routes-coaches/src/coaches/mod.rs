@@ -28,6 +28,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
     CoachResponse, CoachesMetadata, CreateCoachBody, HideCoachResponse, ListCoachesQuery,
@@ -38,7 +39,7 @@ pub use types::{
 /// Build the user-facing coaches router under `/api/coaches/{...}`.
 pub fn build_coaches_router<C>() -> Router<Arc<C>>
 where
-    C: CoachesCtx + MiddlewareCtx,
+    C: CoachesCtx + MiddlewareCtx + ToolRuntime,
 {
     Router::new()
         .route("/api/coaches", get(user::handle_list::<C>))

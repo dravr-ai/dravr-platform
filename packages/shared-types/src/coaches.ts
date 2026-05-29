@@ -83,6 +83,13 @@ export interface Coach {
   success_criteria?: string;
   /** Origin: "contremaitre" (git-managed), "seed" (seeded from files), "custom" (user/admin created) */
   source?: string;
+
+  // -- Personalization (populated only when listing with personalize=true) --
+
+  /** Relevance score in 0..1 for the user's recent sport mix + connected providers */
+  match_score?: number;
+  /** Whether this coach is in the user's "Recommended for you" set */
+  recommended?: boolean;
 }
 
 /** Response when forking a coach */

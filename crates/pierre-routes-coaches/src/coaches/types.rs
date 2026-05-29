@@ -88,6 +88,15 @@ pub struct CoachResponse {
     /// Success definition (from ## Success Criteria section)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_criteria: Option<String>,
+    /// Personalized relevance score in `0.0..=1.0` (only present when
+    /// `personalize=true`). Higher means a better fit for the user's recent
+    /// sport mix and connected providers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_score: Option<f32>,
+    /// Whether this coach is in the user's "Recommended for you" set (only
+    /// present when `personalize=true`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<bool>,
 }
 
 /// A missing prerequisite for a coach
@@ -131,6 +140,8 @@ impl From<Coach> for CoachResponse {
             example_inputs: coach.example_inputs,
             example_outputs: coach.example_outputs,
             success_criteria: coach.success_criteria,
+            match_score: None,
+            recommended: None,
         }
     }
 }
@@ -164,6 +175,8 @@ impl From<CoachListItem> for CoachResponse {
             example_inputs: item.coach.example_inputs,
             example_outputs: item.coach.example_outputs,
             success_criteria: item.coach.success_criteria,
+            match_score: None,
+            recommended: None,
         }
     }
 }
@@ -208,6 +221,10 @@ pub struct ListCoachesQuery {
     pub include_hidden: Option<bool>,
     /// Check prerequisites against user's connected providers (default: false)
     pub check_prerequisites: Option<bool>,
+    /// Personalize results: scan the user's recent activities and connected
+    /// providers, then mark each coach with a `match_score` and `recommended`
+    /// flag (default: false).
+    pub personalize: Option<bool>,
 }
 
 /// Query parameters for searching coaches

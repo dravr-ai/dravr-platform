@@ -27,6 +27,9 @@ export interface ListCoachesOptions {
   include_hidden?: boolean;
   limit?: number;
   offset?: number;
+  /** Mark each coach with a match_score + recommended flag based on the
+   *  user's recent activities and connected providers. */
+  personalize?: boolean;
 }
 
 export interface PromptSuggestion {
@@ -69,6 +72,7 @@ export function createCoachesApi(axios: AxiosInstance) {
       if (options?.include_hidden) params.append('include_hidden', 'true');
       if (options?.limit) params.append('limit', options.limit.toString());
       if (options?.offset) params.append('offset', options.offset.toString());
+      if (options?.personalize) params.append('personalize', 'true');
 
       const queryString = params.toString();
       const url = queryString ? `${ENDPOINTS.COACHES.LIST}?${queryString}` : ENDPOINTS.COACHES.LIST;

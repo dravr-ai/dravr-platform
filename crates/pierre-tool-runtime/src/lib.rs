@@ -52,6 +52,8 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+/// Shared provider activity fetching (used by group snapshots + coach recs).
+pub mod activity_fetch;
 pub mod capabilities;
 pub mod context;
 pub mod decorators;

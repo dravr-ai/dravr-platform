@@ -18,13 +18,13 @@ use chrono::{Duration, Utc};
 use pierre_core::models::groups::{
     GroupMember, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
 };
-use pierre_core::models::Activity;
+use pierre_core::models::{Activity, SportProfile};
 use pierre_groups::service::{HIGH_FATIGUE_TSB_THRESHOLD, OVERREACHING_TSB_THRESHOLD};
 use pierre_intelligence::TrainingLoadCalculator;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_tool_runtime::protocol::auth::AuthService;
+use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 /// Maximum number of activities to fetch per member for snapshot computation
@@ -46,21 +46,12 @@ pub async fn build_member_snapshots(
     members: &[GroupMember],
     tenant_id: &str,
 ) -> Vec<MemberFitnessSnapshot> {
-    let auth_service = AuthService::new(Arc::clone(resources));
     let now = Utc::now();
     let mut snapshots = Vec::with_capacity(members.len());
 
     for member in members {
         let name = member.display_name.as_deref().unwrap_or("Unknown");
-        let snapshot = build_single_snapshot(
-            &auth_service,
-            resources,
-            member.user_id,
-            name,
-            tenant_id,
-            now,
-        )
-        .await;
+        let snapshot = build_single_snapshot(resources, member.user_id, name, tenant_id, now).await;
         snapshots.push(snapshot);
     }
 
@@ -69,27 +60,26 @@ pub async fn build_member_snapshots(
 
 /// Build a snapshot for a single member by querying their fitness provider.
 async fn build_single_snapshot(
-    auth_service: &AuthService,
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     display_name: &str,
     tenant_id: &str,
     now: chrono::DateTime<Utc>,
 ) -> MemberFitnessSnapshot {
-    let activities =
-        match fetch_member_activities(auth_service, resources, user_id, tenant_id, now).await {
-            Some(acts) if !acts.is_empty() => acts,
-            _ => return default_snapshot(user_id, display_name, now),
-        };
+    let activities = match fetch_member_activities(resources, user_id, tenant_id, now).await {
+        Some(acts) if !acts.is_empty() => acts,
+        _ => return default_snapshot(user_id, display_name, now),
+    };
 
     build_snapshot_from_activities(user_id, display_name, &activities, now)
 }
 
-/// Fetch recent activities for a member from their connected provider.
+/// Fetch recent activities for a member from their primary connected provider.
 ///
-/// Returns `None` if the member has no connected provider or if fetching fails.
+/// Returns `None` if the member has no connected provider or if fetching
+/// fails. Uses the shared [`fetch_provider_activities`] path so token refresh
+/// and sciotte-mirror resolution stay in one place.
 async fn fetch_member_activities(
-    auth_service: &AuthService,
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: &str,
@@ -104,19 +94,6 @@ async fn fetch_member_activities(
 
     let connection = connections.first()?;
 
-    let provider = auth_service
-        .create_authenticated_provider(&connection.provider, user_id, Some(tenant_id))
-        .await
-        .map_err(|e| {
-            warn!(
-                user_id = %user_id,
-                provider = %connection.provider,
-                error = ?e.error,
-                "Failed to create authenticated provider for snapshot"
-            );
-        })
-        .ok()?;
-
     let after_timestamp = (now - Duration::days(HISTORY_DAYS)).timestamp();
     let params = ActivityQueryParams {
         limit: Some(SNAPSHOT_ACTIVITY_LIMIT),
@@ -125,18 +102,7 @@ async fn fetch_member_activities(
         after: Some(after_timestamp),
     };
 
-    provider
-        .get_activities_with_params(&params)
-        .await
-        .map_err(|e| {
-            warn!(
-                user_id = %user_id,
-                provider = %connection.provider,
-                error = %e,
-                "Failed to fetch activities for snapshot"
-            );
-        })
-        .ok()
+    fetch_provider_activities(resources, &connection.provider, user_id, tenant_id, &params).await
 }
 
 /// Compute a snapshot from fetched activities without any I/O.
@@ -242,8 +208,8 @@ fn build_snapshot_from_activities(
             days
         });
 
-    // Primary sport
-    let primary_sport = detect_primary_sport(activities);
+    // Primary sport — shared sport-mix aggregation lives on SportProfile.
+    let primary_sport = SportProfile::from_activities(activities, 0).primary_sport();
 
     // Overtraining risk based on TSB thresholds
     let overtraining_risk = tsb.map_or(OvertrainingRiskLevel::Low, |t| {
@@ -312,26 +278,4 @@ fn sum_distance_km(activities: &[&Activity]) -> f64 {
         .filter_map(|a| a.distance_meters())
         .sum::<f64>()
         / 1000.0
-}
-
-/// Detect the most common sport type from activities.
-///
-/// Uses serde JSON serialization to get the canonical `snake_case` name
-/// (e.g. "run", "ride") since `SportType` does not implement `Display`.
-fn detect_primary_sport(activities: &[Activity]) -> Option<String> {
-    if activities.is_empty() {
-        return None;
-    }
-    let mut counts = HashMap::new();
-    for a in activities {
-        let label = serde_json::to_value(a.sport_type())
-            .ok()
-            .and_then(|v| v.as_str().map(ToOwned::to_owned))
-            .unwrap_or_else(|| format!("{:?}", a.sport_type()));
-        *counts.entry(label).or_insert(0u32) += 1;
-    }
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(sport, _)| sport)
 }
