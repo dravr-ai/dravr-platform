@@ -16,8 +16,9 @@
 //!
 //! - [`register_builtin_tools`] — invoked from `ServerContext::build` to
 //!   populate the shared registry at startup.
-//! - [`get_tools`] — convenience helper that constructs a one-shot registry
-//!   and returns the schemas for the `mcp::protocol::tools/list` path.
+//! - [`get_tools`] — test-only convenience helper that constructs a one-shot
+//!   registry and returns its schemas. Production `tools/list` goes through the
+//!   shared registry via `McpRequestProcessor::handle_tools_list`.
 //!
 //! Each `register_*_tools` helper is a free function taking `&mut ToolRegistry`
 //! and is gated by the same Cargo feature flag that gated the original
@@ -573,8 +574,8 @@ fn register_endurance_history_tools(registry: &mut ToolRegistry) {
 /// their schemas.
 ///
 /// Production code should use the shared `ToolRegistry` from `ServerContext`
-/// instead — this helper exists for tests and the `mcp::protocol::tools/list`
-/// path, where the registry instance is constructed on demand.
+/// instead — this helper exists for tests, where the registry instance is
+/// constructed on demand.
 #[must_use]
 pub fn get_tools() -> Vec<pierre_mcp_schema::ToolSchema> {
     let mut registry = ToolRegistry::new();

@@ -11,15 +11,20 @@
 
 use super::prompt_templates::{self, PromptGetOutcome};
 use super::resource_catalog;
-use super::{protocol::ProtocolHandler, resources::ServerContext, tool_handlers::ToolHandlers};
+use super::{resources::ServerContext, tool_handlers::ToolHandlers};
 use crate::constants::errors::{
-    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
+    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND, ERROR_SERIALIZATION,
+    ERROR_VERSION_MISMATCH, MSG_SERIALIZATION, MSG_VERSION_MISMATCH,
 };
-use crate::constants::protocol::{mcp_protocol_version, JSONRPC_VERSION};
+use crate::constants::get_server_config;
+use crate::constants::protocol::{server_name_multitenant, JSONRPC_VERSION, SERVER_VERSION};
 use crate::constants::tools::PUBLIC_DISCOVERY_TOOLS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_mcp_schema::{CreateMessageRequest, ToolSchema};
+use pierre_mcp_schema::{
+    CompleteRequest, CompleteResult, Completion, CreateMessageRequest, InitializeRequest,
+    InitializeResponse, Root, ToolSchema,
+};
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use std::collections::{HashMap, HashSet};
@@ -170,41 +175,79 @@ impl McpRequestProcessor {
         Ok(())
     }
 
-    /// Handle MCP initialize request
-    fn handle_initialize(request: &McpRequest) -> McpResponse {
+    /// Supported MCP protocol versions, in preference order.
+    const SUPPORTED_VERSIONS: &'static [&'static str] = &["2025-11-25", "2025-06-18", "2024-11-05"];
+
+    /// Handle MCP initialize request with protocol version negotiation.
+    ///
+    /// Echoes the client's requested version when supported, otherwise returns
+    /// a version-mismatch error listing the supported versions.
+    #[must_use]
+    pub fn handle_initialize(request: &McpRequest) -> McpResponse {
         debug!("Handling initialize request");
 
-        let server_info = serde_json::json!({
-            "protocolVersion": mcp_protocol_version(),
-            "capabilities": {
-                "tools": {
-                    "listChanged": true
-                },
-                "resources": {
-                    "subscribe": false,
-                    "listChanged": false
-                },
-                "prompts": {
-                    "listChanged": false
-                },
-                "sampling": {}
-            },
-            "serverInfo": {
-                "name": "pierre-mcp-server",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        });
+        let request_id = request.id.clone().unwrap_or_else(|| serde_json::json!(0));
 
-        McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            id: request.id.clone(),
-            result: Some(server_info),
-            error: None,
+        let Some(init_request) = request
+            .params
+            .as_ref()
+            .and_then(|params| serde_json::from_value::<InitializeRequest>(params.clone()).ok())
+        else {
+            return McpResponse::error(
+                Some(request_id),
+                ERROR_INVALID_PARAMS,
+                "Invalid initialize request parameters".to_owned(),
+            );
+        };
+
+        // Negotiate the protocol version: use the client's version when supported.
+        let client_version = &init_request.protocol_version;
+        let negotiated_version = if Self::SUPPORTED_VERSIONS.contains(&client_version.as_str()) {
+            client_version.clone()
+        } else {
+            let supported_versions = Self::SUPPORTED_VERSIONS.join(", ");
+            return McpResponse::error(
+                Some(request_id),
+                ERROR_VERSION_MISMATCH,
+                format!("{MSG_VERSION_MISMATCH}. Client version: {client_version}, Supported versions: {supported_versions}"),
+            );
+        };
+
+        info!(
+            "MCP version negotiated: {} (client: {}, server supports: {:?})",
+            negotiated_version,
+            client_version,
+            Self::SUPPORTED_VERSIONS
+        );
+
+        // Resolve the public OAuth origin for the advertised capability endpoints.
+        let base_url = get_server_config().map_or_else(
+            || "http://localhost:8081".to_owned(),
+            |c| c.base_url.clone(),
+        );
+        let init_response = InitializeResponse::new(
+            negotiated_version,
+            server_name_multitenant(),
+            SERVER_VERSION.to_owned(),
+            &base_url,
+        );
+
+        match serde_json::to_value(&init_response) {
+            Ok(result) => McpResponse::success(Some(request_id), result),
+            Err(e) => {
+                error!("Failed to serialize initialize response: {}", e);
+                McpResponse::error(
+                    Some(request_id),
+                    ERROR_SERIALIZATION,
+                    format!("{MSG_SERIALIZATION}: {e}"),
+                )
+            }
         }
     }
 
     /// Handle MCP ping request
-    fn handle_ping(request: &McpRequest) -> McpResponse {
+    #[must_use]
+    pub fn handle_ping(request: &McpRequest) -> McpResponse {
         debug!("Handling ping request");
 
         McpResponse {
@@ -618,11 +661,124 @@ impl McpRequestProcessor {
         debug!("Handling completion request: {}", request.method);
 
         match request.method.as_str() {
-            "completion/complete" => {
-                // Delegate to protocol handler
-                ProtocolHandler::handle_completion_complete(request.clone())
-            }
+            "completion/complete" => Self::handle_completion_complete(request),
             _ => Self::handle_unknown_method(request),
+        }
+    }
+
+    /// Handle the completion/complete request for auto-complete suggestions.
+    #[must_use]
+    pub fn handle_completion_complete(request: &McpRequest) -> McpResponse {
+        let request_id = request.id.clone().unwrap_or_else(|| serde_json::json!(0));
+
+        // Parse the completion request
+        let complete_request: Result<CompleteRequest, _> = request
+            .params
+            .as_ref()
+            .ok_or("Missing parameters")
+            .and_then(|p| serde_json::from_value(p.clone()).map_err(|_| "Invalid parameters"));
+
+        match complete_request {
+            Ok(req) => {
+                // Generate completions based on the reference type
+                let completion = Self::generate_completions(&req);
+
+                let result = CompleteResult { completion };
+
+                match serde_json::to_value(&result) {
+                    Ok(result_value) => McpResponse::success(Some(request_id), result_value),
+                    Err(e) => {
+                        error!("Failed to serialize completion result: {}", e);
+                        McpResponse::error(
+                            Some(request_id),
+                            ERROR_SERIALIZATION,
+                            format!("{MSG_SERIALIZATION}: {e}"),
+                        )
+                    }
+                }
+            }
+            Err(e) => McpResponse::error(
+                Some(request_id),
+                ERROR_INVALID_PARAMS,
+                format!("Invalid completion request: {e}"),
+            ),
+        }
+    }
+
+    /// Generate completion suggestions based on the request
+    fn generate_completions(req: &CompleteRequest) -> Completion {
+        // Match on the reference type
+        match req.ref_.type_.as_str() {
+            "ref/prompt" => {
+                // Complete prompt arguments
+                if req.argument.name == "activity_type" {
+                    let activity_types = ["run", "ride", "swim", "strength", "walk", "hike"];
+                    let matching: Vec<String> = activity_types
+                        .iter()
+                        .filter(|t| t.starts_with(&req.argument.value))
+                        .map(|s| (*s).to_owned())
+                        .collect();
+
+                    return Completion {
+                        values: matching.clone(),
+                        total: Some(matching.len()),
+                        has_more: Some(false),
+                    };
+                }
+
+                if req.argument.name == "provider" {
+                    let providers = ["strava", "fitbit", "garmin", "whoop", "terra", "sciotte"];
+                    let matching: Vec<String> = providers
+                        .iter()
+                        .filter(|p| p.starts_with(&req.argument.value))
+                        .map(|s| (*s).to_owned())
+                        .collect();
+
+                    return Completion {
+                        values: matching.clone(),
+                        total: Some(matching.len()),
+                        has_more: Some(false),
+                    };
+                }
+
+                if req.argument.name == "goal_type" {
+                    let goal_types = ["distance", "time", "frequency", "performance", "custom"];
+                    let matching: Vec<String> = goal_types
+                        .iter()
+                        .filter(|g| g.starts_with(&req.argument.value))
+                        .map(|s| (*s).to_owned())
+                        .collect();
+
+                    return Completion {
+                        values: matching.clone(),
+                        total: Some(matching.len()),
+                        has_more: Some(false),
+                    };
+                }
+            }
+            "ref/resource" => {
+                // Complete resource URIs
+                let resource_uris = ["oauth://notifications"];
+                let matching: Vec<String> = resource_uris
+                    .iter()
+                    .filter(|uri| uri.starts_with(&req.argument.value))
+                    .map(|s| (*s).to_owned())
+                    .collect();
+
+                return Completion {
+                    values: matching.clone(),
+                    total: Some(matching.len()),
+                    has_more: Some(false),
+                };
+            }
+            _ => {}
+        }
+
+        // Default: no completions
+        Completion {
+            values: vec![],
+            total: Some(0),
+            has_more: Some(false),
         }
     }
 
@@ -631,12 +787,20 @@ impl McpRequestProcessor {
         debug!("Handling roots request: {}", request.method);
 
         match request.method.as_str() {
-            "roots/list" => {
-                // Delegate to protocol handler
-                ProtocolHandler::handle_roots_list(request.clone())
-            }
+            "roots/list" => Self::handle_roots_list(request),
             _ => Self::handle_unknown_method(request),
         }
+    }
+
+    /// Handle the roots/list request.
+    ///
+    /// Returns an empty list of roots; Dravr does not expose filesystem roots
+    /// to MCP clients.
+    fn handle_roots_list(request: &McpRequest) -> McpResponse {
+        let request_id = request.id.clone().unwrap_or_else(|| serde_json::json!(0));
+        let roots: Vec<Root> = vec![];
+        let result = serde_json::json!({ "roots": roots });
+        McpResponse::success(Some(request_id), result)
     }
 
     /// Handle sampling requests (server-initiated LLM calls)

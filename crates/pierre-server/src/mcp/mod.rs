@@ -10,8 +10,6 @@ pub mod mcp_request_processor;
 pub mod multitenant;
 /// Curated, user-invokable analysis prompt templates (prompts/list + prompts/get)
 pub mod prompt_templates;
-/// MCP protocol types and message handling
-pub mod protocol;
 /// Coach marketplace catalog backing MCP resources/list + resources/read
 pub mod resource_catalog;
 /// Resource management for MCP
