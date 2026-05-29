@@ -385,6 +385,19 @@ module "backend" {
       DRAVR_SCIOTTE_LOGIN_TIMEOUT         = tostring(var.backend_sciotte_login_timeout_secs)
       DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
       DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
+
+      # Sciotte vision login: Hybrid runs the fast CSS/JS selector path first
+      # and only falls back to LLM screenshot reasoning when selectors fail
+      # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
+      # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
+      # provider, so this does not affect chat/analysis (which stay on 4.7).
+      DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
+      COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
+
+      # Fetch each activity's detail page so it carries the real UTC start_date
+      # (the training-log list page is date-only). N+1 headless roundtrip on the
+      # recent set — accepted in dev for correct timestamps + fragment-dedup.
+      PIERRE_SCIOTTE_ENRICH_DETAILS = "true"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {

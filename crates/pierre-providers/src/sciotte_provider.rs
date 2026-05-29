@@ -23,6 +23,7 @@ use dravr_sciotte::models::{
 use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
+use embacle::types::LlmProvider;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -79,6 +80,26 @@ impl SciotteTarget {
             Self::Garmin => SciotteProviderConfig::garmin_default(),
         };
         let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
+        CachedScraper::new(chrome_scraper, &CacheConfig::default())
+    }
+
+    /// Build a scraper with an LLM provider attached for vision-based login.
+    ///
+    /// Identical to [`Self::build_scraper`] but injects `llm` via
+    /// `ChromeScraper::with_llm`, enabling the vision login path. Under the
+    /// `Hybrid` `DRAVR_SCIOTTE_LOGIN_MODE` the selector path still runs first
+    /// and vision only fires when selectors fail; under `Vision` mode every
+    /// login uses the LLM. The login route supplies the shared Copilot-headless
+    /// provider so a Strava DOM change degrades to screenshot reasoning instead
+    /// of a hard failure.
+    #[must_use]
+    pub fn build_scraper_with_llm(self, llm: Arc<dyn LlmProvider>) -> CachedScraper<ChromeScraper> {
+        let provider_config = match self {
+            Self::Strava => SciotteProviderConfig::strava_default(),
+            Self::Garmin => SciotteProviderConfig::garmin_default(),
+        };
+        let chrome_scraper =
+            ChromeScraper::new(ScraperConfig::default(), provider_config).with_llm(llm);
         CachedScraper::new(chrome_scraper, &CacheConfig::default())
     }
 }
@@ -333,14 +354,18 @@ impl FitnessProvider for SciotteProvider {
             .ok_or_else(|| self.auth_required_no_session())?;
 
         let limit = params.limit.unwrap_or(20);
-        // Trait contract mirrors Strava/Fitbit: return list-page summary only.
-        // Detail-page enrichment (HR streams, laps, segments) is an N+1 roundtrip
-        // through the headless browser and unacceptable on interactive paths like
-        // chat orchestration and group snapshots. Callers that need full detail
-        // must invoke the Sciotte scraper directly with `enrich_details: true`.
+        // Detail-page enrichment (HR streams, laps, segments — and the real UTC
+        // start_date, absent from the date-only list page) is an N+1 roundtrip
+        // through the headless browser, so it stays OFF by default to keep
+        // interactive paths (chat, group snapshots) fast. It's opt-in per
+        // deployment via PIERRE_SCIOTTE_ENRICH_DETAILS=true (dev sets it) when
+        // correct start times matter more than the extra latency on the bounded
+        // recent set this fetch returns.
+        let enrich_details = std::env::var("PIERRE_SCIOTTE_ENRICH_DETAILS")
+            .is_ok_and(|v| v == "true" || v == "1");
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
-            enrich_details: false,
+            enrich_details,
             ..Default::default()
         };
 

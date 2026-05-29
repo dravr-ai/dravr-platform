@@ -175,7 +175,11 @@ fn sweep_bucket(bucket: &[&Activity], tolerance: Duration) -> Vec<FragmentGroup>
         let end = activity_end(activity);
 
         match current.as_mut() {
-            Some(building) if start <= building.window_end + tolerance => {
+            Some(building)
+                if building.known_time
+                    && has_known_time(activity)
+                    && start <= building.window_end + tolerance =>
+            {
                 building.push(activity, end);
             }
             _ => {
@@ -196,6 +200,15 @@ fn sweep_bucket(bucket: &[&Activity], tolerance: Duration) -> Vec<FragmentGroup>
     groups
 }
 
+/// True when the activity has a real start time-of-day. Sciotte's date-only
+/// list scraping yields `T00:00:00` (UTC midnight) when the start time is
+/// unknown; such rows must not be merged on temporal overlap — every midnight
+/// row "overlaps" every other, collapsing distinct same-sport sessions into one
+/// bogus fragment group. Unknown-time rows are treated as standalone sessions.
+fn has_known_time(activity: &Activity) -> bool {
+    activity.start_date().time() != chrono::NaiveTime::MIN
+}
+
 /// Activity end timestamp = `start_date + duration_seconds`. Saturates on
 /// overflow (impossible for plausible durations but keeps the arithmetic
 /// total). `duration_seconds = 0` yields `end == start`, which still allows a
@@ -213,6 +226,9 @@ struct GroupBuilder {
     sport_type: SportType,
     window_start: DateTime<Utc>,
     window_end: DateTime<Utc>,
+    /// Whether the row that opened this group has a real start time. A group
+    /// rooted on an unknown-time (midnight) row never absorbs later rows.
+    known_time: bool,
     members: Vec<MemberCandidate>,
 }
 
@@ -228,6 +244,7 @@ impl GroupBuilder {
             sport_type: first.sport_type().clone(),
             window_start: start,
             window_end: end,
+            known_time: has_known_time(first),
             members: vec![MemberCandidate::from(first)],
         }
     }

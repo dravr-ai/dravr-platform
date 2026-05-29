@@ -19,6 +19,12 @@ use super::slices::{
     A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
 use super::ServerContextBuilder;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::config::{LoginMode, ScraperConfig};
+#[cfg(feature = "provider-sciotte")]
+use embacle::types::LlmProvider as EmbacleLlmProvider;
+#[cfg(feature = "provider-sciotte")]
+use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
@@ -32,6 +38,28 @@ use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
+
+/// Build the shared Copilot-headless LLM provider for sciotte vision login.
+///
+/// Returns `None` under the default `Selector` `DRAVR_SCIOTTE_LOGIN_MODE` (the
+/// LLM is never consulted), or `Some` shared runner for `Hybrid`/`Vision`. The
+/// model comes from `COPILOT_HEADLESS_MODEL` (see
+/// [`CopilotHeadlessConfig::from_env`]); the `copilot --acp` subprocess spawns
+/// lazily on the first vision call, so the runner is cheap to hold and harmless
+/// when vision never fires.
+#[cfg(feature = "provider-sciotte")]
+fn build_sciotte_vision_llm() -> Option<Arc<dyn EmbacleLlmProvider>> {
+    if matches!(
+        ScraperConfig::default().login_mode,
+        LoginMode::Hybrid | LoginMode::Vision
+    ) {
+        let config = CopilotHeadlessConfig::from_env();
+        info!(model = %config.model, "Sciotte vision login enabled (Copilot headless)");
+        Some(Arc::new(CopilotHeadlessRunner::with_config(config)))
+    } else {
+        None
+    }
+}
 
 /// Centralized resource container for dependency injection.
 ///
@@ -380,6 +408,8 @@ impl ServerContext {
             mint_rate_limiter: self.auth.mint_rate_limiter.clone(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
+            #[cfg(feature = "provider-sciotte")]
+            sciotte_vision_llm: build_sciotte_vision_llm(),
         }
     }
 

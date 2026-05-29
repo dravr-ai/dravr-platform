@@ -47,6 +47,8 @@ use axum::{
 };
 use tokio::sync::broadcast;
 
+#[cfg(feature = "provider-sciotte")]
+use embacle::types::LlmProvider as EmbacleLlmProvider;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -151,6 +153,13 @@ pub struct AuthRoutesContext {
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
+    /// Shared Copilot-headless LLM provider for sciotte vision login. `None`
+    /// keeps the scraper on the pure-selector path; `Some` enables the
+    /// `Hybrid`/`Vision` `DRAVR_SCIOTTE_LOGIN_MODE` fallback (screenshot
+    /// reasoning when selectors fail). Built once at startup and reused — the
+    /// underlying `copilot --acp` subprocess only spawns when vision fires.
+    #[cfg(feature = "provider-sciotte")]
+    pub sciotte_vision_llm: Option<Arc<dyn EmbacleLlmProvider>>,
 }
 
 /// Authentication route group entry point.
