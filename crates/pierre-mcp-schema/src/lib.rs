@@ -464,7 +464,9 @@ impl InitializeResponse {
             capabilities: ServerCapabilities {
                 experimental: None,
                 logging: Some(LoggingCapability {}),
-                prompts: None,
+                prompts: Some(PromptsCapability {
+                    list_changed: Some(false),
+                }),
                 resources: Some(ResourcesCapability {
                     subscribe: None,
                     list_changed: Some(false),

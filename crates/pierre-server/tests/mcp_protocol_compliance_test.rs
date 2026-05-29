@@ -10,7 +10,7 @@
 use pierre_mcp_schema::*;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_server::constants::{errors::*, protocol::JSONRPC_VERSION};
-use pierre_mcp_server::mcp::protocol::ProtocolHandler;
+use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
 use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::{json, Value};
 
@@ -39,7 +39,7 @@ async fn test_protocol_version_negotiation() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     // Should succeed with supported version
     match response.result {
@@ -69,7 +69,7 @@ async fn test_unsupported_protocol_version() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     // Should return version mismatch error
     if let Some(error) = response.error {
@@ -103,7 +103,7 @@ async fn test_server_capabilities_declaration() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     if let Some(result) = response.result {
         let capabilities = &result["capabilities"];
@@ -364,7 +364,7 @@ async fn test_ping_method_compliance() {
     });
 
     let request: McpRequest = serde_json::from_value(ping_request).expect("Should parse");
-    let response = ProtocolHandler::handle_ping(request);
+    let response = McpRequestProcessor::handle_ping(&request);
 
     // Ping should return empty result object
     if let Some(result) = response.result {
@@ -481,7 +481,7 @@ async fn test_protocol_version_backward_compatibility() {
 
     let request: McpRequest =
         serde_json::from_value(init_request_old).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     // Should succeed with older supported version
     if let Some(result) = response.result {

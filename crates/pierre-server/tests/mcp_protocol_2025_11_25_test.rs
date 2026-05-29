@@ -10,7 +10,7 @@
 use pierre_mcp_schema::McpRequest;
 use pierre_mcp_schema::ToolAnnotations;
 use pierre_mcp_server::constants::errors::ERROR_VERSION_MISMATCH;
-use pierre_mcp_server::mcp::protocol::ProtocolHandler;
+use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
 use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::json;
 
@@ -36,7 +36,7 @@ async fn test_negotiate_2025_11_25_version() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     assert!(response.error.is_none(), "Should succeed with 2025-11-25");
     let result = response.result.expect("Should have result");
@@ -63,7 +63,7 @@ async fn test_backward_compat_2025_06_18() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     assert!(response.error.is_none(), "Should succeed with 2025-06-18");
     let result = response.result.expect("Should have result");
@@ -90,7 +90,7 @@ async fn test_backward_compat_2024_11_05() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     assert!(response.error.is_none(), "Should succeed with 2024-11-05");
     let result = response.result.expect("Should have result");
@@ -115,7 +115,7 @@ async fn test_unknown_future_version_rejected() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     let error = response
         .error
@@ -148,7 +148,7 @@ async fn test_server_info_includes_metadata() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     let result = response.result.expect("Should have result");
     let server_info = &result["serverInfo"];
@@ -287,7 +287,7 @@ async fn test_client_info_accepts_extended_fields() {
 
     let request: McpRequest = serde_json::from_value(init_request)
         .expect("Should parse request with extended clientInfo");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     assert!(
         response.error.is_none(),
@@ -318,7 +318,7 @@ async fn test_client_info_minimal_fields() {
 
     let request: McpRequest =
         serde_json::from_value(init_request).expect("Should parse request with minimal clientInfo");
-    let response = ProtocolHandler::handle_initialize(request);
+    let response = McpRequestProcessor::handle_initialize(&request);
 
     assert!(
         response.error.is_none(),

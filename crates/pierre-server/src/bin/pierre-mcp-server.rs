@@ -916,7 +916,7 @@ fn display_mcp_endpoints(host: &str, port: u16) {
     let endpoints = [
         "MCP Protocol:",
         &format!("   HTTP Transport:    http://{host}:{port}/mcp"),
-        &format!("   WebSocket:         ws://{host}:{port}/mcp/ws"),
+        &format!("   WebSocket:         ws://{host}:{port}/ws"),
         &format!("   Server-Sent Events: http://{host}:{port}/mcp/sse"),
     ];
     for line in &endpoints {
