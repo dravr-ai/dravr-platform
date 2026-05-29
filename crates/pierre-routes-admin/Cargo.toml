@@ -38,10 +38,6 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 [features]
 default = []
 tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]
-# Enables the `/api/admin/contremaitre/*` write-back routes (prompts,
-# manual sync, coach promotion). Composition root opts in alongside the
-# `pierre_mcp_server/contremaitre` feature.
-contremaitre = []
 
 [lints]
 workspace = true

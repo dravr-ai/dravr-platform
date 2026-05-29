@@ -72,7 +72,6 @@ use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::{
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
     ToolDescriptionRegistry,
@@ -282,18 +281,13 @@ pub struct McpSlice {
     /// Tool selection service for per-tenant MCP tool filtering.
     pub tool_selection: Arc<ToolSelectionService>,
     /// Prompt registry for hot-reloadable system prompts and coach personas.
-    #[cfg(feature = "contremaitre")]
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description registry for hot-reloadable MCP tool schema overlays.
-    #[cfg(feature = "contremaitre")]
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
     /// Evidence registry for hot-reloadable Tier 5.5 claim verification corpus.
-    #[cfg(feature = "contremaitre")]
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// Messaging strings registry for hot-reloadable user-facing canned replies.
-    #[cfg(feature = "contremaitre")]
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Contremaitre configuration for GitHub sync and webhook verification.
-    #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
 }

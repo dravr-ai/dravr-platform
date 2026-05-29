@@ -15,11 +15,10 @@ default = []
 # Forwarded to pierre-database/pierre-core for backend dispatch
 postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
 # Tier 5.5 bullshit detector services (claim_verification, claim_verdict_backfill, eval_harness)
-tools-verification = ["dep:pierre-evals", "dep:pierre-contremaitre"]
+tools-verification = ["dep:pierre-evals"]
 # Messaging-related services (messaging_outbound, messaging_seed, channel_error_reply, messaging_status_bridge)
 client-messaging = [
     "dep:pierre-messaging",
-    "dep:pierre-contremaitre",
     "dep:pierre-agui",
     "pierre-messaging/agui",
     "pierre-messaging/channel-discord",
@@ -30,8 +29,6 @@ client-messaging = [
 client-notifications = []
 # Health-data sync adapter (health_sync)
 health-sync = ["dep:pierre-enforme", "dep:dravr-equilibre-sync"]
-# Prompt hot-reload (claim_verification + user_status_gate)
-contremaitre = ["dep:pierre-contremaitre"]
 # PostHog analytics implementation
 analytics-posthog = []
 
@@ -43,7 +40,7 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
-pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }

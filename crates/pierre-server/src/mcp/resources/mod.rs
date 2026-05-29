@@ -6,7 +6,6 @@
 
 mod builder;
 mod context;
-#[cfg(feature = "contremaitre")]
 mod contremaitre;
 mod lifecycle;
 mod options;

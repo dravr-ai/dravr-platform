@@ -12,7 +12,6 @@ publish = false
 
 [features]
 default = []
-contremaitre = ["dep:pierre-contremaitre"]
 # OpenTelemetry OTLP traces + metrics. Compiled-but-inert until OTEL_EXPORTER_OTLP_ENDPOINT is set.
 telemetry = [
     "dep:opentelemetry",
@@ -22,7 +21,7 @@ telemetry = [
 ]
 
 [dependencies]
-pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 
 chrono = { version = "0.4", features = ["serde"] }

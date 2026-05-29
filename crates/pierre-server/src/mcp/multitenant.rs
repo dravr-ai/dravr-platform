@@ -53,7 +53,6 @@ use tracing::{debug, error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
-#[cfg(feature = "contremaitre")]
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::endurance;
 use crate::routes::user_profile::routes as user_profile_routes;
@@ -1126,19 +1125,12 @@ impl MultiTenantMcpServer {
                 admin_api_key_monthly_limit: admin_api_key_limit,
                 admin_token_cache_ttl_secs: admin_token_cache_ttl,
                 harness_config_registry: resources.fitness.harness_config_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 prompt_registry: resources.mcp.prompt_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 tool_description_registry: resources.mcp.tool_description_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 evidence_registry: resources.mcp.evidence_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 messaging_strings_registry: resources.mcp.messaging_strings_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 cageux_config_registry: resources.fitness.cageux_config_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 persona_contract_registry: resources.fitness.persona_contract_registry.clone(),
-                #[cfg(feature = "contremaitre")]
                 contremaitre_config: resources.mcp.contremaitre_config.clone(),
             });
             admin_context
@@ -1301,7 +1293,6 @@ impl MultiTenantMcpServer {
         // Contremaitre admin write-back routes (`/api/admin/contremaitre/*`)
         // are mounted by `AdminRoutes::cookie_admin_routes` above. Only the
         // webhook handler stays here.
-        #[cfg(feature = "contremaitre")]
         let app = app.merge(contremaitre_webhook_routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]

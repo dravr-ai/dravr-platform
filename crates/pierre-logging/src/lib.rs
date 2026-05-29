@@ -28,9 +28,7 @@ use gcp::GcpFormatter;
 use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient, SlackConfig,
 };
-#[cfg(feature = "contremaitre")]
 use dravr_tronc::notify::NotifyLayer;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
@@ -444,7 +442,6 @@ impl LoggingConfig {
         // Returns `None` when SLACK_BOT_TOKEN is unset (local dev), which
         // makes the layer a no-op via Option<Layer> passthrough — the
         // events still land in Cloud Logging through the formatter layer.
-        #[cfg(feature = "contremaitre")]
         let notify_layer = Self::build_notify_layer(&self.environment);
 
         // Build the OTLP pipeline once (if active) and reuse its tracer across
@@ -482,7 +479,6 @@ impl LoggingConfig {
                         .with_filter(chromiumoxide_teardown_filter())
                         .with_filter(ChromiumoxideNotifierFilter),
                 );
-                #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -508,7 +504,6 @@ impl LoggingConfig {
                         .with_filter(chromiumoxide_teardown_filter())
                         .with_filter(ChromiumoxideNotifierFilter),
                 );
-                #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -531,7 +526,6 @@ impl LoggingConfig {
                         .with_filter(chromiumoxide_teardown_filter())
                         .with_filter(ChromiumoxideNotifierFilter),
                 );
-                #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -553,7 +547,6 @@ impl LoggingConfig {
                         .with_filter(chromiumoxide_teardown_filter())
                         .with_filter(ChromiumoxideNotifierFilter),
                 );
-                #[cfg(feature = "contremaitre")]
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -648,7 +641,6 @@ impl LoggingConfig {
     /// placeholder is only relevant when the routing provider has no
     /// rule for the emitted event (in which case the layer drops the
     /// event entirely per its `default_rule = None` configuration).
-    #[cfg(feature = "contremaitre")]
     fn build_notify_layer(environment: &str) -> Option<NotifyLayer<ContremaitreRoutingProvider>> {
         let bot_token = env::var("SLACK_BOT_TOKEN").ok().filter(|s| !s.is_empty())?;
         // Placeholder channel — `NotifyLayer` reads the per-event channel

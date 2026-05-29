@@ -19,7 +19,6 @@ pub mod claim_verdicts;
 pub mod coach_followups;
 pub mod coach_grading;
 pub mod coach_notes;
-#[cfg(feature = "contremaitre")]
 pub mod contremaitre_admin;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;

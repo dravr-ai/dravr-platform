@@ -162,15 +162,10 @@ client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens"
 oauth = []
 
 # ═══════════════════════════════════════════════════════════════
-# PROMPT HOT-RELOAD (contremaitre)
-# ═══════════════════════════════════════════════════════════════
-contremaitre = ["dep:pierre-contremaitre", "pierre-logging/contremaitre", "pierre-services/contremaitre", "pierre-routes-admin/contremaitre", "pierre-tool-runtime/contremaitre", "pierre-chat-pipeline?/contremaitre"]  # GitHub-backed prompt registry with webhook hot-reload
-
-# ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "contremaitre", "analytics-posthog"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "contremaitre", "analytics-posthog"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
@@ -190,7 +185,7 @@ pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", op
 pierre-commands = { version = "0.3.0", path = "../pierre-commands", optional = true }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
-pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-external = { version = "0.3.0", path = "../pierre-external" }
 pierre-logging = { version = "0.3.0", path = "../pierre-logging" }

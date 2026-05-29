@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-#[cfg(feature = "contremaitre")]
 use super::contremaitre::init_contremaitre_registries;
 use super::ServerContext;
 use super::ServerContextOptions;
@@ -43,7 +42,6 @@ use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
 use pierre_core::errors::{AppError, AppResult};
@@ -326,7 +324,6 @@ impl ServerContext {
         // Initialize contremaitre registries (prompts + tool descriptions +
         // evidence). The cageux config registry is passed in so the
         // contremaitre sync can also overlay its snapshot.
-        #[cfg(feature = "contremaitre")]
         let (
             contremaitre_prompt_registry,
             contremaitre_tool_desc_registry,
@@ -464,15 +461,10 @@ impl ServerContext {
         let mcp = super::slices::McpSlice {
             tool_registry,
             tool_selection,
-            #[cfg(feature = "contremaitre")]
             prompt_registry: contremaitre_prompt_registry,
-            #[cfg(feature = "contremaitre")]
             tool_description_registry: contremaitre_tool_desc_registry,
-            #[cfg(feature = "contremaitre")]
             evidence_registry: contremaitre_evidence_registry,
-            #[cfg(feature = "contremaitre")]
             messaging_strings_registry: contremaitre_messaging_strings_registry,
-            #[cfg(feature = "contremaitre")]
             contremaitre_config: ContremaitreConfig::from_env(),
         };
 

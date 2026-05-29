@@ -152,10 +152,8 @@
 mod common;
 
 use anyhow::Result;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken};
 use pierre_core::models::{User, UserStatus};
@@ -206,21 +204,14 @@ impl AdminTestSetup {
             admin_api_key_monthly_limit,
             admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
-            #[cfg(feature = "contremaitre")]
             prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
-            #[cfg(feature = "contremaitre")]
             tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
-            #[cfg(feature = "contremaitre")]
             evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
-            #[cfg(feature = "contremaitre")]
             messaging_strings_registry: Arc::new(
                 pierre_contremaitre::MessagingStringsRegistry::new(),
             ),
-            #[cfg(feature = "contremaitre")]
             cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
-            #[cfg(feature = "contremaitre")]
             persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
-            #[cfg(feature = "contremaitre")]
             contremaitre_config: None,
         });
 

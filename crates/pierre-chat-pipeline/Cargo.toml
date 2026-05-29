@@ -12,10 +12,6 @@ publish = false
 
 [features]
 default = []
-contremaitre = [
-    "pierre-services/contremaitre",
-    "pierre-tool-runtime/contremaitre",
-]
 health-sync = [
     "pierre-services/health-sync",
     "pierre-tool-runtime/health-sync",
