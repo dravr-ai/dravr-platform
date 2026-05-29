@@ -394,7 +394,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // bullet lists, no inline JSON) but still teaches the model the
     // `<tool_call>` invocation syntax: tool-call blocks are required to
     // actually execute tools and are stripped server-side via
-    // `tool_simulation::strip_tool_call_blocks` before the reply reaches
+    // `tool_simulation::strip_simulation_artifacts` before the reply reaches
     // the user, so they never violate the plain-text mandate from
     // `messaging_context.md`.
     let tool_discipline_prompt = if profile.channel.is_messaging() {

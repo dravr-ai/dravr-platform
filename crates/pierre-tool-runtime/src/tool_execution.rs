@@ -577,8 +577,11 @@ pub async fn run_cli_tool_loop(
         );
 
         if embacle_calls.is_empty() {
-            // No tool calls — this is the final text response
-            let content = tool_simulation::strip_tool_call_blocks(&response.content);
+            // No tool calls — this is the final text response. Strip both the
+            // model's tool calls and any echoed tool-result scaffolding (weak
+            // CLI models parrot the injected `<tool_result>` turn back), so
+            // neither leaks to the user.
+            let content = tool_simulation::strip_simulation_artifacts(&response.content);
             return Ok(ToolLoopResult {
                 content,
                 usage: response.usage,
@@ -632,8 +635,9 @@ pub async fn run_cli_tool_loop(
             });
         }
 
-        // Add assistant message (with tool calls stripped via embacle)
-        let assistant_text = tool_simulation::strip_tool_call_blocks(&response.content);
+        // Add assistant message (with tool calls and any echoed tool-result
+        // scaffolding stripped via embacle, so parroted output never accumulates)
+        let assistant_text = tool_simulation::strip_simulation_artifacts(&response.content);
         if !assistant_text.is_empty() {
             llm_messages.push(ChatMessage::assistant(&assistant_text));
         }
@@ -840,7 +844,7 @@ fn emit_call_record_with_text(
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
 pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
-pub use tool_simulation::strip_tool_call_blocks;
+pub use tool_simulation::strip_simulation_artifacts;
 
 /// Generate a text-based tool catalog from pierre-llm function declarations.
 ///

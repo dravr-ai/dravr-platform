@@ -1294,8 +1294,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.15"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.15#7f322ea04354d359ce04fe28f0fcb7700b818da9"
+version = "0.1.16"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.16#b114086ef7285a56c9ffdd9e964bd728545e7db1"
 dependencies = [
  "async-trait",
  "axum",
@@ -1358,8 +1358,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.19"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.19#46bc198dea969f53bd7e946c6f229b9b99b9a832"
+version = "0.5.20"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.20#92da3419c73ad80c3e155a764f49b76e04be55c7"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1501,8 +1501,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.15.8"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.8#7a7f3715baa9b7a49e06f4a97315c17022cbf9a9"
+version = "0.15.14"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.14#fcc6c1cba1954eb4e2c7f1d61d47109fb1f42612"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -6617,7 +6617,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
