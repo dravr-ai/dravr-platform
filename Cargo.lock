@@ -1294,8 +1294,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.18"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.18#ac42d623db66b633f148fb420b56acd2c0380406"
+version = "0.1.19"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.19#5b7e72cac62f44e86b6a8cc30f018e5cf7df8026"
 dependencies = [
  "async-trait",
  "axum",
@@ -1358,8 +1358,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.23"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.23#6b3fdcae1c4472749132eb60ccd0dd4a2f1418af"
+version = "0.5.25"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.25#20d87c3016dd90a6df1714da857f4872d8d78a5b"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2226,7 +2226,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration 0.7.0",
  "tokio",
  "tower-service",
@@ -4312,7 +4312,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4349,7 +4349,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]

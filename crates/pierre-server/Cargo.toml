@@ -220,7 +220,7 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.23", features = ["vision"], optional = true }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.25", features = ["vision"], optional = true }
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.14", features = ["copilot-headless"], optional = true }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
