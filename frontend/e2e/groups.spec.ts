@@ -342,8 +342,9 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
-  // Coaches (for group creation form)
-  await page.route('**/api/coaches', async (route) => {
+  // Coaches (for group creation form + chat-welcome personalized grid).
+  // Trailing ** matches both /api/coaches and /api/coaches?personalize=true.
+  await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

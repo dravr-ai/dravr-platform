@@ -70,7 +70,7 @@ export default function CreateCoachFromConversationModal({
   const createMutation = useMutation({
     mutationFn: (data: CoachFormData) => coachesApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       onSuccess();
     },
   });
