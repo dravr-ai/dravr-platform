@@ -14,7 +14,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
 
@@ -206,7 +206,7 @@ fn sweep_bucket(bucket: &[&Activity], tolerance: Duration) -> Vec<FragmentGroup>
 /// row "overlaps" every other, collapsing distinct same-sport sessions into one
 /// bogus fragment group. Unknown-time rows are treated as standalone sessions.
 fn has_known_time(activity: &Activity) -> bool {
-    activity.start_date().time() != chrono::NaiveTime::MIN
+    activity.start_date().time() != NaiveTime::MIN
 }
 
 /// Activity end timestamp = `start_date + duration_seconds`. Saturates on

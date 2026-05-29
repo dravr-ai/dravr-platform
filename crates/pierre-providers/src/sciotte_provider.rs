@@ -24,6 +24,7 @@ use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
 use embacle::types::LlmProvider;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -362,7 +363,7 @@ impl FitnessProvider for SciotteProvider {
         // correct start times matter more than the extra latency on the bounded
         // recent set this fetch returns.
         let enrich_details =
-            std::env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
+            env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
             enrich_details,
