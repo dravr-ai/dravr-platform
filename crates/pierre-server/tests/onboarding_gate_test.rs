@@ -70,13 +70,13 @@ async fn require_connected_provider_passes_once_a_connection_exists() {
         .expect("connected user must pass the gate");
 }
 
-/// A `Synthetic` (seed/demo) connection must NOT satisfy the gate: synthetic
-/// activities are seeded test data, not a real provider link, so a user whose
-/// only connection is synthetic still needs to connect a real provider. The
-/// synthetic-activities seeder registers a `provider = "synthetic"` row for
-/// test users, which previously masked the first-login connect redirect.
+/// A `Synthetic` (seed/demo) connection DOES satisfy the coach-access gate:
+/// synthetic rows carry seeded activity data the LLM coach can legitimately
+/// discuss, so a demo user with only synthetic data is allowed to chat. The
+/// connect-a-real-provider decision is a separate axis — see
+/// [`user_has_real_provider_excludes_synthetic`].
 #[tokio::test]
-async fn require_connected_provider_rejects_synthetic_only() {
+async fn require_connected_provider_passes_with_synthetic() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -95,10 +95,55 @@ async fn require_connected_provider_rejects_synthetic_only() {
         .await
         .unwrap();
 
-    let err = onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
+    onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
         .await
-        .expect_err("synthetic-only user must still be refused");
-    assert_eq!(err.code, ErrorCode::NoProviderConnected);
+        .expect("synthetic (seeded) data must let a demo user chat");
+}
+
+/// The onboarding-redirect contract: `user_has_real_provider` excludes
+/// `Synthetic` connections. A user whose only connection is synthetic still
+/// needs to connect a real provider, so the first-login connect redirect must
+/// fire for them — distinct from the coach-access gate, which counts synthetic.
+#[tokio::test]
+async fn user_has_real_provider_excludes_synthetic() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let repo: Arc<dyn ProviderConnectionRepository> = repos.provider_connections.clone();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            "synthetic",
+            &ConnectionType::Synthetic,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !onboarding_gate::user_has_real_provider(&repo, user_id)
+            .await
+            .unwrap(),
+        "synthetic-only user still needs a real provider — redirect must fire"
+    );
+
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    assert!(
+        onboarding_gate::user_has_real_provider(&repo, user_id)
+            .await
+            .unwrap(),
+        "a real OAuth connection suppresses the redirect"
+    );
 }
 
 /// `user_has_connected_provider` returns the boolean for the

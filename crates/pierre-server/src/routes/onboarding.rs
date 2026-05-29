@@ -32,9 +32,10 @@ use pierre_services::onboarding_gate;
 
 /// Response body for `GET /api/me/onboarding-status`.
 ///
-/// `needs_provider_connection` is `true` when the caller has zero rows in
-/// `provider_connections` and must complete the onboarding flow before the
-/// messaging endpoints will accept their requests.
+/// `needs_provider_connection` is `true` when the caller has no *real*
+/// (non-`Synthetic`) row in `provider_connections` and should be routed to the
+/// connect-a-provider onboarding screen. Synthetic seed/demo connections do not
+/// count here — a demo user still needs to link a real provider.
 #[derive(Debug, Serialize)]
 pub struct OnboardingStatusResponse {
     /// `true` ⇒ frontend should redirect to the onboarding screen.
@@ -52,7 +53,7 @@ pub async fn handle_self_get(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let has_provider = onboarding_gate::user_has_connected_provider(
+    let has_provider = onboarding_gate::user_has_real_provider(
         &resources.common.repos.provider_connections,
         auth.user_id,
     )
