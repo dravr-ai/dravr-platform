@@ -102,12 +102,23 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
     let processor = McpRequestProcessor::new(Arc::clone(&resources));
 
     // initialize must advertise both resources and prompts capabilities.
+    // A spec-conformant initialize request carries protocolVersion, clientInfo,
+    // and capabilities; the handler rejects a paramless request with -32602.
     let init = ok_result(
         processor
-            .handle_request(request(1, "initialize", None))
+            .handle_request(request(
+                1,
+                "initialize",
+                Some(json!({
+                    "protocolVersion": "2025-11-25",
+                    "clientInfo": { "name": "conformance-test", "version": "0.0.0" },
+                    "capabilities": {}
+                })),
+            ))
             .await
             .expect("initialize returns a response"),
     );
+    eprintln!("INIT_DEBUG: {}", serde_json::to_string_pretty(&init).unwrap());
     let capabilities = init
         .get("capabilities")
         .expect("initialize result has capabilities");
