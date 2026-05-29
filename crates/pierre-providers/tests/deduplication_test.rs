@@ -350,7 +350,10 @@ fn midnight_starts_are_not_merged_as_fragments() {
     ];
     let report = detect_fragments(&activities, &DedupConfig::default());
     assert_eq!(report.raw_count, 3);
-    assert_eq!(report.session_count, 3, "midnight rows must stay distinct sessions");
+    assert_eq!(
+        report.session_count, 3,
+        "midnight rows must stay distinct sessions"
+    );
     assert!(
         report.groups.is_empty(),
         "no fragment groups should form from unknown-time (midnight) rows"
