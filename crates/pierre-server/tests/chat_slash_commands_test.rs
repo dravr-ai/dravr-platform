@@ -69,21 +69,16 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         .await
         .unwrap();
 
-    // Register a synthetic provider so the onboarding gate
+    // Register a real (non-synthetic) provider so the onboarding gate
     // (`services::onboarding_gate::require_connected_provider`) doesn't 403
     // before the slash dispatcher even runs. Slash commands don't consume
-    // provider data, but the gate fires upstream of dispatch.
+    // provider data, but the gate fires upstream of dispatch and counts
+    // only non-synthetic connections.
     resources
         .common
         .repos
         .provider_connections
-        .register_connection(
-            user_id,
-            tenant_id,
-            "synthetic",
-            &ConnectionType::Synthetic,
-            None,
-        )
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
         .await
         .unwrap();
 
