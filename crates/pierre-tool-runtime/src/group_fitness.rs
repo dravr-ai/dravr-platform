@@ -20,7 +20,7 @@ use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::{Activity, Tenant, TenantId};
-use pierre_intelligence::TrainingLoadCalculator;
+use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 use tracing::{debug, info};
@@ -473,12 +473,15 @@ async fn fetch_user_display_name(data: &DataContext, user_id: Uuid) -> String {
 ///
 /// Uses `TrainingLoadCalculator` to compute CTL, ATL, and TSB.
 /// Returns `(None, None, None)` if calculation fails.
-fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64>, Option<f64>) {
+fn compute_training_metrics(
+    activities: &[Activity],
+    algorithm_config: &AlgorithmConfig,
+) -> (Option<f64>, Option<f64>, Option<f64>) {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
     log_per_activity_tss(&calculator, &sorted);
 
     match calculator.calculate_training_load(
@@ -735,7 +738,13 @@ async fn fetch_single_member_snapshot(
         return empty_snapshot(user_id, display_name, now);
     }
 
-    build_snapshot_from_activities(user_id, display_name, &activities, now)
+    build_snapshot_from_activities(
+        user_id,
+        display_name,
+        &activities,
+        now,
+        &runtime.cageux_config().algorithms,
+    )
 }
 
 /// Resolve a member's connected providers and fetch activities using the merge strategy.
@@ -770,8 +779,9 @@ fn build_snapshot_from_activities(
     display_name: String,
     activities: &[Activity],
     now: DateTime<Utc>,
+    algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
-    let (ctl, atl, tsb) = compute_training_metrics(activities);
+    let (ctl, atl, tsb) = compute_training_metrics(activities, algorithm_config);
     let (weekly_activity_count, weekly_volume_km, weekly_duration_seconds, days_since_last) =
         compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);

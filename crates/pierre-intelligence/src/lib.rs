@@ -122,8 +122,8 @@ pub use dravr_cageux::activity_analyzer::{ActivityAnalyzerTrait, AdvancedActivit
 pub use dravr_cageux::analysis_config::{AnalysisConfig, AnalysisConfigError, ConfidenceLevel};
 pub use dravr_cageux::analyzer::ActivityAnalyzer;
 pub use dravr_cageux::config::intelligence::{
-    AggressiveStrategy, ConfigError, ConservativeStrategy, DefaultStrategy, IntelligenceConfig,
-    IntelligenceStrategy,
+    AggressiveStrategy, AlgorithmConfig, AlgorithmParamsConfig, ConfigError, ConservativeStrategy,
+    DefaultStrategy, IntelligenceConfig, IntelligenceStrategy,
 };
 pub use dravr_cageux::friend_activity_cache::{
     create_shared_cache, CacheConfig, CacheStats, DurationCategory, EffortLevel,

@@ -93,7 +93,13 @@ pub async fn compute_and_persist_history(
             weight_kg: p.weight,
         });
 
-    let states = compute_training_history(&activities, inputs, from, to);
+    let states = compute_training_history(
+        &activities,
+        inputs,
+        from,
+        to,
+        &resources.cageux_config().algorithms,
+    );
     if states.is_empty() {
         return Ok(0);
     }
