@@ -468,7 +468,10 @@ impl InitializeResponse {
                     list_changed: Some(false),
                 }),
                 resources: Some(ResourcesCapability {
-                    subscribe: None,
+                    // Explicitly advertise unsupported (false) rather than
+                    // omitting — honest + consistent with list_changed below,
+                    // so clients see a definite "no subscriptions" signal.
+                    subscribe: Some(false),
                     list_changed: Some(false),
                 }),
                 tools: Some(ToolsCapability {
