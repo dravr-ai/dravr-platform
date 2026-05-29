@@ -63,8 +63,15 @@ pub struct ActivitySummary {
     pub name: String,
     /// Activity sport type (e.g., "run", "ride", "cross\_country\_skiing")
     pub sport_type: SportType,
-    /// Start date/time in ISO 8601 format
+    /// Start date/time in ISO 8601 format (UTC). Kept UTC so day-windowing,
+    /// sorting, and fragment detection stay timezone-stable.
     pub start_date: String,
+    /// Start time rendered in the user's local IANA timezone (RFC3339 with
+    /// offset, e.g. `2026-05-29T08:36:07-04:00`), when the user has a timezone
+    /// on file. This is the field to DISPLAY to the user — `start_date` is the
+    /// raw UTC instant. `None` when the user has no timezone configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date_local: Option<String>,
     /// Distance in meters (0.0 if not available)
     pub distance_meters: f64,
     /// Duration in seconds
@@ -129,6 +136,9 @@ impl From<&Activity> for ActivitySummary {
             name: activity.name().to_owned(),
             sport_type: activity.sport_type().clone(),
             start_date: activity.start_date().to_rfc3339(),
+            // Populated by prepare_activity_data when the user's timezone is
+            // known; the From conversion has no timezone context.
+            start_date_local: None,
             distance_meters: activity.distance_meters().unwrap_or(0.0),
             duration_seconds: activity.duration_seconds(),
             elevation_gain_meters: activity.elevation_gain(),
@@ -733,6 +743,9 @@ pub(crate) struct CachedActivitiesParams<'a> {
     /// activities whose source provider didn't surface it. `None` when
     /// `WEATHER_BACKFILL_ENABLED=false`.
     pub weather_provider: Option<Arc<dyn WeatherProvider>>,
+    /// User's IANA timezone for rendering local start times (see
+    /// [`ActivitiesResponseParams::user_timezone`]).
+    pub user_timezone: Option<String>,
 }
 
 /// Create metadata for activity analysis responses
@@ -800,6 +813,7 @@ pub(crate) async fn try_get_cached_activities(
             default_time_window_applied: params.default_time_window_applied,
             analysis_type: params.analysis_type,
             backfill_temps: &backfill_temps,
+            user_timezone: params.user_timezone,
         });
         // Mark as cached in metadata
         if let Some(ref mut metadata) = response.metadata {
@@ -941,14 +955,21 @@ fn prepare_activity_data(
     activities: &[Activity],
     mode: &str,
     backfill_temps: &HashMap<String, f32>,
+    user_timezone: Option<&str>,
 ) -> Result<(Value, &'static str), String> {
     if mode == "summary" {
+        // Parse the user's IANA timezone once; activities carry UTC start_date,
+        // so we localize for display without touching the timezone-stable UTC.
+        let tz = user_timezone.and_then(|s| s.parse::<chrono_tz::Tz>().ok());
         let summaries: Vec<ActivitySummary> = activities
             .iter()
             .map(|a| {
                 let mut summary = ActivitySummary::from(a);
                 if summary.temperature.is_none() {
                     summary.temperature = backfill_temps.get(a.id()).copied();
+                }
+                if let Some(tz) = tz {
+                    summary.start_date_local = Some(a.start_date().with_timezone(&tz).to_rfc3339());
                 }
                 summary
             })
@@ -997,6 +1018,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// Empty when backfill is disabled or no candidates qualified
     /// (no GPS, no start time, or temp already present on the row).
     pub backfill_temps: &'a HashMap<String, f32>,
+    /// User's IANA timezone (e.g. `"America/Toronto"`), when on file. Used to
+    /// render `ActivitySummary::start_date_local` so the LLM displays start
+    /// times in the user's local time rather than raw UTC. `None` → UTC only.
+    pub user_timezone: Option<String>,
 }
 
 /// Build success response for activities with mode and format support
@@ -1019,20 +1044,22 @@ pub(crate) fn build_activities_success_response(
         default_time_window_applied,
         analysis_type,
         backfill_temps,
+        user_timezone,
     } = params;
 
     // Prepare the data based on mode
-    let (data_value, mode_used) = match prepare_activity_data(activities, mode, backfill_temps) {
-        Ok(result) => result,
-        Err(error) => {
-            return UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(error),
-                metadata: None,
+    let (data_value, mode_used) =
+        match prepare_activity_data(activities, mode, backfill_temps, user_timezone.as_deref()) {
+            Ok(result) => result,
+            Err(error) => {
+                return UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(error),
+                    metadata: None,
+                }
             }
-        }
-    };
+        };
 
     // Detect fragment groups across the activity slice so the LLM (and any
     // downstream telemetry) can distinguish raw GPS recordings from distinct
