@@ -27,6 +27,8 @@ pub mod api_providers;
 pub mod cache;
 /// Configuration parameter catalog and schema definitions
 pub mod catalog;
+/// Personalized coach recommendation tuning (activity scan window + scoring)
+pub mod coach_recommendations;
 /// Application constants and runtime server config holder (`SERVER_CONFIG` `OnceLock`)
 pub mod constants;
 /// Database configuration (`DatabaseUrl`, pools, backups, `SQLx`)

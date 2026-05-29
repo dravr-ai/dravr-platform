@@ -4,8 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     extract::{Path, Query, State},
@@ -13,18 +15,25 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::{Duration as ChronoDuration, Utc};
+use pierre_cache::{CacheKey, CacheResource};
 use pierre_coach_parser::{parse_coach_content, to_markdown};
+use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::coaches::{
     CoachCategory, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
+use pierre_core::models::{SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
+use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, info, Span};
+use uuid::Uuid;
 
 use super::types::{
     CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse,
@@ -56,7 +65,7 @@ fn chat_provider_from_ctx<C: CoachesCtx>(ctx: &Arc<C>) -> Result<Arc<ChatProvide
 }
 
 /// Handle GET /api/coaches - List coaches for a user
-pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx>(
+pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
     Query(query): Query<ListCoachesQuery>,
@@ -78,10 +87,14 @@ pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx>(
     let coaches = manager.list(auth.user_id, tenant_id, &filter).await?;
     let total = manager.count(auth.user_id, tenant_id).await?;
 
-    // Check prerequisites if requested
     let check_prereqs = query.check_prerequisites.unwrap_or(false);
-    let user_providers = if check_prereqs {
-        ctx.repos()
+    let personalize = query.personalize.unwrap_or(false);
+
+    // Both prerequisite checking and personalization need the user's connected
+    // providers. `ToolRuntime` and `MiddlewareCtx` both expose `repos()`, so
+    // the call is disambiguated to the middleware view.
+    let user_providers = if check_prereqs || personalize {
+        MiddlewareCtx::repos(ctx.as_ref())
             .oauth_tokens
             .get_tokens(auth.user_id, None)
             .await
@@ -96,25 +109,64 @@ pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx>(
         HashSet::new()
     };
 
-    let coaches_with_prereqs: Vec<CoachResponse> = coaches
-        .into_iter()
-        .map(|item| {
-            let prerequisites = item.coach.prerequisites.clone();
-            let mut response: CoachResponse = item.into();
+    // All recommendation tuning is env-driven (COACH_REC_*), so the curated
+    // set can be retuned without a deploy.
+    let rec_config = CoachRecommendationConfig::from_env();
 
-            if check_prereqs {
-                let (met, missing) = check_prerequisites(&prerequisites, &user_providers);
-                response.prerequisites_met = Some(met);
-                response.missing_prerequisites = if missing.is_empty() {
-                    None
-                } else {
-                    Some(missing)
-                };
-            }
+    // Scan recent activities once for the whole list when personalizing.
+    let sport_profile = if personalize {
+        load_sport_profile(&ctx, auth.user_id, tenant_id, &rec_config).await
+    } else {
+        None
+    };
 
-            response
-        })
-        .collect();
+    // First pass: build each response with prerequisite info, and capture the
+    // recommendation score so we can cap the recommended set afterwards.
+    let mut coaches_with_prereqs: Vec<CoachResponse> = Vec::with_capacity(coaches.len());
+    let mut scores: Vec<(usize, f32, bool)> = Vec::new();
+
+    for (index, item) in coaches.into_iter().enumerate() {
+        let prerequisites = item.coach.prerequisites.clone();
+        let mut response: CoachResponse = item.into();
+
+        if check_prereqs {
+            let (met, missing) = check_prerequisites(&prerequisites, &user_providers);
+            response.prerequisites_met = Some(met);
+            response.missing_prerequisites = if missing.is_empty() {
+                None
+            } else {
+                Some(missing)
+            };
+        }
+
+        if personalize {
+            let recommendation = coaches_service::score_coach(
+                &prerequisites,
+                sport_profile.as_ref(),
+                &user_providers,
+                &rec_config,
+            );
+            response.match_score = Some(recommendation.match_score);
+            scores.push((index, recommendation.match_score, recommendation.eligible));
+        }
+
+        coaches_with_prereqs.push(response);
+    }
+
+    // Second pass: surface only the top `max_recommended` eligible coaches by
+    // score; the rest stay browsable with recommended=false.
+    if personalize {
+        scores.retain(|(_, _, eligible)| *eligible);
+        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        let recommended_indices: HashSet<usize> = scores
+            .iter()
+            .take(rec_config.max_recommended)
+            .map(|(index, _, _)| *index)
+            .collect();
+        for (index, response) in coaches_with_prereqs.iter_mut().enumerate() {
+            response.recommended = Some(recommended_indices.contains(&index));
+        }
+    }
 
     let response = ListCoachesResponse {
         coaches: coaches_with_prereqs,
@@ -123,6 +175,64 @@ pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx>(
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Load (or compute and cache) the user's recent sport profile for coach
+/// personalization.
+///
+/// Returns `None` when the user has no connected provider or no activities in
+/// the look-back window — callers treat that as cold start. The profile is
+/// cached per (tenant, user) with a [`SPORT_PROFILE_TTL_SECS`] TTL so the
+/// expensive provider scan doesn't run on every page load.
+async fn load_sport_profile<C: ToolRuntime>(
+    ctx: &Arc<C>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    config: &CoachRecommendationConfig,
+) -> Option<SportProfile> {
+    let cache_key = CacheKey::new(
+        tenant_id,
+        user_id,
+        "coach_recs".to_owned(),
+        CacheResource::Custom("sport_profile".to_owned()),
+    );
+
+    if let Ok(Some(profile)) = ToolRuntime::cache(ctx.as_ref())
+        .get::<SportProfile>(&cache_key)
+        .await
+    {
+        return Some(profile);
+    }
+
+    // Two-step so the unsized coercion Arc<C> -> Arc<dyn ToolRuntime> happens
+    // at the binding rather than inside Arc::clone's argument inference.
+    let runtime_concrete: Arc<C> = Arc::clone(ctx);
+    let runtime: Arc<dyn ToolRuntime> = runtime_concrete;
+    let after_ts = (Utc::now() - ChronoDuration::days(i64::from(config.window_days))).timestamp();
+    let activities = fetch_recent_activities_all_providers(
+        &runtime,
+        user_id,
+        &tenant_id.to_string(),
+        after_ts,
+        config.activity_limit_per_provider,
+    )
+    .await;
+
+    if activities.is_empty() {
+        return None;
+    }
+
+    let profile = SportProfile::from_activities(&activities, config.window_days);
+
+    let _ = ToolRuntime::cache(ctx.as_ref())
+        .set(
+            &cache_key,
+            &profile,
+            Duration::from_secs(config.profile_ttl_secs),
+        )
+        .await;
+
+    Some(profile)
 }
 
 /// Check if prerequisites are met given user's connected providers

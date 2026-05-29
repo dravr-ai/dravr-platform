@@ -7,7 +7,9 @@
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
+use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::models::coaches::CoachPrerequisites;
+use pierre_core::models::SportProfile;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -62,6 +64,94 @@ pub fn check_prerequisites<S: BuildHasher>(
 
     let met = missing.is_empty();
     PrerequisiteCheckResult { met, missing }
+}
+
+/// Outcome of scoring one coach against a user's profile.
+#[derive(Debug, Clone, Copy)]
+pub struct CoachRecommendation {
+    /// Whether this coach is *eligible* for the "Recommended for you" set
+    /// (providers connected and either a sport match or a cold-start starter).
+    /// The caller still caps the surfaced set to `max_recommended` by score.
+    pub eligible: bool,
+    /// Relevance score in `0.0..=1.0` (higher is a better match). Used to rank
+    /// the recommended set; ineligible coaches keep their score for
+    /// transparency but stay in the full catalog.
+    pub match_score: f32,
+}
+
+/// Score a single coach against the user's connected providers and recent
+/// sport mix, using the env-tunable [`CoachRecommendationConfig`].
+///
+/// A coach is only ever eligible when its provider prerequisites are met.
+/// Beyond that:
+/// - **Sport-specific** coaches (non-empty `activity_types`) score by how much
+///   the user's active sports overlap the coach's required types.
+/// - **Sport-agnostic** coaches (empty `activity_types`) help everyone, so once
+///   their providers are connected they get `sport_agnostic_base_score`.
+/// - With **no activity profile yet** (cold start), only the broadly-useful,
+///   provider-free starter coaches are eligible — everything sport- or
+///   provider-gated waits until we can see what the user actually does.
+#[must_use]
+pub fn score_coach<S: BuildHasher>(
+    prerequisites: &CoachPrerequisites,
+    profile: Option<&SportProfile>,
+    user_providers: &HashSet<String, S>,
+    config: &CoachRecommendationConfig,
+) -> CoachRecommendation {
+    // Provider gate: a coach needing a provider the user hasn't connected is
+    // never eligible, but stays browsable in the full catalog.
+    let providers_ok = prerequisites
+        .providers
+        .iter()
+        .all(|p| user_providers.contains(&p.to_lowercase()));
+    if !providers_ok {
+        return CoachRecommendation {
+            eligible: false,
+            match_score: 0.0,
+        };
+    }
+
+    let sport_agnostic = prerequisites.activity_types.is_empty();
+
+    match profile {
+        Some(profile) if profile.total_activities > 0 => {
+            if sport_agnostic {
+                CoachRecommendation {
+                    eligible: true,
+                    match_score: config.sport_agnostic_base_score,
+                }
+            } else {
+                let overlap = profile.activity_type_overlap(
+                    &prerequisites.activity_types,
+                    config.min_activities_for_sport,
+                    config.min_share_for_sport,
+                );
+                let min_met = profile.total_activities >= prerequisites.min_activities;
+                let match_score = if min_met {
+                    overlap
+                } else {
+                    overlap * config.below_min_activities_penalty
+                };
+                CoachRecommendation {
+                    eligible: overlap > 0.0,
+                    match_score,
+                }
+            }
+        }
+        _ => {
+            // Cold start: recommend only the broadly-useful coaches that need
+            // neither a provider nor a specific sport.
+            let starter = sport_agnostic && prerequisites.providers.is_empty();
+            CoachRecommendation {
+                eligible: starter,
+                match_score: if starter {
+                    config.sport_agnostic_base_score
+                } else {
+                    0.0
+                },
+            }
+        }
+    }
 }
 
 /// Format a rejection reason by combining the base reason with optional notes
