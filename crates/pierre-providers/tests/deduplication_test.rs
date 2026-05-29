@@ -334,3 +334,25 @@ fn determinism_same_input_yields_same_canonical() {
     assert_eq!(report.groups.len(), 1);
     assert_eq!(report.groups[0].canonical_id, "aaa");
 }
+
+#[test]
+fn midnight_starts_are_not_merged_as_fragments() {
+    // Sciotte's date-only list scraping yields T00:00:00 (UTC midnight) when the
+    // start time is unknown. Three distinct same-sport sessions that all land on
+    // midnight must NOT collapse into one bogus fragment group — every midnight
+    // row trivially "overlaps" every other, which produced the "N sessions
+    // today" hallucination. Unknown-time rows stay standalone.
+    let midnight = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let activities = vec![
+        make_activity("a", SportType::Run, midnight, 1800, 5000.0),
+        make_activity("b", SportType::Run, midnight, 2400, 7000.0),
+        make_activity("c", SportType::Run, midnight, 3000, 9000.0),
+    ];
+    let report = detect_fragments(&activities, &DedupConfig::default());
+    assert_eq!(report.raw_count, 3);
+    assert_eq!(report.session_count, 3, "midnight rows must stay distinct sessions");
+    assert!(
+        report.groups.is_empty(),
+        "no fragment groups should form from unknown-time (midnight) rows"
+    );
+}

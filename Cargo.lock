@@ -1294,8 +1294,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.12"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.12#396c73998d3ce8e14aae3d2fc3e89966544d5309"
+version = "0.1.15"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.15#7f322ea04354d359ce04fe28f0fcb7700b818da9"
 dependencies = [
  "async-trait",
  "axum",
@@ -1358,14 +1358,15 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.16"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.16#623b5c5388b231dd5e888667cba6de69f7da36d9"
+version = "0.5.19"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.19#46bc198dea969f53bd7e946c6f229b9b99b9a832"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chromiumoxide",
  "chrono",
  "dirs 6.0.0",
+ "embacle",
  "futures",
  "moka",
  "reqwest 0.12.28",
@@ -3590,6 +3591,7 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-sciotte",
+ "embacle",
  "futures-util",
  "hex",
  "num-traits",
@@ -3669,6 +3671,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dravr-sciotte",
+ "embacle",
  "hex",
  "hmac",
  "pierre-auth",

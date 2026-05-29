@@ -713,7 +713,16 @@ pub async fn handle_sciotte_login(
 
     info!(user_id = %user_id, target = %target, "Starting sciotte credential login");
 
-    let cached = SciotteTarget::from_target_param(target).build_scraper();
+    // Attach the shared vision LLM when configured so a selector failure
+    // degrades to screenshot reasoning (Hybrid/Vision DRAVR_SCIOTTE_LOGIN_MODE)
+    // instead of a hard error. None keeps the pure-selector path. The 2FA/OTP
+    // continuation reuses this same scraper from PENDING_OTP_SCRAPERS, so the
+    // fallback persists across the multi-step flow.
+    let target_kind = SciotteTarget::from_target_param(target);
+    let cached = resources.sciotte_vision_llm.as_ref().map_or_else(
+        || target_kind.build_scraper(),
+        |llm| target_kind.build_scraper_with_llm(Arc::clone(llm)),
+    );
 
     let result = match cached
         .credential_login(&request.email, &request.password, &request.method)
