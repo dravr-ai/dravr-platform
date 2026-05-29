@@ -361,8 +361,8 @@ impl FitnessProvider for SciotteProvider {
         // deployment via PIERRE_SCIOTTE_ENRICH_DETAILS=true (dev sets it) when
         // correct start times matter more than the extra latency on the bounded
         // recent set this fetch returns.
-        let enrich_details = std::env::var("PIERRE_SCIOTTE_ENRICH_DETAILS")
-            .is_ok_and(|v| v == "true" || v == "1");
+        let enrich_details =
+            std::env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
             enrich_details,
