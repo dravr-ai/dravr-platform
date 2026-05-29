@@ -54,7 +54,13 @@ async function loginAsPendingUser(page: import('@playwright/test').Page) {
   });
 
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10000 });
+  // Let background auth/setup fetches settle so the app doesn't flip back to its
+  // loading spinner (which unmounts the form) mid-interaction.
+  await page.waitForLoadState('networkidle');
+  // Wait for the password field specifically: it uniquely identifies the stable
+  // Login form, so we never fill email into a transitional form that's about to
+  // be replaced.
+  await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
 
   // Login
   await page.locator('input[name="email"]').fill('pending@test.com');
@@ -176,7 +182,8 @@ test.describe('Pending Approval Page - Without Display Name', () => {
     });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+    await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
 
     await page.locator('input[name="email"]').fill('noname@test.com');
     await page.locator('input[name="password"]').fill('TestPassword123');
@@ -246,7 +253,8 @@ test.describe('Pending Approval Page - Active User Redirect', () => {
     });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+    await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
 
     await page.locator('input[name="email"]').fill('active@test.com');
     await page.locator('input[name="password"]').fill('TestPassword123');
