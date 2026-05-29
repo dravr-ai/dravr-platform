@@ -59,8 +59,9 @@ export const QUERY_KEYS = {
   // ==================== COACHES ====================
   coaches: {
     all: ['coaches'] as const,
-    list: (category?: string, favoritesOnly?: boolean) =>
-      ['user-coaches', category, favoritesOnly] as const,
+    lists: () => ['user-coaches'] as const,
+    list: (category?: string, favoritesOnly?: boolean, personalize?: boolean) =>
+      ['user-coaches', category, favoritesOnly, personalize] as const,
     listWithHidden: () => ['user-coaches', 'include-hidden'] as const,
     hidden: () => ['hidden-coaches'] as const,
     versions: (coachId: string) => ['coach-versions', coachId] as const,

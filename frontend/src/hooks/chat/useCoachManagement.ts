@@ -109,7 +109,7 @@ export function useCoachManagement(enabled: boolean = true) {
   const createCoach = useMutation({
     mutationFn: (data: CoachFormData) => coachesApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       setShowCoachModal(false);
       setCoachFormData(DEFAULT_FORM_DATA);
     },
@@ -120,7 +120,7 @@ export function useCoachManagement(enabled: boolean = true) {
     mutationFn: ({ id, data }: { id: string; data: CoachFormData }) =>
       coachesApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       setShowCoachModal(false);
       setEditingCoachId(null);
       setCoachFormData(DEFAULT_FORM_DATA);
@@ -131,7 +131,7 @@ export function useCoachManagement(enabled: boolean = true) {
   const deleteCoach = useMutation({
     mutationFn: (id: string) => coachesApi.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       setDeleteConfirmation(null);
     },
   });
@@ -140,7 +140,7 @@ export function useCoachManagement(enabled: boolean = true) {
   const hideCoach = useMutation({
     mutationFn: (coachId: string) => coachesApi.hide(coachId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.hidden() });
     },
   });
@@ -149,7 +149,7 @@ export function useCoachManagement(enabled: boolean = true) {
   const showCoach = useMutation({
     mutationFn: (coachId: string) => coachesApi.show(coachId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.hidden() });
     },
   });

@@ -61,7 +61,7 @@ export function CoachVersionHistory({
     mutationFn: (version: number) => coachesApi.revertToVersion(coachId, version),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.versions(coachId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       setShowConfirmRevert(false);
       setSelectedVersion(null);
       onReverted?.();

@@ -27,7 +27,10 @@ export default function PromptSuggestions({ onSelectPrompt, onEditCoach, onDelet
     isLoading,
     error,
   } = useQuery({
-    queryKey: QUERY_KEYS.coaches.list(),
+    // personalize is part of the key: the personalized response (match_score +
+    // recommended tags) is a distinct payload from the plain list, so it must
+    // not share a cache slot with QUERY_KEYS.coaches.list() consumers.
+    queryKey: QUERY_KEYS.coaches.list(undefined, undefined, true),
     // personalize: tag system coaches with match_score + recommended so the
     // grid can surface a curated "Recommended for you" set instead of all 26.
     queryFn: () => coachesApi.list({ personalize: true }),
