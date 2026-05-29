@@ -448,7 +448,7 @@ jobs:
         with:
           name: pierre-server-logs
           path: ${{ runner.temp }}/pierre-logs/
-          retention-days: 14
+          retention-days: 1
 
       - name: Upload Ollama logs
         if: always()
@@ -456,4 +456,4 @@ jobs:
         with:
           name: ollama-logs
           path: ${{ runner.temp }}/ollama-logs/
-          retention-days: 14
+          retention-days: 1

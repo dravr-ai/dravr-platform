@@ -724,4 +724,4 @@ jobs:
             /tmp/metro.log
             /tmp/expo-install.log
             /tmp/pierre-server.log
-          retention-days: 7
+          retention-days: 1

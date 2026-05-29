@@ -67,4 +67,4 @@ jobs:
         with:
           name: mobile-coverage
           path: frontend-mobile/coverage/
-          retention-days: 7
+          retention-days: 1

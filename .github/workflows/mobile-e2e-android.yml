@@ -521,4 +521,4 @@ jobs:
             frontend-mobile/.maestro/
             /tmp/android-crash.txt
             /tmp/android-summary.txt
-          retention-days: 7
+          retention-days: 1

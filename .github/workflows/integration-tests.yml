@@ -110,7 +110,7 @@ jobs:
         with:
           name: integration-test-report
           path: frontend/playwright-report/
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload test screenshots
         uses: actions/upload-artifact@v4
@@ -118,7 +118,7 @@ jobs:
         with:
           name: integration-test-screenshots
           path: frontend/test-results/
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload test videos
         uses: actions/upload-artifact@v4
@@ -126,4 +126,4 @@ jobs:
         with:
           name: integration-test-videos
           path: frontend/test-results/
-          retention-days: 7
+          retention-days: 1
