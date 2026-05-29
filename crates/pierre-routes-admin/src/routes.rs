@@ -25,7 +25,6 @@ use pierre_runtime_context::MiddlewareCtx;
 
 use crate::auth::middleware::admin_auth_middleware;
 use crate::context::AdminApiContext;
-#[cfg(feature = "contremaitre")]
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
@@ -129,7 +128,6 @@ impl AdminRoutes {
             .merge(feature_flag_admin_routes)
             .merge(rate_limit_override_routes);
 
-        #[cfg(feature = "contremaitre")]
         let human_admin = human_admin.merge(contremaitre_admin::admin_routes(Arc::clone(&context)));
 
         #[cfg(feature = "tools-verification")]

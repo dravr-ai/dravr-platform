@@ -15,10 +15,8 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
 #[cfg(feature = "postgresql")]
 use pierre_config::environment::PostgresPoolConfig;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserStatus, UserTier};
@@ -75,19 +73,12 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
-        #[cfg(feature = "contremaitre")]
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
-        #[cfg(feature = "contremaitre")]
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         contremaitre_config: None,
     });
 
@@ -297,19 +288,12 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
-        #[cfg(feature = "contremaitre")]
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
-        #[cfg(feature = "contremaitre")]
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         contremaitre_config: None,
     });
     let admin_routes = AdminRoutes::routes(admin_context);
@@ -448,19 +432,12 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
-        #[cfg(feature = "contremaitre")]
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
-        #[cfg(feature = "contremaitre")]
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         contremaitre_config: None,
     });
     let admin_routes = AdminRoutes::routes(admin_context);
@@ -635,19 +612,12 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
-        #[cfg(feature = "contremaitre")]
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
-        #[cfg(feature = "contremaitre")]
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
-        #[cfg(feature = "contremaitre")]
         contremaitre_config: None,
     });
 

@@ -18,7 +18,6 @@ publish = false
 client-notifications = ["dep:pierre-notifications"]
 health-sync = ["dep:pierre-enforme", "pierre-services/health-sync"]
 transport-sse = []
-contremaitre = ["pierre-services/contremaitre"]
 # Provider feature flag (auth.rs has a small synthetic-provider code path).
 provider-synthetic = ["pierre-providers/provider-synthetic"]
 # Chat tool-loop strategies (API/headless/CLI) used by client-chat in pierre-server.

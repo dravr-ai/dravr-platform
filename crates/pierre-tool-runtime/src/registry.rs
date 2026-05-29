@@ -28,7 +28,6 @@ use serde::Serialize;
 
 use crate::context::ToolExecutionContext;
 use crate::traits::{McpTool, ToolCapabilities};
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::ToolDescriptionRegistry;
 use pierre_tools_core::ToolError;
 use pierre_tools_core::ToolResult;
@@ -87,7 +86,6 @@ pub struct ToolRegistry {
     /// Tool categories for organization
     categories: HashMap<String, Vec<String>>,
     /// External tool description overlays from contremaitre (hot-reloadable)
-    #[cfg(feature = "contremaitre")]
     tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
 }
 
@@ -98,36 +96,16 @@ impl ToolRegistry {
         Self {
             tools: HashMap::new(),
             categories: HashMap::new(),
-            #[cfg(feature = "contremaitre")]
             tool_descriptions: None,
         }
     }
 
     /// Set the external tool description registry for schema overlay.
-    #[cfg(feature = "contremaitre")]
     pub fn set_tool_descriptions(&mut self, registry: Arc<ToolDescriptionRegistry>) {
         self.tool_descriptions = Some(registry);
     }
 
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
-    ///
-    /// Without `contremaitre` there's no overlay source, so `&self` isn't read.
-    /// Signature matches the cfg-gated overlay variant below so callers don't
-    /// branch on the feature; the `_ = self` line keeps clippy quiet without an
-    /// `#[allow]` attr.
-    #[cfg(not(feature = "contremaitre"))]
-    fn build_schema(&self, tool: &Arc<dyn McpTool>) -> ToolSchema {
-        let _ = self;
-        ToolSchema {
-            name: tool.name().to_owned(),
-            description: tool.description().to_owned(),
-            input_schema: tool.input_schema(),
-            annotations: tool.annotations(),
-        }
-    }
-
-    /// Build a `ToolSchema` from a tool, applying external description overlays if available.
-    #[cfg(feature = "contremaitre")]
     fn build_schema(&self, tool: &Arc<dyn McpTool>) -> ToolSchema {
         let mut schema = ToolSchema {
             name: tool.name().to_owned(),
@@ -515,7 +493,6 @@ impl fmt::Debug for ToolRegistry {
             .field("tool_count", &self.tools.len())
             .field("tools", &self.tool_names())
             .field("categories", &self.categories());
-        #[cfg(feature = "contremaitre")]
         debug.field(
             "tool_descriptions",
             &self.tool_descriptions.as_ref().map(|r| r.count()),

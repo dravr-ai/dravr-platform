@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::{
     cageux_config::CageuxConfigRegistry, persona_contracts::PersonaContractRegistry,
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
@@ -63,26 +62,19 @@ pub struct AdminApiContext {
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// Hot-reloadable system + coach prompt registry consumed by
     /// `/api/admin/contremaitre/prompts*` and the manual sync endpoint.
-    #[cfg(feature = "contremaitre")]
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry (MCP tool schema rewrites).
-    #[cfg(feature = "contremaitre")]
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
     /// Tier 5.5 claim verification evidence corpus registry.
-    #[cfg(feature = "contremaitre")]
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// User-facing canned reply / messaging-strings registry.
-    #[cfg(feature = "contremaitre")]
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Cageux sports-science config registry (runtime calibration values).
-    #[cfg(feature = "contremaitre")]
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Persona contract registry (voice/style guardrails per persona).
-    #[cfg(feature = "contremaitre")]
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
     /// Contremaitre GitHub sync configuration; `None` when contremaitre is
     /// disabled in the running binary.
-    #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
 }
 
@@ -108,25 +100,18 @@ pub struct AdminApiContextInit {
     /// Harness config registry surfaced to admin eval flows
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// Hot-reloadable system + coach prompt registry
-    #[cfg(feature = "contremaitre")]
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry
-    #[cfg(feature = "contremaitre")]
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
     /// Tier 5.5 claim verification evidence corpus registry
-    #[cfg(feature = "contremaitre")]
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// User-facing canned reply registry
-    #[cfg(feature = "contremaitre")]
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Cageux sports-science config registry
-    #[cfg(feature = "contremaitre")]
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Persona contract registry
-    #[cfg(feature = "contremaitre")]
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
     /// Contremaitre GitHub sync configuration (None when disabled)
-    #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
 }
 
@@ -151,19 +136,12 @@ impl AdminApiContext {
             email_service: None,
             frontend_url: None,
             harness_config_registry: init.harness_config_registry,
-            #[cfg(feature = "contremaitre")]
             prompt_registry: init.prompt_registry,
-            #[cfg(feature = "contremaitre")]
             tool_description_registry: init.tool_description_registry,
-            #[cfg(feature = "contremaitre")]
             evidence_registry: init.evidence_registry,
-            #[cfg(feature = "contremaitre")]
             messaging_strings_registry: init.messaging_strings_registry,
-            #[cfg(feature = "contremaitre")]
             cageux_config_registry: init.cageux_config_registry,
-            #[cfg(feature = "contremaitre")]
             persona_contract_registry: init.persona_contract_registry,
-            #[cfg(feature = "contremaitre")]
             contremaitre_config: init.contremaitre_config,
         }
     }

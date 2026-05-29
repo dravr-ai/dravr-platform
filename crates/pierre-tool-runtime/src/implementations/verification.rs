@@ -168,10 +168,7 @@ impl McpTool for VerifyClaimTool {
             text: claim_text.clone(),
             category,
         };
-        #[cfg(feature = "contremaitre")]
         let corpus = claim_verification::resolve_corpus(context.resources.evidence_registry());
-        #[cfg(not(feature = "contremaitre"))]
-        let corpus = claim_verification::fallback_corpus();
         let outcome =
             claim_verification::verify_single_claim_with(&extracted, minimum_strength, &corpus);
 

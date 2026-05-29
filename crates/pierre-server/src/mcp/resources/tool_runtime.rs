@@ -101,7 +101,6 @@ impl ToolRuntime for ServerContext {
         self.common.llm_provider.as_ref()
     }
 
-    #[cfg(feature = "contremaitre")]
     fn evidence_registry(&self) -> &Arc<pierre_contremaitre::EvidenceRegistry> {
         &self.mcp.evidence_registry
     }

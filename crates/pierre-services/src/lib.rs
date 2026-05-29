@@ -163,7 +163,6 @@ pub mod usage_counter;
 pub mod usage_pruning;
 
 /// Account-status authorization gate shared by HTTP middleware and messaging ingress.
-#[cfg(feature = "contremaitre")]
 pub mod user_status_gate;
 
 /// Lazy weather backfill — fills missing ambient temperature on activities

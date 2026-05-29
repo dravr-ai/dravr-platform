@@ -7,7 +7,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-#[cfg(feature = "contremaitre")]
 mod tests {
     use dravr_tronc::notify::RoutingProvider;
     use pierre_contremaitre::notify_routing::ContremaitreRoutingProvider;

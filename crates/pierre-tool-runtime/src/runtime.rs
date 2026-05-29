@@ -118,7 +118,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     ///
     /// Gated behind the `contremaitre` feature because the registry only
     /// exists when the contremaitre GitHub-sync subsystem is wired in.
-    #[cfg(feature = "contremaitre")]
     fn evidence_registry(&self) -> &Arc<pierre_contremaitre::EvidenceRegistry>;
 
     /// Materialize a [`DataContext`] (the focused data-access slice).

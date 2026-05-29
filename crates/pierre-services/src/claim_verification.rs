@@ -19,7 +19,6 @@
 //! published propositions via webhook sync; this module falls back to the
 //! embedded files when the registry is empty.
 
-#[cfg(feature = "contremaitre")]
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::AppResult;
 use pierre_evals::{
@@ -242,7 +241,6 @@ pub fn corpus() -> &'static EvidenceCorpus {
 /// per-proposition corpora on every call; cloning is cheap (a `Vec` of
 /// small records) and keeps the lock hold time minimal.
 #[must_use]
-#[cfg(feature = "contremaitre")]
 pub fn resolve_corpus(registry: &EvidenceRegistry) -> EvidenceCorpus {
     let runtime = registry.full_corpus();
     if runtime.is_empty() {
@@ -250,17 +248,6 @@ pub fn resolve_corpus(registry: &EvidenceRegistry) -> EvidenceCorpus {
     } else {
         runtime
     }
-}
-
-/// Compiled-in evidence corpus fallback.
-///
-/// Used for builds without the contremaitre hot-reload registry (or as a
-/// last-resort default if the registry is unreachable). Cloning the
-/// singleton is intentional — callers own the corpus for the duration of
-/// a verification call.
-#[must_use]
-pub fn fallback_corpus() -> EvidenceCorpus {
-    corpus().clone()
 }
 
 /// Verify a coach reply against the compiled-in fallback corpus.

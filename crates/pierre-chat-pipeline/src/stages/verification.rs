@@ -26,9 +26,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::TenantId;
 use pierre_runtime_context::DataContext;
-#[cfg(not(feature = "contremaitre"))]
-use pierre_services::claim_verification::fallback_corpus;
-#[cfg(feature = "contremaitre")]
 use pierre_services::claim_verification::resolve_corpus;
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
 
@@ -177,10 +174,7 @@ pub async fn apply_claim_verification(
         };
     }
 
-    #[cfg(feature = "contremaitre")]
     let corpus = resolve_corpus(&ctx.evidence_registry);
-    #[cfg(not(feature = "contremaitre"))]
-    let corpus = fallback_corpus();
     // Layer 5 LLM judge runs only when a provider is configured; otherwise the
     // pipeline stays fully deterministic and inconclusive claims settle on the
     // evidence layer's verdict.

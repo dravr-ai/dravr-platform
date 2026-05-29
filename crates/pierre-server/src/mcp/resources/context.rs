@@ -210,163 +210,79 @@ impl ServerContext {
 
     // ── Prompt registry delegation ─────────────────────────────────────
     // These methods provide access to system prompts from the contremaitre
-    // registry (hot-reloadable) when the feature is enabled, or fall back
-    // to compiled-in constants from `pierre-llm` when it is not.
+    // registry, which hot-reloads from the GitHub-backed prompt repo and
+    // seeds itself from the compiled-in `pierre-llm` constants as a fallback.
 
     /// Get the main Pierre fitness assistant system prompt.
     #[must_use]
     pub fn pierre_system_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.pierre_system_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::PIERRE_SYSTEM_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.pierre_system_prompt()
     }
 
     /// Get the coach generation prompt.
     #[must_use]
     pub fn coach_generation_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.coach_generation_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::COACH_GENERATION_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.coach_generation_prompt()
     }
 
     /// Get the insight validation prompt.
     #[must_use]
     pub fn insight_validation_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.insight_validation_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::INSIGHT_VALIDATION_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.insight_validation_prompt()
     }
 
     /// Get the insight generation prompt.
     #[must_use]
     pub fn insight_generation_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.insight_generation_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::INSIGHT_GENERATION_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.insight_generation_prompt()
     }
 
     /// Get the messaging context prompt.
     #[must_use]
     pub fn messaging_context_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.messaging_context_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::MESSAGING_CONTEXT_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.messaging_context_prompt()
     }
 
     /// Get the recommendation analysis prompt template.
     #[must_use]
     pub fn recommendation_analysis_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.recommendation_analysis_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::RECOMMENDATION_ANALYSIS_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.recommendation_analysis_prompt()
     }
 
     /// Get the recommendation system prompt.
     #[must_use]
     pub fn recommendation_system_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.recommendation_system_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::RECOMMENDATION_SYSTEM_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.recommendation_system_prompt()
     }
 
     /// Get the activity analysis prompt template.
     #[must_use]
     pub fn activity_analysis_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.activity_analysis_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::ACTIVITY_ANALYSIS_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.activity_analysis_prompt()
     }
 
     /// Get the activity analysis system prompt.
     #[must_use]
     pub fn activity_analysis_system_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.activity_analysis_system_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::ACTIVITY_ANALYSIS_SYSTEM_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.activity_analysis_system_prompt()
     }
 
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
     #[must_use]
     pub fn tool_discipline_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.tool_discipline_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.tool_discipline_prompt()
     }
 
     /// Get the mandatory tool-discipline prompt for messaging channels.
     #[must_use]
     pub fn tool_discipline_messaging_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.tool_discipline_messaging_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::TOOL_DISCIPLINE_MESSAGING_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.tool_discipline_messaging_prompt()
     }
 
     /// Get the memory extraction system prompt.
     #[must_use]
     pub fn memory_extraction_prompt(&self) -> String {
-        #[cfg(feature = "contremaitre")]
-        {
-            self.mcp.prompt_registry.memory_extraction_prompt()
-        }
-        #[cfg(not(feature = "contremaitre"))]
-        {
-            pierre_llm::prompts::MEMORY_EXTRACTION_PROMPT.to_owned()
-        }
+        self.mcp.prompt_registry.memory_extraction_prompt()
     }
 }
 

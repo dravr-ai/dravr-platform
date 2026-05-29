@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-#![cfg(feature = "contremaitre")]
-
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::sync::full_sync;
