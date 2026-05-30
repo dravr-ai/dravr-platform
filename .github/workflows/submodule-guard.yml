@@ -1,0 +1,85 @@
+# ABOUTME: Rejects backward (non-fast-forward) moves of the vendor/contremaitre submodule
+# ABOUTME: A bump must point at a descendant of the prior pin, so prompts can never regress
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: "Submodule: No Regression"
+
+# Runs on every change to the vendor/contremaitre gitlink — whether from the
+# auto-bump workflow or a manual commit. The auto-bump always targets
+# contremaitre main HEAD (forward) and an hourly cron self-heals, but a manual
+# commit can point the gitlink at an OLDER contremaitre commit, leaving prod on
+# stale prompts until the next cron. This guard makes that impossible: the new
+# pin MUST be a descendant of the previous pin.
+on:
+  push:
+    branches: [main]
+    paths: ["vendor/contremaitre"]
+  pull_request:
+    paths: ["vendor/contremaitre"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: submodule-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-regress:
+    name: vendor/contremaitre fast-forward only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify vendor/contremaitre only moves forward
+        env:
+          DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Resolve the gitlink SHA before and after this change.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_REF="${{ github.event.before }}"
+            HEAD_REF="${{ github.sha }}"
+          fi
+
+          # New branch / no prior ref (all-zero SHA) — nothing to compare.
+          if [ -z "${BASE_REF}" ] || printf '%s' "${BASE_REF}" | grep -qE '^0+$'; then
+            echo "No prior ref — skipping (new branch)."
+            exit 0
+          fi
+
+          OLD=$(git ls-tree "${BASE_REF}" vendor/contremaitre | awk '{print $3}')
+          NEW=$(git ls-tree "${HEAD_REF}" vendor/contremaitre | awk '{print $3}')
+
+          if [ -z "${OLD}" ] || [ -z "${NEW}" ]; then
+            echo "Could not resolve gitlink (OLD='${OLD}' NEW='${NEW}') — skipping."
+            exit 0
+          fi
+          if [ "${OLD}" = "${NEW}" ]; then
+            echo "vendor/contremaitre unchanged (${NEW}) — OK."
+            exit 0
+          fi
+
+          # Fetch contremaitre history so we can test ancestry. Both pins live on
+          # main, so a full fetch of main contains them.
+          git config --global url."https://x-access-token:${DEPS_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init vendor/contremaitre
+          cd vendor/contremaitre
+          git fetch --unshallow origin main 2>/dev/null || git fetch origin main
+
+          if git merge-base --is-ancestor "${OLD}" "${NEW}"; then
+            echo "✅ vendor/contremaitre ${OLD} -> ${NEW} is a fast-forward (descendant)."
+          else
+            echo "❌ REGRESSION BLOCKED: vendor/contremaitre ${NEW} is NOT a descendant of ${OLD}."
+            echo "   A submodule bump must move forward to a newer contremaitre commit."
+            echo "   To deliver the latest prompts, bump to contremaitre main HEAD instead."
+            exit 1
+          fi
