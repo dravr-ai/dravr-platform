@@ -995,4 +995,78 @@ mod command_tests {
         let response = PrivacyStatusHandler.execute(&ctx).await.unwrap();
         assert!(response.text.contains("enabled"));
     }
+
+    #[tokio::test]
+    async fn test_timezone_handler_persists_valid_iana() {
+        use pierre_commands::timezone::TimezoneHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+
+        // Messaging surfaces never call /api/users/me/timezone, so a fresh
+        // Telegram-linked user starts with no timezone on file.
+        let before = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            before.timezone.is_none(),
+            "fresh messaging user should have no timezone"
+        );
+
+        let make_ctx = |args: Vec<String>, raw: &str| PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args,
+            raw_text: raw.to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: true,
+            conversation_id: None,
+        };
+
+        // Valid IANA name persists and is echoed in the confirmation.
+        let ctx = make_ctx(
+            vec!["America/Toronto".to_owned()],
+            "/timezone America/Toronto",
+        );
+        let response = TimezoneHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("America/Toronto"));
+        let stored = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .timezone;
+        assert_eq!(stored.as_deref(), Some("America/Toronto"));
+
+        // Junk argument is rejected without overwriting the stored value.
+        let ctx = make_ctx(vec!["Mars/Phobos".to_owned()], "/timezone Mars/Phobos");
+        let response = TimezoneHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("Invalid timezone"));
+        let unchanged = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .timezone;
+        assert_eq!(unchanged.as_deref(), Some("America/Toronto"));
+
+        // Missing argument is also rejected.
+        let ctx = make_ctx(vec![], "/timezone");
+        let response = TimezoneHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("Invalid timezone"));
+    }
 }

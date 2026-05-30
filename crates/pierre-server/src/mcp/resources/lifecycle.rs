@@ -36,6 +36,7 @@ use pierre_commands::{
     help::HelpHandler,
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     status::StatusHandler,
+    timezone::TimezoneHandler,
     CommandHandlerRegistry,
 };
 use pierre_config::environment::ServerConfig;
@@ -301,6 +302,7 @@ impl ServerContext {
             handler_reg.register("privacy", Arc::new(PrivacyStatusHandler));
             handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
             handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
+            handler_reg.register("timezone", Arc::new(TimezoneHandler));
             (Some(registry), Some(Arc::new(handler_reg)))
         };
 

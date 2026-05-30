@@ -38,6 +38,8 @@ pub mod parser;
 pub mod privacy;
 /// Status command showing user and platform state
 pub mod status;
+/// Timezone command persisting the user's IANA timezone
+pub mod timezone;
 
 pub use parser::load_command_definitions;
 
