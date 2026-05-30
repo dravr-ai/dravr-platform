@@ -141,28 +141,30 @@ fn test_overtraining_risk_detection() {
 }
 
 // =============================================================================
-// Issue #1 regression: CTL/ATL/TSB = 0 when activities are reverse-chronological
+// Issue #1 regression: reverse-chronological input is rejected, not silently
+// zeroed. cageux validates TSS ordering (EMA needs days_span >= 0) and returns
+// an error instead of a misleading zero load; every production caller sorts
+// oldest-first before calling.
 // =============================================================================
 
 #[test]
-fn test_training_load_reverse_chronological_order_produces_zero() {
+fn test_training_load_reverse_chronological_order_is_rejected() {
     let calculator = TrainingLoadCalculator::new();
     let now = Utc::now();
 
-    // Newest first (like Strava returns) — EMA returns 0 because days_span < 0
+    // Newest first (like Strava returns) — unsorted, so cageux rejects it.
     let activities = vec![
         create_test_activity(now, 3600, Some(210), None),
         create_test_activity(now - Duration::days(1), 3600, Some(220), None),
         create_test_activity(now - Duration::days(2), 3600, Some(200), None),
     ];
 
-    let result = calculator
-        .calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0))
-        .unwrap();
+    let result =
+        calculator.calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0));
 
     assert!(
-        result.ctl.abs() < f64::EPSILON,
-        "CTL should be 0 when activities are newest-first (unsorted)"
+        result.is_err(),
+        "reverse-chronological (unsorted) activities must be rejected, not silently zeroed"
     );
 }
 
