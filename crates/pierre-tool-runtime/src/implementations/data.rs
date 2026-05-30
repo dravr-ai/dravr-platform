@@ -331,7 +331,6 @@ impl McpTool for GetActivitiesTool {
         // upstream keeps the default newest-first behaviour.
         let before = args.get("before").and_then(Value::as_i64);
         let after = args.get("after").and_then(Value::as_i64);
-        let default_time_window_applied = false;
 
         let sport_type_filter = args
             .get("sport_type")
@@ -430,7 +429,6 @@ impl McpTool for GetActivitiesTool {
                 output_format,
                 limit,
                 offset: offset.unwrap_or(0),
-                default_time_window_applied,
                 analysis_type,
                 weather_provider: weather_provider.clone(),
                 user_timezone: user_timezone.clone(),
@@ -546,7 +544,6 @@ impl McpTool for GetActivitiesTool {
             mode: effective_mode,
             output_format,
             pagination: Some(&pagination),
-            default_time_window_applied,
             analysis_type,
             backfill_temps: &backfill_temps,
             user_timezone,

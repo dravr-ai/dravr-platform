@@ -736,7 +736,6 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub output_format: OutputFormat,
     pub limit: usize,
     pub offset: usize,
-    pub default_time_window_applied: bool,
     /// Analysis type for sufficiency calculation
     pub analysis_type: AnalysisType,
     /// Optional weather provider used to backfill ambient temperature on
@@ -810,7 +809,6 @@ pub(crate) async fn try_get_cached_activities(
             mode: params.mode,
             output_format: params.output_format,
             pagination: Some(&pagination),
-            default_time_window_applied: params.default_time_window_applied,
             analysis_type: params.analysis_type,
             backfill_temps: &backfill_temps,
             user_timezone: params.user_timezone,
@@ -1005,7 +1003,6 @@ fn add_common_response_fields(
     json_val: &mut Value,
     pagination: Option<&PaginationInfo>,
     token_estimate: &TokenEstimate,
-    default_time_window_applied: bool,
     retrieval_context: &ActivityRetrievalContext,
 ) {
     if let Some(page_info) = pagination {
@@ -1014,7 +1011,6 @@ fn add_common_response_fields(
         json_val["has_more"] = json!(page_info.has_more);
     }
     json_val["token_estimate"] = json!(token_estimate);
-    json_val["default_time_window_applied"] = json!(default_time_window_applied);
     json_val["retrieval_context"] = json!(retrieval_context);
 }
 
@@ -1027,7 +1023,6 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     pub mode: &'a str,
     pub output_format: OutputFormat,
     pub pagination: Option<&'a PaginationInfo>,
-    pub default_time_window_applied: bool,
     /// Analysis type for sufficiency calculation (defaults to `GeneralOverview`)
     pub analysis_type: AnalysisType,
     /// Weather-backfilled ambient temperatures keyed by activity id.
@@ -1045,7 +1040,6 @@ pub(crate) struct ActivitiesResponseParams<'a> {
 /// `mode="detailed"` returns full activity data (default for backwards compatibility when not specified)
 /// `format="json"` (default) or `format="toon"` for token-efficient LLM output
 /// `pagination` enables clients to paginate through large result sets
-/// `default_time_window_applied` indicates if the 90-day default was used
 pub(crate) fn build_activities_success_response(
     params: ActivitiesResponseParams<'_>,
 ) -> UniversalResponse {
@@ -1057,7 +1051,6 @@ pub(crate) fn build_activities_success_response(
         mode,
         output_format,
         pagination,
-        default_time_window_applied,
         analysis_type,
         backfill_temps,
         user_timezone,
@@ -1115,7 +1108,6 @@ pub(crate) fn build_activities_success_response(
                     &mut json_val,
                     pagination,
                     &token_estimate,
-                    default_time_window_applied,
                     &retrieval_context,
                 );
                 (json_val, "toon")
@@ -1136,7 +1128,6 @@ pub(crate) fn build_activities_success_response(
                     &mut json_val,
                     pagination,
                     &token_estimate,
-                    default_time_window_applied,
                     &retrieval_context,
                 );
                 (json_val, "json")
@@ -1155,7 +1146,6 @@ pub(crate) fn build_activities_success_response(
                 &mut json_val,
                 pagination,
                 &token_estimate,
-                default_time_window_applied,
                 &retrieval_context,
             );
             (json_val, "json")
