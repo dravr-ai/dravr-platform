@@ -258,6 +258,15 @@ pub const KEY_PRIVACY_ON_CONFIRMATION: &str = "commands.privacy.on_confirmation"
 /// Key: `/privacy off` confirmation message.
 pub const KEY_PRIVACY_OFF_CONFIRMATION: &str = "commands.privacy.off_confirmation";
 
+// ── /timezone command keys ────────────────────────────────────────────────
+
+/// Key: `/timezone` confirmation once a valid IANA name is stored. `{0}` = the
+/// stored timezone name.
+pub const KEY_TIMEZONE_SET: &str = "commands.timezone.set";
+/// Key: `/timezone` rejection when the argument is missing or not a valid IANA
+/// timezone database name.
+pub const KEY_TIMEZONE_INVALID: &str = "commands.timezone.invalid";
+
 // ── /group command keys ───────────────────────────────────────────────────
 
 /// Key: `/group` when the user belongs to zero groups.
@@ -434,6 +443,8 @@ pub(crate) const FR_PRIVACY_STATUS_ENABLED: &str = "activé";
 pub(crate) const FR_PRIVACY_STATUS_DISABLED: &str = "désactivé";
 pub(crate) const FR_PRIVACY_ON_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>activé</b>. Merci de nous aider à améliorer Dravr !\n\nUtilise <code>/privacy off</code> pour te retirer à tout moment.";
 pub(crate) const FR_PRIVACY_OFF_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>désactivé</b>. Aucune donnée d'usage anonyme ne sera collectée.\n\nUtilise <code>/privacy on</code> pour te réinscrire à tout moment.";
+pub(crate) const FR_TIMEZONE_SET: &str = "Fuseau horaire réglé sur <b>{0}</b>. Les heures de départ de tes activités s'afficheront désormais dans ce fuseau.";
+pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un nom IANA, par exemple : <code>/timezone America/Toronto</code>.";
 
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
     "Tu n'es membre d'aucun groupe.\nCrée ou rejoins un groupe via l'app web ou mobile.";
@@ -575,6 +586,10 @@ pub(crate) const EN_PRIVACY_STATUS_ENABLED: &str = "enabled";
 pub(crate) const EN_PRIVACY_STATUS_DISABLED: &str = "disabled";
 pub(crate) const EN_PRIVACY_ON_CONFIRMATION: &str = "Analytics consent has been <b>enabled</b>. Thank you for helping us improve Dravr!\n\nUse <code>/privacy off</code> to opt out at any time.";
 pub(crate) const EN_PRIVACY_OFF_CONFIRMATION: &str = "Analytics consent has been <b>disabled</b>. No anonymous usage data will be collected.\n\nUse <code>/privacy on</code> to opt back in at any time.";
+pub(crate) const EN_TIMEZONE_SET: &str =
+    "Timezone set to <b>{0}</b>. Your activity start times will now display in this timezone.";
+pub(crate) const EN_TIMEZONE_INVALID: &str =
+    "Invalid timezone. Provide an IANA name, e.g. <code>/timezone America/Toronto</code>.";
 
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
     "You are not a member of any groups.\nCreate or join a group via the web or mobile app.";
@@ -707,6 +722,8 @@ pub(crate) const ES_PRIVACY_STATUS_ENABLED: &str = "activado";
 pub(crate) const ES_PRIVACY_STATUS_DISABLED: &str = "desactivado";
 pub(crate) const ES_PRIVACY_ON_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>activado</b>. ¡Gracias por ayudarnos a mejorar Dravr!\n\nUsa <code>/privacy off</code> para darte de baja en cualquier momento.";
 pub(crate) const ES_PRIVACY_OFF_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>desactivado</b>. No se recogerán datos de uso anónimos.\n\nUsa <code>/privacy on</code> para volver a activarlo cuando quieras.";
+pub(crate) const ES_TIMEZONE_SET: &str = "Zona horaria establecida en <b>{0}</b>. Las horas de inicio de tus actividades se mostrarán ahora en esta zona horaria.";
+pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un nombre IANA, por ejemplo <code>/timezone America/Toronto</code>.";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
     "No eres miembro de ningún grupo.\nCrea o únete a un grupo desde la app web o móvil.";
@@ -840,6 +857,9 @@ pub(crate) const DE_PRIVACY_STATUS_ENABLED: &str = "aktiviert";
 pub(crate) const DE_PRIVACY_STATUS_DISABLED: &str = "deaktiviert";
 pub(crate) const DE_PRIVACY_ON_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>aktiviert</b>. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze <code>/privacy off</code>, um dich jederzeit abzumelden.";
 pub(crate) const DE_PRIVACY_OFF_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>deaktiviert</b>. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze <code>/privacy on</code>, um dich jederzeit wieder anzumelden.";
+pub(crate) const DE_TIMEZONE_SET: &str = "Zeitzone auf <b>{0}</b> gesetzt. Die Startzeiten deiner Aktivitäten werden jetzt in dieser Zeitzone angezeigt.";
+pub(crate) const DE_TIMEZONE_INVALID: &str =
+    "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. <code>/timezone America/Toronto</code>.";
 
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
     "Du bist in keiner Gruppe.\nErstelle oder tritt einer Gruppe über die Web- oder Mobile-App bei.";
@@ -1091,6 +1111,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "fr", FR_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "fr", FR_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "fr", FR_PRIVACY_OFF_CONFIRMATION),
+    (KEY_TIMEZONE_SET, "fr", FR_TIMEZONE_SET),
+    (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
     (KEY_GROUP_LIST_EMPTY, "fr", FR_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "fr", FR_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "fr", FR_GROUP_LIST_ITEM),
@@ -1192,6 +1214,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "en", EN_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "en", EN_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "en", EN_PRIVACY_OFF_CONFIRMATION),
+    (KEY_TIMEZONE_SET, "en", EN_TIMEZONE_SET),
+    (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
     (KEY_GROUP_LIST_EMPTY, "en", EN_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "en", EN_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "en", EN_GROUP_LIST_ITEM),
@@ -1293,6 +1317,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "es", ES_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "es", ES_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "es", ES_PRIVACY_OFF_CONFIRMATION),
+    (KEY_TIMEZONE_SET, "es", ES_TIMEZONE_SET),
+    (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
     (KEY_GROUP_LIST_EMPTY, "es", ES_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "es", ES_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "es", ES_GROUP_LIST_ITEM),
@@ -1394,6 +1420,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "de", DE_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "de", DE_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "de", DE_PRIVACY_OFF_CONFIRMATION),
+    (KEY_TIMEZONE_SET, "de", DE_TIMEZONE_SET),
+    (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
     (KEY_GROUP_LIST_EMPTY, "de", DE_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "de", DE_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "de", DE_GROUP_LIST_ITEM),

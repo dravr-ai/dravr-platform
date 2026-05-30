@@ -978,9 +978,25 @@ fn prepare_activity_data(
             .map(|v| (v, "summary"))
             .map_err(|e| format!("Failed to serialize activity summaries: {e}"))
     } else {
-        to_value(activities)
-            .map(|v| (v, "detailed"))
-            .map_err(|e| format!("Failed to serialize activities: {e}"))
+        // Detail mode serializes the raw `Activity` (UTC `start_date`). Mirror
+        // the summary-mode localization by injecting `start_date_local` per
+        // element when the user has a timezone on file, so deep-dive responses
+        // display local start times just like list responses.
+        let mut value =
+            to_value(activities).map_err(|e| format!("Failed to serialize activities: {e}"))?;
+        if let Some(tz) = user_timezone.and_then(|s| s.parse::<chrono_tz::Tz>().ok()) {
+            if let Some(arr) = value.as_array_mut() {
+                for (obj, activity) in arr.iter_mut().zip(activities.iter()) {
+                    if let Some(map) = obj.as_object_mut() {
+                        map.insert(
+                            "start_date_local".to_owned(),
+                            Value::String(activity.start_date().with_timezone(&tz).to_rfc3339()),
+                        );
+                    }
+                }
+            }
+        }
+        Ok((value, "detailed"))
     }
 }
 
