@@ -560,20 +560,8 @@ external_lib_call().map_err(|e| AppError::internal(format!("External API failed:
 
 #### Prohibited Error Anti-Patterns
 ```rust
-// FORBIDDEN: Using anyhow::anyhow!() - NEVER DO THIS
-return Err(anyhow::anyhow!("User not found"));
-
-// FORBIDDEN: Using anyhow! macro shorthand - NEVER DO THIS
-return Err(anyhow!("Invalid input"));
-
-// FORBIDDEN: In map_err closures - NEVER DO THIS
-.map_err(|e| anyhow!("Failed to process: {e}"))?;
-
-// FORBIDDEN: In ok_or_else - NEVER DO THIS
-.ok_or_else(|| anyhow!("Value not found"))?;
-
-// FORBIDDEN: Creating ad-hoc string errors - NEVER DO THIS
-return Err(anyhow::Error::msg("Something failed"));
+// FORBIDDEN in EVERY position (return, map_err, ok_or_else) — CI fails on detection:
+anyhow::anyhow!("...")   anyhow!("...")   anyhow::Error::msg("...")
 ```
 
 If no existing error variant fits your use case, add a new variant to the appropriate error enum (`AppError`, `DatabaseError`, `ProviderError`) with proper conversion traits.
@@ -644,116 +632,28 @@ Skipped/ignored tests become forgotten tech debt. A red CI that gets ignored is 
 
 # RUST IDIOMATIC CODE GENERATION
 
-## Memory Management and Ownership
-- PREFER borrowing `&T` over cloning when possible
-- PREFER `&str` over `String` for function parameters (unless ownership needed)
-- PREFER `&[T]` over `Vec<T>` for function parameters (unless ownership needed)
-- PREFER `std::borrow::Cow<T>` for conditionally owned data
-- PREFER `AsRef<T>` and `Into<T>` traits for flexible APIs
-- NEVER clone Arc contents - clone the Arc itself: `arc.clone()` not `(*arc).clone()`
-- Arc/Rc clones are self-documenting and don't need comments
-- JUSTIFY non-obvious `.clone()` calls with comments when the reason isn't apparent from context
+Default to idiomatic Rust. The points below are the non-obvious or project-enforced ones.
 
-## Collection and Iterator Patterns
-- PREFER iterator chains over manual loops
-- USE turbofish `.collect::<Vec<_>>()` when element type is inferred; specify full type when not
-- PREFER `filter_map()` over `filter().map()`
-- PREFER `and_then()` over nested match statements for Options/Results
-- USE `Iterator::fold()` for accumulation, but prefer explicit loops when fold reduces readability
-- PREFER `Vec::with_capacity()` when size is known
-- USE `HashMap::with_capacity()` when size is known
+## Ownership & Collections
+- PREFER borrowing (`&T`, `&str`, `&[T]`) over owned params unless ownership is needed; `Cow<T>` for conditionally owned data; `AsRef<T>`/`Into<T>` for flexible APIs.
+- Clone the Arc, never its contents: `arc.clone()`, not `(*arc).clone()`. Arc/Rc clones need no comment; JUSTIFY non-obvious value clones.
+- PREFER iterator chains, `filter_map()` over `filter().map()`, `and_then()` over nested match. Pre-size with `with_capacity()` when the size is known.
+- PREFER format args `format!("{name}")` over concatenation; `&'static str` for string constants.
 
-## String Handling
-- PREFER format arguments `format!("{name}")` over concatenation
-- PREFER `&'static str` for string constants
-- USE `format_args!()` for performance-critical formatting
-- PREFER `String::push_str()` over repeated concatenation
-- USE `format!()` macro for complex string building
+## Control Flow, Types & API Design
+- PREFER early returns with `?` over nested matches; `if let` for single patterns, `match` for complex logic. Exhaustive match when every variant needs distinct handling; catch-all `_` for evolving enums.
+- Newtype pattern for domain ids (`struct UserId(i64)`); `enum` over boolean flags for state; `const fn`/associated consts for type-level values; associated types when the relationship is 1:1.
+- `impl Trait` in argument position for flexibility, concrete return types when callers must name them. DESIGN APIs to be hard to misuse (parse, don't validate); builder pattern for many-optional-field structs.
+- PREFER small focused functions (~50 lines), composition over inheritance, minimal dependencies, `std` over external crates when sufficient.
 
-## Async/Await Patterns
-- PREFER `async fn` over `impl Future` (clearer, more maintainable)
-- USE `tokio::spawn()` for concurrent background tasks; use `.await` for sequential execution
-- USE `#[tokio::main]` for async main functions
-- PREFER structured concurrency with `tokio::join!()` and `tokio::select!()`
-- ALWAYS handle `JoinHandle` results properly (don't ignore panics)
+## Async, Concurrency & Performance
+- PREFER `async fn` over `impl Future`; `tokio::spawn` for concurrent tasks, `.await` for sequential; structured concurrency via `join!`/`select!`; always handle `JoinHandle` results (don't ignore panics).
+- `Arc<RwLock<T>>` over `Arc<Mutex<T>>` for read-heavy; channels over shared mutable state; atomics for simple counters. DOCUMENT every `Arc<T>` with its sharing justification; `Rc<T>` for single-threaded (async Tokio usually needs Arc).
+- `std::sync::LazyLock` for lazy statics (Rust 1.80+, replaces lazy_static!), `OnceLock` for one-time runtime init. AVOID premature `#[inline]`; `#[cold]` for error paths; `const fn` for compile-time eval; `Box<T>` for recursive types.
 
-## Function Design
-- PREFER small, focused functions (max 50 lines)
-- PREFER composition over inheritance
-- USE builder pattern for complex construction
-- USE `impl Trait` for return types when the concrete type is an implementation detail
-- PREFER concrete return types when callers need to name the type or use it in bounds
-- USE associated types over generic parameters when the relationship is 1:1 (not multiple implementations)
-
-## Pattern Matching
-- USE exhaustive matching when all variants need distinct handling
-- USE catch-all `_` when only specific variants need special handling (more maintainable for evolving enums)
-- USE `if let` for simple single-pattern matches
-- USE `match` for complex logic or multiple patterns
-- PREFER early returns with `?` over nested matches
-
-## Type System Usage
-- PREFER newtype patterns for domain modeling (e.g., `struct UserId(i64)`)
-- USE `#[derive]` macros for common traits (Debug, Clone, PartialEq, etc.)
-- PREFER `enum` over boolean flags for state (more expressive, harder to misuse)
-- USE associated constants for type-level values; use `const fn` for computed constants
-
-## Advanced Performance Optimization
-
-### Memory Patterns
-- AVOID unnecessary allocations in hot paths
-- PREFER stack allocation over heap when possible
-- USE `Box<T>` only when dynamic sizing required
-- PREFER `Rc<T>` over `Arc<T>` for single-threaded contexts (note: async Tokio typically requires Arc)
-- USE `std::sync::LazyLock` for lazy statics (Rust 1.80+, replaces lazy_static! crate)
-- USE `std::sync::OnceLock` for one-time initialization with runtime values
-
-### Concurrent Programming
-- PREFER `Arc<RwLock<T>>` over `Arc<Mutex<T>>` for read-heavy workloads
-- USE channels (`mpsc`, `crossbeam`) over shared mutable state
-- PREFER atomic types (`AtomicU64`, etc.) for simple shared counters
-- DOCUMENT every `Arc<T>` usage with justification for shared ownership
-- AVOID `Arc<Mutex<T>>` for simple data - consider message passing
-
-### Compilation Optimization
-- AVOID premature `#[inline]` - LLVM handles inlining well
-- USE `#[inline]` only for cross-crate generics or profiler-identified hot paths
-- USE `#[cold]` for error handling paths to hint branch prediction
-- PREFER `const fn` for compile-time evaluation when possible
-- USE `#[repr(C)]` only when needed for FFI
-- AVOID recursive types without `Box<T>` indirection
-
-## Code Organization
-
-### Module Structure
-- PREFER flat module hierarchies over deep nesting
-- GROUP related functionality in modules
-- For library crates:
-  - USE `pub(crate)` for internal APIs not exposed to consumers
-  - PREFER re-exports at crate root for public APIs
-- For binary crates (like this project):
-  - USE explicit module paths for clarity (no external consumers)
-  - `pub(crate)` documents intent but has no visibility effect
-
-### Import Style (Enforced by clippy::absolute_paths)
-- USE `use` imports at the top of the file for items used in the module
-- AVOID inline qualified paths like `crate::models::User` or `std::collections::HashMap`
-- Qualified paths are acceptable ONLY for:
-  - Name collisions (two types with the same name from different modules)
-  - Single-use items where the qualified path adds clarity
-- This is enforced by `clippy::absolute_paths = "deny"` in Cargo.toml
-
-### Dependency Management
-- PREFER minimal dependencies
-- AVOID `unwrap()` on external library calls - handle errors properly
-- USE specific feature flags to minimize dependencies
-- PREFER `std` library over external crates when sufficient
-
-### API Design
-- PREFER `impl Trait` in argument position for flexibility; use concrete types in return position for clarity
-- USE explicit lifetimes only when the compiler cannot infer them
-- DESIGN APIs to be hard to misuse (parse, don't validate)
-- PROVIDE builder patterns for structs with many optional fields
+## Modules & Imports (Enforced by `clippy::absolute_paths = "deny"` in Cargo.toml)
+- USE `use` imports at the top of the file; AVOID inline qualified paths like `crate::models::User` or `std::collections::HashMap`. Qualified paths only for name collisions or single-use clarity.
+- PREFER flat module hierarchies. This is a binary crate: `pub(crate)` documents intent but has no visibility effect; use explicit module paths for clarity.
 
 
 ## Mandatory Session Startup Checklist
