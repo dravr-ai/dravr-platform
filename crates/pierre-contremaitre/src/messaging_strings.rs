@@ -993,6 +993,8 @@ pub(crate) const PT_PRIVACY_STATUS_ENABLED: &str = "ativado";
 pub(crate) const PT_PRIVACY_STATUS_DISABLED: &str = "desativado";
 pub(crate) const PT_PRIVACY_ON_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>ativado</b>. Obrigado por ajudares a melhorar o Dravr!\n\nUsa <code>/privacy off</code> para cancelar a qualquer momento.";
 pub(crate) const PT_PRIVACY_OFF_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>desativado</b>. Não serão recolhidos dados de uso anónimos.\n\nUsa <code>/privacy on</code> para voltar a ativar a qualquer momento.";
+pub(crate) const PT_TIMEZONE_SET: &str = "Fuso horário definido para <b>{0}</b>. As horas de início das tuas atividades passam a aparecer neste fuso horário.";
+pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um nome IANA, por exemplo <code>/timezone America/Toronto</code>.";
 
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =
     "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.";
@@ -1523,6 +1525,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_STATUS_DISABLED, "pt", PT_PRIVACY_STATUS_DISABLED),
     (KEY_PRIVACY_ON_CONFIRMATION, "pt", PT_PRIVACY_ON_CONFIRMATION),
     (KEY_PRIVACY_OFF_CONFIRMATION, "pt", PT_PRIVACY_OFF_CONFIRMATION),
+    (KEY_TIMEZONE_SET, "pt", PT_TIMEZONE_SET),
+    (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
     (KEY_GROUP_LIST_EMPTY, "pt", PT_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "pt", PT_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "pt", PT_GROUP_LIST_ITEM),
