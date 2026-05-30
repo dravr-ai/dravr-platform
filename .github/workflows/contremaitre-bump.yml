@@ -63,6 +63,20 @@ jobs:
           git commit -m "chore(contremaitre): bump submodule to ${SHORT_NEW}"
           git push origin main
 
+      # The push above uses GITHUB_TOKEN, and GitHub deliberately does NOT start
+      # new workflow runs from GITHUB_TOKEN-pushed commits (recursion guard) —
+      # and Backend Rust's paths filter excludes vendor/ anyway. So a bump never
+      # auto-deploys on its own. Dispatch the dev deploy explicitly here, using a
+      # PAT (GITHUB_TOKEN cannot dispatch). Requires actions:write on this repo.
+      - name: Trigger dev deploy so the new prompts go live
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+        run: |
+          SHORT_NEW=$(echo "${{ steps.bump.outputs.new_sha }}" | cut -c1-8)
+          gh workflow run publish-images.yml --repo "${{ github.repository }}" --ref main
+          echo "Dispatched Deploy: Build & Ship (dev) for compiled-in contremaitre ${SHORT_NEW}"
+
       - name: Report no-op
         if: steps.bump.outputs.changed == 'false'
         run: echo "Submodule already at latest main (${{ steps.bump.outputs.new_sha }}) — nothing to bump"
