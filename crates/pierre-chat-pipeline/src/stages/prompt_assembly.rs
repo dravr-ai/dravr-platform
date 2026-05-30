@@ -71,12 +71,12 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 ///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
 ///   the chosen coach personality — it controls structure / citation
 ///   density / verbosity, not voice or domain.
-/// - `{{CURRENT_DATE}}` → today's calendar date in the user's IANA
-///   timezone, formatted `YYYY-MM-DD (Continent/City)`. Falls back to UTC
-///   when the user has no timezone on file. Without this anchor the LLM
-///   defaults to the latest date it sees in activity history when the
-///   user says "today" / "aujourd'hui", which fails the moment data
-///   goes stale.
+/// - `{{CURRENT_DATE}}` → today's local date and wall-clock time in the
+///   user's IANA timezone, formatted `YYYY-MM-DD HH:MM (Continent/City)`.
+///   Falls back to UTC when the user has no timezone on file. Without this
+///   anchor the LLM defaults to the latest date it sees in activity history
+///   when the user says "today" / "aujourd'hui", which fails the moment data
+///   goes stale; the time lets it reason about morning/evening too.
 ///
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
@@ -133,29 +133,38 @@ fn interpolate_prompt_placeholders(
 
 /// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
 ///
-/// Output shape: `YYYY-MM-DD (Continent/City)` when the user has a valid
-/// IANA timezone, e.g. `2026-05-21 (America/Toronto)`. Falls back to
-/// `YYYY-MM-DD (UTC)` when the timezone is `None` (no client has reported
+/// Output shape: `YYYY-MM-DD HH:MM (Continent/City)` when the user has a valid
+/// IANA timezone, e.g. `2026-05-21 14:30 (America/Toronto)`. Falls back to
+/// `YYYY-MM-DD HH:MM (UTC)` when the timezone is `None` (no client has reported
 /// yet) or fails to parse (e.g. a malformed string somehow landed in the
-/// column). The date is *local* to the user's tz, not the server's UTC
-/// day — that's the whole point of the anchor: when the user says "today"
-/// at 23:30 EDT, the prompt must say 2026-05-21, not the 2026-05-22 the
-/// server clock has already rolled over to.
+/// column). Both date and time are *local* to the user's tz, not the server's
+/// UTC clock — that's the whole point of the anchor: when the user says "today"
+/// at 23:30 EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the
+/// server clock has already rolled over to. The wall-clock time lets the coach
+/// reason about time of day (morning/evening) without asking.
 fn format_current_date(user_timezone: Option<&str>) -> String {
     use chrono::Utc;
     let now_utc = Utc::now();
-    let (date_str, label) = user_timezone
+    let (datetime_str, label) = user_timezone
         .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
         .map_or_else(
-            || (now_utc.format("%Y-%m-%d").to_string(), "UTC".to_owned()),
+            || {
+                (
+                    now_utc.format("%Y-%m-%d %H:%M").to_string(),
+                    "UTC".to_owned(),
+                )
+            },
             |tz| {
                 (
-                    now_utc.with_timezone(&tz).format("%Y-%m-%d").to_string(),
+                    now_utc
+                        .with_timezone(&tz)
+                        .format("%Y-%m-%d %H:%M")
+                        .to_string(),
                     tz.name().to_owned(),
                 )
             },
         );
-    format!("{date_str} ({label})")
+    format!("{datetime_str} ({label})")
 }
 
 /// Look up the user's selected coaching persona, falling back to the
