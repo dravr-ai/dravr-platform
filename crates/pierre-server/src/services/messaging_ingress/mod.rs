@@ -31,6 +31,8 @@ use otp::{
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use session::{create_link_and_prompt, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
+pub use slash::redirect_slash_reply_to_dm;
+#[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
 use dashmap::DashMap;
@@ -222,6 +224,37 @@ async fn send_channel_response(
     }
 }
 
+/// Best-effort removal of a user's slash-command echo from a shared room.
+///
+/// When a slash command arrives in a group on a DM-capable channel the reply
+/// is routed to the caller's DM (see `redirect_slash_reply_to_dm`). This
+/// deletes the original command message so the room never shows it. Failures
+/// (bot not an admin with delete rights, message already gone, channel can't
+/// delete) are logged at debug and never affect the turn — the command was
+/// still handled and answered in the DM.
+async fn delete_room_command_echo(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel: &str,
+    adapter: &Arc<dyn MessagingChannel>,
+    room_id: &str,
+    channel_message_id: &str,
+) {
+    let Some(config) = load_channel_config(db, tenant_id, channel).await else {
+        return;
+    };
+    if let Err(e) = adapter
+        .delete_message(room_id, channel_message_id, &config)
+        .await
+    {
+        debug!(
+            channel = %channel,
+            error = %e,
+            "Could not delete slash-command echo from room (bot may lack admin rights)"
+        );
+    }
+}
+
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
@@ -331,6 +364,22 @@ async fn persist_single_message(
         )
         .await
         {
+            // When the reply was routed to the caller's DM (group command on a
+            // DM-capable channel), remove the original command echo from the
+            // room so the command stays private to the caller.
+            if redirect_slash_reply_to_dm(channel_type, message.is_direct_message) {
+                if let Some(room_id) = message.conversation_id.as_deref() {
+                    delete_room_command_echo(
+                        db,
+                        tenant_id,
+                        channel,
+                        adapter,
+                        room_id,
+                        &message.channel_message_id,
+                    )
+                    .await;
+                }
+            }
             send_channel_response(db, tenant_id, channel, adapter, response).await;
             return Ok(PersistOutcome::HandledNotStored);
         }
