@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! PostgreSQL messaging UUID-cast bind-path tests.
+//! `PostgreSQL` messaging UUID cast bind-path tests.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when the feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so without
