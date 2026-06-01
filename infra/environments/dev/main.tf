@@ -213,7 +213,7 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI).
-      # Primary = claude-opus-4.7 (high-reasoning Opus variant, not the -fast SKU).
+      # Primary = claude-opus-4.8 (high-reasoning Opus variant, not the -fast SKU).
       # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
       # (intra-provider model fallback, same Copilot session).
       # Runtime fallback chain = cross-provider failover to Gemini (Google free
@@ -240,8 +240,8 @@ module "backend" {
       # secondary into a nested Chain{Gemini, Cohere}, so retry
       # classification cascades the same way at each tier.
       PIERRE_LLM_PROVIDER                = "copilot_headless"
-      PIERRE_LLM_MODEL                   = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.7"
+      PIERRE_LLM_MODEL                   = "claude-opus-4.8"
+      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.8"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
       PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
@@ -312,7 +312,7 @@ module "backend" {
       # and only falls back to LLM screenshot reasoning when selectors fail
       # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
       # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
-      # provider, so this does not affect chat/analysis (which stay on 4.7).
+      # provider. Both are pinned to claude-opus-4.8.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 

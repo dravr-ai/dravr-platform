@@ -85,7 +85,7 @@ jobs:
           # Pin the probe to the primary model so we detect entitlement drift
           # on the specific SKU Pierre uses, not the Copilot CLI default.
           # Must stay in sync with PIERRE_LLM_MODEL in infra/environments/dev/main.tf.
-          PROBE_MODEL="claude-opus-4.7"
+          PROBE_MODEL="claude-opus-4.8"
 
           # Run a trivial prompt; success means auth + entitlement + network all OK.
           # --allow-all-tools avoids interactive permission prompts.
