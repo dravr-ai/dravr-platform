@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::constants::oauth_providers;
+use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
@@ -371,6 +372,33 @@ pub fn default_provider() -> Option<String> {
 
     info!("Default provider configured (env override): {}", provider);
     Some(provider)
+}
+
+/// Athlete-seat capacity for the shared Dravr Strava OAuth app.
+///
+/// Strava enforces a per-application athlete limit ("Number of athletes allowed
+/// to connect" in the API settings dashboard) and does **not** expose it via any
+/// API response header, so the platform cannot read it at runtime. This returns
+/// the operator-configured cap from the `STRAVA_OAUTH_SEAT_CAP` environment
+/// variable, falling back to [`STRAVA_OAUTH_SEAT_CAP_DEFAULT`] (the Standard Tier
+/// entry-level cap). Bump the env var after self-upgrading the app's tier on
+/// Strava.
+///
+/// A non-numeric or zero value falls back to the default — a zero cap would
+/// wedge every athlete onto the scraper fallback, which is never the intent.
+///
+/// # Examples
+///
+/// ```bash
+/// export STRAVA_OAUTH_SEAT_CAP=10
+/// ```
+#[must_use]
+pub fn strava_oauth_seat_cap() -> u32 {
+    env::var("STRAVA_OAUTH_SEAT_CAP")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|&cap| cap > 0)
+        .unwrap_or(STRAVA_OAUTH_SEAT_CAP_DEFAULT)
 }
 
 /// Get OAuth provider configuration by provider name

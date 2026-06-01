@@ -228,6 +228,41 @@ impl Database {
         Ok(tokens)
     }
 
+    /// Count distinct users occupying a shared-app OAuth seat for `provider`.
+    ///
+    /// A "seat" is one athlete connected through the platform's shared OAuth
+    /// application. Users who registered their own (BYO) OAuth app — a row in
+    /// `user_oauth_app_credentials` for the same provider — run on their own
+    /// athlete quota and never consume a shared seat, so they are excluded.
+    ///
+    /// The count is intentionally cross-tenant: the shared app's athlete cap is
+    /// a single global limit enforced by the upstream provider across every
+    /// tenant that uses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
+        let count: i64 = sqlx::query_scalar(
+            r"
+            SELECT COUNT(DISTINCT t.user_id)
+            FROM user_oauth_tokens t
+            WHERE t.provider = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM user_oauth_app_credentials a
+                  WHERE a.user_id = t.user_id AND a.provider = $2
+              )
+            ",
+        )
+        .bind(provider)
+        .bind(provider)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count shared-app OAuth seats: {e}")))?;
+
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
     /// Delete a specific user OAuth token
     ///
     /// # Errors
@@ -446,6 +481,9 @@ impl OAuthTokenRepository for Database {
         provider: &str,
     ) -> AppResult<Vec<UserOAuthToken>> {
         Self::get_tenant_provider_tokens(self, tenant_id, provider).await
+    }
+    async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
+        Self::count_shared_app_seat_usage(self, provider).await
     }
     async fn delete_token(
         &self,
