@@ -19,7 +19,8 @@ use pierre_contremaitre::manifest::{
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, DEFAULT_LOCALE, EN_EMPTY_REPLY,
     EN_VERIFICATION_BLOCK_FALLBACK, FR_EMPTY_REPLY, FR_VERIFICATION_BLOCK_FALLBACK,
-    KEY_EMPTY_REPLY, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+    KEY_EMPTY_REPLY, KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
+    KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_contremaitre::sync::system_prompt_content_is_valid;
@@ -833,6 +834,34 @@ fn test_messaging_registry_seeds_all_compiled_locales() {
         reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "en"),
         EN_VERIFICATION_BLOCK_FALLBACK
     );
+}
+
+#[test]
+fn test_group_role_labels_are_localized() {
+    // The `/group` and `/group members` replies render the member's role
+    // through the registry so it matches the surrounding locale instead of
+    // leaking the raw English enum value (`owner`/`admin`/`member`) into an
+    // otherwise-translated message. Pin the FR labels and assert each role
+    // resolves in every compiled locale.
+    let reg = MessagingStringsRegistry::new();
+
+    assert_eq!(reg.get(KEY_GROUP_ROLE_OWNER, "fr"), "propriétaire");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_ADMIN, "fr"), "admin");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_MEMBER, "fr"), "membre");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_OWNER, "en"), "owner");
+
+    for locale in ["fr", "en", "es", "de", "pt"] {
+        for key in [
+            KEY_GROUP_ROLE_OWNER,
+            KEY_GROUP_ROLE_ADMIN,
+            KEY_GROUP_ROLE_MEMBER,
+        ] {
+            assert!(
+                !reg.get(key, locale).is_empty(),
+                "role label {key} missing for locale {locale}"
+            );
+        }
+    }
 }
 
 #[test]
