@@ -29,6 +29,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::UserOAuthToken;
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
 use pierre_database::RepositoryRegistry;
 use rand::prelude::IndexedRandom;
@@ -61,6 +62,12 @@ pub struct SeedArgs {
     /// Random seed for reproducible data (optional)
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Provider the seeded user appears connected to (strava | garmin). The
+    /// activities are served back through the dev fixture API under this
+    /// provider name, so the user looks like a real Strava/Garmin athlete.
+    #[arg(long, default_value = "strava")]
+    pub provider: String,
 }
 
 /// Sport type configuration for activity generation
@@ -454,7 +461,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     )
     .await?;
 
-    register_provider_connection(repos, user_id, tenant_id).await?;
+    register_provider_connection(repos, user_id, tenant_id, &args.provider).await?;
     log_activity_summary(args.count, &counts);
     Ok(())
 }
@@ -606,17 +613,24 @@ fn build_activity(
     }
 }
 
+/// Register the seeded user as a connected `provider` (strava/garmin) athlete:
+/// a `provider_connection` row (so onboarding + the recommender gate see a real
+/// provider) and a long-lived `oauth_token` whose access token is
+/// `devfixture:<user_id>`. The dev fixture API reads that bearer to serve this
+/// user's seeded activities, so the real provider fetches them through the
+/// normal path. Dev/test only — never run against real users.
 async fn register_provider_connection(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: Uuid,
+    provider: &str,
 ) -> AppResult<()> {
     let connection = SeedProviderConnection {
         id: Uuid::new_v4(),
         user_id,
         tenant_id,
-        provider: "synthetic".to_owned(),
-        connection_type: "synthetic".to_owned(),
+        provider: provider.to_owned(),
+        connection_type: "oauth".to_owned(),
         connected_at: Utc::now(),
         metadata: r#"{"source": "seed-synthetic-activities"}"#.to_owned(),
     };
@@ -624,7 +638,27 @@ async fn register_provider_connection(
         .seeder
         .seed_upsert_provider_connection(&connection)
         .await?;
-    info!("Registered synthetic provider connection");
+
+    let now = Utc::now();
+    let token = UserOAuthToken {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        tenant_id: tenant_id.to_string(),
+        provider: provider.to_owned(),
+        // The dev fixture maps this bearer back to the user; the real provider
+        // sends it verbatim. Far-future expiry so token refresh never fires
+        // (refresh would hit the real provider's hardcoded token URL).
+        access_token: format!("devfixture:{user_id}"),
+        refresh_token: Some(format!("devfixture-refresh:{user_id}")),
+        token_type: "bearer".to_owned(),
+        expires_at: Some(now + Duration::days(3650)),
+        scope: Some("read,activity:read_all".to_owned()),
+        created_at: now,
+        updated_at: now,
+    };
+    repos.oauth_tokens.upsert_token(&token).await?;
+
+    info!("Registered {provider} provider connection + dev-fixture token");
     Ok(())
 }
 

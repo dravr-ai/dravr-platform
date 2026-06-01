@@ -39,6 +39,9 @@ kill_by_port() {
 kill_by_pattern "pierre-mcp-server" "Pierre MCP Server"
 kill_by_pattern "cargo.*pierre-mcp-server" "Cargo (server build)"
 
+# Dev fixture API (serves seeded Strava/Garmin activities in dev)
+kill_by_pattern "pierre-dev-fixture" "Dev Fixture API"
+
 # Vite frontend — match the actual binary path, not "vite.*frontend"
 kill_by_pattern "node_modules/.bin/vite" "Vite dev server(s)"
 kill_by_pattern "node_modules/@esbuild" "esbuild (Vite companion)"

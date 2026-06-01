@@ -34,8 +34,6 @@ use pierre_mcp_server::{
     },
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
-#[cfg(feature = "provider-synthetic")]
-use pierre_providers::synthetic_provider::set_synthetic_database_pool;
 #[cfg(feature = "provider-sciotte")]
 use pierre_routes_auth::init_sciotte_limiter;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
@@ -732,13 +730,6 @@ async fn create_server(
         },
     )
     .await;
-
-    // Initialize synthetic provider database pool for non-OAuth activity access
-    #[cfg(feature = "provider-synthetic")]
-    if let Some(pool) = resources_instance.coach.database.sqlite_pool() {
-        set_synthetic_database_pool(Arc::new(pool.clone()));
-        info!("Synthetic provider database pool initialized");
-    }
 
     let resources = spawn_background_workers(resources_instance);
 

@@ -132,15 +132,6 @@ impl ProviderCapabilities {
             .union(Self::CONTINUOUS_DATA)
     }
 
-    /// Create capabilities for a synthetic/test provider (no OAuth)
-    #[must_use]
-    pub const fn synthetic() -> Self {
-        Self::ACTIVITIES
-            .union(Self::SLEEP_TRACKING)
-            .union(Self::RECOVERY_METRICS)
-            .union(Self::HEALTH_METRICS)
-    }
-
     /// Check if OAuth is required
     #[must_use]
     pub const fn requires_oauth(&self) -> bool {
@@ -491,83 +482,6 @@ impl ProviderDescriptor for FitbitDescriptor {
 
     fn default_scopes(&self) -> &'static [&'static str] {
         &["activity", "profile", "sleep", "heartrate", "weight"]
-    }
-}
-
-/// Synthetic provider descriptor (for development/testing)
-#[cfg(feature = "provider-synthetic")]
-pub struct SyntheticDescriptor;
-
-#[cfg(feature = "provider-synthetic")]
-impl ProviderDescriptor for SyntheticDescriptor {
-    fn name(&self) -> &'static str {
-        "synthetic"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Synthetic (Test)"
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::synthetic()
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None // Synthetic provider doesn't need OAuth
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None // Synthetic provider doesn't need OAuth
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        "http://localhost/synthetic/api"
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[]
-    }
-}
-
-/// Synthetic Sleep provider descriptor (for cross-provider testing)
-///
-/// This descriptor registers a second synthetic provider focused on sleep data,
-/// enabling cross-provider testing scenarios where activities come from one
-/// provider and sleep/recovery data from another.
-#[cfg(feature = "provider-synthetic")]
-pub struct SyntheticSleepDescriptor;
-
-#[cfg(feature = "provider-synthetic")]
-impl ProviderDescriptor for SyntheticSleepDescriptor {
-    fn name(&self) -> &'static str {
-        "synthetic_sleep"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Synthetic Sleep (Test)"
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        // This provider focuses on sleep and recovery data
-        ProviderCapabilities::SLEEP_TRACKING
-            .union(ProviderCapabilities::RECOVERY_METRICS)
-            .union(ProviderCapabilities::HEALTH_METRICS)
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None // Synthetic provider doesn't need OAuth
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None // Synthetic provider doesn't need OAuth
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        "http://localhost/synthetic_sleep/api"
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &["sleep:read"]
     }
 }
 

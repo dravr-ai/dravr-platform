@@ -414,6 +414,7 @@ impl SeederRepository for PostgresDatabase {
              (id, user_id, tenant_id, provider, connection_type, connected_at, metadata) \
              VALUES ($1, $2, $3, $4, $5, $6, $7) \
              ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET \
+              connection_type = EXCLUDED.connection_type, \
               connected_at = EXCLUDED.connected_at, \
               metadata = EXCLUDED.metadata",
         )

@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use clap::Subcommand;
+use pierre_auth::key_management::KeyManager;
+#[cfg(feature = "postgresql")]
+use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
@@ -57,8 +60,38 @@ pub enum SeedCommand {
 pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> {
     match action {
         SeedCommand::InsightSamples(args) => run_insight_samples(&args),
+        // synthetic-activities seeds an encrypted dev-fixture oauth_token, so it
+        // needs the real DEK from KeyManager — the zero seeding key would write
+        // a token the server can't decrypt, leaving the user "disconnected".
+        SeedCommand::SyntheticActivities(args) => {
+            dispatch_synthetic_activities(args, database_url).await
+        }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
+}
+
+/// Seed synthetic activities + a dev-fixture provider token using the full
+/// two-tier key management (real DEK), so the seeded `oauth_token` decrypts in
+/// the server exactly like a real provider connection.
+async fn dispatch_synthetic_activities(
+    args: SyntheticActivitiesArgs,
+    database_url: &str,
+) -> AppResult<()> {
+    info!(
+        "Connecting to database for synthetic-activities seeding (full key init): {}",
+        redact_url(database_url)
+    );
+    let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
+    let mut database = Database::new(
+        database_url,
+        database_encryption_key.to_vec(),
+        #[cfg(feature = "postgresql")]
+        &PostgresPoolConfig::default(),
+    )
+    .await?;
+    key_manager.complete_initialization(&mut database).await?;
+    let repos = database.repositories();
+    run_synthetic_activities(args, &repos).await
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {
@@ -76,7 +109,9 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
         SeedCommand::Mobility(args) => run_mobility(args, &repos).await,
         SeedCommand::Social(args) => run_social(args, &repos).await,
-        SeedCommand::SyntheticActivities(args) => run_synthetic_activities(args, &repos).await,
+        SeedCommand::SyntheticActivities(_) => {
+            unreachable!("SyntheticActivities is handled by dispatch() with full key init")
+        }
         SeedCommand::InsightSamples(_) => {
             unreachable!("InsightSamples is handled by dispatch() before reaching this path")
         }

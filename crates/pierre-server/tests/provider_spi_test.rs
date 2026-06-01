@@ -8,21 +8,14 @@
 #![allow(missing_docs)]
 
 use pierre_providers::ProviderCapabilities;
-#[cfg(any(
-    feature = "provider-strava",
-    feature = "provider-garmin",
-    feature = "provider-synthetic"
-))]
-use pierre_providers::{ProviderBundle, ProviderDescriptor};
+#[cfg(any(feature = "provider-strava", feature = "provider-garmin"))]
+use pierre_providers::ProviderDescriptor;
 
 #[cfg(feature = "provider-strava")]
 use pierre_providers::StravaDescriptor;
 
 #[cfg(feature = "provider-garmin")]
 use pierre_providers::GarminDescriptor;
-
-#[cfg(feature = "provider-synthetic")]
-use pierre_providers::SyntheticDescriptor;
 
 #[test]
 #[cfg(feature = "provider-strava")]
@@ -51,16 +44,6 @@ fn test_garmin_descriptor() {
 }
 
 #[test]
-#[cfg(feature = "provider-synthetic")]
-fn test_synthetic_descriptor() {
-    let desc = SyntheticDescriptor;
-    assert_eq!(desc.name(), "synthetic");
-    assert!(!desc.requires_oauth());
-    assert!(desc.supports_sleep()); // Synthetic supports all for testing
-    assert!(desc.oauth_endpoints().is_none());
-}
-
-#[test]
 fn test_provider_capabilities() {
     let activity = ProviderCapabilities::activity_only();
     assert!(activity.requires_oauth());
@@ -71,10 +54,6 @@ fn test_provider_capabilities() {
     assert!(full.requires_oauth());
     assert!(full.supports_sleep());
     assert!(full.supports_recovery());
-
-    let synthetic = ProviderCapabilities::synthetic();
-    assert!(!synthetic.requires_oauth());
-    assert!(synthetic.supports_activities());
 }
 
 // ============================================================================
@@ -112,35 +91,6 @@ fn test_garmin_oauth_params() {
 }
 
 #[test]
-#[cfg(feature = "provider-synthetic")]
-fn test_synthetic_no_oauth_params() {
-    let desc = SyntheticDescriptor;
-    assert!(desc.oauth_params().is_none());
-    assert!(desc.oauth_endpoints().is_none());
-}
-
-#[test]
-#[cfg(all(feature = "provider-strava", feature = "provider-synthetic"))]
-fn test_provider_bundle_creation() {
-    use pierre_providers::core::{FitnessProvider, ProviderConfig};
-
-    // Create a test factory function
-    fn test_factory(_config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        use pierre_providers::synthetic_provider::SyntheticProvider;
-        Box::new(SyntheticProvider::new())
-    }
-
-    let descriptor = Box::new(StravaDescriptor);
-    let bundle = ProviderBundle::new(descriptor, test_factory);
-
-    assert_eq!(bundle.name(), "strava");
-
-    // Test that create_provider works
-    let provider = bundle.create_provider();
-    assert_eq!(provider.name(), "synthetic"); // Using synthetic factory for test
-}
-
-#[test]
 #[cfg(feature = "provider-strava")]
 fn test_provider_descriptor_to_config() {
     let desc = StravaDescriptor;
@@ -158,20 +108,6 @@ fn test_provider_descriptor_to_config() {
     assert!(config
         .default_scopes
         .contains(&"activity:read_all".to_owned()));
-}
-
-#[test]
-#[cfg(feature = "provider-synthetic")]
-fn test_synthetic_config_no_oauth() {
-    let desc = SyntheticDescriptor;
-    let config = desc.to_config();
-
-    assert_eq!(config.name, "synthetic");
-    // Synthetic uses placeholder URLs
-    assert!(config.auth_url.contains("localhost"));
-    assert!(config.token_url.contains("localhost"));
-    assert!(config.revoke_url.is_none());
-    assert!(config.default_scopes.is_empty());
 }
 
 #[test]
@@ -236,193 +172,4 @@ fn test_garmin_full_descriptor() {
     let scopes = desc.default_scopes();
     assert!(!scopes.is_empty());
     assert!(scopes.contains(&"activity:read"));
-}
-
-// ============================================================================
-// Tests for ActivityQueryParams and time-based filtering
-// ============================================================================
-
-#[cfg(feature = "provider-synthetic")]
-mod activity_query_params_tests {
-    use chrono::{Duration, Utc};
-    use pierre_providers::synthetic_provider::SyntheticProvider;
-    use pierre_providers::ActivityQueryParams;
-    use pierre_providers::CoreFitnessProvider;
-
-    /// Helper to create a synthetic provider with sample activities spanning multiple dates
-    fn create_provider_with_activities() -> SyntheticProvider {
-        use pierre_core::models::{ActivityBuilder, SportType};
-
-        let provider = SyntheticProvider::new();
-        let now = Utc::now();
-
-        // Add activities at different times using ActivityBuilder
-        let activities = vec![
-            ActivityBuilder::new(
-                "activity_1",
-                "Morning Run",
-                SportType::Run,
-                now - Duration::hours(1),
-                1800,
-                "synthetic",
-            )
-            .distance_meters(5000.0)
-            .elevation_gain(50.0)
-            .average_heart_rate(150)
-            .max_heart_rate(175)
-            .calories(300)
-            .build(),
-            ActivityBuilder::new(
-                "activity_2",
-                "Yesterday Run",
-                SportType::Run,
-                now - Duration::days(1),
-                3600,
-                "synthetic",
-            )
-            .distance_meters(10000.0)
-            .elevation_gain(100.0)
-            .average_heart_rate(145)
-            .max_heart_rate(170)
-            .calories(600)
-            .build(),
-            ActivityBuilder::new(
-                "activity_3",
-                "Last Week Ride",
-                SportType::Ride,
-                now - Duration::days(7),
-                7200,
-                "synthetic",
-            )
-            .distance_meters(50000.0)
-            .elevation_gain(500.0)
-            .average_heart_rate(135)
-            .max_heart_rate(160)
-            .calories(1200)
-            .build(),
-            ActivityBuilder::new(
-                "activity_4",
-                "Old Ski",
-                SportType::CrossCountrySkiing,
-                now - Duration::days(30),
-                5400,
-                "synthetic",
-            )
-            .distance_meters(15000.0)
-            .elevation_gain(200.0)
-            .average_heart_rate(140)
-            .max_heart_rate(165)
-            .calories(800)
-            .build(),
-        ];
-
-        for activity in activities {
-            let result = provider.add_activity(activity);
-            assert!(result.is_ok(), "Failed to add activity: {result:?}");
-        }
-
-        provider
-    }
-
-    #[tokio::test]
-    async fn test_get_activities_with_no_filters() {
-        let provider = create_provider_with_activities();
-        let params = ActivityQueryParams::default();
-
-        let activities = provider.get_activities_with_params(&params).await.unwrap();
-
-        // Should return all activities (default limit applies)
-        assert!(!activities.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_get_activities_with_after_filter() {
-        let provider = create_provider_with_activities();
-        let now = Utc::now();
-
-        // Filter for activities after 3 days ago
-        let after_timestamp = (now - Duration::days(3)).timestamp();
-        let params = ActivityQueryParams {
-            limit: None,
-            offset: None,
-            before: None,
-            after: Some(after_timestamp),
-        };
-
-        let activities = provider.get_activities_with_params(&params).await.unwrap();
-
-        // Should only get the 2 most recent activities (1 hour ago and 1 day ago)
-        assert_eq!(activities.len(), 2);
-        assert!(activities
-            .iter()
-            .all(|a| a.start_date().timestamp() >= after_timestamp));
-    }
-
-    #[tokio::test]
-    async fn test_get_activities_with_before_filter() {
-        let provider = create_provider_with_activities();
-        let now = Utc::now();
-
-        // Filter for activities before 2 days ago
-        let before_timestamp = (now - Duration::days(2)).timestamp();
-        let params = ActivityQueryParams {
-            limit: None,
-            offset: None,
-            before: Some(before_timestamp),
-            after: None,
-        };
-
-        let activities = provider.get_activities_with_params(&params).await.unwrap();
-
-        // Should only get the 2 older activities (7 days ago and 30 days ago)
-        assert_eq!(activities.len(), 2);
-        assert!(activities
-            .iter()
-            .all(|a| a.start_date().timestamp() < before_timestamp));
-    }
-
-    #[tokio::test]
-    async fn test_get_activities_with_date_range() {
-        let provider = create_provider_with_activities();
-        let now = Utc::now();
-
-        // Filter for activities between 10 days ago and 2 days ago
-        let after_timestamp = (now - Duration::days(10)).timestamp();
-        let before_timestamp = (now - Duration::days(2)).timestamp();
-
-        let params = ActivityQueryParams {
-            limit: None,
-            offset: None,
-            before: Some(before_timestamp),
-            after: Some(after_timestamp),
-        };
-
-        let activities = provider.get_activities_with_params(&params).await.unwrap();
-
-        // Should only get the ride from 7 days ago
-        assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].id(), "activity_3");
-    }
-
-    #[tokio::test]
-    async fn test_activity_query_params_with_pagination() {
-        let params = ActivityQueryParams::with_pagination(Some(10), Some(5));
-
-        assert_eq!(params.limit, Some(10));
-        assert_eq!(params.offset, Some(5));
-        assert!(params.before.is_none());
-        assert!(params.after.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_activity_query_params_with_time_range() {
-        let before = 1_700_000_000_i64;
-        let after = 1_690_000_000_i64;
-        let params = ActivityQueryParams::with_time_range(Some(before), Some(after));
-
-        assert!(params.limit.is_none());
-        assert!(params.offset.is_none());
-        assert_eq!(params.before, Some(before));
-        assert_eq!(params.after, Some(after));
-    }
 }
