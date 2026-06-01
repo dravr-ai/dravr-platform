@@ -358,13 +358,15 @@ module "backend" {
       NOTIFY_EMAIL_FROM           = var.notify_email_from
       NOTIFY_EMAIL_TO             = var.notify_email_to
 
-      # Contremaitre prompt hot-reload — reads from GCS at runtime so the
-      # 5000/hr GitHub core API budget on `jfarcand` stays available for
-      # the Copilot LLM provider. Writes (admin coach-promotion) still
-      # commit to the repo via CONTREMAITRE_GITHUB_PAT.
-      CONTREMAITRE_REPO       = "dravr-ai/dravr-contremaitre"
-      CONTREMAITRE_BRANCH     = "main"
-      CONTREMAITRE_GCS_BUCKET = google_storage_bucket.contremaitre_prompts.name
+      # Contremaitre prompt hot-reload — reads directly from the GitHub repo
+      # (the source of truth) on the push webhook. The webhook does a
+      # SELECTIVE sync of only the changed files (a handful per push), so it
+      # does not threaten the 5000/hr GitHub API budget the way a full poll
+      # would — which is why the GCS mirror (a billing-blocked single point of
+      # failure) is no longer needed. Writes (admin coach-promotion) commit to
+      # the repo via CONTREMAITRE_GITHUB_PAT.
+      CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
+      CONTREMAITRE_BRANCH = "main"
 
       # Sciotte backpressure limiter — all seven knobs are required at
       # startup; the crate ships no numeric defaults. See

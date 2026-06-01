@@ -16,9 +16,13 @@ enable_frontend = true
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
-backend_cpu           = "2"
-backend_memory        = "2Gi"
-backend_min_instances = 0
+backend_cpu    = "2"
+backend_memory = "2Gi"
+# Keep one warm instance so the contremaitre push webhook (prompt hot-reload)
+# always lands on a running container — scale-to-zero made the webhook 504 on
+# cold start, dropping the reload. The warm instance also serves the startup
+# prompt sync without a cold-start penalty.
+backend_min_instances = 1
 backend_max_instances = 15
 
 # database_tier                = "db-f1-micro"
