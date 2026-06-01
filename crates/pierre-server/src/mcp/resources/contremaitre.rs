@@ -11,6 +11,7 @@ use pierre_contremaitre::{
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
     ToolDescriptionRegistry,
 };
+use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
@@ -31,7 +32,7 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
 /// back to [`DEFAULT_POLL_INTERVAL_SECS`]. A zero or unparseable value uses
 /// the default rather than busy-looping.
 fn poll_interval_secs() -> u64 {
-    std::env::var("CONTREMAITRE_POLL_INTERVAL_SECS")
+    env::var("CONTREMAITRE_POLL_INTERVAL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .filter(|&n| n > 0)
