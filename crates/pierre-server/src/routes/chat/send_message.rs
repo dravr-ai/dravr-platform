@@ -14,7 +14,8 @@ use axum::http::{header::ACCEPT, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
+use chrono::Utc;
+use pierre_core::models::{default_locale, ConversationTurnId};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tracing::{field, info, instrument, trace, warn, Span};
@@ -725,41 +726,13 @@ async fn try_handle_chat_command(
         }
     };
 
-    // Persist both turns. If the conversation doesn't exist for this
-    // user+tenant, add_message surfaces a not-found error which we
-    // propagate back to the caller unchanged.
-    let user_message = resources
-        .common
-        .repos
-        .chat
-        .add_message(&AddMessageParams {
-            conversation_id,
-            user_id: user_id_str,
-            role: "user",
-            content: &request.content,
-            token_count: None,
-            finish_reason: None,
-            prompt_tokens: None,
-            model: None,
-        })
-        .await?;
-
-    let assistant_message = resources
-        .common
-        .repos
-        .chat
-        .add_message(&AddMessageParams {
-            conversation_id,
-            user_id: user_id_str,
-            role: "assistant",
-            content: &body_text,
-            token_count: None,
-            finish_reason: Some("command"),
-            prompt_tokens: None,
-            model: Some("command"),
-        })
-        .await?;
-
+    // Slash commands are ephemeral on every surface. Messaging channels
+    // return HandledNotStored; web/mobile match that here. The result is
+    // returned for immediate display but never written to chat history, so
+    // the command and its account-level output (connected providers, group
+    // count, privacy state) don't persist in the durable transcript or bleed
+    // into the LLM context on the next turn. get_conversation stays as an
+    // ownership/existence check and supplies conversation_updated_at.
     let conversation = resources
         .common
         .repos
@@ -768,20 +741,21 @@ async fn try_handle_chat_command(
         .await?
         .ok_or_else(|| AppError::not_found(format!("Conversation {conversation_id}")))?;
 
+    let now = Utc::now().to_rfc3339();
     let chat_response = ChatCompletionResponse {
         user_message: MessageResponse {
-            id: user_message.id.clone(),
-            role: user_message.role.clone(),
-            content: user_message.content.clone(),
-            token_count: user_message.token_count,
-            created_at: user_message.created_at.clone(),
+            id: Uuid::new_v4().to_string(),
+            role: "user".to_owned(),
+            content: request.content.clone(),
+            token_count: None,
+            created_at: now.clone(),
         },
         assistant_message: MessageResponse {
-            id: assistant_message.id.clone(),
-            role: assistant_message.role.clone(),
-            content: assistant_message.content.clone(),
-            token_count: assistant_message.token_count,
-            created_at: assistant_message.created_at.clone(),
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".to_owned(),
+            content: body_text,
+            token_count: None,
+            created_at: now,
         },
         conversation_updated_at: conversation.updated_at,
         model: "command".to_owned(),
