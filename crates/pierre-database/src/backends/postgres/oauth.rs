@@ -225,6 +225,26 @@ impl OAuthTokenRepository for PostgresDatabase {
         Ok(tokens)
     }
 
+    async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
+        let count: i64 = sqlx::query_scalar(
+            r"
+            SELECT COUNT(DISTINCT t.user_id)
+            FROM user_oauth_tokens t
+            WHERE t.provider = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM user_oauth_app_credentials a
+                  WHERE a.user_id = t.user_id AND a.provider = $1
+              )
+            ",
+        )
+        .bind(provider)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count shared-app OAuth seats: {e}")))?;
+
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
     async fn delete_token(
         &self,
         user_id: uuid::Uuid,

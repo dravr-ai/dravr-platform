@@ -469,6 +469,23 @@ pub mod rate_limits {
     pub const WEBSOCKET_CHANNEL_CAPACITY: usize = 1000;
 }
 
+/// Provider athlete-seat capacities.
+///
+/// Distinct from request rate limits: this is the number of distinct athletes
+/// an OAuth application may have connected at once, enforced by the upstream
+/// provider (Strava) and not exposed via any API response header. The value
+/// here is the default the platform assumes; an operator overrides it via the
+/// `STRAVA_OAUTH_SEAT_CAP` environment variable after self-upgrading the app's
+/// tier in the Strava API settings dashboard.
+pub mod provider_seats {
+    /// Default athlete capacity for the shared Dravr Strava OAuth app.
+    ///
+    /// Matches the Strava Standard Tier entry-level cap (10 athletes) that a
+    /// developer can self-upgrade to with no review. Overridable via
+    /// `STRAVA_OAUTH_SEAT_CAP`.
+    pub const STRAVA_OAUTH_SEAT_CAP_DEFAULT: u32 = 10;
+}
+
 /// User default values
 pub mod user_defaults {
     /// Default user age

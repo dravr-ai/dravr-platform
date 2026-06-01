@@ -39,6 +39,14 @@ pub trait OAuthTokenRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Vec<UserOAuthToken>>;
+    /// Count distinct users occupying a shared-app OAuth seat for `provider`.
+    ///
+    /// A "seat" is one athlete connected through the platform's shared OAuth
+    /// application. Users who registered their own (BYO) OAuth app run on their
+    /// own athlete quota and are excluded. The count is intentionally
+    /// cross-tenant: the shared app's athlete cap is a single global limit
+    /// enforced upstream (Strava) across every tenant that uses it.
+    async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32>;
     /// Delete user OAuth token for a tenant-provider combination
     async fn delete_token(
         &self,

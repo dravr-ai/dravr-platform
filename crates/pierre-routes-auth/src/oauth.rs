@@ -30,7 +30,9 @@ use pierre_services::oauth_flow::{
 };
 use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
 
+use pierre_auth::config::oauth::strava_oauth_seat_cap;
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
+use pierre_core::constants::oauth::providers as oauth_providers;
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -268,6 +270,21 @@ pub async fn handle_providers_status(
     let connected_providers: HashSet<String> =
         connections.into_iter().map(|c| c.provider).collect();
 
+    // Seat availability for the shared Dravr Strava OAuth app. Strava enforces a
+    // per-application athlete cap that is not exposed via any API response header,
+    // so onboarding a NEW Strava connection prefers shared-app OAuth while seats
+    // remain and falls back to the Sciotte mirror once the cap is reached. A count
+    // failure is treated as "no seats left" so we degrade to the always-available
+    // mirror rather than pushing the user into an OAuth flow Strava would reject.
+    let strava_seat_cap = strava_oauth_seat_cap();
+    let strava_seats_used = resources
+        .repos
+        .oauth_tokens
+        .count_shared_app_seat_usage(oauth_providers::STRAVA)
+        .await
+        .unwrap_or(strava_seat_cap);
+    let strava_seats_left = strava_seat_cap.saturating_sub(strava_seats_used);
+
     // Build provider status list
     let mut provider_statuses = Vec::new();
 
@@ -299,12 +316,28 @@ pub async fn handle_providers_status(
                 capabilities.push("health".to_owned());
             }
 
+            // The Sciotte entry is the user-facing "Strava" card. Tell the
+            // frontend which Strava backend a new connection should use:
+            // shared-app OAuth while seats remain, else the Sciotte mirror.
+            let (recommended_backend, seats_left) = if provider_name == oauth_providers::SCIOTTE {
+                let backend = if strava_seats_left > 0 {
+                    "oauth"
+                } else {
+                    "mirror"
+                };
+                (Some(backend.to_owned()), Some(strava_seats_left))
+            } else {
+                (None, None)
+            };
+
             provider_statuses.push(ProviderStatus {
                 provider: provider_name.to_owned(),
                 display_name: descriptor.display_name().to_owned(),
                 requires_oauth,
                 connected,
                 capabilities,
+                recommended_backend,
+                seats_left,
             });
         }
     }

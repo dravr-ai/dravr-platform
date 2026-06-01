@@ -338,6 +338,16 @@ pub struct ProviderStatus {
     pub connected: bool,
     /// Provider capabilities (e.g., `["activities", "sleep"]`)
     pub capabilities: Vec<String>,
+    /// For a user-facing provider with more than one auth backend (Strava can be
+    /// served by shared-app OAuth or by the Sciotte mirror), the backend a NEW
+    /// connection should use: `"oauth"` while shared seats remain, otherwise
+    /// `"mirror"`. `None` for single-backend providers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_backend: Option<String>,
+    /// Remaining shared-app OAuth athlete seats for this provider when it is
+    /// seat-limited (Strava). `None` for providers without a seat cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seats_left: Option<u32>,
 }
 
 /// Response for the /api/providers endpoint

@@ -114,36 +114,19 @@ export default function ProviderConnectionCards({
     refetchInterval: 5000,
   });
 
-  // Handle provider card click
-  const handleConnect = async (provider: ProviderStatus) => {
-    // If already connected, no action needed
-    if (provider.connected) return;
-
-    // Sciotte providers use credential-based login (not OAuth)
-    if (provider.provider.startsWith('sciotte')) {
-      setSciotteModalTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
-      return;
-    }
-
-    // Non-OAuth providers (like synthetic) skip directly to chat
-    if (!provider.requires_oauth) {
-      if (onSkip) onSkip();
-      return;
-    }
-
-    // Use callback if provided (for chat-based connection flow)
+  // Launch the OAuth authorization flow for a provider. Prefers the parent's
+  // callback (onboarding shows an "awaiting consent" overlay); otherwise opens
+  // the authorize URL directly. Pre-opens a blank window synchronously so
+  // mobile Safari preserves the user gesture across the authorize-URL await;
+  // otherwise the popup is silently blocked and the card sits in a stuck state.
+  const connectViaOAuth = async (providerName: string) => {
     if (onConnectProvider) {
-      onConnectProvider(provider.provider);
+      onConnectProvider(providerName);
       return;
     }
-
-    // Fallback: Navigate directly to OAuth authorization endpoint.
-    // Pre-open a blank window synchronously so mobile Safari preserves the
-    // user gesture across the authorize-URL await; otherwise the popup is
-    // silently blocked and the card sits in a stuck loading state.
     const popup = window.open('about:blank', '_blank');
     try {
-      const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider.provider);
+      const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerName);
       if (popup && !popup.closed) {
         popup.location.href = authUrl;
       } else {
@@ -155,6 +138,40 @@ export default function ProviderConnectionCards({
       }
       console.error('Failed to get OAuth authorization URL:', error);
     }
+  };
+
+  // Handle provider card click
+  const handleConnect = async (provider: ProviderStatus) => {
+    // If already connected, no action needed
+    if (provider.connected) return;
+
+    // The Sciotte card is the user-facing "Strava" card. While shared-app OAuth
+    // seats remain the server recommends `oauth`, so connect via the official
+    // Strava OAuth flow. Once the athlete cap is reached the server recommends
+    // `mirror`, and we silently fall back to the Sciotte credential login — the
+    // user taps the same "Connect Strava" card either way.
+    if (provider.provider === 'sciotte') {
+      if (provider.recommended_backend === 'oauth') {
+        await connectViaOAuth('strava');
+      } else {
+        setSciotteModalTarget('strava');
+      }
+      return;
+    }
+
+    // Other Sciotte backends (Garmin) always use credential-based login.
+    if (provider.provider.startsWith('sciotte')) {
+      setSciotteModalTarget('garmin');
+      return;
+    }
+
+    // Non-OAuth providers (like synthetic) skip directly to chat
+    if (!provider.requires_oauth) {
+      if (onSkip) onSkip();
+      return;
+    }
+
+    await connectViaOAuth(provider.provider);
   };
 
   // Check if any provider is connected

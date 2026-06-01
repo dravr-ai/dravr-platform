@@ -160,8 +160,21 @@ export function OnboardingConnectScreen() {
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
     setConnectError(null);
+    // The Sciotte card is the user-facing "Strava" card. While shared-app OAuth
+    // seats remain the server recommends `oauth`, so connect via the official
+    // Strava OAuth flow. Once the athlete cap is reached the server recommends
+    // `mirror`, and we silently fall back to the Sciotte credential login.
+    if (provider.provider === 'sciotte') {
+      if (provider.recommended_backend === 'oauth') {
+        void launchOAuth('strava', provider.display_name);
+      } else {
+        setSciotteTarget('strava');
+      }
+      return;
+    }
+    // Other Sciotte backends (Garmin) always use credential-based login.
     if (provider.provider.startsWith('sciotte')) {
-      setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+      setSciotteTarget('garmin');
       return;
     }
     if (provider.provider === 'whoop') {

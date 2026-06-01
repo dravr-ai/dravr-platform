@@ -128,6 +128,18 @@ export interface ExtendedProviderStatus {
   requires_oauth: boolean;
   connected: boolean;
   capabilities: string[];
+  /**
+   * For a user-facing provider with more than one auth backend (Strava can be
+   * served by shared-app OAuth or by the Sciotte mirror), the backend a NEW
+   * connection should use: `"oauth"` while shared seats remain, otherwise
+   * `"mirror"`. Absent for single-backend providers.
+   */
+  recommended_backend?: 'oauth' | 'mirror';
+  /**
+   * Remaining shared-app OAuth athlete seats for this provider when it is
+   * seat-limited (Strava). Absent for providers without a seat cap.
+   */
+  seats_left?: number;
 }
 
 /** Response from /api/providers endpoint */
