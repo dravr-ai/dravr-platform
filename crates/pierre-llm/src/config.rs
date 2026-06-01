@@ -206,13 +206,14 @@ impl LlmProviderType {
 
         // Provider-specific defaults when PIERRE_LLM_MODEL is not set
         match self {
-            // CopilotHeadlessConfig reads COPILOT_HEADLESS_MODEL with its built-in default
-            Self::CopilotHeadless => Some(CopilotHeadlessConfig::from_env().model),
+            // Both Copilot variants derive the default from COPILOT_HEADLESS_MODEL
+            // (env-injected, e.g. by terraform) rather than a hardcoded version
+            // literal that drifts from deployed config.
+            Self::CopilotHeadless | Self::Copilot => Some(CopilotHeadlessConfig::from_env().model),
             // CLI runners pick their default model internally in new().
             // These fallbacks are only used for the conversation DB label when
             // RunnerConfig.model is None (no env override).
             Self::ClaudeCode => Some("opus".to_owned()),
-            Self::Copilot => Some("claude-opus-4.7".to_owned()),
             Self::CursorAgent => Some("sonnet-4".to_owned()),
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
             Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),

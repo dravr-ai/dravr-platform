@@ -82,10 +82,15 @@ jobs:
           PROBE_HOME=$(mktemp -d)
           OUTPUT_FILE=$(mktemp)
 
-          # Pin the probe to the primary model so we detect entitlement drift
-          # on the specific SKU Pierre uses, not the Copilot CLI default.
-          # Must stay in sync with PIERRE_LLM_MODEL in infra/environments/dev/main.tf.
-          PROBE_MODEL="claude-opus-4.8"
+          # Probe the exact SKU Pierre serves so we detect entitlement drift on
+          # it, not the Copilot CLI default. Sourced from PIERRE_LLM_MODEL in the
+          # dev Terraform config (the single source of truth) so this never drifts.
+          PROBE_MODEL=$(grep -E '^[[:space:]]*PIERRE_LLM_MODEL[[:space:]]*=' infra/environments/dev/main.tf | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$PROBE_MODEL" ]; then
+            echo "ERROR: could not extract PIERRE_LLM_MODEL from infra/environments/dev/main.tf" >&2
+            exit 1
+          fi
+          echo "Probing model: $PROBE_MODEL"
 
           # Run a trivial prompt; success means auth + entitlement + network all OK.
           # --allow-all-tools avoids interactive permission prompts.
