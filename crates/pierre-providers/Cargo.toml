@@ -18,7 +18,6 @@ provider-terra = []
 provider-fitbit = []
 provider-whoop = []
 provider-coros = []
-provider-synthetic = ["dep:sqlx"]
 provider-sciotte = ["dep:dravr-sciotte", "dravr-sciotte/vision", "dep:embacle"]
 provider-intervals-icu = []
 all-providers = [
@@ -28,7 +27,6 @@ all-providers = [
     "provider-fitbit",
     "provider-whoop",
     "provider-coros",
-    "provider-synthetic",
     "provider-sciotte",
     "provider-intervals-icu",
 ]

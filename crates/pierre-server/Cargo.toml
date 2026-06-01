@@ -50,10 +50,9 @@ provider-fitbit = ["pierre-providers/provider-fitbit"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
-provider-synthetic = ["pierre-providers/provider-synthetic"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte", "dep:embacle", "pierre-routes-auth?/provider-sciotte"]
 health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-strava", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
-all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-synthetic", "provider-sciotte"]
+all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
 # Tool feature flags - enable/disable MCP tool categories
@@ -164,7 +163,7 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]

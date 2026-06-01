@@ -27,7 +27,6 @@ use pierre_cache::{CacheConfig, CacheTtlConfig, CacheTtlConfigProvider};
     feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros",
-    feature = "provider-synthetic",
     feature = "provider-sciotte"
 ))]
 use pierre_core::constants::oauth as oauth_providers;
@@ -58,18 +57,12 @@ use crate::spi::FitbitDescriptor;
 use crate::spi::GarminDescriptor;
 #[cfg(feature = "provider-strava")]
 use crate::spi::StravaDescriptor;
-#[cfg(feature = "provider-synthetic")]
-use crate::spi::SyntheticDescriptor;
-#[cfg(feature = "provider-synthetic")]
-use crate::spi::SyntheticSleepDescriptor;
 #[cfg(feature = "provider-whoop")]
 use crate::spi::WhoopDescriptor;
 #[cfg(feature = "provider-sciotte")]
 use crate::spi::{SciotteDescriptor, SciotteGarminDescriptor};
 #[cfg(feature = "provider-strava")]
 use crate::strava_provider::StravaProviderFactory;
-#[cfg(feature = "provider-synthetic")]
-use crate::synthetic_provider::{SyntheticProviderFactory, SyntheticSleepProviderFactory};
 #[cfg(feature = "provider-terra")]
 use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
 #[cfg(feature = "provider-whoop")]
@@ -117,7 +110,6 @@ impl ProviderRegistry {
         Self::register_terra(&mut registry);
         Self::register_whoop(&mut registry);
         Self::register_coros(&mut registry);
-        Self::register_synthetic(&mut registry);
         Self::register_sciotte(&mut registry);
         Self::register_sciotte_garmin(&mut registry);
 
@@ -322,52 +314,6 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-coros"))]
     fn register_coros(_registry: &mut Self) {}
-
-    /// Register Synthetic provider for development and testing
-    #[cfg(feature = "provider-synthetic")]
-    fn register_synthetic(registry: &mut Self) {
-        // Register the primary synthetic provider (for activities)
-        registry.register_factory(
-            oauth_providers::SYNTHETIC,
-            Box::new(SyntheticProviderFactory),
-        );
-        registry.register_descriptor(oauth_providers::SYNTHETIC, Box::new(SyntheticDescriptor));
-        registry.set_default_config(
-            oauth_providers::SYNTHETIC,
-            ProviderConfig {
-                name: oauth_providers::SYNTHETIC.to_owned(),
-                auth_url: "http://localhost/synthetic/auth".to_owned(),
-                token_url: "http://localhost/synthetic/token".to_owned(),
-                api_base_url: "http://localhost/synthetic/api".to_owned(),
-                revoke_url: None,
-                default_scopes: vec!["activity:read_all".to_owned()],
-            },
-        );
-
-        // Register the synthetic_sleep provider for cross-provider testing
-        registry.register_factory(
-            oauth_providers::SYNTHETIC_SLEEP,
-            Box::new(SyntheticSleepProviderFactory),
-        );
-        registry.register_descriptor(
-            oauth_providers::SYNTHETIC_SLEEP,
-            Box::new(SyntheticSleepDescriptor),
-        );
-        registry.set_default_config(
-            oauth_providers::SYNTHETIC_SLEEP,
-            ProviderConfig {
-                name: oauth_providers::SYNTHETIC_SLEEP.to_owned(),
-                auth_url: "http://localhost/synthetic_sleep/auth".to_owned(),
-                token_url: "http://localhost/synthetic_sleep/token".to_owned(),
-                api_base_url: "http://localhost/synthetic_sleep/api".to_owned(),
-                revoke_url: None,
-                default_scopes: vec!["sleep:read".to_owned()],
-            },
-        );
-    }
-
-    #[cfg(not(feature = "provider-synthetic"))]
-    fn register_synthetic(_registry: &mut Self) {}
 
     /// Register Sciotte web scraping provider
     ///

@@ -15,11 +15,7 @@ impl TestFixtures {
     // Provider Constants
     // ========================================================================
 
-    /// Synthetic provider name
-    pub const PROVIDER_SYNTHETIC: &'static str = "synthetic";
 
-    /// Synthetic sleep provider name
-    pub const PROVIDER_SYNTHETIC_SLEEP: &'static str = "synthetic_sleep";
 
     // ========================================================================
     // Default Test Seeds

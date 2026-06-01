@@ -98,13 +98,15 @@ pub fn score_coach<S: BuildHasher>(
     user_providers: &HashSet<String, S>,
     config: &CoachRecommendationConfig,
 ) -> CoachRecommendation {
-    // Provider gate: a coach needing a provider the user hasn't connected is
-    // never eligible, but stays browsable in the full catalog.
-    let providers_ok = prerequisites
-        .providers
-        .iter()
-        .all(|p| user_providers.contains(&p.to_lowercase()));
-    if !providers_ok {
+    // Provider gate: a coach that needs a fitness provider requires the user to
+    // have at least one connected. The prerequisite names a specific provider
+    // (e.g. `strava`) but it really expresses "needs activity data" — a Garmin
+    // runner is just as valid for a running coach as a Strava one. So we gate on
+    // "has any provider connected", not the exact name; the activity_types
+    // overlap below is what actually establishes sport relevance. A coach with
+    // no provider prerequisite (sport-agnostic) is never gated here.
+    let needs_provider = !prerequisites.providers.is_empty();
+    if needs_provider && user_providers.is_empty() {
         return CoachRecommendation {
             eligible: false,
             match_score: 0.0,

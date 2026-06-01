@@ -42,7 +42,9 @@ fn prereqs(
 }
 
 #[test]
-fn locked_when_required_provider_missing() {
+fn locked_when_no_provider_connected() {
+    // A provider-gated coach is not eligible for a user with zero connected
+    // providers (cold start), regardless of any (empty) profile.
     let cfg = CoachRecommendationConfig::default();
     let runner = profile(&[("run", 10)]);
     let rec = score_coach(
@@ -53,9 +55,30 @@ fn locked_when_required_provider_missing() {
     );
     assert!(
         !rec.eligible,
-        "coach needing an unconnected provider is not eligible"
+        "coach needing a provider is not eligible with no provider connected"
     );
     assert!(rec.match_score.abs() < f32::EPSILON);
+}
+
+#[test]
+fn cross_provider_running_coach_matches_garmin_user() {
+    // A coach whose prerequisite names `strava` must still match a Garmin
+    // runner — the provider name expresses "needs activity data", and the
+    // running activities establish relevance. (Regression: Garmin users used
+    // to fail the provider gate and get cold-start recs.)
+    let cfg = CoachRecommendationConfig::default();
+    let runner = profile(&[("run", 10)]);
+    let rec = score_coach(
+        &prereqs(&["strava"], 5, &["Run"]),
+        Some(&runner),
+        &providers(&["garmin"]),
+        &cfg,
+    );
+    assert!(
+        rec.eligible,
+        "garmin runner should match a strava-prereq Run coach"
+    );
+    assert!((rec.match_score - 1.0).abs() < f32::EPSILON);
 }
 
 #[test]

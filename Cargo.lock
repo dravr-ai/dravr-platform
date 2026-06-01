@@ -3342,6 +3342,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-dev-fixture"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "pierre-email"
 version = "0.3.0"
 dependencies = [

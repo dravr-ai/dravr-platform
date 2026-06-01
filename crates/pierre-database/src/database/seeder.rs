@@ -373,6 +373,7 @@ impl SeederRepository for Database {
              (id, user_id, tenant_id, provider, connection_type, connected_at, metadata) \
              VALUES ($1, $2, $3, $4, $5, $6, $7) \
              ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET \
+               connection_type = excluded.connection_type, \
                connected_at = excluded.connected_at, \
                metadata = excluded.metadata",
         )

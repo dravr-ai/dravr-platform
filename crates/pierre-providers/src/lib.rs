@@ -60,9 +60,6 @@ pub mod sciotte_provider;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
-/// Synthetic fitness provider for development and testing
-#[cfg(feature = "provider-synthetic")]
-pub mod synthetic_provider;
 /// Terra unified API provider (150+ wearables)
 #[cfg(feature = "provider-terra")]
 pub mod terra;
@@ -99,10 +96,6 @@ pub use spi::SciotteDescriptor;
 pub use spi::SciotteGarminDescriptor;
 #[cfg(feature = "provider-strava")]
 pub use spi::StravaDescriptor;
-#[cfg(feature = "provider-synthetic")]
-pub use spi::SyntheticDescriptor;
-#[cfg(feature = "provider-synthetic")]
-pub use spi::SyntheticSleepDescriptor;
 #[cfg(feature = "provider-whoop")]
 pub use spi::WhoopDescriptor;
 pub use spi::{OAuthEndpoints, ProviderBundle, ProviderCapabilities, ProviderDescriptor};

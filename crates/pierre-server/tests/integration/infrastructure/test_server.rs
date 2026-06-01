@@ -1,5 +1,5 @@
 // ABOUTME: Integration test server lifecycle management
-// ABOUTME: Spawns real HTTP server with synthetic provider for E2E testing
+// ABOUTME: Spawns a real HTTP server for end-to-end integration testing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,7 +23,6 @@ use pierre_mcp_server::mcp::{
     multitenant::MultiTenantMcpServer,
     resources::{ServerContext, ServerContextOptions},
 };
-use pierre_providers::synthetic_provider::set_synthetic_test_seed;
 use rand::Rng;
 use std::{env, net::TcpListener, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::sleep};
@@ -46,14 +45,7 @@ pub struct IntegrationTestServer {
 
 impl IntegrationTestServer {
     /// Create a new test server
-    ///
-    /// Uses the standard synthetic provider which is always registered.
-    /// The synthetic provider is seeded with `DEFAULT_TEST_SEED` for
-    /// deterministic test data generation.
     pub async fn new() -> Result<Self> {
-        // Enable seeded synthetic provider for deterministic test data
-        set_synthetic_test_seed(DEFAULT_TEST_SEED);
-
         init_test_logging();
         init_test_http_clients();
         init_server_config();
@@ -310,8 +302,6 @@ impl IntegrationTestServer {
 impl Drop for IntegrationTestServer {
     fn drop(&mut self) {
         self.stop();
-        // Reset the test seed to avoid affecting other tests
-        set_synthetic_test_seed(0);
     }
 }
 

@@ -11,15 +11,11 @@ use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
 use pierre_auth::tenant::{TenantContext, TenantRole};
-#[cfg(feature = "provider-synthetic")]
-use pierre_config::constants::oauth_providers;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
-#[cfg(feature = "provider-synthetic")]
-use pierre_providers::synthetic_provider::SyntheticProvider;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -296,19 +292,6 @@ impl AuthService {
                 error: Some(format!("Unsupported provider: {requested_provider}")),
                 metadata: None,
             });
-        }
-
-        // Synthetic provider doesn't use OAuth - create directly with user context
-        #[cfg(feature = "provider-synthetic")]
-        if provider_name == oauth_providers::SYNTHETIC {
-            debug!(
-                user_id = %user_id,
-                provider = provider_name,
-                "Creating synthetic provider with user context (no OAuth required)"
-            );
-            let mut provider = SyntheticProvider::new();
-            provider.set_user_id(user_id);
-            return Ok(Box::new(provider));
         }
 
         // Get valid token for the (resolved) provider with automatic refresh.

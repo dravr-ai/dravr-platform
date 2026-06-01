@@ -65,6 +65,7 @@ EXPO_LOG="$LOG_DIR/expo.log"
 SERVER_PORT=8081
 FRONTEND_PORT=5173
 EXPO_PORT=8082
+FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
 
 # Credentials - use .envrc values or defaults
 # These are set after sourcing .envrc below
@@ -141,6 +142,7 @@ print_step 1 "Stopping existing services..."
 "$SCRIPT_DIR/stop-all.sh" 2>/dev/null || {
     # Fallback if stop-all.sh doesn't exist yet
     pkill -f "pierre-mcp-server" 2>/dev/null || true
+    pkill -f "pierre-dev-fixture" 2>/dev/null || true
     pkill -f "node_modules/.bin/vite" 2>/dev/null || true
     pkill -f "node_modules/@esbuild" 2>/dev/null || true
     pkill -f "expo start" 2>/dev/null || true
@@ -169,9 +171,9 @@ echo "    Database cleared"
 # All seeders are now subcommands under `pierre-cli seed <domain>` — no separate binaries.
 print_step 3 "Building server binaries ($BUILD_MODE mode)..."
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture 2>&1 | tail -3
 fi
 echo "    Build complete"
 
@@ -225,15 +227,21 @@ echo "    Creating phil_test + jf_test users..."
 "$PIERRE_CLI" user create --email "$PHIL_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
 "$PIERRE_CLI" user create --email "$JF_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
 
-# Seed synthetic activities for test users
+# Seed dev activities for test users. Each user is seeded as a real Strava or
+# Garmin athlete (provider_connection + oauth_token); the dev fixture API (started
+# below) serves their activities back in that provider's exact API format through
+# the real provider code path, so the recommender and all provider-backed features
+# work exactly as they would in prod. server-full compiles in both provider-strava
+# and provider-garmin (dev only — server-production keeps the prod provider set).
+# Mix providers so both paths are exercised: web/phil = Strava, mobile/jf = Garmin.
 if [ "$SKIP_SYNTHETIC" != "true" ]; then
-    echo "    Seeding synthetic activities for test users..."
-    "$PIERRE_CLI" seed synthetic-activities --email "$WEB_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
+    "$PIERRE_CLI" seed synthetic-activities --email "$WEB_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
 else
-    echo "    Skipping synthetic activities (--no-synthetic)"
+    echo "    Skipping dev provider activities (--no-synthetic)"
 fi
 
 # Seed LLM usage data for consumption analytics dashboard
@@ -241,6 +249,37 @@ echo "    Seeding LLM usage data (30 days)..."
 "$PIERRE_CLI" seed llm-usage --admin-email "$ADMIN_EMAIL" --days 30 2>&1 | tail -3
 
 echo "    All seeders complete"
+
+# Step 4b: Start the dev fixture API (serves seeded Strava/Garmin activities).
+# Skipped with --no-synthetic since there's no seeded data to serve.
+FIXTURE_LOG="$LOG_DIR/fixture.log"
+if [ "$SKIP_SYNTHETIC" != "true" ]; then
+    echo "    Starting dev fixture API (port $FIXTURE_PORT)..."
+    pkill -f "pierre-dev-fixture" 2>/dev/null || true
+    FIXTURE_PORT="$FIXTURE_PORT" ./target/$TARGET_DIR/pierre-dev-fixture > "$FIXTURE_LOG" 2>&1 &
+    FIXTURE_PID=$!
+    for i in {1..15}; do
+        if curl -s -f "http://127.0.0.1:$FIXTURE_PORT/health" > /dev/null 2>&1; then
+            echo "    Fixture ready (PID: $FIXTURE_PID)"
+            break
+        fi
+        if [ $i -eq 15 ]; then
+            echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
+        fi
+        sleep 1
+    done
+    # Point the real Strava/Garmin providers at the local fixture (dev only).
+    # Production never sets these, so it always hits the real provider APIs.
+    export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+    export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+    # Dummy Garmin OAuth creds (dev only). The provider requires client creds to
+    # be constructed and to register as "enabled" (it keys on GARMIN_CLIENT_ID);
+    # the seeded long-lived token means refresh never fires, and the fixture
+    # ignores credential validity — so placeholders are sufficient to exercise
+    # the real Garmin code path. Strava creds already come from .envrc.
+    export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
+    export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
+fi
 
 # Step 5: Start Pierre server
 print_step 5 "Starting Pierre MCP Server (port $SERVER_PORT)..."
@@ -302,6 +341,12 @@ if [ "$START_TUNNEL" = "true" ]; then
             set -a
             source "$PROJECT_ROOT/.envrc"
             set +a
+            # Re-assert the dev fixture overrides — re-sourcing .envrc must not
+            # send the providers back to the real Strava/Garmin APIs.
+            if [ "$SKIP_SYNTHETIC" != "true" ]; then
+                export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+                export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+            fi
             RUST_LOG=info ./target/$TARGET_DIR/pierre-mcp-server > "$SERVER_LOG" 2>&1 &
             SERVER_PID=$!
             for i in {1..15}; do
