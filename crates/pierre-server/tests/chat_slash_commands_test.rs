@@ -299,3 +299,40 @@ async fn client_platform_header_shapes_channel_type_without_breaking() {
     let body: ChatCompletionResponse = resp.json();
     assert!(body.is_command_response);
 }
+
+#[tokio::test]
+async fn slash_command_is_not_persisted_to_history() {
+    // Web/mobile parity with the messaging channels: a slash command and its
+    // account-level output (connected providers, group count, privacy state)
+    // must not be written to the durable conversation transcript, where it
+    // would persist and bleed into the LLM context on the next turn. The
+    // command still executes and its result is returned for display.
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _tenant_id, auth) = seed_user_tenant(&resources, "ephemeral-cmd@test.com").await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .json(&json!({"content": "/status"}))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: ChatCompletionResponse = resp.json();
+    assert!(body.is_command_response);
+
+    // The command turn is ephemeral: nothing landed in the transcript.
+    let history = resources
+        .common
+        .repos
+        .chat
+        .get_messages(&conv_id, &user_id.to_string())
+        .await
+        .unwrap();
+    assert!(
+        history.is_empty(),
+        "slash command must not persist to chat history, found {} message(s)",
+        history.len()
+    );
+}
