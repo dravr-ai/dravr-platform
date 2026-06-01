@@ -79,7 +79,7 @@ jobs:
       - name: Init contremaitre submodule
         run: git submodule update --init --recursive vendor/contremaitre
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: clippy
 
@@ -158,7 +158,7 @@ jobs:
       - name: Init contremaitre submodule
         run: git submodule update --init --recursive vendor/contremaitre
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - uses: Swatinem/rust-cache@v2
 
