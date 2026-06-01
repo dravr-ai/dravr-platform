@@ -4,9 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! `ClaimVerdict` backfill integration tests.
+//
+// This `//!` must precede the crate-level `#![cfg]`: when the feature is off the
+// cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so without
+// a surviving crate doc the command-line `-D warnings` trips `missing_docs`.
 #![cfg(feature = "tools-verification")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(missing_docs)]
 
 use std::time::Duration;
 
