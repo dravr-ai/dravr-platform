@@ -240,6 +240,12 @@ if [ "$SKIP_SYNTHETIC" != "true" ]; then
     "$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
     "$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
     "$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
+    # Canonical demo users (created by `seed demo-data` above) need a provider too,
+    # otherwise they hit the onboarding hard-gate and get zero coach recommendations.
+    # The synthetic provider they used to fall back on was removed, so seed them as
+    # real fixture-backed athletes: alice = Strava, bob = Garmin (exercises both paths).
+    "$PIERRE_CLI" seed synthetic-activities --email alice@acme.com --provider strava --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email bob@startup.io --provider garmin --count 30 --days 30 2>&1 | tail -1
 else
     echo "    Skipping dev provider activities (--no-synthetic)"
 fi
