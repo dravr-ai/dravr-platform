@@ -1069,4 +1069,636 @@ mod command_tests {
         let response = TimezoneHandler.execute(&ctx).await.unwrap();
         assert!(response.text.contains("Invalid timezone"));
     }
+
+    // ════════════════════════════════════════════════════════════════
+    // /group command handlers — populated paths (direct execute())
+    // ════════════════════════════════════════════════════════════════
+    //
+    // The Telegram webhook returns 200 OK and dispatches the command reply
+    // asynchronously, so the rendered text never appears in the webhook
+    // response — the `test_group_*_command` webhook tests above can only
+    // assert the status code, and they run against a user with no groups
+    // (the empty / "not a member" branch). To exercise the populated paths
+    // and assert on the actual reply body, we invoke each handler directly,
+    // matching the `StatusHandler` pattern in `messaging_locale_test`.
+
+    use pierre_commands::group::{
+        GroupConsentHandler, GroupInviteHandler, GroupListHandler, GroupMembersHandler,
+        GroupStatusHandler,
+    };
+    use pierre_commands::{CommandHandler, PlatformCommandContext};
+    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+
+    /// Create a bare active user (no tenant/provider) for use as an additional
+    /// group member. `coaching_group_members.user_id` is a FK to `users(id)`,
+    /// so peer members must reference real user rows. `email` is the value
+    /// `list_members` surfaces as the member's display name (it joins
+    /// `users.email`, not the membership row's stored `display_name`).
+    async fn seed_member_user(resources: &ServerContext, email: &str) -> Uuid {
+        let password_hash =
+            spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
+                .await
+                .unwrap();
+        let mut user = User::new(
+            email.to_owned(),
+            password_hash,
+            Some("Group Member".to_owned()),
+        );
+        user.user_status = UserStatus::Active;
+        let user_id = user.id;
+        resources.common.repos.users.create(&user).await.unwrap();
+        user_id
+    }
+
+    /// Persist a coaching-group row directly. The repo `create_group` does
+    /// not auto-add the owner as a member (that is `GroupService::create_group`
+    /// behavior); membership is always seeded explicitly via `add_group_member`.
+    async fn create_group_row(
+        resources: &ServerContext,
+        tenant_id: TenantId,
+        coach_id: &str,
+        owner_id: Uuid,
+        name: &str,
+        peer_data_sharing: bool,
+    ) -> Uuid {
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let group = CoachingGroup {
+            id,
+            tenant_id: tenant_id.to_string(),
+            name: name.to_owned(),
+            description: None,
+            coach_id: coach_id.to_owned(),
+            owner_id,
+            peer_data_sharing,
+            max_members: 10,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(tenant_id, &group)
+            .await
+            .unwrap();
+        id
+    }
+
+    async fn add_group_member(
+        resources: &ServerContext,
+        group_id: Uuid,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        role: GroupRole,
+        display_name: Option<&str>,
+        consent: bool,
+    ) {
+        let now = Utc::now();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id,
+                user_id,
+                tenant_id: tenant_id.to_string(),
+                role,
+                peer_sharing_consent: consent,
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: display_name.map(str::to_owned),
+            })
+            .await
+            .unwrap();
+    }
+
+    fn group_ctx(
+        resources: &Arc<ServerContext>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        args: Vec<String>,
+        raw: &str,
+        conversation_id: Option<String>,
+    ) -> PlatformCommandContext {
+        PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args,
+            raw_text: raw.to_owned(),
+            ctx: Arc::<ServerContext>::clone(resources),
+            locale: "en".to_owned(),
+            is_direct_message: true,
+            conversation_id,
+        }
+    }
+
+    /// `/group` lists the user's groups with member count and the requester's
+    /// role label rendered from the localized registry.
+    #[tokio::test]
+    async fn group_list_handler_renders_populated_group() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "grouplist@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let bob = seed_member_user(&resources, "bob-list@test.com").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Morning Milers",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            bob,
+            tenant_id,
+            GroupRole::Member,
+            Some("Bob"),
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(&resources, user_id, tenant_id, vec![], "/group", None);
+        let response = GroupListHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Your groups (1):"),
+            "expected list header, got: {}",
+            response.text
+        );
+        assert!(response.text.contains("Morning Milers"));
+        assert!(
+            response.text.contains("2 members"),
+            "expected member count, got: {}",
+            response.text
+        );
+        assert!(
+            response.text.contains("[owner]"),
+            "expected requester role label, got: {}",
+            response.text
+        );
+    }
+
+    /// `/group status` reports member count, active count, and peer-sharing
+    /// state for the user's group.
+    #[tokio::test]
+    async fn group_status_handler_renders_summary() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupstatus@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let bob = seed_member_user(&resources, "bob-status@test.com").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Morning Milers",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            bob,
+            tenant_id,
+            GroupRole::Member,
+            Some("Bob"),
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group status",
+            None,
+        );
+        let response = GroupStatusHandler.execute(&ctx).await.unwrap();
+
+        assert!(response.text.contains("Morning Milers stats"));
+        assert!(
+            response.text.contains("Members: 2"),
+            "expected member count, got: {}",
+            response.text
+        );
+        assert!(response.text.contains("Active: 2"));
+        assert!(
+            response.text.contains("Peer sharing: on"),
+            "peer_data_sharing=true must render `on`, got: {}",
+            response.text
+        );
+    }
+
+    /// `/group members` lists each member with their display name and role,
+    /// honoring the localized role labels.
+    #[tokio::test]
+    async fn group_members_handler_lists_members_with_roles() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupmembers@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let bob = seed_member_user(&resources, "bob-members@test.com").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Morning Milers",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            bob,
+            tenant_id,
+            GroupRole::Member,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group members",
+            None,
+        );
+        let response = GroupMembersHandler.execute(&ctx).await.unwrap();
+
+        // `list_members` surfaces each member's account email as the display
+        // name (it joins `users.email`), and the role label is localized.
+        assert!(
+            response.text.contains("Morning Milers members (2)"),
+            "expected members header, got: {}",
+            response.text
+        );
+        assert!(
+            response.text.contains("groupmembers@test.com [owner]"),
+            "expected owner row with email + role, got: {}",
+            response.text
+        );
+        assert!(
+            response.text.contains("bob-members@test.com [member]"),
+            "expected member row with email + role, got: {}",
+            response.text
+        );
+    }
+
+    /// `list_members` resolves a member's display name from the joined
+    /// `users.email`, NOT the membership row's `display_name` column (left
+    /// `None` here). The localized "Unknown" fallback in the handler only
+    /// fires for an orphaned membership whose `users` row is missing — a state
+    /// the `coaching_group_members.user_id` foreign key prevents — so the
+    /// realistic rendering is always the account email.
+    #[tokio::test]
+    async fn group_members_handler_renders_account_email_as_name() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupunknown@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Quiet Group",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group members",
+            None,
+        );
+        let response = GroupMembersHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("groupunknown@test.com [owner]"),
+            "member name must resolve to the account email, got: {}",
+            response.text
+        );
+    }
+
+    /// `/group invite` is an admin-only action: a plain member is refused
+    /// before any invite is generated. This is an authorization boundary —
+    /// the check runs regardless of the `tools-groups` feature.
+    #[tokio::test]
+    async fn group_invite_handler_forbids_non_admin_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupinviteno@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        // owner_id references a real user (FK); the requester joins as a plain
+        // Member so the admin check (which reads the membership role, not
+        // owner_id) refuses them.
+        let gid = create_group_row(&resources, tenant_id, &coach_id, user_id, "Squad", true).await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Member,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group invite",
+            None,
+        );
+        let response = GroupInviteHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Only admins and owners"),
+            "non-admin invite must be refused, got: {}",
+            response.text
+        );
+    }
+
+    /// `/group invite` issued by an owner generates a real join link + code.
+    /// Requires the `tools-groups` feature (the invite branch calls
+    /// `group_service().create_invite`); the default test build enables it.
+    #[cfg(feature = "tools-groups")]
+    #[tokio::test]
+    async fn group_invite_handler_generates_link_for_admin() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupinviteok@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Morning Milers",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group invite",
+            None,
+        );
+        let response = GroupInviteHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Invite link for Morning Milers"),
+            "expected invite body naming the group, got: {}",
+            response.text
+        );
+        assert!(
+            response.text.contains("https://app.dravr.ai/groups/join/"),
+            "expected join link, got: {}",
+            response.text
+        );
+        assert!(response.text.contains("Code:"));
+    }
+
+    /// `/group consent` with an unrecognized argument returns usage help
+    /// instead of silently doing nothing (parsed before any group lookup).
+    #[tokio::test]
+    async fn group_consent_handler_rejects_invalid_arg() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "consentbad@test.com").await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["maybe".to_owned()],
+            "/group consent maybe",
+            None,
+        );
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Usage: /group consent"),
+            "invalid arg must return usage, got: {}",
+            response.text
+        );
+    }
+
+    /// `/group consent yes` with no conversation-bound group falls back to the
+    /// user's first group and flips that membership's `peer_sharing_consent`.
+    #[tokio::test]
+    async fn group_consent_handler_falls_back_to_first_group_without_conversation() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "consentfb@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Solo Group",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["yes".to_owned()],
+            "/group consent yes",
+            None,
+        );
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+        assert!(
+            response.text.contains("Solo Group"),
+            "confirmation should name the resolved group, got: {}",
+            response.text
+        );
+
+        // Behavioral assertion: the membership flag actually flipped.
+        let members = resources
+            .common
+            .repos
+            .groups
+            .list_members(&gid.to_string())
+            .await
+            .unwrap();
+        let consent = members
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .expect("membership row")
+            .peer_sharing_consent;
+        assert!(
+            consent,
+            "fallback path must flip peer_sharing_consent on the first group"
+        );
+    }
+
+    /// `/group consent yes` against a conversation bound to a group the user
+    /// is NOT a member of affects zero rows → the handler reports "not a
+    /// member" rather than silently succeeding.
+    #[tokio::test]
+    async fn group_consent_handler_errors_when_not_a_member_of_bound_group() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "consent0@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        // The group exists (owner_id references a real user for the FK), but
+        // the requester is never added as a member — so the consent update
+        // matches zero rows.
+        let gid =
+            create_group_row(&resources, tenant_id, &coach_id, user_id, "Strangers", true).await;
+
+        // Conversation owned by the requester, bound to that group.
+        let conversation = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                tenant_id,
+                "Bound chat",
+                "test-model",
+                None,
+                Some(&gid.to_string()),
+            )
+            .await
+            .unwrap();
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["yes".to_owned()],
+            "/group consent yes",
+            Some(conversation.id.clone()),
+        );
+        let result = GroupConsentHandler.execute(&ctx).await;
+        assert!(
+            result.is_err(),
+            "consent on a group the user isn't a member of must error (0 rows affected)"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Slash reply privacy routing
+    //
+    // A slash command issued in a shared room must not leak the caller's
+    // account state to other members: on DM-capable channels the reply is
+    // redirected to the caller's private chat. Channel-based transports
+    // (Discord, Slack) address rooms rather than users, so they keep the
+    // in-room reply until an ephemeral mechanism exists.
+    // ════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn slash_reply_redirects_to_dm_in_telegram_group() {
+        use pierre_core::models::messaging::ChannelType;
+        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
+
+        // Telegram group/supergroup → redirect to the caller's DM.
+        assert!(redirect_slash_reply_to_dm(ChannelType::Telegram, false));
+        // WhatsApp and Messenger also key on the user id.
+        assert!(redirect_slash_reply_to_dm(ChannelType::WhatsApp, false));
+        assert!(redirect_slash_reply_to_dm(ChannelType::Messenger, false));
+    }
+
+    #[test]
+    fn slash_reply_stays_in_place_for_direct_messages() {
+        use pierre_core::models::messaging::ChannelType;
+        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
+
+        // A 1:1 DM is already private — nothing to redirect, on any channel.
+        assert!(!redirect_slash_reply_to_dm(ChannelType::Telegram, true));
+        assert!(!redirect_slash_reply_to_dm(ChannelType::WhatsApp, true));
+        assert!(!redirect_slash_reply_to_dm(ChannelType::Discord, true));
+        assert!(!redirect_slash_reply_to_dm(ChannelType::Slack, true));
+    }
+
+    #[test]
+    fn slash_reply_stays_in_channel_for_discord_and_slack() {
+        use pierre_core::models::messaging::ChannelType;
+        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
+
+        // Discord/Slack address channels, not users; recipient swap can't
+        // make the reply private, so it stays in the room for now.
+        assert!(!redirect_slash_reply_to_dm(ChannelType::Discord, false));
+        assert!(!redirect_slash_reply_to_dm(ChannelType::Slack, false));
+    }
 }
