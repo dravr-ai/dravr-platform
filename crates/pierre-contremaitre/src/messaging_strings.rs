@@ -290,6 +290,12 @@ pub const KEY_GROUP_MEMBERS_HEADER: &str = "commands.group.members_header";
 pub const KEY_GROUP_MEMBERS_UNKNOWN: &str = "commands.group.members_unknown";
 /// Key: `/group members` item. `{0}` = name, `{1}` = role.
 pub const KEY_GROUP_MEMBERS_ITEM: &str = "commands.group.members_item";
+/// Key: localized label for the `Owner` group role.
+pub const KEY_GROUP_ROLE_OWNER: &str = "commands.group.role.owner";
+/// Key: localized label for the `Admin` group role.
+pub const KEY_GROUP_ROLE_ADMIN: &str = "commands.group.role.admin";
+/// Key: localized label for the `Member` group role.
+pub const KEY_GROUP_ROLE_MEMBER: &str = "commands.group.role.member";
 /// Key: `/group invite` rejection when the user lacks admin rights.
 pub const KEY_GROUP_INVITE_FORBIDDEN: &str = "commands.group.invite_forbidden";
 /// Key: `/group invite` success body.
@@ -458,6 +464,9 @@ pub(crate) const FR_GROUP_PEER_SHARING_OFF: &str = "désactivé";
 pub(crate) const FR_GROUP_MEMBERS_HEADER: &str = "{0} — membres ({1}) :\n";
 pub(crate) const FR_GROUP_MEMBERS_UNKNOWN: &str = "Inconnu";
 pub(crate) const FR_GROUP_MEMBERS_ITEM: &str = "- {0} [{1}]";
+pub(crate) const FR_GROUP_ROLE_OWNER: &str = "propriétaire";
+pub(crate) const FR_GROUP_ROLE_ADMIN: &str = "admin";
+pub(crate) const FR_GROUP_ROLE_MEMBER: &str = "membre";
 pub(crate) const FR_GROUP_INVITE_FORBIDDEN: &str =
     "Seuls les admins et les propriétaires peuvent générer des liens d'invitation.";
 pub(crate) const FR_GROUP_INVITE_BODY: &str =
@@ -603,6 +612,9 @@ pub(crate) const EN_GROUP_PEER_SHARING_OFF: &str = "off";
 pub(crate) const EN_GROUP_MEMBERS_HEADER: &str = "{0} members ({1}):\n";
 pub(crate) const EN_GROUP_MEMBERS_UNKNOWN: &str = "Unknown";
 pub(crate) const EN_GROUP_MEMBERS_ITEM: &str = "- {0} [{1}]";
+pub(crate) const EN_GROUP_ROLE_OWNER: &str = "owner";
+pub(crate) const EN_GROUP_ROLE_ADMIN: &str = "admin";
+pub(crate) const EN_GROUP_ROLE_MEMBER: &str = "member";
 pub(crate) const EN_GROUP_INVITE_FORBIDDEN: &str =
     "Only admins and owners can generate invite links.";
 pub(crate) const EN_GROUP_INVITE_BODY: &str =
@@ -737,6 +749,9 @@ pub(crate) const ES_GROUP_PEER_SHARING_OFF: &str = "desactivada";
 pub(crate) const ES_GROUP_MEMBERS_HEADER: &str = "{0} — miembros ({1}):\n";
 pub(crate) const ES_GROUP_MEMBERS_UNKNOWN: &str = "Desconocido";
 pub(crate) const ES_GROUP_MEMBERS_ITEM: &str = "- {0} [{1}]";
+pub(crate) const ES_GROUP_ROLE_OWNER: &str = "propietario";
+pub(crate) const ES_GROUP_ROLE_ADMIN: &str = "admin";
+pub(crate) const ES_GROUP_ROLE_MEMBER: &str = "miembro";
 pub(crate) const ES_GROUP_INVITE_FORBIDDEN: &str =
     "Solo los administradores y propietarios pueden generar enlaces de invitación.";
 pub(crate) const ES_GROUP_INVITE_BODY: &str =
@@ -873,6 +888,9 @@ pub(crate) const DE_GROUP_PEER_SHARING_OFF: &str = "deaktiviert";
 pub(crate) const DE_GROUP_MEMBERS_HEADER: &str = "{0} — Mitglieder ({1}):\n";
 pub(crate) const DE_GROUP_MEMBERS_UNKNOWN: &str = "Unbekannt";
 pub(crate) const DE_GROUP_MEMBERS_ITEM: &str = "- {0} [{1}]";
+pub(crate) const DE_GROUP_ROLE_OWNER: &str = "Eigentümer";
+pub(crate) const DE_GROUP_ROLE_ADMIN: &str = "Admin";
+pub(crate) const DE_GROUP_ROLE_MEMBER: &str = "Mitglied";
 pub(crate) const DE_GROUP_INVITE_FORBIDDEN: &str =
     "Nur Admins und Eigentümer können Einladungslinks erstellen.";
 pub(crate) const DE_GROUP_INVITE_BODY: &str =
@@ -1008,6 +1026,9 @@ pub(crate) const PT_GROUP_PEER_SHARING_OFF: &str = "desativada";
 pub(crate) const PT_GROUP_MEMBERS_HEADER: &str = "{0} — membros ({1}):\n";
 pub(crate) const PT_GROUP_MEMBERS_UNKNOWN: &str = "Desconhecido";
 pub(crate) const PT_GROUP_MEMBERS_ITEM: &str = "- {0} [{1}]";
+pub(crate) const PT_GROUP_ROLE_OWNER: &str = "proprietário";
+pub(crate) const PT_GROUP_ROLE_ADMIN: &str = "admin";
+pub(crate) const PT_GROUP_ROLE_MEMBER: &str = "membro";
 pub(crate) const PT_GROUP_INVITE_FORBIDDEN: &str =
     "Apenas administradores e proprietários podem gerar links de convite.";
 pub(crate) const PT_GROUP_INVITE_BODY: &str =
@@ -1125,6 +1146,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_MEMBERS_HEADER, "fr", FR_GROUP_MEMBERS_HEADER),
     (KEY_GROUP_MEMBERS_UNKNOWN, "fr", FR_GROUP_MEMBERS_UNKNOWN),
     (KEY_GROUP_MEMBERS_ITEM, "fr", FR_GROUP_MEMBERS_ITEM),
+    (KEY_GROUP_ROLE_OWNER, "fr", FR_GROUP_ROLE_OWNER),
+    (KEY_GROUP_ROLE_ADMIN, "fr", FR_GROUP_ROLE_ADMIN),
+    (KEY_GROUP_ROLE_MEMBER, "fr", FR_GROUP_ROLE_MEMBER),
     (KEY_GROUP_INVITE_FORBIDDEN, "fr", FR_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "fr", FR_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "fr", FR_GROUP_INVITE_UNAVAILABLE),
@@ -1228,6 +1252,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_MEMBERS_HEADER, "en", EN_GROUP_MEMBERS_HEADER),
     (KEY_GROUP_MEMBERS_UNKNOWN, "en", EN_GROUP_MEMBERS_UNKNOWN),
     (KEY_GROUP_MEMBERS_ITEM, "en", EN_GROUP_MEMBERS_ITEM),
+    (KEY_GROUP_ROLE_OWNER, "en", EN_GROUP_ROLE_OWNER),
+    (KEY_GROUP_ROLE_ADMIN, "en", EN_GROUP_ROLE_ADMIN),
+    (KEY_GROUP_ROLE_MEMBER, "en", EN_GROUP_ROLE_MEMBER),
     (KEY_GROUP_INVITE_FORBIDDEN, "en", EN_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "en", EN_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "en", EN_GROUP_INVITE_UNAVAILABLE),
@@ -1331,6 +1358,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_MEMBERS_HEADER, "es", ES_GROUP_MEMBERS_HEADER),
     (KEY_GROUP_MEMBERS_UNKNOWN, "es", ES_GROUP_MEMBERS_UNKNOWN),
     (KEY_GROUP_MEMBERS_ITEM, "es", ES_GROUP_MEMBERS_ITEM),
+    (KEY_GROUP_ROLE_OWNER, "es", ES_GROUP_ROLE_OWNER),
+    (KEY_GROUP_ROLE_ADMIN, "es", ES_GROUP_ROLE_ADMIN),
+    (KEY_GROUP_ROLE_MEMBER, "es", ES_GROUP_ROLE_MEMBER),
     (KEY_GROUP_INVITE_FORBIDDEN, "es", ES_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "es", ES_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "es", ES_GROUP_INVITE_UNAVAILABLE),
@@ -1434,6 +1464,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_MEMBERS_HEADER, "de", DE_GROUP_MEMBERS_HEADER),
     (KEY_GROUP_MEMBERS_UNKNOWN, "de", DE_GROUP_MEMBERS_UNKNOWN),
     (KEY_GROUP_MEMBERS_ITEM, "de", DE_GROUP_MEMBERS_ITEM),
+    (KEY_GROUP_ROLE_OWNER, "de", DE_GROUP_ROLE_OWNER),
+    (KEY_GROUP_ROLE_ADMIN, "de", DE_GROUP_ROLE_ADMIN),
+    (KEY_GROUP_ROLE_MEMBER, "de", DE_GROUP_ROLE_MEMBER),
     (KEY_GROUP_INVITE_FORBIDDEN, "de", DE_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "de", DE_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "de", DE_GROUP_INVITE_UNAVAILABLE),
@@ -1537,6 +1570,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_MEMBERS_HEADER, "pt", PT_GROUP_MEMBERS_HEADER),
     (KEY_GROUP_MEMBERS_UNKNOWN, "pt", PT_GROUP_MEMBERS_UNKNOWN),
     (KEY_GROUP_MEMBERS_ITEM, "pt", PT_GROUP_MEMBERS_ITEM),
+    (KEY_GROUP_ROLE_OWNER, "pt", PT_GROUP_ROLE_OWNER),
+    (KEY_GROUP_ROLE_ADMIN, "pt", PT_GROUP_ROLE_ADMIN),
+    (KEY_GROUP_ROLE_MEMBER, "pt", PT_GROUP_ROLE_MEMBER),
     (KEY_GROUP_INVITE_FORBIDDEN, "pt", PT_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "pt", PT_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "pt", PT_GROUP_INVITE_UNAVAILABLE),

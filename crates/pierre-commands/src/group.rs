@@ -18,10 +18,22 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY, KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM,
     KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM, KEY_GROUP_MEMBERS_UNKNOWN,
     KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
-    KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
+use pierre_core::models::groups::GroupRole;
 
 use crate::{CommandHandler, PlatformCommandContext};
+
+/// Map a [`GroupRole`] to its localized messaging-string key so the role
+/// label renders in the user's locale instead of leaking the raw English
+/// enum value into an otherwise-translated reply.
+const fn role_label_key(role: GroupRole) -> &'static str {
+    match role {
+        GroupRole::Owner => KEY_GROUP_ROLE_OWNER,
+        GroupRole::Admin => KEY_GROUP_ROLE_ADMIN,
+        GroupRole::Member => KEY_GROUP_ROLE_MEMBER,
+    }
+}
 
 /// Handler for `/group` — list user's groups
 pub struct GroupListHandler;
@@ -52,11 +64,11 @@ impl CommandHandler for GroupListHandler {
         text.push_str(&reg.render(KEY_GROUP_LIST_HEADER, locale, &[&count]));
         for g in &groups {
             let member_count = g.member_count.to_string();
-            let role = g.my_role.as_str();
+            let role = reg.render(role_label_key(g.my_role), locale, &[]);
             text.push_str(&reg.render(
                 KEY_GROUP_LIST_ITEM,
                 locale,
-                &[&g.name, &member_count, role],
+                &[&g.name, &member_count, &role],
             ));
             text.push('\n');
         }
@@ -145,8 +157,8 @@ impl CommandHandler for GroupMembersHandler {
         let unknown = reg.render(KEY_GROUP_MEMBERS_UNKNOWN, locale, &[]);
         for m in &members {
             let name = m.display_name.as_deref().unwrap_or(unknown.as_str());
-            let role = m.role.as_str();
-            text.push_str(&reg.render(KEY_GROUP_MEMBERS_ITEM, locale, &[name, role]));
+            let role = reg.render(role_label_key(m.role), locale, &[]);
+            text.push_str(&reg.render(KEY_GROUP_MEMBERS_ITEM, locale, &[name, &role]));
             text.push('\n');
         }
 
