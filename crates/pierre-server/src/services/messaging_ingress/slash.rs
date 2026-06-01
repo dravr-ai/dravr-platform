@@ -32,7 +32,7 @@ use super::ResolvedSession;
 /// reply to their DM keeps the room clean and the answer private.
 ///
 /// Only DM-capable channels can do this by swapping the recipient: Telegram,
-/// WhatsApp, and Messenger address individual users, so a reply sent to the
+/// `WhatsApp`, and Messenger address individual users, so a reply sent to the
 /// sender id lands in a 1:1 chat. Discord and Slack address channels rather
 /// than users (see [`super::otp::apply_conversation_recipient`]), so a private
 /// reply there needs a different mechanism (ephemeral responses) and is left
