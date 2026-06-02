@@ -31,7 +31,7 @@ use otp::{
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use session::{create_link_and_prompt, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
-pub use slash::redirect_slash_reply_to_dm;
+pub use slash::slash_reply_should_be_private;
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
@@ -224,14 +224,45 @@ async fn send_channel_response(
     }
 }
 
+/// Deliver a slash-command reply privately to the caller instead of to the
+/// room it arrived in, loading config and spawning delivery.
+///
+/// Each channel applies its own private mechanism inside canot's
+/// `send_private_reply`: a 1:1 DM for Telegram/WhatsApp/Messenger, an ephemeral
+/// message for Slack, an opened DM channel for Discord. `recipient_user_id` is
+/// the channel-native id of the caller; `message` is the reply addressed to the
+/// originating room.
+async fn send_private_channel_response(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel: &str,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: OutgoingMessage,
+    recipient_user_id: &str,
+) {
+    let config = load_channel_config(db, tenant_id, channel).await;
+    if let Some(cfg) = config {
+        let adapter_clone = Arc::clone(adapter);
+        let recipient = recipient_user_id.to_owned();
+        tokio::spawn(async move {
+            if let Err(e) = adapter_clone
+                .send_private_reply(&message, &recipient, &cfg)
+                .await
+            {
+                error!(error = %e, "Failed to send private slash-command reply");
+            }
+        });
+    }
+}
+
 /// Best-effort removal of a user's slash-command echo from a shared room.
 ///
-/// When a slash command arrives in a group on a DM-capable channel the reply
-/// is routed to the caller's DM (see `redirect_slash_reply_to_dm`). This
-/// deletes the original command message so the room never shows it. Failures
-/// (bot not an admin with delete rights, message already gone, channel can't
-/// delete) are logged at debug and never affect the turn — the command was
-/// still handled and answered in the DM.
+/// When a slash command arrives in a shared room the reply is delivered
+/// privately to the caller (see `slash_reply_should_be_private`). This deletes
+/// the original command message so the room never shows it. Failures (bot not
+/// an admin with delete rights, message already gone, channel can't delete) are
+/// logged at debug and never affect the turn — the command was still handled
+/// and answered privately.
 async fn delete_room_command_echo(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -364,10 +395,21 @@ async fn persist_single_message(
         )
         .await
         {
-            // When the reply was routed to the caller's DM (group command on a
-            // DM-capable channel), remove the original command echo from the
-            // room so the command stays private to the caller.
-            if redirect_slash_reply_to_dm(channel_type, message.is_direct_message) {
+            if slash_reply_should_be_private(message.is_direct_message) {
+                // Shared room (any channel): deliver the answer privately to
+                // the caller and remove the command echo so other members see
+                // neither. Both are best-effort and channel-specific inside
+                // canot (DM / Slack ephemeral / Discord DM; echo delete only
+                // where the platform allows).
+                send_private_channel_response(
+                    db,
+                    tenant_id,
+                    channel,
+                    adapter,
+                    response,
+                    &message.sender_id,
+                )
+                .await;
                 if let Some(room_id) = message.conversation_id.as_deref() {
                     delete_room_command_echo(
                         db,
@@ -379,8 +421,10 @@ async fn persist_single_message(
                     )
                     .await;
                 }
+            } else {
+                // Already a 1:1 DM — the conversation is the private chat.
+                send_channel_response(db, tenant_id, channel, adapter, response).await;
             }
-            send_channel_response(db, tenant_id, channel, adapter, response).await;
             return Ok(PersistOutcome::HandledNotStored);
         }
     }
