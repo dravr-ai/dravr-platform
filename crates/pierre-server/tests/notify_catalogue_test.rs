@@ -1,5 +1,5 @@
 // ABOUTME: Validates every `target: "notify"` call site emits an event present
-// ABOUTME: in vendor/contremaitre/schemas/notify-events.yaml with required fields.
+// ABOUTME: in the dravr-contremaitre notify-events catalogue with required fields.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,8 +10,8 @@
 //! Typo guard for `info!(target: "notify", event = "...")` call sites.
 //!
 //! Each call site in pierre-* crates that emits a notify event must:
-//! - reference an `event = "..."` name listed in
-//!   `vendor/contremaitre/schemas/notify-events.yaml`, and
+//! - reference an `event = "..."` name listed in the dravr-contremaitre
+//!   `notify-events.yaml` catalogue, and
 //! - declare every required field for that event, either as a literal
 //!   key on the `info!` macro itself, or on an enclosing
 //!   `#[tracing::instrument(..., fields(...))]` attribute in the same
@@ -24,9 +24,10 @@
 //! them. The catalogue still lists them as required so operators know
 //! they belong on every event.
 //!
-//! The test no-ops when the catalogue YAML is missing (the
-//! dravr-contremaitre submodule may not be bumped on a worktree yet).
+//! The catalogue ships embedded in the dravr-contremaitre crate, so the
+//! test always runs against it — there is no missing-file skip path.
 
+use dravr_contremaitre::schemas::NOTIFY_EVENTS_YAML;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -75,18 +76,9 @@ impl Catalogue {
 
 #[test]
 fn notify_call_sites_match_catalogue() {
-    let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../vendor/contremaitre/schemas/notify-events.yaml");
-    if !yaml_path.exists() {
-        eprintln!(
-            "notify-events.yaml not yet vendored at {}, skipping catalogue test",
-            yaml_path.display()
-        );
-        return;
-    }
-
-    let yaml_text = fs::read_to_string(&yaml_path).expect("read notify-events.yaml");
-    let catalogue = Catalogue::from_yaml(&yaml_text).expect("parse notify-events.yaml");
+    // The event catalogue ships embedded in the dravr-contremaitre crate
+    // (no vendor submodule), so it's always present — the test never skips.
+    let catalogue = Catalogue::from_yaml(NOTIFY_EVENTS_YAML).expect("parse notify-events.yaml");
 
     let crates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../")

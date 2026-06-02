@@ -1,10 +1,10 @@
-# ABOUTME: Auto-bump vendor/contremaitre submodule when dravr-contremaitre main moves
+# ABOUTME: Auto-bump the dravr-contremaitre Cargo rev when contremaitre main moves
 # ABOUTME: Triggered by repository_dispatch from contremaitre on push + hourly safety net
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
-name: "Contremaitre: Bump Submodule"
+name: "Contremaitre: Bump Dependency"
 
 on:
   repository_dispatch:
@@ -20,9 +20,12 @@ concurrency:
   group: contremaitre-bump
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   bump:
-    name: Bump vendor/contremaitre to latest main
+    name: Bump dravr-contremaitre rev to latest main
     runs-on: ubuntu-latest
     steps:
       - name: Checkout dravr-platform main
@@ -30,47 +33,56 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure auth for private submodule fetch
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure auth for private git deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Init submodule
-        run: git submodule update --init --recursive vendor/contremaitre
+      - name: Resolve target contremaitre SHA
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+        run: |
+          # On a push dispatch the SHA rides in the payload; the scheduled /
+          # manual safety-net resolves contremaitre main via the API instead.
+          NEW_SHA="${{ github.event.client_payload.sha }}"
+          if [ -z "${NEW_SHA}" ]; then
+            NEW_SHA=$(gh api repos/dravr-ai/dravr-contremaitre/commits/main --jq .sha)
+          fi
+          echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Update submodule to latest main
+      - name: Bump rev in Cargo manifests + lockfile
         id: bump
         run: |
-          cd vendor/contremaitre
-          OLD_SHA=$(git rev-parse HEAD)
-          git fetch origin main
-          git checkout origin/main
-          NEW_SHA=$(git rev-parse HEAD)
-          cd ../..
+          NEW_SHA="${{ steps.target.outputs.new_sha }}"
+          OLD_SHA=$(grep -oE 'rev = "[a-f0-9]+"' crates/pierre-llm/Cargo.toml | grep -oE '[a-f0-9]{7,40}' | head -1)
           echo "old_sha=${OLD_SHA}" >> "$GITHUB_OUTPUT"
-          echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
           if [ "${OLD_SHA}" = "${NEW_SHA}" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          # Both the pierre-llm dep and the pierre-server dev-dep pin the rev.
+          sed -i "s/${OLD_SHA}/${NEW_SHA}/g" \
+            crates/pierre-llm/Cargo.toml \
+            crates/pierre-server/Cargo.toml
+          cargo update -p dravr-contremaitre
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push bump
         if: steps.bump.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          SHORT_NEW=$(echo "${{ steps.bump.outputs.new_sha }}" | cut -c1-8)
-          git add vendor/contremaitre
-          git commit -m "chore(contremaitre): bump submodule to ${SHORT_NEW}"
+          SHORT_NEW=$(echo "${{ steps.target.outputs.new_sha }}" | cut -c1-8)
+          git add crates/pierre-llm/Cargo.toml crates/pierre-server/Cargo.toml Cargo.lock
+          git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}"
           git push origin main
 
-      # No explicit deploy trigger here. The bump refreshes the compiled-in
-      # prompt SEED for the next regular deploy; runtime prompt freshness is
-      # handled by the in-process poll (init_contremaitre_registries re-runs
-      # full_sync every CONTREMAITRE_POLL_INTERVAL_SECS, default 60s) plus the
-      # push webhook — both pull the latest from GitHub without a redeploy. A
-      # previous version dispatched the deploy via a PAT, but that needs
-      # actions:write and is redundant now that the poll keeps instances fresh.
+      # No explicit deploy trigger. The bump refreshes the compiled-in prompt
+      # SEED for the next regular deploy; runtime prompt freshness is handled by
+      # the in-process poll (full_sync every CONTREMAITRE_POLL_INTERVAL_SECS) plus
+      # the push webhook — both pull the latest from GitHub without a redeploy.
 
       - name: Report no-op
         if: steps.bump.outputs.changed == 'false'
-        run: echo "Submodule already at latest main (${{ steps.bump.outputs.new_sha }}) — nothing to bump"
+        run: echo "dravr-contremaitre already at ${{ steps.target.outputs.new_sha }} — nothing to bump"

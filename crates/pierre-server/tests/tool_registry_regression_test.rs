@@ -99,7 +99,7 @@ fn test_all_transports_return_consistent_tool_list() {
 
 #[test]
 fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
-    // Coach prompts in vendor/contremaitre/prompts/coaches/training/ reference
+    // Coach prompts in dravr-contremaitre `prompts/coaches/training/` reference
     // these tool names. They must all be in chat_callable_schemas(), otherwise
     // the LLM gets the prose name advertised in "Available Tools" but no
     // matching function declaration — producing truthful "no callable tool"
@@ -155,8 +155,8 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
     assert!(
         missing.is_empty(),
         "chat_callable_schemas() is missing {} tool(s) referenced by coach prompts: {:?}\n\
-         If a tool was intentionally moved off the chat surface, audit \
-         vendor/contremaitre/prompts/coaches/ for prose that still says \
+         If a tool was intentionally moved off the chat surface, audit the \
+         dravr-contremaitre `prompts/coaches/` for prose that still says \
          `call \\`{{name}}\\`` and update those prompts in the same commit.",
         missing.len(),
         missing

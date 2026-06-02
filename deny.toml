@@ -129,6 +129,7 @@ allow-git = [
     "https://github.com/dravr-ai/dravr-enforme.git",
     "https://github.com/dravr-ai/dravr-meteo.git",
     "https://github.com/dravr-ai/dravr-stripe.git",
+    "https://github.com/dravr-ai/dravr-contremaitre.git",
 ]
 # Allow these specific registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

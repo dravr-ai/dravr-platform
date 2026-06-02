@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 mod tests {
+    use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
     use dravr_tronc::notify::RoutingProvider;
     use pierre_contremaitre::notify_routing::ContremaitreRoutingProvider;
     use std::time::Duration;
@@ -158,8 +159,9 @@ events:
     #[test]
     fn vendored_yaml_parses() {
         // Smoke test against the shipped routing config so schema drift
-        // breaks this test the moment the YAML is bumped.
-        let yaml = include_str!("../../../vendor/contremaitre/config/notify-routing.yaml");
+        // breaks this test the moment the YAML is bumped. The baseline is
+        // embedded in the dravr-contremaitre crate (no vendor submodule).
+        let yaml = NOTIFY_ROUTING_YAML;
         let provider = ContremaitreRoutingProvider::new_empty();
         provider.reload(yaml).expect("vendored YAML parses"); // Safe: test assertion
         assert!(provider.route_for("user.login").is_some());

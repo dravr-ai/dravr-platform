@@ -32,9 +32,6 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
-
       - name: Get version from tag
         id: get_version
         run: |
@@ -100,9 +97,6 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Check if CHANGELOG exists
         id: check_changelog
@@ -227,9 +221,6 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Free disk space (Ubuntu only)
         if: runner.os == 'Linux'
@@ -391,9 +382,6 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
