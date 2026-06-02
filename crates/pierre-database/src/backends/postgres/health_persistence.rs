@@ -7,10 +7,14 @@
 use super::PostgresDatabase;
 use crate::repositories::{
     ConnectedUserRow, DataSourceRepository, HealthSnapshotRepository, RecoveryRepository,
-    SleepRepository, SyncCursorRepository, SyncCursorRow, TimeSeriesPointRepository,
+    SleepRepository, SyncCursorRepository, SyncCursorRow,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
+use dravr_riviere::aggregation::aggregate_windows;
+use dravr_riviere::{
+    AggregatedPoint, Aggregation, DataPoint, QueryResult, RiviereError, TimeRange, TimeSeriesStore,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     DataSource, DeviceType, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
@@ -955,31 +959,79 @@ impl SyncCursorRepository for PostgresDatabase {
     }
 }
 
-#[async_trait]
-impl TimeSeriesPointRepository for PostgresDatabase {
-    async fn insert_continuous_metrics_batch(
+impl PostgresDatabase {
+    /// Fetch raw points for a `(source, series)` within a half-open `[start, end)`
+    /// range, ascending by `recorded_at`, excluding soft-deleted rows. Shared by
+    /// the `query` and `aggregate` paths of the `TimeSeriesStore` impl.
+    async fn ts_fetch_range(
         &self,
-        data_source_id: &str,
-        series_type_id: u32,
-        points: &[(DateTime<Utc>, f64)],
-    ) -> AppResult<u64> {
+        source_id: &str,
+        series_type: u32,
+        range: &TimeRange,
+    ) -> Result<Vec<DataPoint>, RiviereError> {
+        let rows = sqlx::query(
+            r"
+            SELECT recorded_at, value
+            FROM data_point_series
+            WHERE data_source_id = $1
+              AND series_type_id = $2
+              AND recorded_at >= $3
+              AND recorded_at < $4
+              AND deleted_at IS NULL
+            ORDER BY recorded_at ASC
+            ",
+        )
+        .bind(source_id)
+        .bind(i64::from(series_type))
+        .bind(range.start)
+        .bind(range.end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RiviereError::Storage {
+            message: format!("query data_point_series: {e}"),
+        })?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let timestamp: DateTime<Utc> = r.get("recorded_at");
+            let value: f64 = r.get("value");
+            out.push(DataPoint::new(timestamp, value));
+        }
+        Ok(out)
+    }
+}
+
+#[async_trait]
+impl TimeSeriesStore for PostgresDatabase {
+    async fn insert(
+        &self,
+        source_id: &str,
+        series_type: u32,
+        point: DataPoint,
+    ) -> Result<(), RiviereError> {
+        self.insert_batch(source_id, series_type, vec![point]).await
+    }
+
+    async fn insert_batch(
+        &self,
+        source_id: &str,
+        series_type: u32,
+        points: Vec<DataPoint>,
+    ) -> Result<(), RiviereError> {
         if points.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
         // ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE
-        // gives last-writer-wins for the unique key, matching dravr-riviere
+        // gives last-writer-wins for the unique key, matching riviere's
         // semantics ("second insert at the same timestamp replaces the first").
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| AppError::database(format!("begin tx for time-series insert: {e}")))?;
+        let mut tx = self.pool.begin().await.map_err(|e| RiviereError::Storage {
+            message: format!("begin tx for time-series insert: {e}"),
+        })?;
 
-        let mut written: u64 = 0;
-        for (recorded_at, value) in points {
+        for point in &points {
             let id = Uuid::new_v4().to_string();
-            let res = sqlx::query(
+            sqlx::query(
                 r"
                 INSERT INTO data_point_series
                     (id, data_source_id, series_type_id, recorded_at, zone_offset, value)
@@ -989,56 +1041,115 @@ impl TimeSeriesPointRepository for PostgresDatabase {
                 ",
             )
             .bind(&id)
-            .bind(data_source_id)
-            .bind(i64::from(series_type_id))
-            .bind(recorded_at)
-            .bind(*value)
+            .bind(source_id)
+            .bind(i64::from(series_type))
+            .bind(point.timestamp)
+            .bind(point.value)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AppError::database(format!("insert data_point_series row: {e}")))?;
-            written += res.rows_affected();
+            .map_err(|e| RiviereError::Storage {
+                message: format!("insert data_point_series row: {e}"),
+            })?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| AppError::database(format!("commit time-series insert: {e}")))?;
+        tx.commit().await.map_err(|e| RiviereError::Storage {
+            message: format!("commit time-series insert: {e}"),
+        })?;
 
-        Ok(written)
+        Ok(())
     }
 
-    async fn get_continuous_metrics(
+    async fn query(
         &self,
-        data_source_id: &str,
-        series_type_id: u32,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> AppResult<Vec<(DateTime<Utc>, f64)>> {
-        let rows = sqlx::query(
+        source_id: &str,
+        series_type: u32,
+        range: &TimeRange,
+    ) -> Result<QueryResult, RiviereError> {
+        let points = self.ts_fetch_range(source_id, series_type, range).await?;
+        Ok(QueryResult::from_points(points))
+    }
+
+    async fn aggregate(
+        &self,
+        source_id: &str,
+        series_type: u32,
+        range: &TimeRange,
+        window_secs: i64,
+        aggregation: Aggregation,
+    ) -> Result<Vec<AggregatedPoint>, RiviereError> {
+        let points = self.ts_fetch_range(source_id, series_type, range).await?;
+        Ok(aggregate_windows(
+            &points,
+            range.start,
+            range.end,
+            window_secs,
+            aggregation,
+        ))
+    }
+
+    async fn latest(
+        &self,
+        source_id: &str,
+        series_type: u32,
+    ) -> Result<Option<DataPoint>, RiviereError> {
+        let row = sqlx::query(
             r"
             SELECT recorded_at, value
             FROM data_point_series
             WHERE data_source_id = $1
               AND series_type_id = $2
-              AND recorded_at >= $3
-              AND recorded_at <= $4
               AND deleted_at IS NULL
-            ORDER BY recorded_at ASC
+            ORDER BY recorded_at DESC
+            LIMIT 1
             ",
         )
-        .bind(data_source_id)
-        .bind(i64::from(series_type_id))
-        .bind(start)
-        .bind(end)
-        .fetch_all(&self.pool)
+        .bind(source_id)
+        .bind(i64::from(series_type))
+        .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("get_continuous_metrics: {e}")))?;
+        .map_err(|e| RiviereError::Storage {
+            message: format!("latest data_point_series: {e}"),
+        })?;
 
-        let mut out = Vec::with_capacity(rows.len());
-        for r in rows {
-            let recorded_at: DateTime<Utc> = r.get("recorded_at");
-            let value: f64 = r.get("value");
-            out.push((recorded_at, value));
-        }
-        Ok(out)
+        let Some(r) = row else {
+            return Ok(None);
+        };
+        let timestamp: DateTime<Utc> = r.get("recorded_at");
+        let value: f64 = r.get("value");
+        Ok(Some(DataPoint::new(timestamp, value)))
+    }
+
+    async fn delete_range(
+        &self,
+        source_id: &str,
+        series_type: u32,
+        range: &TimeRange,
+    ) -> Result<u64, RiviereError> {
+        // Soft delete: the data_point_series.deleted_at column lets reads filter
+        // out removed points while preserving the row, matching the soft-delete
+        // posture of the other health tables.
+        let res = sqlx::query(
+            r"
+            UPDATE data_point_series
+            SET deleted_at = $1
+            WHERE data_source_id = $2
+              AND series_type_id = $3
+              AND recorded_at >= $4
+              AND recorded_at < $5
+              AND deleted_at IS NULL
+            ",
+        )
+        .bind(Utc::now())
+        .bind(source_id)
+        .bind(i64::from(series_type))
+        .bind(range.start)
+        .bind(range.end)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RiviereError::Storage {
+            message: format!("delete_range data_point_series: {e}"),
+        })?;
+
+        Ok(res.rows_affected())
     }
 }

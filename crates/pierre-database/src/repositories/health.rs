@@ -195,42 +195,6 @@ pub trait HealthSnapshotRepository: Send + Sync {
     async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
 }
 
-/// Continuous time-series points keyed by `(data_source_id, series_type_id, recorded_at)`.
-///
-/// Implements the write path that backs dravr-enforme's
-/// `TimeSeriesPointStore::store_continuous_metrics` and dravr-riviere's
-/// `TimeSeriesStore` API. Storage is the `data_point_series` table.
-#[async_trait]
-pub trait TimeSeriesPointRepository: Send + Sync {
-    /// Persist a single continuous metric batch for a given source.
-    ///
-    /// `series_type_id` is the integer identifier from the dravr-riviere
-    /// catalog (e.g. `SeriesType::HeartRate`). `points` are
-    /// `(timestamp, value)` pairs. Conflicts on
-    /// `(data_source_id, series_type_id, recorded_at)` are resolved by
-    /// keeping the latest value (last-writer-wins).
-    ///
-    /// Returns the number of points written (after de-duplication).
-    async fn insert_continuous_metrics_batch(
-        &self,
-        data_source_id: &str,
-        series_type_id: u32,
-        points: &[(DateTime<Utc>, f64)],
-    ) -> AppResult<u64>;
-
-    /// Range query for continuous metric points.
-    ///
-    /// Returns points in ascending `recorded_at` order, excluding any
-    /// soft-deleted rows.
-    async fn get_continuous_metrics(
-        &self,
-        data_source_id: &str,
-        series_type_id: u32,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> AppResult<Vec<(DateTime<Utc>, f64)>>;
-}
-
 /// Sync cursor repository for CDC-based incremental sync tracking
 #[async_trait]
 pub trait SyncCursorRepository: Send + Sync {

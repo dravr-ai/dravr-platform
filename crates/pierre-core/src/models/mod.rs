@@ -95,12 +95,6 @@ pub use dravr_equilibre::{
     SyncResult, SyncStatus, WorkoutDetails as StoredWorkoutDetails,
 };
 
-// Time-series types (from dravr-riviere)
-pub use dravr_riviere::{
-    AggregatedPoint, Aggregation, DataPoint, QueryResult as TimeSeriesQueryResult, SeriesType,
-    TimeRange,
-};
-
 // Nutrition domain
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 

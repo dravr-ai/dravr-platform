@@ -120,9 +120,6 @@ dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0
 # Health and wellness domain models with composition-based provider traits
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
 
-# Time-series storage engine for metric persistence
-dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
-
 # Standalone Stripe billing capability — gated behind the `billing-stripe`
 # feature so the trait-only `billing` feature stays vendor-free. The
 # StripeProvider adapter in src/billing/stripe.rs maps these types onto the

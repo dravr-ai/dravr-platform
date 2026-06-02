@@ -27,6 +27,7 @@ mod common;
 use chrono::Utc;
 use pierre_core::models::{StoredSleepSession, TenantId};
 use pierre_database::backends::factory::Database;
+use pierre_database::{Aggregation, DataPoint, SeriesType, TimeRange};
 use sqlx::Row as _;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -266,32 +267,38 @@ async fn time_series_insert_round_trips_within_a_range() {
     let earlier = now - chrono::Duration::minutes(10);
     let later = now + chrono::Duration::minutes(10);
 
-    // Heart rate samples (riviere SeriesType::HeartRate is series_type_id 1).
-    let series_type_id: u32 = 1;
-    let points = vec![(earlier, 60.0_f64), (now, 65.0), (later, 72.0)];
+    // Heart rate samples, keyed by riviere's SeriesType catalog.
+    let series_type = SeriesType::HeartRate.id();
+    let points = vec![
+        DataPoint::new(earlier, 60.0),
+        DataPoint::new(now, 65.0),
+        DataPoint::new(later, 72.0),
+    ];
 
-    let written = repos
+    repos
         .time_series_points
-        .insert_continuous_metrics_batch(&ds, series_type_id, &points)
+        .insert_batch(&ds, series_type, points)
         .await
         .unwrap();
-    assert_eq!(written, 3, "all three points must be persisted");
 
-    let fetched = repos
+    let result = repos
         .time_series_points
-        .get_continuous_metrics(
+        .query(
             &ds,
-            series_type_id,
-            earlier - chrono::Duration::seconds(1),
-            later + chrono::Duration::seconds(1),
+            series_type,
+            &TimeRange::new(
+                earlier - chrono::Duration::seconds(1),
+                later + chrono::Duration::seconds(1),
+            ),
         )
         .await
         .unwrap();
-    assert_eq!(fetched.len(), 3);
+    assert_eq!(result.points.len(), 3);
+    assert_eq!(result.total_count, 3);
     // ascending by recorded_at
-    assert_eq!(fetched[0].1, 60.0);
-    assert_eq!(fetched[1].1, 65.0);
-    assert_eq!(fetched[2].1, 72.0);
+    assert_eq!(result.points[0].value, 60.0);
+    assert_eq!(result.points[1].value, 65.0);
+    assert_eq!(result.points[2].value, 72.0);
 }
 
 #[tokio::test]
@@ -302,40 +309,40 @@ async fn time_series_insert_is_idempotent_on_conflict() {
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let ts = Utc::now();
-    let series_type_id: u32 = 1;
+    let series_type = SeriesType::HeartRate.id();
 
     // First insert.
-    let first = repos
+    repos
         .time_series_points
-        .insert_continuous_metrics_batch(&ds, series_type_id, &[(ts, 60.0)])
+        .insert_batch(&ds, series_type, vec![DataPoint::new(ts, 60.0)])
         .await
         .unwrap();
-    assert_eq!(first, 1);
 
     // Second insert at the same (source, series, recorded_at) — last writer wins.
-    let second = repos
+    repos
         .time_series_points
-        .insert_continuous_metrics_batch(&ds, series_type_id, &[(ts, 75.0)])
+        .insert_batch(&ds, series_type, vec![DataPoint::new(ts, 75.0)])
         .await
         .unwrap();
-    assert_eq!(
-        second, 1,
-        "ON CONFLICT DO UPDATE counts as one affected row"
-    );
 
-    // Latest read returns the updated value.
-    let fetched = repos
+    // The read collapses to a single point carrying the updated value.
+    let result = repos
         .time_series_points
-        .get_continuous_metrics(
+        .query(
             &ds,
-            series_type_id,
-            ts - chrono::Duration::seconds(1),
-            ts + chrono::Duration::seconds(1),
+            series_type,
+            &TimeRange::new(
+                ts - chrono::Duration::seconds(1),
+                ts + chrono::Duration::seconds(1),
+            ),
         )
         .await
         .unwrap();
-    assert_eq!(fetched.len(), 1);
-    assert_eq!(fetched[0].1, 75.0, "second insert must overwrite the first");
+    assert_eq!(result.points.len(), 1);
+    assert_eq!(
+        result.points[0].value, 75.0,
+        "second insert must overwrite the first"
+    );
 }
 
 #[tokio::test]
@@ -345,10 +352,105 @@ async fn time_series_empty_batch_is_a_no_op() {
     let repos = Arc::new(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
-    let written = repos
+    repos
         .time_series_points
-        .insert_continuous_metrics_batch(&ds, 1, &[])
+        .insert_batch(&ds, SeriesType::HeartRate.id(), vec![])
         .await
         .unwrap();
-    assert_eq!(written, 0);
+
+    let result = repos
+        .time_series_points
+        .query(
+            &ds,
+            SeriesType::HeartRate.id(),
+            &TimeRange::new(
+                Utc::now() - chrono::Duration::minutes(1),
+                Utc::now() + chrono::Duration::minutes(1),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.points.len(), 0, "empty batch persists nothing");
+}
+
+#[tokio::test]
+async fn time_series_aggregate_downsamples_into_windows() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = Arc::new(database.repositories());
+    let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
+
+    let start = Utc::now();
+    let series_type = SeriesType::HeartRate.id();
+    let points = vec![
+        DataPoint::new(start + chrono::Duration::seconds(5), 60.0),
+        DataPoint::new(start + chrono::Duration::seconds(25), 70.0),
+        DataPoint::new(start + chrono::Duration::seconds(65), 100.0),
+    ];
+    repos
+        .time_series_points
+        .insert_batch(&ds, series_type, points)
+        .await
+        .unwrap();
+
+    let windows = repos
+        .time_series_points
+        .aggregate(
+            &ds,
+            series_type,
+            &TimeRange::new(start, start + chrono::Duration::seconds(120)),
+            60,
+            Aggregation::Avg,
+        )
+        .await
+        .unwrap();
+
+    // First 60s window averages 60 and 70 -> 65; the second holds the lone 100.
+    assert_eq!(windows.len(), 2);
+    assert_eq!(windows[0].value, 65.0);
+    assert_eq!(windows[0].sample_count, 2);
+    assert_eq!(windows[1].value, 100.0);
+    assert_eq!(windows[1].sample_count, 1);
+}
+
+#[tokio::test]
+async fn time_series_latest_returns_most_recent_point() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = Arc::new(database.repositories());
+    let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
+
+    let now = Utc::now();
+    let series_type = SeriesType::HeartRate.id();
+
+    assert!(
+        repos
+            .time_series_points
+            .latest(&ds, series_type)
+            .await
+            .unwrap()
+            .is_none(),
+        "no points yet"
+    );
+
+    repos
+        .time_series_points
+        .insert_batch(
+            &ds,
+            series_type,
+            vec![
+                DataPoint::new(now - chrono::Duration::minutes(5), 55.0),
+                DataPoint::new(now, 80.0),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let latest = repos
+        .time_series_points
+        .latest(&ds, series_type)
+        .await
+        .unwrap()
+        .expect("a point exists");
+    assert_eq!(latest.value, 80.0);
 }
