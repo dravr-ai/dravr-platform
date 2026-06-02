@@ -28,7 +28,7 @@ client-messaging = [
 # Push notification dispatch in coach_followup_scheduler
 client-notifications = []
 # Health-data sync adapter (health_sync)
-health-sync = ["dep:pierre-enforme", "dep:dravr-equilibre-sync"]
+health-sync = ["dep:pierre-enforme", "dep:dravr-equilibre-sync", "dep:dravr-riviere"]
 # PostHog analytics implementation
 analytics-posthog = []
 
@@ -56,6 +56,7 @@ pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = tru
 
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", version = "0.2", optional = true }
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3", optional = true }
 
 async-trait = "0.1"
 base64 = "0.22"

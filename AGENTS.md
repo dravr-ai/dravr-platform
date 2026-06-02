@@ -700,6 +700,37 @@ Before adding a new abstraction:
 Every commit that adds a new abstraction must identify what it replaces
 and delete that in the same commit.
 
+### Use the Dependency You Add (No Phantom Integrations)
+Adding a dependency, then hand-rolling a parallel version of what it does, is
+forbidden. If a crate is in `Cargo.toml`, its actual API must be used — not its
+types imported/re-exported while a bespoke equivalent does the real work. This
+class of bug ships a dep that looks integrated but isn't.
+
+The canonical failure (the `dravr-riviere` case): the crate was added,
+six of its types were re-exported from `pierre-core`, and then the storage path
+hand-rolled its own `TimeSeriesPointRepository` instead of implementing
+riviere's `TimeSeriesStore` trait — bypassing its `SeriesType` catalog
+(`series_type_id` passed as a magic `u32`) and its `aggregate_windows`
+downsampling. Net result: a direct dependency + a workspace patch carried
+purely to feed a re-export that **zero** code consumed, while a parallel
+implementation did the job the crate exists to do.
+
+Before adding or extending a dependency, confirm:
+- **It's actually called.** A `pub use dep::{...}` with no downstream consumer
+  is dead weight — `rg` for consumers before committing the re-export.
+- **You implement its traits, not parallel ones.** If the crate ships a
+  `Store`/`Provider`/`Repository` trait meant to be implemented by consumers,
+  implement *that* — do not invent a sibling trait with the same shape.
+- **You use its domain types, not raw primitives that mirror them.** If it
+  ships a `SeriesType` enum, the integer ids flow through that enum, not as
+  bare `u32` literals.
+- **It arrives directly only if used directly.** If a crate already comes in
+  transitively and you don't call it yourself, don't add a direct dep + version
+  pin "to be safe" — that pins maintenance cost to nothing.
+
+Test: if I deleted this dependency line, what breaks? If the answer is "only a
+re-export no one reads," the integration is phantom — finish it or remove it.
+
 ### Forbidden patterns (junk disguised as discipline)
 These freeze architectural debt by making it *testable* instead of *fixed*.
 Delete them when you find them; do not add them:
@@ -741,5 +772,8 @@ STOP and ask the user before proceeding when you find:
 7. **Adapter/wrapper added without matching deletion** — `impl NewTrait
    for X { fn m() { call_old(...) } }` — why does `call_old` still exist?
 8. **Invariant test with an exception list** — you're pinning debt.
+9. **Phantom dependency integration** — a crate in `Cargo.toml` whose API
+   isn't actually called; its types re-exported with zero consumers while
+   hand-rolled code does the dep's job. See "Use the Dependency You Add."
 
 Default behavior is to complete the requested task. These triggers override that.

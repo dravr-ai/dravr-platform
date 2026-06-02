@@ -39,12 +39,13 @@ use crate::repositories::{
     ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
     RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
     SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, TimeSeriesPointRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
 use crate::RepositoryRegistry;
+use dravr_riviere::TimeSeriesStore;
 
 /// Repositories backing authentication, identity, and protocol-auth surfaces.
 ///
@@ -183,8 +184,9 @@ pub struct FitnessRepos {
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Sync cursor tracking for CDC-based incremental sync
     pub sync_cursors: Arc<dyn SyncCursorRepository>,
-    /// Continuous time-series points (`data_point_series` table)
-    pub time_series_points: Arc<dyn TimeSeriesPointRepository>,
+    /// Continuous time-series points (`data_point_series` table), via riviere's
+    /// `TimeSeriesStore`
+    pub time_series_points: Arc<dyn TimeSeriesStore>,
     /// Endurance cached GPX terrain + climbs per activity
     pub route_summaries: Arc<dyn RouteSummaryRepository>,
     /// Recovery metrics persistence

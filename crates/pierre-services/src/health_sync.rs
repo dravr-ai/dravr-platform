@@ -10,6 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dravr_equilibre_sync::SyncStatus;
+use dravr_riviere::DataPoint;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
@@ -446,15 +447,22 @@ impl TimeSeriesPointStore for PierreSyncStorage {
     ) -> EnformeResult<u64> {
         let mut total: u64 = 0;
         for batch in batches {
-            let written = self
-                .fitness
+            // riviere's TimeSeriesStore::insert_batch reports success, not a row
+            // count, so the written total is the number of points submitted.
+            let count = batch.points.len() as u64;
+            let points: Vec<DataPoint> = batch
+                .points
+                .iter()
+                .map(|&(timestamp, value)| DataPoint::new(timestamp, value))
+                .collect();
+            self.fitness
                 .time_series_points
-                .insert_continuous_metrics_batch(source_id, batch.series_type_id, &batch.points)
+                .insert_batch(source_id, batch.series_type_id, points)
                 .await
                 .map_err(|e| {
                     EnformeError::store(format!("Failed to insert continuous metrics: {e}"))
                 })?;
-            total += written;
+            total += count;
         }
         Ok(total)
     }

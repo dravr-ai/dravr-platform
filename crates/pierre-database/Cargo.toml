@@ -21,6 +21,10 @@ testing = []
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 
+# Time-series storage engine: the data_point_series backend implements
+# riviere's TimeSeriesStore trait over SQLite and PostgreSQL.
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
+
 # Async runtime and traits
 async-trait = "0.1"
 tokio = { version = "1.50", features = ["time"] }

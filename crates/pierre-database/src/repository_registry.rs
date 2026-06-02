@@ -20,11 +20,12 @@ use crate::repositories::{
     ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
     RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
     SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, TimeSeriesPointRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
+use dravr_riviere::TimeSeriesStore;
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
 ///
@@ -126,9 +127,9 @@ pub struct RepositoryRegistry {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout-template overrides (cornerstones live in TOML)
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
-    /// Continuous time-series points (`data_point_series` table) backing the
-    /// dravr-enforme `TimeSeriesPointStore` adapter.
-    pub time_series_points: Arc<dyn TimeSeriesPointRepository>,
+    /// Continuous time-series points (`data_point_series` table). Implements
+    /// riviere's `TimeSeriesStore`; backs the dravr-enforme write adapter.
+    pub time_series_points: Arc<dyn TimeSeriesStore>,
     /// Coach-athlete roster assignments (1:N junction). Gates routes that
     /// require `manages_roster=true` and surfaces who coaches whom.
     pub roster: Arc<dyn RosterRepository>,
