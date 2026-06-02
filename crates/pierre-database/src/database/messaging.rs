@@ -139,6 +139,7 @@ impl Database {
                    created_at, updated_at
             FROM messaging_channel_configs
             WHERE channel_type = ? AND is_active = 1
+            ORDER BY created_at, id
             ",
         )
         .bind(channel_type)
@@ -166,6 +167,57 @@ impl Database {
                 })
             })
             .collect())
+    }
+
+    /// Check whether another tenant already holds an active config for this
+    /// channel with the same external identity (phone number / page / bot token).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn channel_identity_claimed_by_other_tenant_impl(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        phone_number: Option<&str>,
+        account_id: Option<&str>,
+        bot_token: Option<&str>,
+    ) -> AppResult<bool> {
+        // No identity to collide on — nothing to claim.
+        if phone_number.is_none() && account_id.is_none() && bot_token.is_none() {
+            return Ok(false);
+        }
+
+        let found: i64 = sqlx::query_scalar(
+            r"
+            SELECT EXISTS(
+                SELECT 1 FROM messaging_channel_configs
+                WHERE channel_type = ?
+                  AND is_active = 1
+                  AND tenant_id <> ?
+                  AND (
+                      (? IS NOT NULL AND phone_number = ?)
+                   OR (? IS NOT NULL AND account_id = ?)
+                   OR (? IS NOT NULL AND bot_token = ?)
+                  )
+            )
+            ",
+        )
+        .bind(channel_type)
+        .bind(tenant_id)
+        .bind(phone_number)
+        .bind(phone_number)
+        .bind(account_id)
+        .bind(account_id)
+        .bind(bot_token)
+        .bind(bot_token)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to check channel identity ownership: {e}"))
+        })?;
+
+        Ok(found == 1)
     }
 
     /// List all channel configurations for a tenant
@@ -1263,6 +1315,24 @@ impl MessagingRepository for Database {
 
     async fn get_configs_by_channel_type(&self, channel_type: &str) -> AppResult<Vec<Value>> {
         self.get_configs_by_channel_type_impl(channel_type).await
+    }
+
+    async fn channel_identity_claimed_by_other_tenant(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        phone_number: Option<&str>,
+        account_id: Option<&str>,
+        bot_token: Option<&str>,
+    ) -> AppResult<bool> {
+        self.channel_identity_claimed_by_other_tenant_impl(
+            tenant_id,
+            channel_type,
+            phone_number,
+            account_id,
+            bot_token,
+        )
+        .await
     }
 
     async fn delete_channel_config(

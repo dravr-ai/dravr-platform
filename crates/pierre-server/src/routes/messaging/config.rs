@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
@@ -141,6 +141,32 @@ pub async fn upsert_channel_config(
     };
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+
+    // Reject registering an external identity (phone number, page, or bot token)
+    // already held by another tenant. Two tenants sharing the same identity makes
+    // both configs verify the same inbound webhook signature, so tenant routing
+    // would become order-dependent. Only enabled configs participate in webhook
+    // signature matching, so the guard is scoped to enabled requests.
+    if body.enabled
+        && db
+            .channel_identity_claimed_by_other_tenant(
+                tenant_id,
+                &channel,
+                phone_number,
+                account_id,
+                bot_token,
+            )
+            .await?
+    {
+        return Err(AppError::new(
+            ErrorCode::ResourceAlreadyExists,
+            format!(
+                "This {channel} identity is already configured under another workspace; \
+                 a phone number / page / bot token can belong to only one workspace"
+            ),
+        ));
+    }
+
     db.upsert_channel_config(&params).await?;
 
     let has_credentials = api_key.is_some()

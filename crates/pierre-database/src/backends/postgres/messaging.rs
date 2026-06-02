@@ -150,6 +150,7 @@ impl MessagingRepository for PostgresDatabase {
                    created_at, updated_at
             FROM messaging_channel_configs
             WHERE channel_type = $1 AND is_active = TRUE
+            ORDER BY created_at, id
             ",
         )
         .bind(channel_type)
@@ -181,6 +182,48 @@ impl MessagingRepository for PostgresDatabase {
                 })
             })
             .collect())
+    }
+
+    async fn channel_identity_claimed_by_other_tenant(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        phone_number: Option<&str>,
+        account_id: Option<&str>,
+        bot_token: Option<&str>,
+    ) -> AppResult<bool> {
+        // No identity to collide on — nothing to claim.
+        if phone_number.is_none() && account_id.is_none() && bot_token.is_none() {
+            return Ok(false);
+        }
+
+        let exists: bool = sqlx::query_scalar(
+            r"
+            SELECT EXISTS(
+                SELECT 1 FROM messaging_channel_configs
+                WHERE channel_type = $1
+                  AND is_active = TRUE
+                  AND tenant_id <> $2
+                  AND (
+                      ($3::text IS NOT NULL AND phone_number = $3)
+                   OR ($4::text IS NOT NULL AND account_id = $4)
+                   OR ($5::text IS NOT NULL AND bot_token = $5)
+                  )
+            )
+            ",
+        )
+        .bind(channel_type)
+        .bind(tenant_id.to_string())
+        .bind(phone_number)
+        .bind(account_id)
+        .bind(bot_token)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to check channel identity ownership: {e}"))
+        })?;
+
+        Ok(exists)
     }
 
     async fn delete_channel_config(
