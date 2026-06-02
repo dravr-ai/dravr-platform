@@ -18,7 +18,7 @@
 
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::{ExtractedClaim, VerdictOutcome, VerificationConfig, VerificationFallback};
-use pierre_memory::claims::ClaimStatus;
+use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
@@ -116,6 +116,70 @@ pub fn lead_window(reply: &str) -> &str {
     &reply[..end]
 }
 
+/// Maximum number of flagged claims listed in the user-facing caveat banner.
+///
+/// The header reads "a few claims…", so a representative subset is consistent
+/// with the wording; the full set still lands in the per-message verdict
+/// drawer. The cap stops the banner from dwarfing the reply itself.
+const MAX_FLAGGED_BULLETS: usize = 5;
+
+/// Select the actionable problems worth surfacing, each tagged
+/// `contradicted` (`true`) vs merely `unsupported` (`false`).
+///
+/// A [`ClaimCategory::TrainingPrescription`] is advice, not a proposition the
+/// evidence corpus can support — a bare `Unsupported` ("no citation") is a
+/// category error there, not something to nag the user about. A `Contradicted`
+/// prescription DID violate a deterministic bound (e.g. an impossible training
+/// load), so it stays surfaced. Every other category keeps both statuses.
+#[must_use]
+pub fn actionable_problems(verdicts: &[(ExtractedClaim, VerdictOutcome)]) -> Vec<(&str, bool)> {
+    verdicts
+        .iter()
+        .filter_map(|(claim, outcome)| match outcome.status {
+            ClaimStatus::Contradicted => Some((claim.text.as_str(), true)),
+            ClaimStatus::Unsupported if claim.category != ClaimCategory::TrainingPrescription => {
+                Some((claim.text.as_str(), false))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Format the caveat bullets from the actionable problems.
+///
+/// Lists each flagged claim verbatim so the reader can challenge or wave
+/// through the specific sentence (an opaque "I'm unsure about N things"
+/// trailer just undermined credibility without being actionable — Telegram
+/// nutrition-recommendation incident, 2026-05-08). Claims whose text already
+/// lands in the reply's lead window are dropped: the reader just saw that
+/// sentence as the opening, so echoing it reads as duplication. Bound
+/// violations (`contradicted`) sort ahead of merely-unsupported claims and
+/// survive the [`MAX_FLAGGED_BULLETS`] cap; if every flagged claim is a
+/// lead-window echo the result is empty and the caller suppresses the banner.
+#[must_use]
+pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
+    let lead = lead_window(reply);
+    let mut flagged: Vec<(&str, bool)> = problems
+        .iter()
+        .copied()
+        .filter(|(claim, _)| !lead.contains(claim.trim()))
+        .collect();
+    flagged.sort_by_key(|&(_, contradicted)| u8::from(!contradicted));
+    let total_flagged = flagged.len();
+    flagged.truncate(MAX_FLAGGED_BULLETS);
+    if total_flagged > flagged.len() {
+        tracing::info!(
+            shown = flagged.len(),
+            total = total_flagged,
+            "Tier 5.5 truncated the flagged-claim warning list"
+        );
+    }
+    flagged
+        .iter()
+        .map(|(claim, _)| format!("- {}", claim.trim()))
+        .collect()
+}
+
 /// Inputs to [`apply_claim_verification`].
 ///
 /// Bundles the Tier 5.5 turn context so the function signature stays under
@@ -196,49 +260,14 @@ pub async fn apply_claim_verification(
         };
     }
 
-    let problems: Vec<&str> = verdicts
-        .iter()
-        .filter(|(_, outcome)| {
-            matches!(
-                outcome.status,
-                ClaimStatus::Unsupported | ClaimStatus::Contradicted
-            )
-        })
-        .map(|(claim, _)| claim.text.as_str())
-        .collect();
+    let problems = actionable_problems(&verdicts);
 
     let content = if problems.is_empty() {
         reply.to_owned()
     } else {
         match config.fallback_behavior {
             VerificationFallback::Warn => {
-                // Surface each flagged claim explicitly under a localized
-                // header instead of an opaque "I'm unsure about N
-                // things" trailer the user couldn't act on. Empirically
-                // (Telegram nutrition-recommendation incident, 2026-05-08)
-                // the opaque count line just undermined credibility
-                // without giving the reader a way to challenge or
-                // confirm. Listing the verbatim claims keeps the model's
-                // self-doubt actionable: the user can push back on the
-                // specific sentence, or wave it through.
-                //
-                // Skip listing claims whose trimmed text already lands in
-                // the lead window of the reply. The reader just saw that
-                // sentence as the message's opening; echoing it verbatim
-                // a few lines below reads as duplication without adding
-                // actionable signal (web re-test, 2026-05-08). Mid-body
-                // sentences past the lead window are still listed
-                // because the user might have skimmed them. If every
-                // flagged claim turns out to be a lead-position echo, we
-                // suppress the banner entirely — the per-message
-                // verdicts drawer still carries the signal for users
-                // who want to drill in.
-                let lead = lead_window(reply);
-                let bullets: Vec<String> = problems
-                    .iter()
-                    .filter(|claim| !lead.contains(claim.trim()))
-                    .map(|claim| format!("- {}", claim.trim()))
-                    .collect();
+                let bullets = warning_bullets(&problems, reply);
                 if bullets.is_empty() {
                     reply.to_owned()
                 } else {
