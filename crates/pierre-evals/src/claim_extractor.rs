@@ -133,6 +133,13 @@ fn split_sentences(text: &str) -> Vec<String> {
     for i in 0..chars.len() {
         let ch = chars[i];
         current.push(ch);
+        // A line break is a unit boundary. Without this, a newline-delimited
+        // list with no terminal punctuation (e.g. a weekly training plan) is
+        // swallowed into one giant multi-line "claim".
+        if ch == '\n' {
+            finalize_sentence(&mut current, &mut sentences);
+            continue;
+        }
         if matches!(ch, '!' | '?') {
             finalize_sentence(&mut current, &mut sentences);
             continue;

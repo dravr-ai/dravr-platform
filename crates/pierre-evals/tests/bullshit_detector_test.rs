@@ -245,3 +245,23 @@ fn explanation_text_mentions_layer_source() {
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed);
     assert!(outcome.explanation.to_lowercase().contains("bound"));
 }
+
+#[test]
+fn newline_delimited_plan_splits_into_separate_claims() {
+    // A weekly training plan is newline-delimited with no terminal
+    // punctuation. Without newline-aware splitting it was swallowed into one
+    // giant multi-line "claim"; each keyword-bearing line must now be its own
+    // extracted unit, and no claim may span multiple lines.
+    let reply = "Mardi: seance de tempo en cote\nDimanche: sortie longue en endurance fondamentale";
+    let claims = extract_heuristic(reply);
+    let texts: Vec<&str> = claims.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(
+        claims.len(),
+        2,
+        "expected one claim per line, got {texts:?}"
+    );
+    assert!(
+        claims.iter().all(|c| !c.text.contains('\n')),
+        "a claim still spans multiple lines: {texts:?}"
+    );
+}
