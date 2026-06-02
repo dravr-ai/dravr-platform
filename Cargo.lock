@@ -1307,7 +1307,7 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.25",
  "hex",
  "http 1.4.0",
  "reqwest 0.12.28",
@@ -1365,6 +1365,29 @@ dependencies = [
 name = "dravr-sciotte"
 version = "0.5.25"
 source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.25#20d87c3016dd90a6df1714da857f4872d8d78a5b"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "chrono",
+ "dirs 6.0.0",
+ "futures",
+ "moka",
+ "reqwest 0.12.28",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "dravr-sciotte"
+version = "0.5.26"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.26#7418d672e6387b19052ec8319265a4aba198c380"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1506,8 +1529,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.15.14"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.14#fcc6c1cba1954eb4e2c7f1d61d47109fb1f42612"
+version = "0.15.15"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.15#837ae04eceb95ffc1c4c0a7a60aaba22c296f491"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -2231,7 +2254,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration 0.7.0",
  "tokio",
  "tower-service",
@@ -3505,7 +3528,7 @@ name = "pierre-logging"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.26",
  "dravr-tronc",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3611,7 +3634,7 @@ dependencies = [
  "bitflags 2.11.1",
  "chrono",
  "dravr-equilibre",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.26",
  "embacle",
  "futures-util",
  "hex",
@@ -3691,7 +3714,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.26",
  "embacle",
  "hex",
  "hmac",
@@ -4045,7 +4068,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-contremaitre",
  "dravr-equilibre",
- "dravr-sciotte",
+ "dravr-sciotte 0.5.26",
  "dravr-stripe",
  "dravr-tronc",
  "ed25519-dalek",
@@ -4336,7 +4359,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4373,7 +4396,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
