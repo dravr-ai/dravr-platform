@@ -387,6 +387,18 @@ impl RefreshService {
                 return;
             };
 
+            // Skip providers the orchestrator doesn't manage (e.g. sciotte, an
+            // on-demand scrape-only provider fetched per chat request). Spawning
+            // a sync for them only yields a "provider not registered" failure
+            // and a bogus failure notification to the user.
+            if !orchestrator.provider_names().contains(&provider.as_str()) {
+                tracing::debug!(
+                    provider = %provider,
+                    "provider not background-syncable (on-demand); skipping scheduled sync"
+                );
+                return;
+            }
+
             // Check per-provider rate limit before spawning the sync task.
             if let Some(ref limiter) = self.rate_limiter {
                 match limiter.check_rate_limit(&provider) {
@@ -498,6 +510,19 @@ impl RefreshService {
                 records_synced: 0,
             };
         };
+
+        // On-demand providers (e.g. sciotte) are not registered with the
+        // orchestrator — they are scraped fresh per chat request, never cached
+        // stale. Report them as already-fresh rather than a sync failure so the
+        // caller omits the stale-data warning.
+        if !orchestrator.provider_names().contains(&provider) {
+            return RefreshResult {
+                provider: provider.to_owned(),
+                success: true,
+                message: "on-demand provider; no scheduled sync".to_owned(),
+                records_synced: 0,
+            };
+        }
 
         let user_id_str = user_id.to_string();
         match orchestrator.sync_user(&user_id_str, provider).await {
