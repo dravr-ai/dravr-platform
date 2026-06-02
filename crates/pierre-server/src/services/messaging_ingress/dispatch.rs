@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::any::Any;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Instant;
@@ -78,7 +79,7 @@ async fn deliver_reply(
 ///
 /// `std` panics carry either a `&'static str` or a `String`; anything else is
 /// reported generically so the correlation-id log still fires.
-fn panic_payload_str(payload: &(dyn std::any::Any + Send)) -> String {
+fn panic_payload_str(payload: &(dyn Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
         .map(|s| (*s).to_owned())
