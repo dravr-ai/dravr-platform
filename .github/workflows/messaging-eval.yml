@@ -76,9 +76,6 @@ jobs:
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
-
       - uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: clippy
@@ -154,9 +151,6 @@ jobs:
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Init contremaitre submodule
-        run: git submodule update --init --recursive vendor/contremaitre
 
       - uses: dtolnay/rust-toolchain@1.94.0
 

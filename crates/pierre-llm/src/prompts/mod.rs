@@ -9,6 +9,7 @@
 //! This module provides system prompts for LLM interactions.
 //! Prompts are loaded at compile time from markdown files for easy maintenance.
 
+use dravr_contremaitre::{personas, system};
 use pierre_core::models::CoachingPersona;
 
 /// Pierre Fitness Intelligence Assistant system prompt
@@ -18,45 +19,39 @@ use pierre_core::models::CoachingPersona;
 /// - Available MCP tools with parameters
 /// - Guidelines for data handling
 /// - Example interaction patterns
-pub const PIERRE_SYSTEM_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/pierre_system.md");
+pub const PIERRE_SYSTEM_PROMPT: &str = system::PIERRE;
 
 /// Coach generation system prompt
 ///
 /// Contains instructions for the LLM to analyze a conversation and generate
 /// a specialized coach profile with title, description, system prompt, and tags.
-pub const COACH_GENERATION_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/coach_generation.md");
+pub const COACH_GENERATION_PROMPT: &str = system::COACH_GENERATION;
 
 /// Insight validation system prompt
 ///
 /// Contains instructions for the LLM to evaluate fitness content quality
 /// before sharing to social feed. Returns valid, improved, or rejected verdict.
-pub const INSIGHT_VALIDATION_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/insight_validation.md");
+pub const INSIGHT_VALIDATION_PROMPT: &str = system::INSIGHT_VALIDATION;
 
 /// Insight generation system prompt
 ///
 /// Contains instructions for the LLM to transform a fitness analysis into
 /// a shareable social post with hashtags, ready for direct copying.
-pub const INSIGHT_GENERATION_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/insight_generation.md");
+pub const INSIGHT_GENERATION_PROMPT: &str = system::INSIGHT_GENERATION;
 
 /// Messaging channel context prompt
 ///
 /// Appended to the system prompt when the LLM is replying via a chat channel
 /// (`WhatsApp`, Telegram, Slack, Discord, Messenger). Instructs the model to
 /// keep responses concise and mobile-friendly.
-pub const MESSAGING_CONTEXT_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/messaging_context.md");
+pub const MESSAGING_CONTEXT_PROMPT: &str = system::MESSAGING_CONTEXT;
 
 /// Mandatory tool-discipline prompt — tool-capable channel variant.
 ///
 /// Appended to every system prompt on channels that render markdown and
 /// can surface structured output to the user (web chat, MCP clients, A2A).
 /// Contains the full rule set including the `<tool_call>` format example.
-pub const TOOL_DISCIPLINE_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/tool_discipline.md");
+pub const TOOL_DISCIPLINE_PROMPT: &str = system::TOOL_DISCIPLINE;
 
 /// Mandatory tool-discipline prompt — messaging channel variant.
 ///
@@ -66,62 +61,52 @@ pub const TOOL_DISCIPLINE_PROMPT: &str =
 /// format block, which conflicts with [`MESSAGING_CONTEXT_PROMPT`]'s
 /// plain-text mandate and biases models toward structured output on
 /// channels where the user only sees plain text.
-pub const TOOL_DISCIPLINE_MESSAGING_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/tool_discipline_messaging.md");
+pub const TOOL_DISCIPLINE_MESSAGING_PROMPT: &str = system::TOOL_DISCIPLINE_MESSAGING;
 
 /// Recommendation analysis user prompt template
 ///
 /// Contains the user-facing prompt for generating training recommendations.
 /// Template placeholders: `{activity_summary}`, `{recommendation_type}`.
-pub const RECOMMENDATION_ANALYSIS_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/recommendation_analysis.md");
+pub const RECOMMENDATION_ANALYSIS_PROMPT: &str = system::RECOMMENDATION_ANALYSIS;
 
 /// Recommendation analysis system prompt
 ///
 /// System prompt for the LLM when generating training recommendations.
 /// Instructs the model to respond as an expert fitness coach with valid JSON.
-pub const RECOMMENDATION_SYSTEM_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/recommendation_system.md");
+pub const RECOMMENDATION_SYSTEM_PROMPT: &str = system::RECOMMENDATION_SYSTEM;
 
 /// Activity analysis user prompt template
 ///
 /// Contains the user-facing prompt for AI-powered activity analysis.
 /// Template placeholder: `{activity_summary}`.
-pub const ACTIVITY_ANALYSIS_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/activity_analysis.md");
+pub const ACTIVITY_ANALYSIS_PROMPT: &str = system::ACTIVITY_ANALYSIS;
 
 /// Activity analysis system prompt
 ///
 /// System prompt for the LLM when analyzing individual activities.
 /// Instructs the model to respond as an expert fitness coach with valid JSON.
-pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/activity_analysis_system.md");
+pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = system::ACTIVITY_ANALYSIS_SYSTEM;
 
 /// Memory extraction system prompt (Tier 2 semantic user memory)
 ///
 /// Instructs the LLM to read one coaching exchange and emit a JSON array
 /// of `Fact` objects describing durable claims the user made about
 /// themselves (preferences, physiology, injuries, goals, schedule, equipment).
-pub const MEMORY_EXTRACTION_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/system/memory_extraction.md");
+pub const MEMORY_EXTRACTION_PROMPT: &str = system::MEMORY_EXTRACTION;
 
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
-pub const CASUAL_PERSONA_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/personas/casual.md");
+pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
 
 /// Enthusiast coaching persona block — prose with optional data citations.
-pub const ENTHUSIAST_PERSONA_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/personas/enthusiast.md");
+pub const ENTHUSIAST_PERSONA_PROMPT: &str = personas::ENTHUSIAST;
 
 /// Power-athlete coaching persona block — Endurance discipline, line-by-line
 /// per-activity reports, framework citations on every numeric claim, P0–P3 ladder.
-pub const POWER_ATHLETE_PERSONA_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/personas/power_athlete.md");
+pub const POWER_ATHLETE_PERSONA_PROMPT: &str = personas::POWER_ATHLETE;
 
 /// Coach coaching persona block — inherits Power-athlete plus roster framing
 /// and tenant-scoped athlete reports.
-pub const COACH_PERSONA_PROMPT: &str =
-    include_str!("../../../../vendor/contremaitre/prompts/personas/coach.md");
+pub const COACH_PERSONA_PROMPT: &str = personas::COACH;
 
 /// Get the system prompt for the Pierre fitness assistant
 ///

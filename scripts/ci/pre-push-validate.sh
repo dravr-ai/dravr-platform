@@ -128,21 +128,6 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/archit
 fi
 
 # ============================================================================
-# TIER 1b: Vendor/contremaitre read-only guardrail
-# Refuses any commit that edits files INSIDE vendor/contremaitre/. Prompts must
-# be edited in dravr-ai/dravr-contremaitre directly; the submodule is read-only.
-# ============================================================================
-if [[ -x "$PROJECT_ROOT/scripts/ci/check-vendor-contremaitre-readonly.sh" ]]; then
-    echo "Tier 1b: vendor/contremaitre read-only check"
-    echo "------------------------------------"
-    if ! "$PROJECT_ROOT/scripts/ci/check-vendor-contremaitre-readonly.sh"; then
-        exit 1
-    fi
-    echo "OK"
-    echo ""
-fi
-
-# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:

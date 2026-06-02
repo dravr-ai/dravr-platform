@@ -1293,6 +1293,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "dravr-contremaitre"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=243f45585967dcbdbe5a287e8196345672e9d2db#243f45585967dcbdbe5a287e8196345672e9d2db"
+
+[[package]]
 name = "dravr-enforme"
 version = "0.1.19"
 source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.19#5b7e72cac62f44e86b6a8cc30f018e5cf7df8026"
@@ -3482,6 +3487,7 @@ dependencies = [
  "bitflags 2.11.1",
  "bytes",
  "chrono",
+ "dravr-contremaitre",
  "embacle",
  "futures-util",
  "pierre-core",
@@ -4037,6 +4043,7 @@ dependencies = [
  "cron",
  "dashmap",
  "dirs 5.0.1",
+ "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-sciotte",
  "dravr-stripe",

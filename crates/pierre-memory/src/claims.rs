@@ -137,7 +137,7 @@ impl EvidenceStrength {
     /// Parse an evidence strength from its stable stringified form.
     ///
     /// `moderate` is accepted as a synonym for `mixed` because
-    /// `vendor/contremaitre/evidence/*.md` content authors use the
+    /// the dravr-contremaitre `evidence/*.md` content authors use the
     /// natural-English term; the canonical storage form is still
     /// `mixed` so the round-trip through [`Self::as_str`] normalizes.
     #[must_use]
