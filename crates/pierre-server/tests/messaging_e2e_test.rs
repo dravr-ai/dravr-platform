@@ -1196,4 +1196,101 @@ mod messaging_e2e_tests {
             &html[..html.len().min(500)]
         );
     }
+
+    // ════════════════════════════════════════════════════════════════
+    // Channel identity guard: one external identity → one tenant
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_channel_identity_claimed_by_other_tenant() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_owner_a, tenant_a) =
+            create_e2e_user(&resources, "guard_a@example.com", "GuardPass123!").await;
+        let (_owner_b, tenant_b) =
+            create_e2e_user(&resources, "guard_b@example.com", "GuardPass123!").await;
+
+        // Tenant A registers an active WhatsApp config for a phone number.
+        let phone = "15551230000";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: tenant_a,
+            channel_type: "whatsapp",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some("wa_secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: Some(phone),
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        // Another tenant registering the SAME phone number is a conflict.
+        assert!(
+            db.channel_identity_claimed_by_other_tenant(
+                tenant_b,
+                "whatsapp",
+                Some(phone),
+                None,
+                None,
+            )
+            .await
+            .unwrap(),
+            "same phone under a different tenant must be flagged as claimed"
+        );
+
+        // The owning tenant updating its own config is NOT a conflict.
+        assert!(
+            !db.channel_identity_claimed_by_other_tenant(
+                tenant_a,
+                "whatsapp",
+                Some(phone),
+                None,
+                None,
+            )
+            .await
+            .unwrap(),
+            "a tenant updating its own identity must not be flagged"
+        );
+
+        // A different phone number is free for any tenant.
+        assert!(
+            !db.channel_identity_claimed_by_other_tenant(
+                tenant_b,
+                "whatsapp",
+                Some("15559999999"),
+                None,
+                None,
+            )
+            .await
+            .unwrap(),
+            "an unused phone number must not be flagged"
+        );
+
+        // The identity is channel-scoped: same string, different channel ⇒ free.
+        assert!(
+            !db.channel_identity_claimed_by_other_tenant(
+                tenant_b,
+                "telegram",
+                None,
+                None,
+                Some(phone),
+            )
+            .await
+            .unwrap(),
+            "a bot_token equal to A's phone under a different channel must not collide"
+        );
+
+        // A request carrying no identity fields can never collide.
+        assert!(
+            !db.channel_identity_claimed_by_other_tenant(tenant_b, "whatsapp", None, None, None)
+                .await
+                .unwrap(),
+            "a request with no identity fields must not be flagged"
+        );
+    }
 }

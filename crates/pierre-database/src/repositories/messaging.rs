@@ -146,6 +146,26 @@ pub trait MessagingRepository: Send + Sync {
     /// to identify the caller.
     async fn get_configs_by_channel_type(&self, channel_type: &str) -> AppResult<Vec<Value>>;
 
+    /// Returns `true` when an active config for `channel_type` exists under a
+    /// tenant *other* than `tenant_id` that shares the same external identity —
+    /// the platform-unique field an inbound webhook keys on (`phone_number` for
+    /// WhatsApp/SMS, `account_id` for Messenger pages, `bot_token` for
+    /// Telegram/Discord).
+    ///
+    /// Registering the same identity under two tenants makes both configs verify
+    /// the same inbound webhook signature, so `get_configs_by_channel_type`
+    /// returns multiple matches and tenant routing becomes order-dependent. The
+    /// registration path calls this to reject the collision up front. The check
+    /// excludes `tenant_id` itself so a tenant can freely update its own config.
+    async fn channel_identity_claimed_by_other_tenant(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        phone_number: Option<&str>,
+        account_id: Option<&str>,
+        bot_token: Option<&str>,
+    ) -> AppResult<bool>;
+
     /// Delete a channel configuration
     async fn delete_channel_config(
         &self,
