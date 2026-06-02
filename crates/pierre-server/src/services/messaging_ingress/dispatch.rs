@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures_util::FutureExt;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::tokens::estimate_chat_tokens;
@@ -70,6 +72,18 @@ async fn deliver_reply(
         thread_id: dispatch.thread_id.clone(),
     };
     send_outbound_response(dispatch, channel_config, &outgoing).await;
+}
+
+/// Extract a human-readable message from a caught panic payload.
+///
+/// `std` panics carry either a `&'static str` or a `String`; anything else is
+/// reported generically so the correlation-id log still fires.
+fn panic_payload_str(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic payload".to_owned())
 }
 
 /// Log the pipeline failure, track analytics, and send a localized
@@ -214,11 +228,26 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     };
 
     let ctx = dispatch.resources.chat_pipeline_context();
-    let dispatch_result = match pierre_chat_pipeline::run(&ctx, turn_input, &profile, &hooks).await
-    {
-        Ok(result) => result,
-        Err(e) => {
+    // Panic boundary: a bug in any pipeline stage must unwind into a structured
+    // failure for *this* turn (graceful user reply + correlation-id log), never
+    // escape the spawned task. `AssertUnwindSafe` is sound because a caught
+    // panic aborts the whole turn — none of the borrowed state is touched
+    // afterwards; we report and return.
+    let run = AssertUnwindSafe(pierre_chat_pipeline::run(
+        &ctx, turn_input, &profile, &hooks,
+    ));
+    let dispatch_result = match run.catch_unwind().await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
             report_dispatch_failure(&dispatch, &channel_config, &e).await;
+            return;
+        }
+        Err(panic) => {
+            let err = AppError::internal(format!(
+                "chat pipeline panicked: {}",
+                panic_payload_str(panic.as_ref())
+            ));
+            report_dispatch_failure(&dispatch, &channel_config, &err).await;
             return;
         }
     };

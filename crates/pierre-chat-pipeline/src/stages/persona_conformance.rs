@@ -359,7 +359,13 @@ pub fn has_unglossed_acronym(text: &str, acronym: &str) -> bool {
     while let Some(rel_idx) = text[search_from..].find(acronym) {
         let abs_idx = search_from + rel_idx;
         let after = &text[abs_idx + acronym.len()..];
-        let lookahead_end = after.len().min(30);
+        // Advance by characters, not bytes, so the window never splits a
+        // multibyte char. A raw byte offset can land inside a multibyte
+        // sequence (e.g. the French apostrophe `’`), and slicing there panics.
+        let lookahead_end = after
+            .char_indices()
+            .nth(30)
+            .map_or(after.len(), |(idx, _)| idx);
         let window = &after[..lookahead_end];
         if !window.contains('(') {
             return true;
