@@ -18,7 +18,11 @@ split-debuginfo = "unpacked"
 [profile.release]
 lto = "thin"
 codegen-units = 16
-panic = "abort"
+# Unwind (NOT abort): this is an always-on multi-tenant server. A panic in one
+# tenant's request must unwind and stay isolated at the task boundary (see the
+# catch_unwind in the chat-pipeline worker), never abort the whole process and
+# drop every other tenant's in-flight work.
+panic = "unwind"
 strip = true
 
 [profile.release-lto]

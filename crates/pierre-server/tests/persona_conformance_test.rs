@@ -61,3 +61,26 @@ fn unglossed_acronym_requires_paren_within_window() {
         "CTL"
     ));
 }
+
+#[test]
+fn unglossed_acronym_handles_multibyte_in_lookahead_window() {
+    // Regression: the 30-char lookahead must advance by characters, not bytes.
+    // A 3-byte char (U+2019 `’`) straddling byte offset 30 of the post-acronym
+    // slice previously panicked ("byte index 30 is not a char boundary") and,
+    // under panic=abort, aborted the whole multi-tenant server process.
+    let smart_quote = '\u{2019}';
+    let text = format!("TSB{}{smart_quote} no gloss here", "x".repeat(28));
+    assert!(has_unglossed_acronym(&text, "TSB"));
+
+    // Real-world French reply that triggered the crash in production.
+    assert!(has_unglossed_acronym(
+        "ton TSB grimpe jusqu\u{2019}\u{e0} -34 donc grosse fatigue accumul\u{e9}e",
+        "TSB"
+    ));
+
+    // Gloss within the window is still detected when multibyte chars precede it.
+    assert!(!has_unglossed_acronym(
+        "ton TSB \u{e0} (charge d\u{2019}entra\u{ee}nement) est \u{e9}lev\u{e9}",
+        "TSB"
+    ));
+}

@@ -951,11 +951,14 @@ impl McpRequestProcessor {
                 mcp_id = ?request.id,
                 mcp_params_preview = ?request.params.as_ref().map(|p| {
                     let s = p.to_string();
-                    if s.len() > 100 {
-                        format!("{}...[truncated]", &s[..100])
-                    } else {
-                        s
+                    // Truncate by characters, not bytes: params can hold
+                    // non-ASCII text (e.g. a French chat message), and a raw
+                    // byte slice would panic when the cut lands mid-codepoint.
+                    let mut preview: String = s.chars().take(100).collect();
+                    if preview.len() < s.len() {
+                        preview.push_str("...[truncated]");
                     }
+                    preview
                 }),
                 auth_present = request.auth_token.is_some(),
                 "Received MCP request: {}",
