@@ -46,6 +46,8 @@ pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
+/// Google Health API provider (cloud successor to the Fitbit Web API)
+pub mod google_health_provider;
 /// Intervals.icu calendar rendering: a `PlannedSession` into the event body and the workout text DSL.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_calendar;
