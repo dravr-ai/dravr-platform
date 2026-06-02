@@ -22,30 +22,19 @@ use pierre_services::channel_error_reply::ChannelErrorReply;
 use super::locale::resolve_messaging_locale;
 use super::ResolvedSession;
 
-/// Whether a slash-command reply should be redirected to the caller's
-/// private chat instead of being posted back into the room it arrived from.
+/// Whether a slash-command reply should be delivered privately to the caller
+/// rather than posted back into the room it arrived from.
 ///
 /// A slash command is a personal request/response interaction: the caller
-/// asks, the bot answers *them*. When the command arrives from a shared room
-/// (Telegram group/supergroup, etc.) the answer would otherwise be visible to
-/// every other member, leaking the caller's account state. Redirecting the
-/// reply to their DM keeps the room clean and the answer private.
-///
-/// Only DM-capable channels can do this by swapping the recipient: Telegram,
-/// `WhatsApp`, and Messenger address individual users, so a reply sent to the
-/// sender id lands in a 1:1 chat. Discord and Slack address channels rather
-/// than users (see [`super::otp::apply_conversation_recipient`]), so a private
-/// reply there needs a different mechanism (ephemeral responses) and is left
-/// in the room for now.
+/// asks, the bot answers *them*. Any non-DM context is a shared room where the
+/// answer (and the caller's account state) would otherwise be visible to every
+/// other member, so the reply is delivered privately on **every** channel. The
+/// per-channel mechanism lives in canot's `send_private_reply` — a 1:1 DM for
+/// Telegram/`WhatsApp`/Messenger, an ephemeral message for Slack, an opened DM
+/// channel for Discord. A 1:1 DM is already private, so nothing to redirect.
 #[must_use]
-pub const fn redirect_slash_reply_to_dm(
-    channel_type: ChannelType,
-    is_direct_message: bool,
-) -> bool {
-    if is_direct_message {
-        return false;
-    }
-    !matches!(channel_type, ChannelType::Discord | ChannelType::Slack)
+pub const fn slash_reply_should_be_private(is_direct_message: bool) -> bool {
+    !is_direct_message
 }
 
 /// Bundled inputs for [`try_handle_slash_command`]. Combines the channel
@@ -113,16 +102,11 @@ pub(super) async fn try_handle_slash_command(
     let locale =
         resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
 
-    // Slash replies in a shared room go to the caller's DM so other members
-    // never see the command output (and, via the thread reset below, so the
-    // reply doesn't try to route into a group-only forum topic).
-    let route_to_dm = redirect_slash_reply_to_dm(channel_type, is_direct_message);
-    let reply_target = if route_to_dm {
-        sender_id.to_owned()
-    } else {
-        conversation_id.unwrap_or(sender_id).to_owned()
-    };
-    let reply_thread = if route_to_dm { None } else { thread_id };
+    // Address the reply to the room/conversation it came from. When that's a
+    // shared room, `persist_single_message` redelivers it privately to the
+    // caller via `send_private_reply` (and deletes the echo); for a 1:1 DM the
+    // conversation is already the private chat.
+    let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
 
     // Slash dispatch requires both the command-name catalog and the
     // handler-name map. They live on ServerContext alongside the rest of
@@ -169,7 +153,7 @@ pub(super) async fn try_handle_slash_command(
                 content: MessageContent::Text { body },
                 turn_id: CanotTurnId::new(),
                 reply_to: None,
-                thread_id: reply_thread,
+                thread_id,
             });
         }
     };
@@ -182,7 +166,7 @@ pub(super) async fn try_handle_slash_command(
             content: MessageContent::Text { body },
             turn_id: CanotTurnId::new(),
             reply_to: None,
-            thread_id: reply_thread,
+            thread_id,
         }),
         DispatchOutcome::Executed {
             command_name,
@@ -223,7 +207,7 @@ pub(super) async fn try_handle_slash_command(
                 content,
                 turn_id: CanotTurnId::new(),
                 reply_to: None,
-                thread_id: reply_thread,
+                thread_id,
             })
         }
     }

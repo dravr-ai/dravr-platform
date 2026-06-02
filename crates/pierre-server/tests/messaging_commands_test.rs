@@ -1660,45 +1660,26 @@ mod command_tests {
     // ════════════════════════════════════════════════════════════════
     // Slash reply privacy routing
     //
-    // A slash command issued in a shared room must not leak the caller's
-    // account state to other members: on DM-capable channels the reply is
-    // redirected to the caller's private chat. Channel-based transports
-    // (Discord, Slack) address rooms rather than users, so they keep the
-    // in-room reply until an ephemeral mechanism exists.
+    // A slash command issued in any shared room (non-DM) must be answered
+    // privately so other members never see the caller's account state. The
+    // platform predicate is channel-agnostic — the per-channel private-delivery
+    // mechanism (DM / Slack ephemeral / Discord DM) lives in canot. A 1:1 DM is
+    // already private, so nothing is redirected.
     // ════════════════════════════════════════════════════════════════
 
     #[test]
-    fn slash_reply_redirects_to_dm_in_telegram_group() {
-        use pierre_core::models::messaging::ChannelType;
-        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
+    fn slash_reply_is_private_in_any_shared_room() {
+        use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
 
-        // Telegram group/supergroup → redirect to the caller's DM.
-        assert!(redirect_slash_reply_to_dm(ChannelType::Telegram, false));
-        // WhatsApp and Messenger also key on the user id.
-        assert!(redirect_slash_reply_to_dm(ChannelType::WhatsApp, false));
-        assert!(redirect_slash_reply_to_dm(ChannelType::Messenger, false));
+        // Non-DM context (group/supergroup/channel) on any platform → private.
+        assert!(slash_reply_should_be_private(false));
     }
 
     #[test]
     fn slash_reply_stays_in_place_for_direct_messages() {
-        use pierre_core::models::messaging::ChannelType;
-        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
+        use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
 
-        // A 1:1 DM is already private — nothing to redirect, on any channel.
-        assert!(!redirect_slash_reply_to_dm(ChannelType::Telegram, true));
-        assert!(!redirect_slash_reply_to_dm(ChannelType::WhatsApp, true));
-        assert!(!redirect_slash_reply_to_dm(ChannelType::Discord, true));
-        assert!(!redirect_slash_reply_to_dm(ChannelType::Slack, true));
-    }
-
-    #[test]
-    fn slash_reply_stays_in_channel_for_discord_and_slack() {
-        use pierre_core::models::messaging::ChannelType;
-        use pierre_mcp_server::services::messaging_ingress::redirect_slash_reply_to_dm;
-
-        // Discord/Slack address channels, not users; recipient swap can't
-        // make the reply private, so it stays in the room for now.
-        assert!(!redirect_slash_reply_to_dm(ChannelType::Discord, false));
-        assert!(!redirect_slash_reply_to_dm(ChannelType::Slack, false));
+        // A 1:1 DM is already private — nothing to redirect.
+        assert!(!slash_reply_should_be_private(true));
     }
 }
