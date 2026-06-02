@@ -228,7 +228,7 @@ async fn send_channel_response(
 /// room it arrived in, loading config and spawning delivery.
 ///
 /// Each channel applies its own private mechanism inside canot's
-/// `send_private_reply`: a 1:1 DM for Telegram/WhatsApp/Messenger, an ephemeral
+/// `send_private_reply`: a 1:1 DM for Telegram/`WhatsApp`/Messenger, an ephemeral
 /// message for Slack, an opened DM channel for Discord. `recipient_user_id` is
 /// the channel-native id of the caller; `message` is the reply addressed to the
 /// originating room.
