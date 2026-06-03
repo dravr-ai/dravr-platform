@@ -165,10 +165,12 @@ module "backend" {
   container_port = 8081
   cpu            = var.backend_cpu
   memory         = var.backend_memory
-  # Keep CPU always-allocated: long-lived background subprocesses run between
-  # requests and die under throttling — the Copilot ACP LLM runner (chat/insights)
-  # and the Discord Gateway WebSocket. Cost is trimmed via cpu=1 instead, not via
-  # cpu_idle. (cpu_idle=true starved the ACP runner: chat/coach UI hung, rev 00464.)
+  # Keep CPU always-allocated at 2 vCPU: this service can't be trimmed cheaply.
+  # cpu_idle=true throttles CPU between requests and kills long-lived subprocesses
+  # — the Copilot ACP LLM runner (chat/insights/coach UI hung, rev 00464) and the
+  # Discord Gateway. cpu=1 can't keep /health alive through the contremaitre boot
+  # sync, so startup probes fail (rev 00465). Real cost fix = split the always-on
+  # LLM/Discord subprocess into its own small service, then let api go request-based.
   cpu_idle                         = false
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances
