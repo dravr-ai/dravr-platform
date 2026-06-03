@@ -17,9 +17,11 @@
 //!
 //! Authentication: `/api/me/features` accepts any logged-in user; the admin
 //! routes are mounted behind the cookie-admin middleware in
-//! [`crate::AdminRoutes::cookie_admin_routes`] and the in-handler authorize_*
-//! helpers additionally check tenant membership / super-admin before reading
-//! or writing.
+//! [`crate::AdminRoutes::cookie_admin_routes`]. Authorization uses the
+//! canonical [`ValidatedAdminToken`] like every other admin endpoint:
+//! `require_permission` gates reads/writes, and the tenant-scoped routes call
+//! [`ValidatedAdminToken::require_tenant_access`] so a tenant-scoped token
+//! cannot reach another tenant's defaults (super-admin tokens pass through).
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -35,7 +37,6 @@ use axum::{
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::{TenantId, User};
 use pierre_database::repositories::FeatureFlagRow;
 use pierre_database::{AuthRepos, UsageRepos};
 use pierre_middleware::extract_auth_from_headers;
@@ -198,11 +199,10 @@ pub async fn handle_admin_list_tenant_defaults(
     Path(tenant_id): Path<String>,
 ) -> Result<Response, AppError> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    let admin_user_id = admin_user_id_from_token(&admin_token)?;
+    admin_token.require_tenant_access(&tenant_id)?;
     let tenant_uuid = parse_uuid_path(&tenant_id, "tenant_id")?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
-    let rows = list_tenant_defaults(&auth, &usage, admin_user_id, tenant_uuid).await?;
+    let rows = list_tenant_defaults(&usage, tenant_uuid).await?;
     let body: Vec<AdminFeatureFlagRow> = rows.into_iter().map(AdminFeatureFlagRow::from).collect();
     Ok((
         StatusCode::OK,
@@ -222,14 +222,13 @@ pub async fn handle_admin_set_tenant_default(
     Path((tenant_id, key)): Path<(String, String)>,
     Json(body): Json<SetFeatureFlagRequest>,
 ) -> Result<Response, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+    admin_token.require_tenant_access(&tenant_id)?;
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let tenant_uuid = parse_uuid_path(&tenant_id, "tenant_id")?;
     let feature_key = parse_feature_key(&key)?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
     set_tenant_default(
-        &auth,
         &usage,
         admin_user_id,
         tenant_uuid,
@@ -250,14 +249,13 @@ pub async fn handle_admin_clear_tenant_default(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path((tenant_id, key)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+    admin_token.require_tenant_access(&tenant_id)?;
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let tenant_uuid = parse_uuid_path(&tenant_id, "tenant_id")?;
     let feature_key = parse_feature_key(&key)?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
-    let removed =
-        clear_tenant_default(&auth, &usage, admin_user_id, tenant_uuid, feature_key).await?;
+    let removed = clear_tenant_default(&usage, admin_user_id, tenant_uuid, feature_key).await?;
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({"success": true, "removed": removed})),
@@ -276,11 +274,9 @@ pub async fn handle_admin_list_user_overrides(
     Path(user_id): Path<String>,
 ) -> Result<Response, AppError> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let user_uuid = parse_uuid_path(&user_id, "user_id")?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
-    let rows = list_user_overrides(&auth, &usage, admin_user_id, user_uuid).await?;
+    let rows = list_user_overrides(&usage, user_uuid).await?;
     let body: Vec<AdminFeatureFlagRow> = rows.into_iter().map(AdminFeatureFlagRow::from).collect();
     Ok((
         StatusCode::OK,
@@ -300,21 +296,12 @@ pub async fn handle_admin_set_user_override(
     Path((user_id, key)): Path<(String, String)>,
     Json(body): Json<SetFeatureFlagRequest>,
 ) -> Result<Response, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let user_uuid = parse_uuid_path(&user_id, "user_id")?;
     let feature_key = parse_feature_key(&key)?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
-    set_user_override(
-        &auth,
-        &usage,
-        admin_user_id,
-        user_uuid,
-        feature_key,
-        body.enabled,
-    )
-    .await?;
+    set_user_override(&usage, admin_user_id, user_uuid, feature_key, body.enabled).await?;
     Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
 }
 
@@ -328,13 +315,12 @@ pub async fn handle_admin_clear_user_override(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path((user_id, key)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let user_uuid = parse_uuid_path(&user_id, "user_id")?;
     let feature_key = parse_feature_key(&key)?;
-    let auth = context.repos.auth_repos();
     let usage = context.repos.usage_repos();
-    let removed = clear_user_override(&auth, &usage, admin_user_id, user_uuid, feature_key).await?;
+    let removed = clear_user_override(&usage, admin_user_id, user_uuid, feature_key).await?;
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({"success": true, "removed": removed})),
@@ -420,14 +406,12 @@ async fn primary_tenant_for_user(
 
 /// Admin: list stored tenant defaults. Empty vec when nothing is configured.
 ///
-/// Authorization: super-admins see any tenant; tenant admins only their own.
+/// Authorization is enforced at the HTTP boundary via
+/// [`ValidatedAdminToken::require_tenant_access`].
 async fn list_tenant_defaults(
-    auth: &AuthRepos,
     usage: &UsageRepos,
-    admin_user_id: Uuid,
     tenant_id: Uuid,
 ) -> Result<Vec<FeatureFlagRow>, AppError> {
-    authorize_admin_for_tenant(auth, admin_user_id, tenant_id).await?;
     usage
         .feature_flags
         .list_tenant_defaults(tenant_id)
@@ -437,14 +421,12 @@ async fn list_tenant_defaults(
 
 /// Admin: insert-or-update a tenant default.
 async fn set_tenant_default(
-    auth: &AuthRepos,
     usage: &UsageRepos,
     admin_user_id: Uuid,
     tenant_id: Uuid,
     feature_key: FeatureKey,
     enabled: bool,
 ) -> Result<(), AppError> {
-    authorize_admin_for_tenant(auth, admin_user_id, tenant_id).await?;
     usage
         .feature_flags
         .set_tenant_default(tenant_id, feature_key, enabled, Some(admin_user_id))
@@ -462,13 +444,11 @@ async fn set_tenant_default(
 
 /// Admin: clear a tenant default. Returns `true` when a row was removed.
 async fn clear_tenant_default(
-    auth: &AuthRepos,
     usage: &UsageRepos,
     admin_user_id: Uuid,
     tenant_id: Uuid,
     feature_key: FeatureKey,
 ) -> Result<bool, AppError> {
-    authorize_admin_for_tenant(auth, admin_user_id, tenant_id).await?;
     let removed = usage
         .feature_flags
         .clear_tenant_default(tenant_id, feature_key)
@@ -485,13 +465,14 @@ async fn clear_tenant_default(
 }
 
 /// Admin: list stored per-user overrides for `target_user_id`.
+///
+/// Like the sibling user-management endpoints (`/api/admin/users/...`), the
+/// admin view is global; authorization is the `ManageConfiguration` /
+/// `ViewConfiguration` permission carried by the [`ValidatedAdminToken`].
 async fn list_user_overrides(
-    auth: &AuthRepos,
     usage: &UsageRepos,
-    admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<Vec<FeatureFlagRow>, AppError> {
-    authorize_admin_for_user(auth, admin_user_id, target_user_id).await?;
     usage
         .feature_flags
         .list_user_overrides(target_user_id)
@@ -501,14 +482,12 @@ async fn list_user_overrides(
 
 /// Admin: insert-or-update a per-user override.
 async fn set_user_override(
-    auth: &AuthRepos,
     usage: &UsageRepos,
     admin_user_id: Uuid,
     target_user_id: Uuid,
     feature_key: FeatureKey,
     enabled: bool,
 ) -> Result<(), AppError> {
-    authorize_admin_for_user(auth, admin_user_id, target_user_id).await?;
     usage
         .feature_flags
         .set_user_override(target_user_id, feature_key, enabled, Some(admin_user_id))
@@ -526,13 +505,11 @@ async fn set_user_override(
 
 /// Admin: clear a per-user override so the user inherits the tenant default.
 async fn clear_user_override(
-    auth: &AuthRepos,
     usage: &UsageRepos,
     admin_user_id: Uuid,
     target_user_id: Uuid,
     feature_key: FeatureKey,
 ) -> Result<bool, AppError> {
-    authorize_admin_for_user(auth, admin_user_id, target_user_id).await?;
     let removed = usage
         .feature_flags
         .clear_user_override(target_user_id, feature_key)
@@ -546,79 +523,4 @@ async fn clear_user_override(
         "Per-user feature override cleared"
     );
     Ok(removed)
-}
-
-/// `Ok(())` when the admin can act on `tenant_id`: super-admins always,
-/// regular admins only on tenants they belong to.
-async fn authorize_admin_for_tenant(
-    auth: &AuthRepos,
-    admin_user_id: Uuid,
-    tenant_id: Uuid,
-) -> Result<(), AppError> {
-    let admin = load_admin(auth, admin_user_id).await?;
-    if admin.role.is_super_admin() {
-        return Ok(());
-    }
-
-    let role = auth
-        .tenants
-        .get_user_role(admin_user_id, TenantId(tenant_id))
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to check tenant membership: {e}")))?;
-    if role.is_some() {
-        Ok(())
-    } else {
-        Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Admin not a member of the target tenant",
-        ))
-    }
-}
-
-/// `Ok(())` when the admin can act on `target_user_id`: super-admins always,
-/// regular admins only when the target belongs to one of the admin's tenants.
-async fn authorize_admin_for_user(
-    auth: &AuthRepos,
-    admin_user_id: Uuid,
-    target_user_id: Uuid,
-) -> Result<(), AppError> {
-    let admin = load_admin(auth, admin_user_id).await?;
-    if admin.role.is_super_admin() {
-        return Ok(());
-    }
-
-    let admin_tenants: Vec<Uuid> = auth
-        .tenants
-        .list_for_user(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to list admin tenants: {e}")))?
-        .into_iter()
-        .map(|t| t.id.0)
-        .collect();
-
-    let target_tenants: Vec<Uuid> = auth
-        .tenants
-        .list_for_user(target_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to list target tenants: {e}")))?
-        .into_iter()
-        .map(|t| t.id.0)
-        .collect();
-
-    if admin_tenants.iter().any(|t| target_tenants.contains(t)) {
-        Ok(())
-    } else {
-        Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Target user is not in any tenant the admin manages",
-        ))
-    }
-}
-
-async fn load_admin(auth: &AuthRepos, admin_user_id: Uuid) -> Result<User, AppError> {
-    auth.users
-        .get_global(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to load admin: {e}")))?
-        .ok_or_else(|| AppError::not_found("Admin user not found"))
 }
