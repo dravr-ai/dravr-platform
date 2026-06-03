@@ -22,13 +22,17 @@ import {
 //   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
 //   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
 //
-// authDomain uses Firebase's hosted auth handler directly.
-// Self-hosted approach (nginx reverse proxy to firebaseapp.com) is disabled because
-// Cloud Run VPC cannot reliably reach firebaseapp.com (IPv6 unreachable, resolver 8.8.8.8
-// blocked by VPC connector). Popup flow works without self-hosting.
+// authDomain is the app's own origin, not firebaseapp.com. The Firebase auth
+// handler (/__/auth/*) is reverse-proxied to {projectId}.firebaseapp.com by the
+// frontend nginx in production and by the vite dev server locally. Keeping the
+// handler same-origin means Firebase stores its pending-redirect state on our
+// own origin instead of a third-party site — without that, mobile browsers
+// (Safari ITP, Chrome storage partitioning) block the cross-site storage that
+// signInWithRedirect/getRedirectResult depend on, so the redirect leg of
+// Google sign-in silently never completes on phones.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
+  authDomain: window.location.host,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
