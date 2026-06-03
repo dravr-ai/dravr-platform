@@ -18,11 +18,11 @@ frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
 backend_cpu    = "2"
 backend_memory = "2Gi"
-# Keep one warm instance so the contremaitre push webhook (prompt hot-reload)
-# always lands on a running container — scale-to-zero made the webhook 504 on
-# cold start, dropping the reload. The warm instance also serves the startup
-# prompt sync without a cold-start penalty.
-backend_min_instances = 1
+# Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
+# bills 2 vCPU continuously (~$140/mo); the dev cost is not worth keeping the
+# contremaitre push webhook off a cold start — the webhook retries and prompts
+# also sync on container startup.
+backend_min_instances = 0
 backend_max_instances = 15
 
 # database_tier                = "db-f1-micro"
