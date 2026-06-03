@@ -92,6 +92,7 @@ pub async fn persist_user_message(
 
     // Persist user message before LLM dispatch
     let user_msg_params = AddMessageParams {
+        tenant_id,
         conversation_id,
         user_id,
         role: "user",
@@ -120,8 +121,11 @@ pub async fn get_conversation_history(
     database: &dyn ChatRepository,
     conversation_id: &str,
     user_id: &str,
+    tenant_id: TenantId,
 ) -> AppResult<Vec<MessageRecord>> {
-    database.get_messages(conversation_id, user_id).await
+    database
+        .get_messages(conversation_id, user_id, tenant_id)
+        .await
 }
 
 /// Persist the assistant's response message.

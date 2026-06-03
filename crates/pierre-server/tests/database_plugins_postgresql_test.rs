@@ -594,6 +594,7 @@ async fn test_pg_chat_messages() {
 
     // Add messages (user_id required for ownership verification)
     let msg1_params = AddMessageParams {
+        tenant_id,
         conversation_id: &conv.id,
         user_id: &user_id_str,
         role: "user",
@@ -613,6 +614,7 @@ async fn test_pg_chat_messages() {
     assert_eq!(msg1.content, "Hello!");
 
     let msg2_params = AddMessageParams {
+        tenant_id,
         conversation_id: &conv.id,
         user_id: &user_id_str,
         role: "assistant",
@@ -635,7 +637,7 @@ async fn test_pg_chat_messages() {
     // Get all messages (user_id required for ownership verification)
     let messages = repos
         .chat
-        .get_messages(&conv.id, &user_id_str)
+        .get_messages(&conv.id, &user_id_str, tenant_id)
         .await
         .expect("Failed to get messages");
 
@@ -644,7 +646,7 @@ async fn test_pg_chat_messages() {
     // Get recent messages (user_id required for ownership verification)
     let recent = repos
         .chat
-        .get_recent_messages(&conv.id, &user_id_str, 1)
+        .get_recent_messages(&conv.id, &user_id_str, tenant_id, 1)
         .await
         .expect("Failed to get recent messages");
 
@@ -653,7 +655,7 @@ async fn test_pg_chat_messages() {
     // Get message count (user_id required for ownership verification)
     let count = repos
         .chat
-        .get_message_count(&conv.id, &user_id_str)
+        .get_message_count(&conv.id, &user_id_str, tenant_id)
         .await
         .expect("Failed to get message count");
 

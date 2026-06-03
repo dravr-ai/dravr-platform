@@ -607,7 +607,7 @@ pub(super) async fn handle_generate<C: CoachesCtx + MiddlewareCtx>(
 
     // Get conversation messages
     let messages = chat_manager
-        .get_messages(&body.conversation_id, &auth.user_id.to_string())
+        .get_messages(&body.conversation_id, &auth.user_id.to_string(), tenant_id)
         .await?;
     let total_messages = messages.len();
 

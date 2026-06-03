@@ -70,8 +70,6 @@ pub trait UserRepository: Send + Sync {
     async fn delete(&self, user_id: Uuid) -> AppResult<()>;
     /// Get the first admin user by creation date
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
-    /// Check if a user has synthetic activities seeded
-    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool>;
     /// Update user's analytics consent preference
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
     /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).

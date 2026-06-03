@@ -328,7 +328,7 @@ pub async fn get_messages(
         .common
         .repos
         .chat
-        .get_messages(&conversation_id, &auth.user_id.to_string())
+        .get_messages(&conversation_id, &auth.user_id.to_string(), tenant_id)
         .await?;
 
     let messages_list: Vec<MessageResponse> = messages

@@ -1300,9 +1300,6 @@ impl UserRepository for Database {
     async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
         Self::get_first_admin_user(self).await
     }
-    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        Self::user_has_synthetic_activities_impl(self, user_id).await
-    }
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
         Self::update_analytics_consent_impl(self, user_id, enabled).await
     }

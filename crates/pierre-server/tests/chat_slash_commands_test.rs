@@ -308,7 +308,7 @@ async fn slash_command_is_not_persisted_to_history() {
     // would persist and bleed into the LLM context on the next turn. The
     // command still executes and its result is returned for display.
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _tenant_id, auth) = seed_user_tenant(&resources, "ephemeral-cmd@test.com").await;
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "ephemeral-cmd@test.com").await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;
@@ -327,7 +327,7 @@ async fn slash_command_is_not_persisted_to_history() {
         .common
         .repos
         .chat
-        .get_messages(&conv_id, &user_id.to_string())
+        .get_messages(&conv_id, &user_id.to_string(), tenant_id)
         .await
         .unwrap();
     assert!(

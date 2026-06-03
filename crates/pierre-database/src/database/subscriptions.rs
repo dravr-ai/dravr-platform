@@ -78,6 +78,10 @@ impl SubscriptionsRepository for Database {
     }
 
     async fn get_subscription_by_user(&self, user_id: Uuid) -> AppResult<Option<Subscription>> {
+        // Scoped by the globally-unique user UUID: a subscription belongs to exactly one
+        // user in one tenant, so this lookup cannot cross tenants. No tenant_id predicate is
+        // threaded because the billing callers only carry an optional active tenant and the
+        // user-id key already makes the result single-tenant.
         let row = sqlx::query(
             r"
             SELECT id, tenant_id, user_id, provider, provider_customer_id, provider_subscription_id,
