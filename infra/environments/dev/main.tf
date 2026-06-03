@@ -165,10 +165,11 @@ module "backend" {
   container_port = 8081
   cpu            = var.backend_cpu
   memory         = var.backend_memory
-  # Request-based billing: CPU is throttled between requests to cut idle cost.
-  # Trade-off: the Discord Gateway WebSocket misses heartbeats when throttled and
-  # drops its connection — acceptable in dev, where the bill outweighs the bot.
-  cpu_idle                         = true
+  # Keep CPU always-allocated: long-lived background subprocesses run between
+  # requests and die under throttling — the Copilot ACP LLM runner (chat/insights)
+  # and the Discord Gateway WebSocket. Cost is trimmed via cpu=1 instead, not via
+  # cpu_idle. (cpu_idle=true starved the ACP runner: chat/coach UI hung, rev 00464.)
+  cpu_idle                         = false
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances
   max_instances                    = var.backend_max_instances
