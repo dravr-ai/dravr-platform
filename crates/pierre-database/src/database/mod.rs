@@ -66,8 +66,6 @@ pub mod seeder;
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
 pub mod subscriptions;
-/// Synthetic provider activities storage
-pub mod synthetic_activities;
 /// System settings for admin-configurable options
 pub mod system_settings;
 /// Tenant management: CRUD, OAuth credentials, user-tenant roles
@@ -2473,9 +2471,12 @@ impl Database {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>> {
         let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager.get_messages(conversation_id, user_id).await
+        chat_manager
+            .get_messages(conversation_id, user_id, tenant_id)
+            .await
     }
 
     /// Get recent messages (impl for trait)
@@ -2486,11 +2487,12 @@ impl Database {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
         limit: i64,
     ) -> AppResult<Vec<MessageRecord>> {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
-            .get_recent_messages(conversation_id, user_id, limit)
+            .get_recent_messages(conversation_id, user_id, tenant_id, limit)
             .await
     }
 
@@ -2502,10 +2504,11 @@ impl Database {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
     ) -> AppResult<i64> {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
-            .get_message_count(conversation_id, user_id)
+            .get_message_count(conversation_id, user_id, tenant_id)
             .await
     }
 

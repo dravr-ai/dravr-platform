@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::models::coaches::CoachCategory;
+use crate::models::tenant::TenantId;
 
 /// Identifier for a single conversation turn.
 ///
@@ -225,6 +226,9 @@ pub struct ConversationSummary {
 
 /// Parameters for adding a message to a conversation
 pub struct AddMessageParams<'a> {
+    /// Tenant that owns the conversation — every message write is tenant-scoped
+    /// so the `chat_conversations` ownership check matches the conversation CRUD path.
+    pub tenant_id: TenantId,
     /// Conversation to add the message to
     pub conversation_id: &'a str,
     /// User who owns the conversation

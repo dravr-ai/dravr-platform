@@ -157,16 +157,19 @@ impl CoachingGroupRepository for Database {
     async fn get_group(
         &self,
         group_id: &str,
-        tenant_id: TenantId,
+        _tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>> {
+        // Coaching groups are intentionally cross-tenant: members join the same
+        // group from different tenants, so the group UUID (globally unique) is the
+        // access key, not tenant_id. Tenant scoping happens at the membership layer.
+        // This mirrors the Postgres backend, which is the canonical implementation.
         let row = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               created_at, updated_at
-              FROM coaching_groups WHERE id = $1 AND tenant_id = $2",
+              FROM coaching_groups WHERE id = $1",
         )
         .bind(group_id)
-        .bind(tenant_id.to_string())
         .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get group: {e}")))?;

@@ -403,6 +403,7 @@ async fn test_add_message() {
 
     let msg = manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -442,6 +443,7 @@ async fn test_add_assistant_message_with_finish_reason() {
 
     let msg = manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -481,6 +483,7 @@ async fn test_get_messages() {
     // Add messages
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -494,6 +497,7 @@ async fn test_get_messages() {
         .unwrap();
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -507,6 +511,7 @@ async fn test_get_messages() {
         .unwrap();
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -519,7 +524,10 @@ async fn test_get_messages() {
         .await
         .unwrap();
 
-    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    let messages = manager
+        .get_messages(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
 
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].content, "Hello");
@@ -550,6 +558,7 @@ async fn test_get_recent_messages() {
         let content = format!("Message {i}");
         manager
             .add_message(&AddMessageParams {
+                tenant_id,
                 conversation_id: &conv.id,
                 user_id: "user-1",
                 role: "user",
@@ -565,7 +574,7 @@ async fn test_get_recent_messages() {
 
     // Get last 3
     let recent = manager
-        .get_recent_messages(&conv.id, "user-1", 3)
+        .get_recent_messages(&conv.id, "user-1", tenant_id, 3)
         .await
         .unwrap();
 
@@ -599,6 +608,7 @@ async fn test_message_updates_conversation_tokens() {
     // Add messages with token counts
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -612,6 +622,7 @@ async fn test_message_updates_conversation_tokens() {
         .unwrap();
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -653,12 +664,16 @@ async fn test_get_message_count() {
         .unwrap();
 
     // Initially 0
-    let count = manager.get_message_count(&conv.id, "user-1").await.unwrap();
+    let count = manager
+        .get_message_count(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert_eq!(count, 0);
 
     // Add messages
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -672,6 +687,7 @@ async fn test_get_message_count() {
         .unwrap();
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -684,7 +700,10 @@ async fn test_get_message_count() {
         .await
         .unwrap();
 
-    let count = manager.get_message_count(&conv.id, "user-1").await.unwrap();
+    let count = manager
+        .get_message_count(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert_eq!(count, 2);
 }
 
@@ -709,6 +728,7 @@ async fn test_cascade_delete_messages() {
     // Add messages
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -722,6 +742,7 @@ async fn test_cascade_delete_messages() {
         .unwrap();
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -735,7 +756,10 @@ async fn test_cascade_delete_messages() {
         .unwrap();
 
     // Verify messages exist
-    let count = manager.get_message_count(&conv.id, "user-1").await.unwrap();
+    let count = manager
+        .get_message_count(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert_eq!(count, 2);
 
     // Delete conversation (should cascade delete messages)
@@ -745,7 +769,10 @@ async fn test_cascade_delete_messages() {
         .unwrap();
 
     // Messages should be gone (foreign key cascade)
-    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    let messages = manager
+        .get_messages(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert!(messages.is_empty());
 }
 
@@ -830,6 +857,7 @@ async fn test_persist_tool_round_messages() {
 
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -847,6 +875,7 @@ async fn test_persist_tool_round_messages() {
     // the path where only `tool_result` lands but `tool_call` does not.
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "tool_result",
@@ -861,6 +890,7 @@ async fn test_persist_tool_round_messages() {
 
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "assistant",
@@ -873,7 +903,10 @@ async fn test_persist_tool_round_messages() {
         .await
         .unwrap();
 
-    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    let messages = manager
+        .get_messages(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3, "user → tool_result → assistant");
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[1].role, "tool_result");
@@ -904,6 +937,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
 
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "user",
@@ -918,6 +952,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
 
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "tool_call",
@@ -932,6 +967,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
 
     manager
         .add_message(&AddMessageParams {
+            tenant_id,
             conversation_id: &conv.id,
             user_id: "user-1",
             role: "tool_result",
@@ -945,7 +981,10 @@ async fn test_persist_tool_round_with_assistant_preamble() {
         .await
         .unwrap();
 
-    let messages = manager.get_messages(&conv.id, "user-1").await.unwrap();
+    let messages = manager
+        .get_messages(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[1].role, "tool_call");

@@ -215,14 +215,15 @@ impl ChatRepository for PostgresDatabase {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let user_uuid = parse_uuid(params.user_id)?;
+        let tenant_str = params.tenant_id.to_string();
 
-        // Insert message only if the conversation belongs to the user
+        // Insert message only if the conversation belongs to the user in this tenant
         let result = sqlx::query(
             r"
             INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model)
             SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
             WHERE EXISTS (
-                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10
+                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10 AND tenant_id = $11
             )
             ",
         )
@@ -236,6 +237,7 @@ impl ChatRepository for PostgresDatabase {
         .bind(params.prompt_tokens.map(i64::from))
         .bind(params.model)
         .bind(user_uuid)
+        .bind(&tenant_str)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -252,13 +254,14 @@ impl ChatRepository for PostgresDatabase {
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1, total_tokens = total_tokens + $2
-                WHERE id = $3 AND user_id = $4
+                WHERE id = $3 AND user_id = $4 AND tenant_id = $5
                 ",
             )
             .bind(now)
             .bind(i64::from(tokens))
             .bind(params.conversation_id)
             .bind(user_uuid)
+            .bind(&tenant_str)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -269,12 +272,13 @@ impl ChatRepository for PostgresDatabase {
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1
-                WHERE id = $2 AND user_id = $3
+                WHERE id = $2 AND user_id = $3 AND tenant_id = $4
                 ",
             )
             .bind(now)
             .bind(params.conversation_id)
             .bind(user_uuid)
+            .bind(&tenant_str)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -299,18 +303,20 @@ impl ChatRepository for PostgresDatabase {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2
+            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
             ORDER BY m.created_at ASC
             ",
         )
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get messages: {e}")))?;
@@ -341,6 +347,7 @@ impl ChatRepository for PostgresDatabase {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
         limit: i64,
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
@@ -348,13 +355,14 @@ impl ChatRepository for PostgresDatabase {
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2
+            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
             ORDER BY m.created_at DESC
-            LIMIT $3
+            LIMIT $4
             ",
         )
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
         .bind(limit)
         .fetch_all(&self.pool)
         .await
@@ -384,17 +392,23 @@ impl ChatRepository for PostgresDatabase {
         Ok(messages)
     }
 
-    async fn get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
+    async fn get_message_count(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r"
             SELECT COUNT(*)
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2
+            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
             ",
         )
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get message count: {e}")))?;

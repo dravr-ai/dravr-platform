@@ -141,6 +141,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     let final_content = post_process_content(&result.content, true);
 
     let assistant_params = AddMessageParams {
+        tenant_id,
         conversation_id: &conversation_id,
         user_id: &user_id_str,
         role: "assistant",

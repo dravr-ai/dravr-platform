@@ -145,6 +145,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             Arc::clone(&ctx.repos.chat),
             input.conversation_id.clone(),
             input.user_id.clone(),
+            input.conversation_tenant_id,
         )));
     let tools = build_mcp_tools(&ctx.tool_registry);
     let tool_params = ToolLoopParams {

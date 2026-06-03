@@ -201,6 +201,7 @@ async fn seed_conversations_and_messages(
             let role = if j % 2 == 0 { "user" } else { "assistant" };
             let content = format!("Message {j} in conversation {i}");
             let params = AddMessageParams {
+                tenant_id,
                 conversation_id: &convo.id,
                 user_id,
                 role,

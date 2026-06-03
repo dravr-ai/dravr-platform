@@ -251,41 +251,6 @@ impl CoachAuthorsManager {
         self.get_by_user(user_id, tenant_id).await
     }
 
-    /// Verify an author (admin operation)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn verify_author(
-        &self,
-        author_id: &str,
-        admin_user_id: Uuid,
-    ) -> AppResult<CoachAuthor> {
-        let now = Utc::now();
-
-        let result = sqlx::query(
-            r"
-            UPDATE coach_authors SET
-                is_verified = 1, verified_at = $1, verified_by = $2, updated_at = $1
-            WHERE id = $3
-            ",
-        )
-        .bind(now.to_rfc3339())
-        .bind(admin_user_id.to_string())
-        .bind(author_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to verify author: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found("Author profile"));
-        }
-
-        self.get_by_id(author_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Author profile"))
-    }
-
     /// Increment published coach count for an author
     ///
     /// Called when a coach is approved for the Store.
@@ -365,38 +330,6 @@ impl CoachAuthorsManager {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list popular authors: {e}")))?;
-
-        rows.iter().map(row_to_author).collect()
-    }
-
-    /// List verified authors
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn list_verified(
-        &self,
-        tenant_id: TenantId,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<CoachAuthor>> {
-        let limit_val = i64::from(limit.unwrap_or(20).min(100));
-
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, tenant_id, display_name, bio, avatar_url, website_url,
-                   is_verified, verified_at, verified_by, published_coach_count,
-                   total_install_count, created_at, updated_at
-            FROM coach_authors
-            WHERE tenant_id = $1 AND is_verified = 1
-            ORDER BY total_install_count DESC
-            LIMIT $2
-            ",
-        )
-        .bind(tenant_id)
-        .bind(limit_val)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list verified authors: {e}")))?;
 
         rows.iter().map(row_to_author).collect()
     }

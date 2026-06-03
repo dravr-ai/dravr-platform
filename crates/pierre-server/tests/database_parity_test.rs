@@ -397,6 +397,7 @@ async fn test_parity_chat_messages() {
 
     for (role, content, tokens, finish) in &messages {
         let sqlite_params = AddMessageParams {
+            tenant_id: sqlite_tenant_id,
             conversation_id: &sqlite_conv.id,
             user_id: &sqlite_uid,
             role,
@@ -413,6 +414,7 @@ async fn test_parity_chat_messages() {
             .expect("SQLite: Failed to add message");
 
         let pg_params = AddMessageParams {
+            tenant_id: pg_tenant_id,
             conversation_id: &pg_conv.id,
             user_id: &pg_uid,
             role,
@@ -432,13 +434,13 @@ async fn test_parity_chat_messages() {
     // Get all messages
     let sqlite_messages = sqlite_repos
         .chat
-        .get_messages(&sqlite_conv.id, &sqlite_uid)
+        .get_messages(&sqlite_conv.id, &sqlite_uid, sqlite_tenant_id)
         .await
         .expect("SQLite: Failed to get messages");
 
     let pg_messages = pg_repos
         .chat
-        .get_messages(&pg_conv.id, &pg_uid)
+        .get_messages(&pg_conv.id, &pg_uid, pg_tenant_id)
         .await
         .expect("PostgreSQL: Failed to get messages");
 
@@ -465,13 +467,13 @@ async fn test_parity_chat_messages() {
     // Compare message counts
     let sqlite_count = sqlite_repos
         .chat
-        .get_message_count(&sqlite_conv.id, &sqlite_uid)
+        .get_message_count(&sqlite_conv.id, &sqlite_uid, sqlite_tenant_id)
         .await
         .expect("SQLite: Failed to get count");
 
     let pg_count = pg_repos
         .chat
-        .get_message_count(&pg_conv.id, &pg_uid)
+        .get_message_count(&pg_conv.id, &pg_uid, pg_tenant_id)
         .await
         .expect("PostgreSQL: Failed to get count");
 

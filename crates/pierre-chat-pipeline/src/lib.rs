@@ -65,7 +65,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId};
+use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId, TenantId};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::ChatRepository;
@@ -423,16 +423,23 @@ pub struct ChatRepoToolMessageRecorder {
     chat: Arc<dyn ChatRepository>,
     conversation_id: String,
     user_id: String,
+    tenant_id: TenantId,
 }
 
 impl ChatRepoToolMessageRecorder {
     /// Build a recorder scoped to a single conversation.
     #[must_use]
-    pub fn new(chat: Arc<dyn ChatRepository>, conversation_id: String, user_id: String) -> Self {
+    pub fn new(
+        chat: Arc<dyn ChatRepository>,
+        conversation_id: String,
+        user_id: String,
+        tenant_id: TenantId,
+    ) -> Self {
         Self {
             chat,
             conversation_id,
             user_id,
+            tenant_id,
         }
     }
 }
@@ -442,9 +449,11 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
         let chat = Arc::clone(&self.chat);
         let conversation_id = self.conversation_id.clone();
         let user_id = self.user_id.clone();
+        let tenant_id = self.tenant_id;
         tokio::spawn(async move {
             if !record.assistant_text.is_empty() {
                 let params = AddMessageParams {
+                    tenant_id,
                     conversation_id: &conversation_id,
                     user_id: &user_id,
                     role: "tool_call",
@@ -461,6 +470,7 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
             }
             if !record.tool_result_text.is_empty() {
                 let params = AddMessageParams {
+                    tenant_id,
                     conversation_id: &conversation_id,
                     user_id: &user_id,
                     role: "tool_result",
@@ -602,8 +612,13 @@ async fn run_turn(
     let conv = ensure_coach_session_attached(&ctx.data, conv, input.conversation_tenant_id).await;
 
     // Stage 5: Load conversation history for LLM context.
-    let history =
-        get_conversation_history(database, &input.conversation_id, &input.user_id).await?;
+    let history = get_conversation_history(
+        database,
+        &input.conversation_id,
+        &input.user_id,
+        input.conversation_tenant_id,
+    )
+    .await?;
 
     // Stage 6: Resolve coach runtime context.
     let coach_ctx = match conv.coach_id.as_deref() {
@@ -666,6 +681,7 @@ async fn run_turn(
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
     let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
     let assistant_params = AddMessageParams {
+        tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
         user_id: &input.user_id,
         role: "assistant",

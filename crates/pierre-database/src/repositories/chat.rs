@@ -65,16 +65,23 @@ pub trait ChatRepository: Send + Sync {
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>>;
     /// Get recent messages for a conversation (verifies user owns the conversation)
     async fn get_recent_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
+        tenant_id: TenantId,
         limit: i64,
     ) -> AppResult<Vec<MessageRecord>>;
     /// Get message count for a conversation (verifies user owns the conversation)
-    async fn get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64>;
+    async fn get_message_count(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64>;
     /// Count total conversations for a user in a tenant
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
     /// Delete all conversations for a user

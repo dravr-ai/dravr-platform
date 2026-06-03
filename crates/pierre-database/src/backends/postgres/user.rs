@@ -934,17 +934,6 @@ impl UserRepository for PostgresDatabase {
         Ok(())
     }
 
-    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM synthetic_activities WHERE user_id = $1 LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(count > 0)
-    }
-
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
         let result = sqlx::query(
             r"
