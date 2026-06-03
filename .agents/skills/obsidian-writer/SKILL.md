@@ -148,6 +148,12 @@ obsidian append file="ADR-042 Adopt OpenTelemetry" \
 
 - Obsidian must be running and the dravr-vault must be the active vault before using
   `obsidian create` or `obsidian append` — the CLI communicates with the open app.
+- The `obsidian` command MUST be the first-party app CLI
+  (`/Applications/Obsidian.app/Contents/MacOS/obsidian`). It needs **no API key**.
+  If `obsidian` errors with "An API key must be provided via OBSIDIAN_API_KEY", a stray
+  global npm package (`obsidian-cli`, the unrelated ObsidianQA tool) is shadowing it on
+  PATH — fix with `npm uninstall -g obsidian-cli`, do NOT fall back to `claude_docs/`.
+  Verify resolution with `command -v obsidian`.
 - Always search first to avoid duplicate notes on the same topic.
 - Always use `[[wikilinks]]` for internal vault references, not relative or absolute paths.
 - Frontmatter `date` must be ISO 8601 format (`YYYY-MM-DD`).
