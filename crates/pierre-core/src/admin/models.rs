@@ -126,7 +126,7 @@ impl AdminPermissions {
         ])
     }
 
-    /// Create super admin permissions (all permissions)
+    /// Create super admin permissions (every [`AdminPermission`] variant).
     #[must_use]
     pub fn super_admin() -> Self {
         Self::new(vec![
@@ -137,6 +137,8 @@ impl AdminPermissions {
             AdminPermission::ManageAdminTokens,
             AdminPermission::ViewAuditLogs,
             AdminPermission::ManageUsers,
+            AdminPermission::ViewConfiguration,
+            AdminPermission::ManageConfiguration,
         ])
     }
 
