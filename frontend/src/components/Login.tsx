@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
-import { signInWithGoogle, isFirebaseEnabled } from '../firebase/firebase';
+import { signInWithGoogle, getGoogleRedirectResult, isFirebaseEnabled } from '../firebase/firebase';
 import { Button, Input } from './ui';
 
 // Dravr boreal-palette logo for the login page
@@ -84,6 +84,37 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
     errorResetDelay: 0,
   });
 
+  // Complete a Google sign-in that used the redirect fallback. In-app browsers
+  // (Telegram, Instagram, Messenger) block the popup, so signInWithGoogle()
+  // redirects to Google there; on the return leg the ID token lands here.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const idToken = await getGoogleRedirectResult();
+        if (!idToken || cancelled) {
+          return;
+        }
+        setIsGoogleLoading(true);
+        await loginWithFirebase(idToken);
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+        const apiError = err as { response?: { data?: { error?: string } } };
+        const firebaseError = err as { message?: string };
+        setError(apiError.response?.data?.error || firebaseError.message || 'Google sign-in failed');
+      } finally {
+        if (!cancelled) {
+          setIsGoogleLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loginWithFirebase]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -95,9 +126,16 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
     setError('');
 
     try {
-      // Popup flow: returns ID token directly (no page redirect)
+      // Popup flow returns the ID token directly. Where popups are blocked
+      // (in-app browsers), signInWithGoogle falls back to a full-page redirect
+      // and returns null — the result is then picked up by the redirect effect
+      // above on the next page load, so there is nothing more to do here.
       const idToken = await signInWithGoogle();
-      await loginWithFirebase(idToken);
+      if (idToken) {
+        await loginWithFirebase(idToken);
+        setIsGoogleLoading(false);
+      }
+      // idToken === null → redirecting away; keep the spinner up until navigation.
     } catch (err: unknown) {
       const firebaseError = err as { code?: string; message?: string };
       const apiError = err as { response?: { data?: { error?: string } } };
@@ -111,7 +149,6 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
       } else {
         setError(firebaseError.message || 'Google sign-in failed');
       }
-    } finally {
       setIsGoogleLoading(false);
     }
   };

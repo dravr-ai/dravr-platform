@@ -8,6 +8,8 @@ import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
   GoogleAuthProvider,
   signOut,
@@ -82,13 +84,21 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
- * Initiate Google sign-in via popup flow.
- * Returns the Firebase ID token directly — no page redirect needed.
- * Uses popup instead of redirect because Chrome blocks third-party cookies
- * from firebaseapp.com, breaking the redirect result retrieval.
+ * Initiate Google sign-in.
+ *
+ * Tries the popup flow first: it returns the Firebase ID token directly with
+ * no page redirect, and works around Chrome blocking third-party cookies from
+ * firebaseapp.com (which breaks redirect-result retrieval on desktop Chrome).
+ *
+ * In-app browsers (Telegram, Instagram, Messenger) and strict popup blockers
+ * reject window.open, so the popup throws. Those environments do allow a
+ * full-page redirect, so we fall back to signInWithRedirect — the page then
+ * navigates to Google and the result is collected by getGoogleRedirectResult()
+ * on the next page load. Returns null in that case to signal "redirecting".
+ *
  * Throws if Firebase is not configured.
  */
-export async function signInWithGoogle(): Promise<string> {
+export async function signInWithGoogle(): Promise<string | null> {
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
     throw new Error('Google Sign-In is not available. Firebase is not configured.');
@@ -98,7 +108,39 @@ export async function signInWithGoogle(): Promise<string> {
   provider.addScope('email');
   provider.addScope('profile');
 
-  const result = await signInWithPopup(firebaseAuth, provider);
+  try {
+    const result = await signInWithPopup(firebaseAuth, provider);
+    return result.user.getIdToken();
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code;
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/cancelled-popup-request' ||
+      code === 'auth/operation-not-supported-in-environment'
+    ) {
+      await signInWithRedirect(firebaseAuth, provider);
+      // Page is navigating away; the token arrives via getGoogleRedirectResult.
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Complete a Google sign-in that used the redirect fallback.
+ * Returns the Firebase ID token if the current page load is the return leg of
+ * a signInWithRedirect, otherwise null. Safe to call on every page load.
+ */
+export async function getGoogleRedirectResult(): Promise<string | null> {
+  const firebaseAuth = getFirebaseAuth();
+  if (!firebaseAuth) {
+    return null;
+  }
+
+  const result = await getRedirectResult(firebaseAuth);
+  if (!result) {
+    return null;
+  }
   return result.user.getIdToken();
 }
 
