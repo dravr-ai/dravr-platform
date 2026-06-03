@@ -71,3 +71,15 @@ fn super_admin_still_bypasses_permission_check() {
         .require_permission(&AdminPermission::ViewConfiguration)
         .is_ok());
 }
+
+#[test]
+fn super_admin_permission_set_includes_configuration_perms() {
+    // `super_admin()` documents itself as every AdminPermission variant. A
+    // non-super token carrying that set must therefore pass the config gates;
+    // this pins the regression where ViewConfiguration/ManageConfiguration were
+    // silently omitted, so a scoped admin built from super_admin() perms was
+    // wrongly denied feature-flag reads/writes.
+    let perms = AdminPermissions::super_admin();
+    assert!(perms.has_permission(&AdminPermission::ViewConfiguration));
+    assert!(perms.has_permission(&AdminPermission::ManageConfiguration));
+}
