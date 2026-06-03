@@ -40,22 +40,52 @@ resource "google_artifact_registry_repository" "images" {
   description   = "Central Docker repository for all Dravr platform images"
   format        = "DOCKER"
 
+  # When true, deletions are logged only — flip to false to enforce.
+  cleanup_policy_dry_run = var.cleanup_policy_dry_run
+
+  # Keep policies win over delete policies: a version matched by both is kept.
+  # Release-tagged and recent images below are therefore safe from the age rule.
+
+  # Protect deploy / rollback anchors (e.g. semver tags) indefinitely.
+  cleanup_policies {
+    id     = "keep-release-tags"
+    action = "KEEP"
+
+    condition {
+      tag_state    = "TAGGED"
+      tag_prefixes = var.release_tag_prefixes
+    }
+  }
+
+  # Rollback window: protect the newest versions per package regardless of age.
   cleanup_policies {
     id     = "keep-recent-versions"
     action = "KEEP"
 
     most_recent_versions {
-      keep_count = 30
+      keep_count = var.recent_versions_keep_count
     }
   }
 
+  # Expire stale tagged CI builds (SHA tags) once past the retention window.
   cleanup_policies {
-    id     = "delete-old-untagged"
+    id     = "delete-stale-tagged"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "ANY"
+      older_than = "${var.stale_tag_retention_days * 24 * 60 * 60}s"
+    }
+  }
+
+  # Sweep orphaned untagged images left behind when a moving tag (e.g. latest) advances.
+  cleanup_policies {
+    id     = "delete-untagged"
     action = "DELETE"
 
     condition {
       tag_state  = "UNTAGGED"
-      older_than = "604800s" # 7 days
+      older_than = "${var.untagged_retention_days * 24 * 60 * 60}s"
     }
   }
 

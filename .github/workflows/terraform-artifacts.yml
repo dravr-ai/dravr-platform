@@ -1,0 +1,110 @@
+# ABOUTME: Automates Terraform plan/apply for the central infra/artifacts (dravr-artifacts) project
+# ABOUTME: Manual workflow_dispatch only; apply is gated by the 'artifacts' GitHub Environment
+
+name: "Infra: Artifacts Registry"
+
+# Manual dispatch only. This project owns the shared dravr-images registry and
+# its image-retention cleanup policies — apply deliberately stays human-triggered
+# rather than auto-applying on push, so a destructive cleanup change can't ship
+# unreviewed. A commented push trigger is left below for when auto-apply is wanted.
+#
+# One-time setup required before this workflow can run (mirror of the dev/prod
+# terraform-runner setup):
+#   1. Create a terraform-runner service account in the dravr-artifacts project
+#      with roles/artifactregistry.admin, roles/iam.serviceAccountAdmin,
+#      roles/resourcemanager.projectIamAdmin, and roles/serviceusage.serviceUsageAdmin.
+#   2. Bind it for roles/iam.workloadIdentityUser to the github-pool principalSet
+#      for dravr-ai/dravr-platform (the pool already exists in infra/artifacts/main.tf).
+#   3. Add repo secrets GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name) and
+#      GCP_ARTIFACTS_TF_SA (the runner SA email).
+#   4. Create a GitHub Environment named 'artifacts' with required reviewers so
+#      apply is approval-gated.
+on:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'infra/artifacts/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        type: choice
+        options: [plan, apply]
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Plan — runs on workflow_dispatch(action=plan)
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan Artifacts
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.action == 'plan'
+
+    defaults:
+      run:
+        working-directory: infra/artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Authenticate to GCP (artifacts terraform runner)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_ARTIFACTS_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -var-file="terraform.tfvars" -no-color
+
+  # ---------------------------------------------------------------------------
+  # Apply — runs on push to main or workflow_dispatch(action=apply)
+  # Gated by required reviewers configured on the 'artifacts' GitHub Environment
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Apply Artifacts
+    runs-on: ubuntu-latest
+    # No `needs: plan` — plan only runs on action=plan, so gating apply on it
+    # would block workflow_dispatch(action=apply) entirely. Apply runs its own
+    # init/apply below.
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.action == 'apply')
+    environment: artifacts
+
+    defaults:
+      run:
+        working-directory: infra/artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Authenticate to GCP (artifacts terraform runner)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_ARTIFACTS_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -var-file="terraform.tfvars"

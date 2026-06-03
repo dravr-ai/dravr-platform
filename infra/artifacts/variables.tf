@@ -49,3 +49,52 @@ variable "labels" {
     managed_by = "terraform"
   }
 }
+
+# -----------------------------------------------------------------------------
+# Image retention / cleanup policy
+# -----------------------------------------------------------------------------
+
+variable "cleanup_policy_dry_run" {
+  description = "When true, cleanup policies are evaluated and logged but no images are deleted. Set false to enforce."
+  type        = bool
+  default     = true
+}
+
+variable "recent_versions_keep_count" {
+  description = "Number of most-recent versions to protect from deletion per package (rollback window)."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.recent_versions_keep_count >= 1
+    error_message = "recent_versions_keep_count must be at least 1."
+  }
+}
+
+variable "stale_tag_retention_days" {
+  description = "Age after which tagged images are deleted, unless protected by a keep policy (recent window or release tags)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.stale_tag_retention_days >= 1
+    error_message = "stale_tag_retention_days must be at least 1."
+  }
+}
+
+variable "untagged_retention_days" {
+  description = "Age after which untagged (orphaned) images are deleted."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.untagged_retention_days >= 1
+    error_message = "untagged_retention_days must be at least 1."
+  }
+}
+
+variable "release_tag_prefixes" {
+  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors, e.g. semver releases)."
+  type        = list(string)
+  default     = ["v"]
+}

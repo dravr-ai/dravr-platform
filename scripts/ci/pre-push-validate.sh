@@ -41,6 +41,8 @@ HAS_CARGO_CHANGES=false
 HAS_FRONTEND_CHANGES=false
 HAS_SDK_CHANGES=false
 HAS_MOBILE_CHANGES=false
+HAS_INFRA_CHANGES=false
+HAS_INFRA_MODULE_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -65,6 +67,8 @@ while IFS= read -r file; do
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
         frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
+        infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
+        infra/*) HAS_INFRA_CHANGES=true ;;
     esac
 done <<< "$CHANGED_FILES"
 
@@ -79,6 +83,7 @@ echo "   Cargo config: $HAS_CARGO_CHANGES"
 echo "   Frontend: $HAS_FRONTEND_CHANGES"
 echo "   SDK: $HAS_SDK_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES"
+echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
     echo "   Changed crates: ${!CHANGED_CRATES[*]}"
 fi
@@ -199,6 +204,79 @@ if [[ "$HAS_MOBILE_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
+# TIER 8: Infra / Terraform Validation (if changed)
+# ============================================================================
+# Offline only: fmt + validate + native plan-mode tests (mock providers). No
+# GCP credentials and no `terraform plan` against live state — the real diff is
+# reviewed at manual apply time (infra/artifacts has no CI apply path).
+if [[ "$HAS_INFRA_CHANGES" == "true" ]]; then
+    echo "Tier 8: Infra / Terraform Validation"
+    echo "------------------------------------"
+    if ! command -v terraform > /dev/null 2>&1; then
+        echo "WARN: terraform not installed, skipping infra validation"
+        echo ""
+    else
+        INFRA_FAILED=false
+
+        echo -n "Checking terraform fmt... "
+        if terraform fmt -check -recursive "$PROJECT_ROOT/infra" > /dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAIL (run: terraform fmt -recursive infra)"
+            INFRA_FAILED=true
+        fi
+
+        # Validate each Terraform root config (a dir with providers.tf) that was
+        # touched. A shared-module change also validates the environment roots
+        # that consume modules, since the module feeds their plan.
+        while IFS= read -r providers_file; do
+            [[ -z "$providers_file" ]] && continue
+            root="$(dirname "$providers_file")"
+            rel="${root#"$PROJECT_ROOT"/}"
+
+            root_changed=false
+            while IFS= read -r file; do
+                [[ -z "$file" ]] && continue
+                case "$file" in
+                    "$rel"/*) root_changed=true; break ;;
+                esac
+            done <<< "$CHANGED_FILES"
+            if [[ "$HAS_INFRA_MODULE_CHANGES" == "true" ]] && [[ "$rel" == infra/environments/* ]]; then
+                root_changed=true
+            fi
+            [[ "$root_changed" == "false" ]] && continue
+
+            echo -n "Validating $rel... "
+            if ! terraform -chdir="$root" init -backend=false -input=false > /dev/null 2>&1; then
+                echo "FAIL (terraform init)"
+                INFRA_FAILED=true
+                continue
+            fi
+            if ! terraform -chdir="$root" validate > /dev/null 2>&1; then
+                echo "FAIL (terraform validate)"
+                INFRA_FAILED=true
+                continue
+            fi
+            if [[ -d "$root/tests" ]]; then
+                if ! terraform -chdir="$root" test > /dev/null 2>&1; then
+                    echo "FAIL (terraform test — run: terraform -chdir=$rel test)"
+                    INFRA_FAILED=true
+                    continue
+                fi
+            fi
+            echo "OK"
+        done < <(find "$PROJECT_ROOT/infra" -name providers.tf -type f 2>/dev/null)
+
+        if [[ "$INFRA_FAILED" == "true" ]]; then
+            echo ""
+            echo "FAIL: Infra validation failed!"
+            exit 1
+        fi
+        echo ""
+    fi
+fi
+
+# ============================================================================
 # SUCCESS - Create marker file
 # ============================================================================
 END_TIME=$(date +%s)
@@ -214,7 +292,7 @@ echo ""
 echo "Duration: ${DURATION}s (~$((DURATION / 60))m $((DURATION % 60))s)"
 echo "Marker:   .git/validation-passed (valid for ${VALIDATION_TTL_MINUTES} minutes)"
 echo ""
-echo "Local validation covers fmt + architecture + secrets + vendor-readonly only."
+echo "Local validation covers fmt + architecture + secrets + vendor-readonly + infra only."
 echo "The heavy gates (clippy, deadlock, integration tests) run in CI on every push."
 echo ""
 echo "You can now push:"
