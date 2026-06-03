@@ -165,8 +165,10 @@ module "backend" {
   container_port = 8081
   cpu            = var.backend_cpu
   memory         = var.backend_memory
-  # Disable CPU throttling so background tasks (Discord Gateway WebSocket) run between requests
-  cpu_idle                         = false
+  # Request-based billing: CPU is throttled between requests to cut idle cost.
+  # Trade-off: the Discord Gateway WebSocket misses heartbeats when throttled and
+  # drops its connection — acceptable in dev, where the bill outweighs the bot.
+  cpu_idle                         = true
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances
   max_instances                    = var.backend_max_instances
