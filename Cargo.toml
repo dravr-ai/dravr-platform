@@ -135,22 +135,3 @@ absolute_paths = "deny"
 # Configuration in clippy.toml specifies which methods are banned
 disallowed_methods = "deny"
 
-# ============================================================================
-# Dravr companion crate convergence
-# ============================================================================
-# The dravr-* companion crates resolve to multiple versions across the
-# workspace because:
-#
-#   - `dravr-enforme` (transitive via pierre-server) requests
-#     `dravr-equilibre = "0.2"` and `dravr-riviere = "0.2"` from crates.io,
-#     where the published max is 0.2.1. Direct deps in pierre-core /
-#     pierre-providers pin git tag v0.2.3.
-#
-# This patch forces every consumer onto the single newest tag, so
-# `cargo tree -d` reports no dravr-* duplicates and the
-# dravr-duplicate-check CI gate passes. dravr-sciotte converges at
-# v0.5.14 via dravr-enforme v0.1.11 + the direct pierre-server pin.
-[patch.crates-io]
-dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
-dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
-
