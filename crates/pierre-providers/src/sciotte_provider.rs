@@ -99,9 +99,49 @@ impl SciotteTarget {
             Self::Strava => SciotteProviderConfig::strava_default(),
             Self::Garmin => SciotteProviderConfig::garmin_default(),
         };
-        let chrome_scraper =
-            ChromeScraper::new(ScraperConfig::default(), provider_config).with_llm(llm);
+        let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config)
+            .with_llm(Arc::new(EmbacleVisionAdapter(llm)));
         CachedScraper::new(chrome_scraper, &CacheConfig::default())
+    }
+}
+
+/// Adapts an embacle [`LlmProvider`] to sciotte's `VisionModel` trait so the
+/// vision-login path can use the platform's Copilot-headless provider without
+/// sciotte itself depending on embacle. The embacle `ChatRequest` build lives
+/// here, on the consumer side of the boundary.
+struct EmbacleVisionAdapter(Arc<dyn LlmProvider>);
+
+#[async_trait::async_trait]
+impl dravr_sciotte::VisionModel for EmbacleVisionAdapter {
+    async fn analyze_screenshot(
+        &self,
+        prompt: &str,
+        screenshot_png_b64: &str,
+    ) -> Result<String, dravr_sciotte::VisionModelError> {
+        use embacle::types::{ChatMessage, ChatRequest, ImagePart};
+
+        let image = ImagePart::new(screenshot_png_b64.to_owned(), "image/png")
+            .map_err(|e| format!("invalid image part: {e}"))?;
+        let message = ChatMessage::user_with_images(prompt.to_owned(), vec![image]);
+        let request = ChatRequest {
+            messages: vec![message],
+            model: None,
+            temperature: Some(0.0),
+            max_tokens: Some(4096),
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            top_p: None,
+            stop: None,
+            response_format: None,
+            turn_id: None,
+        };
+        let response = self
+            .0
+            .complete(&request)
+            .await
+            .map_err(|e| format!("vision LLM call failed: {e}"))?;
+        Ok(response.content)
     }
 }
 
