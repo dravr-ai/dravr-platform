@@ -165,6 +165,10 @@ module "backend" {
   container_port = 8081
   cpu            = var.backend_cpu
   memory         = var.backend_memory
+  # Chat turns run a multi-step tool loop with detail-page provider enrichment
+  # that exceeds the 300s default; kept in sync with the frontend nginx
+  # proxy_read_timeout (docker/images/frontend/nginx.conf).
+  request_timeout = "600s"
   # Keep CPU always-allocated at 2 vCPU: this service can't be trimmed cheaply.
   # cpu_idle=true throttles CPU between requests and kills long-lived subprocesses
   # — the Copilot ACP LLM runner (chat/insights/coach UI hung, rev 00464) and the
@@ -589,6 +593,9 @@ module "frontend" {
   startup_cpu_boost = false
   min_instances     = var.frontend_min_instances
   max_instances     = var.frontend_max_instances
+  # Browser->nginx leg must outlast the proxied backend turn (600s) so the
+  # frontend Cloud Run service doesn't cut the request before nginx does.
+  request_timeout = "600s"
 
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
