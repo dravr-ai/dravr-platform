@@ -313,7 +313,7 @@ cron = "0.15.0"
 
 [dev-dependencies]
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.15" }
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "aa926ef2c7bc0ddf352f9f7a773e7477644133f3" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "d9ec34a06c472eeef3c9ce304e6c4ea935527dec" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
