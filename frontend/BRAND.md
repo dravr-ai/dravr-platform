@@ -45,32 +45,27 @@ background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
 background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
 ```
 
-## Logo
+## Logo — "Stride D"
 
-### Primary Logo
-- File: `public/pierre-logo.svg`
-- Size: 120x120 (scalable)
-- Background: Transparent
-- Use on light backgrounds
+The mark is a bold **D monogram** (for Dravr) with a forward **chevron** set into its
+counter. The chevron reads as both a running stride and a "press play" cue — fitting for a
+conversational coaching product — while the single letterform stays legible from a 16px
+favicon to a 1024px app icon. Rendered in the Boreal Editorial palette (deep forest green
+with a sage accent). All assets are derived from one canonical path so they cannot drift.
 
-### Icon (Favicon/Small)
-- File: `public/pierre-icon.svg`
-- Size: 64x64 (scalable)
-- Use for favicons, app icons, small displays
-
-### Logo Concept
-The logo depicts a stylized running figure composed of interconnected data nodes:
-- **Head/Upper body** (Emerald nodes): Activity tracking
-- **Core** (Violet-Cyan gradient): Dravr AI intelligence hub
-- **Side nodes** (Amber): Nutrition data
-- **Lower body** (Indigo nodes): Recovery metrics
-- **Connection lines**: Data flow between pillars
+### Framing variants
+| Variant | Files | Composition |
+|---------|-------|-------------|
+| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, mobile `icon`/`favicon` | Forest-green rounded square + off-white D + sage chevron. Mobile `icon` is full-bleed (the OS masks corners). |
+| **Mark, light** | mobile `dravr-logo.svg`, `adaptive-icon.svg`, template `*-dark.svg` | Off-white D + sage chevron on a transparent background. For dark surfaces or atop the green badge layer. |
+| **Mark, dark** | web `dravr-logo.svg`, server `dravr-logo.svg` / `-small.svg`, splash | Deep-forest D + sage chevron on a transparent background. For light surfaces. |
 
 ### Logo Don'ts
-- Don't add backgrounds to the transparent logo
-- Don't change the pillar colors
-- Don't stretch or distort proportions
-- Don't use at sizes smaller than 32px (use icon instead)
+- Don't bake the "Dravr" wordmark into the icon — it is a mark-only symbol (the wordmark is set in HTML using Plus Jakarta Sans).
+- Don't recolor the mark outside the Boreal palette.
+- Don't stretch or distort proportions.
+- Don't place the light mark on a light surface (or the dark mark on a dark surface) — pick the variant that matches the background.
+- Don't use the transparent mark below 32px — use the badge (icon/favicon) instead.
 
 ## Typography
 
