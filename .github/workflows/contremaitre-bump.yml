@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: contremaitre-bump
@@ -32,10 +33,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # Persist the PAT (not the default GITHUB_TOKEN) so the bump commit's
-          # push triggers downstream CI — GitHub suppresses workflow runs on
-          # GITHUB_TOKEN pushes, which otherwise leaves the bump unvalidated.
-          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -81,6 +78,17 @@ jobs:
           git add crates/pierre-llm/Cargo.toml crates/pierre-server/Cargo.toml Cargo.lock
           git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}"
           git push origin main
+
+      - name: Validate the bump in CI
+        # The push above uses the default GITHUB_TOKEN, and GitHub suppresses
+        # workflow runs on GITHUB_TOKEN pushes — so the bump commit would land
+        # unvalidated. Dispatch ci-backend explicitly (clippy + doc-tests +
+        # backend-test shards) so every bump carries real coverage. The PAT
+        # path was abandoned: DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run ci-backend.yml --ref main
 
       # No explicit deploy trigger. The bump refreshes the compiled-in prompt
       # SEED for the next regular deploy; runtime prompt freshness is handled by
