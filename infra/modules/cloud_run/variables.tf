@@ -82,6 +82,12 @@ variable "max_instance_request_concurrency" {
   default     = 80
 }
 
+variable "request_timeout" {
+  description = "Maximum duration a single request may run before Cloud Run terminates it. The default 300s is too short for chat turns that run a multi-step tool loop with detail-page provider enrichment (observed >300s on dev). Kept in sync with the frontend nginx proxy_read_timeout; if either changes, update both."
+  type        = string
+  default     = "300s"
+}
+
 # -----------------------------------------------------------------------------
 # Networking Configuration
 # -----------------------------------------------------------------------------

@@ -12,6 +12,7 @@ resource "google_cloud_run_v2_service" "service" {
   template {
     service_account       = var.service_account_email
     execution_environment = var.execution_environment
+    timeout               = var.request_timeout
 
     scaling {
       min_instance_count = var.min_instances
