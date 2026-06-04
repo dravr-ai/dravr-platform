@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! Integration tests for the first-use acronym-expansion post-process pass.
+
 use std::sync::Arc;
 
 use pierre_chat_pipeline::stages::acronym_expansion::expand_acronyms_first_use;
