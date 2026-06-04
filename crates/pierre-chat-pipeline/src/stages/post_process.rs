@@ -12,6 +12,9 @@ use crate::hooks::PipelineHooks;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
+use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+
+use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::check_reply_conformance;
 use super::prompt_assembly::resolve_user_persona;
@@ -71,6 +74,17 @@ pub(crate) async fn post_process_assistant_reply(
         &ctx.messaging_strings_registry,
         &raw_content,
         locale_opt,
+    );
+
+    // Stage 16a: Deterministic first-use acronym expansion. Runs before
+    // conformance so the gloss it inserts pre-empts the conformance
+    // stage's unglossed-acronym violation. Sources the glossary from the
+    // same contremaitre snapshot the conformance stage reads.
+    let contracts_snapshot = ctx.persona_contract_registry.snapshot();
+    content = expand_acronyms_first_use(
+        &contracts_snapshot,
+        &content,
+        locale_opt.unwrap_or(DEFAULT_LOCALE),
     );
 
     // Stage 16b: Per-persona output-format conformance.

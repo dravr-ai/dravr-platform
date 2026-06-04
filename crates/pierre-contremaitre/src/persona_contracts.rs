@@ -50,11 +50,24 @@ pub struct PersonaContractsDocument {
     /// Per-persona contracts keyed by `snake_case` `CoachingPersona` slug.
     #[serde(default)]
     pub personas: HashMap<String, PersonaContract>,
+    /// Universal (persona-independent) acronym glossary: `acronym ->
+    /// locale -> full form`. Drives the chat pipeline's first-use
+    /// acronym-expansion pass. Empty when the source document predates
+    /// the glossary or contremaitre hasn't synced yet, in which case the
+    /// expansion pass no-ops and only the prompt-level rule applies.
+    #[serde(default)]
+    pub glossary: HashMap<String, HashMap<String, String>>,
 }
 
 const fn default_version() -> u32 {
     1
 }
+
+/// Locale the acronym glossary falls back to when the active turn locale
+/// has no entry for a given acronym. English is the lingua franca for the
+/// sports-science terms, so a missing locale yields the English full form
+/// rather than no gloss at all.
+const GLOSSARY_FALLBACK_LOCALE: &str = "en";
 
 /// Single-persona ruleset.
 ///
@@ -219,6 +232,10 @@ pub const TOOL_NARRATION_PHRASES: &[&str] = &[
 pub struct PersonaContractsSnapshot {
     /// Resolved contracts after `inherits` flattening.
     pub by_slug: HashMap<String, PersonaContract>,
+    /// Universal acronym glossary (`acronym -> locale -> full form`),
+    /// carried verbatim from the source document — persona-independent,
+    /// so it is not touched by `inherits` resolution.
+    pub glossary: HashMap<String, HashMap<String, String>>,
     /// Schema version observed in the source document.
     pub version: u32,
     /// SHA-256 of the source YAML at install time.
@@ -245,6 +262,20 @@ impl PersonaContractsSnapshot {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.by_slug.is_empty()
+    }
+
+    /// Full form for `acronym` in `locale`, falling back to the English
+    /// entry when the requested locale is absent. Returns `None` when the
+    /// acronym is not catalogued at all (the expansion pass then leaves
+    /// it untouched). Lookup is exact and case-sensitive — callers pass
+    /// the canonical acronym spelling as stored in the glossary.
+    #[must_use]
+    pub fn acronym_gloss(&self, acronym: &str, locale: &str) -> Option<&str> {
+        let by_locale = self.glossary.get(acronym)?;
+        by_locale
+            .get(locale)
+            .or_else(|| by_locale.get(GLOSSARY_FALLBACK_LOCALE))
+            .map(String::as_str)
     }
 }
 
@@ -304,10 +335,16 @@ impl PersonaContractRegistry {
     pub fn apply_overlay(&self, yaml: &str) -> AppResult<()> {
         let doc: PersonaContractsDocument = serde_yaml::from_str(yaml)
             .map_err(|e| AppError::config(format!("persona_contracts.yaml parse failed: {e}")))?;
-        let resolved = resolve_inheritance(doc.personas)?;
+        let PersonaContractsDocument {
+            version,
+            personas,
+            glossary,
+        } = doc;
+        let resolved = resolve_inheritance(personas)?;
         let snapshot = PersonaContractsSnapshot {
             by_slug: resolved,
-            version: doc.version,
+            glossary,
+            version,
             source_sha256: Some(super::manifest::compute_sha256(yaml.as_bytes())),
             loaded_at: Some(Utc::now()),
         };
