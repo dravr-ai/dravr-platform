@@ -32,6 +32,10 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Persist the PAT (not the default GITHUB_TOKEN) so the bump commit's
+          # push triggers downstream CI — GitHub suppresses workflow runs on
+          # GITHUB_TOKEN pushes, which otherwise leaves the bump unvalidated.
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
       - uses: dtolnay/rust-toolchain@stable
 
