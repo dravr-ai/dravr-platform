@@ -4,13 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::sync::Arc;
+
 use pierre_chat_pipeline::stages::acronym_expansion::expand_acronyms_first_use;
 use pierre_contremaitre::persona_contracts::{PersonaContractRegistry, PersonaContractsSnapshot};
 
 /// Fixture glossary. `TSB` deliberately omits the `de` locale so the
 /// fallback-to-`en` path is exercised; `IF` is absent entirely to assert
 /// the ambiguous-token carve-out (it must never be auto-expanded).
-const FIXTURE_YAML: &str = r#"
+const FIXTURE_YAML: &str = r"
 version: 2
 glossary:
   ATL:
@@ -26,13 +28,14 @@ glossary:
 personas:
   casual:
     max_words: 150
-"#;
+";
 
-fn snapshot() -> std::sync::Arc<PersonaContractsSnapshot> {
+fn snapshot() -> Arc<PersonaContractsSnapshot> {
     let registry = PersonaContractRegistry::new();
-    registry
-        .apply_overlay(FIXTURE_YAML)
-        .expect("fixture glossary YAML parses");
+    assert!(
+        registry.apply_overlay(FIXTURE_YAML).is_ok(),
+        "fixture glossary YAML parses"
+    );
     registry.snapshot()
 }
 
@@ -121,9 +124,12 @@ fn uncatalogued_ambiguous_token_is_never_expanded() {
 #[test]
 fn empty_glossary_is_a_noop() {
     let registry = PersonaContractRegistry::new();
-    registry
-        .apply_overlay("version: 2\npersonas:\n  casual:\n    max_words: 150\n")
-        .expect("YAML without a glossary parses");
+    assert!(
+        registry
+            .apply_overlay("version: 2\npersonas:\n  casual:\n    max_words: 150\n")
+            .is_ok(),
+        "YAML without a glossary parses"
+    );
     let snap = registry.snapshot();
     let text = "Your ATL is 74 and TSB is -14.";
     let out = expand_acronyms_first_use(&snap, text, "en");
