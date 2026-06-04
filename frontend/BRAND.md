@@ -8,41 +8,49 @@ Dravr is a complete fitness intelligence platform that connects AI assistants wi
 
 ## Color Palette
 
-### Primary Colors
-| Name | Hex | CSS Variable | Usage |
-|------|-----|--------------|-------|
-| Dravr Violet | `#7C3AED` | `--pierre-violet` | Intelligence, AI, sophistication |
-| Dravr Cyan | `#06B6D4` | `--pierre-cyan` | Data flow, connectivity, freshness |
+> **Canonical source:** `packages/shared-constants/src/design-system.ts` (`BOREAL_LIGHT`,
+> `BOREAL_DARK`, `PILLAR_COLORS`). Web, mobile, and the marketing site all read from there —
+> never hardcode hex. The `pierre-*` Tailwind class names are retained aliases that now carry
+> **Boreal** semantics (e.g. `pierre-violet` resolves to the forest primary, not violet).
+
+### Primary Colors — "Boreal Editorial"
+| Name | Hex | Token / Alias | Usage |
+|------|-----|---------------|-------|
+| Forest | `#00241a` | `primary` / `pierre-violet` | Primary brand, filled CTAs, wordmark ink |
+| Forest Container | `#0d3b2e` | `primaryContainer` / `pierre-cyan` | Hero gradient endpoint, overlay base |
+| Sage (light) | `#a3d0be` | `inversePrimary` | Accents/links on dark surfaces |
 
 ### Three Pillars (Semantic Accents)
 | Pillar | Color | Hex | Tailwind Class | Usage |
 |--------|-------|-----|----------------|-------|
-| Activity | Emerald | `#10B981` | `pierre-activity` | Movement, fitness, energy |
-| Nutrition | Amber | `#FBBF24` | `pierre-nutrition` | Food, fuel, nourishment |
-| Recovery | Indigo | `#818CF8` | `pierre-recovery` | Rest, sleep, restoration |
+| Activity | Sage | `#0f7d68` | `pierre-activity` | Movement, fitness, energy |
+| Nutrition | Bronze | `#b08326` | `pierre-nutrition` | Food, fuel, nourishment |
+| Recovery | Slate | `#3e7283` | `pierre-recovery` | Rest, sleep, restoration |
+| Mobility | Aged Rose | `#9b4666` | `pierre-mobility` | Range of motion, flexibility |
 
-> **Dark Mode Optimization**: Amber and Indigo have been adjusted for optimal contrast against dark backgrounds (#0F0F1A). The colors are slightly desaturated with increased brightness to avoid visual "vibration" while maintaining accessibility.
+> **WCAG**: Pillar shades are tuned to meet AA 4.5:1 contrast against the light surface (`#f9f9f6`). Mobile lifts them for OLED dark mode via `BOREAL_DARK`.
 
 ### Neutrals
 | Name | Hex | Usage |
 |------|-----|-------|
-| Deep Space | `#0F0F1A` | Dark backgrounds |
-| Slate | `#1E1E2E` | Secondary dark backgrounds |
-| Light | `#FAFBFC` | Light backgrounds |
+| Surface (light) | `#f9f9f6` | Light backgrounds |
+| Boreal Dark | `#11130f` | Dark backgrounds (mobile/docs) |
+| Dark Container | `#1d201d` | Secondary dark backgrounds |
+| Ink | `#1a1c1b` | Body text (never pure black) |
 
 ### Gradients
 ```css
-/* Primary gradient (violet to cyan) */
-background: linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%);
+/* Primary gradient (forest) */
+background: linear-gradient(135deg, #00241a 0%, #0d3b2e 100%);
 
-/* Activity gradient */
-background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+/* Activity gradient (sage) */
+background: linear-gradient(135deg, #0f7d68 0%, #0b5d4d 100%);
 
-/* Nutrition gradient */
-background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+/* Nutrition gradient (bronze) */
+background: linear-gradient(135deg, #b08326 0%, #8a6420 100%);
 
-/* Recovery gradient */
-background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+/* Recovery gradient (slate) */
+background: linear-gradient(135deg, #3e7283 0%, #2f5664 100%);
 ```
 
 ## Logo — "Stride D"
@@ -132,8 +140,8 @@ Modern card patterns using backdrop blur and subtle borders for depth:
 .card-glow {
   background: rgba(30, 30, 46, 0.8);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(124, 58, 237, 0.3);
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
+  border: 1px solid rgba(0, 36, 26, 0.3);
+  box-shadow: 0 0 20px rgba(0, 36, 26, 0.15);
   border-radius: 1rem;
 }
 ```
@@ -149,7 +157,7 @@ Modern card patterns using backdrop blur and subtle borders for depth:
 <div className="bg-white/80 backdrop-blur-lg border border-black/5 rounded-2xl p-6">
 
 // Featured/glow card
-<div className="bg-slate-800/80 backdrop-blur-xl border border-pierre-violet/30 shadow-[0_0_20px_rgba(124,58,237,0.15)] rounded-2xl p-6">
+<div className="bg-slate-800/80 backdrop-blur-xl border border-pierre-violet/30 shadow-[0_0_20px_rgba(0,36,26,0.15)] rounded-2xl p-6">
 ```
 
 ### Buttons
@@ -157,25 +165,25 @@ Modern card patterns using backdrop blur and subtle borders for depth:
 **Primary Button** - Gradient with glow effect:
 ```css
 .btn-primary {
-  background: linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%);
+  background: linear-gradient(135deg, #00241a 0%, #0d3b2e 100%);
   color: white;
   border-radius: 0.75rem;
   padding: 0.75rem 1.5rem;
   font-weight: 600;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 36, 26, 0.25);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 36, 26, 0.4);
   transform: translateY(-1px);
 }
 ```
 
 **Pillar Buttons** - Semantic actions with glow:
-- Activity: Emerald for fitness-related actions (glow: `rgba(16, 185, 129, 0.3)`)
-- Nutrition: Amber for food-related actions (glow: `rgba(251, 191, 36, 0.3)`)
-- Recovery: Indigo for rest/sleep-related actions (glow: `rgba(129, 140, 248, 0.3)`)
+- Activity: Sage for fitness-related actions (glow: `rgba(15, 125, 104, 0.3)`)
+- Nutrition: Bronze for food-related actions (glow: `rgba(176, 131, 38, 0.3)`)
+- Recovery: Slate for rest/sleep-related actions (glow: `rgba(62, 114, 131, 0.3)`)
 
 **Tailwind Button Classes**:
 ```jsx
@@ -183,21 +191,21 @@ Modern card patterns using backdrop blur and subtle borders for depth:
 <button className="bg-gradient-to-r from-pierre-violet to-pierre-cyan text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-pierre-violet/25 hover:shadow-xl hover:shadow-pierre-violet/40 hover:-translate-y-0.5 transition-all">
 
 // Activity button
-<button className="bg-pierre-activity text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all">
+<button className="bg-pierre-activity text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-sage-500/25 hover:shadow-sage-500/40 transition-all">
 ```
 
 ### Status Indicators
-- Connected/Active: Emerald (`#10B981`)
-- Warning/Pending: Amber (`#F59E0B`)
+- Connected/Active: Sage (`#0f7d68`)
+- Warning/Pending: Bronze (`#b08326`)
 - Error/Disconnected: Red (`#EF4444`)
-- Info/Processing: Cyan (`#06B6D4`)
+- Info/Processing: Cyan (`#0d3b2e`)
 
 ### Three Pillar Badges
 When displaying data from different fitness domains:
 ```jsx
-<Badge variant="activity">Running</Badge>   // Emerald
-<Badge variant="nutrition">Calories</Badge> // Amber
-<Badge variant="recovery">Sleep</Badge>     // Indigo
+<Badge variant="activity">Running</Badge>   // Sage
+<Badge variant="nutrition">Calories</Badge> // Bronze
+<Badge variant="recovery">Sleep</Badge>     // Slate
 ```
 
 ## Micro-Interactions
@@ -210,14 +218,14 @@ Subtle animations enhance the premium feel:
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 .hover-glow:hover {
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 0 20px rgba(0, 36, 26, 0.3);
   transform: translateY(-2px);
 }
 
 /* Pulse animation for active states */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 36, 26, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(0, 36, 26, 0); }
 }
 .pulse-active {
   animation: pulse-glow 2s infinite;
@@ -249,17 +257,17 @@ Organize the three pillars using a bento-grid layout:
 // Bento grid for dashboard
 <div className="grid grid-cols-4 gap-4 auto-rows-[140px]">
   {/* Large Activity card - spans 2 cols, 2 rows */}
-  <div className="col-span-2 row-span-2 bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 ...">
+  <div className="col-span-2 row-span-2 bg-gradient-to-br from-sage-500/20 to-sage-600/10 ...">
     Activity
   </div>
 
   {/* Nutrition card - spans 2 cols */}
-  <div className="col-span-2 bg-gradient-to-br from-amber-500/20 to-amber-600/10 ...">
+  <div className="col-span-2 bg-gradient-to-br from-pierre-nutrition/20 to-pierre-nutrition/10 ...">
     Nutrition
   </div>
 
   {/* Recovery card - spans 2 cols */}
-  <div className="col-span-2 bg-gradient-to-br from-indigo-500/20 to-indigo-600/10 ...">
+  <div className="col-span-2 bg-gradient-to-br from-pierre-recovery/20 to-pierre-recovery/10 ...">
     Recovery
   </div>
 </div>
@@ -282,24 +290,24 @@ module.exports = {
       },
       colors: {
         pierre: {
-          violet: '#7C3AED',
-          cyan: '#06B6D4',
-          activity: '#10B981',
-          nutrition: '#FBBF24',  // Optimized for dark mode
-          recovery: '#818CF8',   // Optimized for dark mode
-          dark: '#0F0F1A',
-          slate: '#1E1E2E',
+          violet: '#00241a', // forest primary (legacy alias name)
+          cyan: '#0d3b2e',
+          activity: '#0f7d68',
+          nutrition: '#b08326',  // bronze
+          recovery: '#3e7283',   // slate
+          dark: '#11130f',
+          slate: '#1d201d',
         },
       },
       backdropBlur: {
         xs: '2px',
       },
       boxShadow: {
-        'glow-violet': '0 0 20px rgba(124, 58, 237, 0.3)',
-        'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
-        'glow-activity': '0 0 20px rgba(16, 185, 129, 0.3)',
-        'glow-nutrition': '0 0 20px rgba(251, 191, 36, 0.3)',
-        'glow-recovery': '0 0 20px rgba(129, 140, 248, 0.3)',
+        'glow-violet': '0 0 20px rgba(0, 36, 26, 0.3)',
+        'glow-cyan': '0 0 20px rgba(13, 59, 46, 0.3)',
+        'glow-activity': '0 0 20px rgba(15, 125, 104, 0.3)',
+        'glow-nutrition': '0 0 20px rgba(176, 131, 38, 0.3)',
+        'glow-recovery': '0 0 20px rgba(62, 114, 131, 0.3)',
       },
     },
   },
@@ -313,9 +321,9 @@ className="bg-pierre-violet"
 className="bg-pierre-cyan"
 
 // Three Pillars
-className="bg-pierre-activity"  // Emerald
-className="bg-pierre-nutrition" // Amber (dark-mode optimized)
-className="bg-pierre-recovery"  // Indigo (dark-mode optimized)
+className="bg-pierre-activity"  // Sage
+className="bg-pierre-nutrition" // Bronze (dark-mode optimized)
+className="bg-pierre-recovery"  // Slate (dark-mode optimized)
 
 // Neutrals
 className="bg-pierre-dark"
@@ -332,7 +340,7 @@ className="bg-pierre-slate/60 backdrop-blur-xl border border-white/10 rounded-2x
 ## Accessibility
 
 - Maintain minimum 4.5:1 contrast ratio for text
-- Use semantic colors consistently (activity=emerald, etc.)
+- Use semantic colors consistently (activity=sage, etc.)
 - Provide text alternatives for color-coded information
 - Logo includes proper ARIA labels and descriptions
 
