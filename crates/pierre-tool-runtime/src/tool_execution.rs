@@ -1246,7 +1246,9 @@ async fn run_headless_tool_loop(
         }
     );
 
-    // Build the ChatRequest from the accumulated messages
+    // Build the ChatRequest from the accumulated messages. Borrowed (not
+    // consumed) by the converse/stream call, so the degenerate-turn retry
+    // below reuses the same request.
     let request = {
         let req = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
         match params.temperature {
@@ -1310,27 +1312,73 @@ async fn run_headless_tool_loop(
         }
     };
 
-    let tool_calls_count = u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
-
     info!(
         content_len = headless_response.content.len(),
         model = %headless_response.model,
-        tool_calls = tool_calls_count,
+        tool_calls = headless_response.tool_calls.len(),
         "Headless tool loop completed"
     );
 
+    finalize_headless_turn(
+        headless_response,
+        headless_runner,
+        &request,
+        params,
+        &last_user_prompt,
+    )
+    .await
+}
+
+/// Strip the headless reply, retry once if the turn was degenerate, and
+/// assemble the [`ToolLoopResult`].
+///
+/// Copilot ACP intermittently ends a turn without synthesizing an answer:
+/// it returns empty content, or parrots the injected tool-result turn
+/// verbatim (the `format_tool_results_as_text` preamble + `<tool_result>`
+/// blocks) instead of reasoning over it. The scaffolding is stripped
+/// unconditionally so a parroted echo never leaks to the user; when
+/// stripping leaves nothing the turn is degenerate, so [`retry_headless_turn`]
+/// runs once — the failure is intermittent (~5% per call) and the next turn
+/// recovers in practice.
+async fn finalize_headless_turn(
+    headless_response: pierre_llm::HeadlessToolResponse,
+    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    request: &ChatRequest,
+    params: &ToolLoopParams<'_>,
+    last_user_prompt: &str,
+) -> Result<ToolLoopResult, AppError> {
+    let mut tool_calls_count =
+        u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
     // `ObservedToolCall` only exposes `title` on the ACP wire; there's no
     // distinct `name` field, so the title is the best available identifier.
-    let tools_called: Vec<String> = headless_response
+    let mut tools_called: Vec<String> = headless_response
         .tool_calls
         .iter()
         .map(|call| call.title.clone())
         .collect();
+    let mut content = tool_simulation::strip_simulation_artifacts(&headless_response.content);
+    let mut usage = headless_response.usage;
+    let mut finish_reason = headless_response.finish_reason;
+
+    if content.is_empty() {
+        warn!(
+            provider = %params.provider.name(),
+            model = %params.model,
+            "Headless turn produced no synthesized answer (empty or parroted tool-result echo); retrying converse once"
+        );
+        let retry = retry_headless_turn(headless_runner, request, params, last_user_prompt).await?;
+        content = retry.content;
+        usage = retry.usage;
+        finish_reason = retry.finish_reason;
+        tool_calls_count = tool_calls_count
+            .saturating_add(u32::try_from(retry.tool_calls.len()).unwrap_or(u32::MAX));
+        tools_called.extend(retry.tool_calls);
+    }
 
     Ok(ToolLoopResult {
-        content: headless_response.content,
-        usage: headless_response.usage,
-        finish_reason: headless_response.finish_reason,
+        content,
+        usage,
+        finish_reason,
         // Copilot Headless manages tools autonomously via ACP — the platform
         // never sees individual tool responses, so activity_list extraction
         // (which requires inspecting get_activities results) is not possible.
@@ -1341,6 +1389,58 @@ async fn run_headless_tool_loop(
         // platform-side ProviderAuthRequired handoff is not possible without
         // visibility into the subprocess tool dispatches. Leave as None.
         pending_provider_auth_required: None,
+    })
+}
+
+/// Outcome of a single degenerate-turn retry: the stripped reply plus the
+/// accounting [`run_headless_tool_loop`] folds into its `ToolLoopResult`.
+struct HeadlessRetry {
+    content: String,
+    usage: Option<TokenUsage>,
+    finish_reason: Option<String>,
+    tool_calls: Vec<String>,
+}
+
+/// Retry a degenerate headless turn once via non-streaming `converse()`.
+///
+/// Called only when the first turn produced no synthesized answer (empty or
+/// a parroted tool-result echo). Records the retry as its own per-call usage
+/// row and returns the stripped reply so the caller can decide whether the
+/// model recovered. Non-streaming on purpose: a re-parroted echo must never
+/// reach the user's stream a second time.
+async fn retry_headless_turn(
+    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    request: &ChatRequest,
+    params: &ToolLoopParams<'_>,
+    last_user_prompt: &str,
+) -> Result<HeadlessRetry, AppError> {
+    let retry_start = Instant::now();
+    let retry = headless_runner
+        .converse(request)
+        .await
+        .map_err(AppError::from)?;
+    let retry_latency_ms = millis_elapsed(retry_start);
+    let tool_calls: Vec<String> = retry.tool_calls.iter().map(|tc| tc.title.clone()).collect();
+    emit_call_record_with_text(
+        CallRecordInputs {
+            recorder: params.call_recorder.as_ref(),
+            provider: params.provider.name(),
+            model: params.model,
+            usage: retry.usage.as_ref(),
+            cached_tokens: 0,
+            latency_ms: retry_latency_ms,
+            success: true,
+            call_sequence: Some(2),
+            tools_called: tool_calls.clone(),
+        },
+        Some(last_user_prompt),
+        Some(&retry.content),
+    );
+    Ok(HeadlessRetry {
+        content: tool_simulation::strip_simulation_artifacts(&retry.content),
+        usage: retry.usage,
+        finish_reason: retry.finish_reason,
+        tool_calls,
     })
 }
 
