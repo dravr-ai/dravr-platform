@@ -644,8 +644,8 @@ impl ServerContext {
                 Some(Arc::new(service))
             }
             Err(e) => {
-                warn!(
-                    "Failed to initialize admin config service: {}. Runtime config will not be available.",
+                error!(
+                    "Failed to initialize admin config service: {}. Runtime config overrides are unavailable; quota enforcement degrades to compile-time tier defaults.",
                     e
                 );
                 None

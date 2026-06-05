@@ -17,6 +17,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier, PROFESSI
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
+use pierre_runtime_context::DefaultAdminConfig;
 use pierre_services::usage_counter::UsageCounterService;
 use uuid::Uuid;
 
@@ -111,6 +112,50 @@ async fn starter_user_caps_at_starter_daily_messages_limit() {
         .await
         .unwrap();
     assert!(!check.allowed, "2x cap exceeds 1.5x burst");
+}
+
+#[tokio::test]
+async fn fallback_admin_config_still_enforces_tier_defaults() {
+    // Regression guard for the fail-open bug: when the database-backed
+    // AdminConfigService fails to initialise, enforcement must degrade to
+    // the compile-time tier defaults (via DefaultAdminConfig) rather than
+    // being skipped entirely, which previously granted unlimited usage.
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (user_id, tenant_id) = build_user(&repos, UserTier::Starter).await;
+
+    // No AdminConfigService — exercise the DefaultAdminConfig fallback the
+    // enforcement paths use when admin_config is None.
+    let usage_svc = UsageCounterService::new(repos.usage_counters.as_ref(), &DefaultAdminConfig);
+
+    let tenant = tenant_id.to_string();
+    let user = user_id.to_string();
+
+    // The Starter cap must still resolve from TierQuotaConfig even with no
+    // admin config present.
+    let check = usage_svc
+        .check_limit_for_tier(&tenant, &user, "daily_messages", &UserTier::Starter)
+        .await
+        .unwrap();
+    assert_eq!(
+        check.limit, STARTER.daily_messages,
+        "tier default must apply without admin config"
+    );
+
+    // Push past the 1.5x burst — enforcement must reject, proving the
+    // fail-open hole is closed.
+    usage_svc
+        .increment(&tenant, &user, "daily_messages", STARTER.daily_messages * 2)
+        .await
+        .unwrap();
+    let check = usage_svc
+        .check_limit_for_tier(&tenant, &user, "daily_messages", &UserTier::Starter)
+        .await
+        .unwrap();
+    assert!(
+        !check.allowed,
+        "enforcement must still reject at 2x cap when admin config is absent"
+    );
 }
 
 #[tokio::test]

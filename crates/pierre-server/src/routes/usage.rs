@@ -22,10 +22,13 @@ use serde::Serialize;
 
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
+use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_runtime_context::{
+    default_admin_config, resolve_tenant, tenant::require, AdminConfigLookup, TenantMode,
+};
 use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Usage status response containing all quota information
@@ -104,49 +107,16 @@ impl UsageRoutes {
         let user_id_str = auth.user_id.to_string();
         let tenant_id_str = tenant_id.to_string();
 
-        // When admin config is not available (e.g., PostgreSQL deployment where
-        // AdminConfigService is SQLite-only), return default quota values
-        let Some(admin_config) = resources.coach.admin_config.as_ref() else {
-            let default_limit = LimitCheckResult {
-                allowed: true,
-                current: 0,
-                limit: 1000,
-                warning: false,
-                burst_zone: false,
-                resets_at: String::new(),
-            };
-            let conversation_count = resources
-                .common
-                .repos
-                .chat
-                .count_conversations(&user_id_str, tenant_id)
-                .await
-                .unwrap_or(0);
-            let response = UsageStatusResponse {
-                daily: DailyUsageStatus {
-                    messages: default_limit.clone(),
-                    tokens: default_limit.clone(),
-                    tool_calls: default_limit.clone(),
-                },
-                weekly: WeeklyUsageStatus {
-                    messages: default_limit.clone(),
-                    tokens: default_limit.clone(),
-                    tool_calls: default_limit,
-                },
-                resources: ResourceUsageStatus {
-                    conversations: conversation_count,
-                    max_conversations: 50,
-                    coaches: 0,
-                    max_coaches: 20,
-                },
-            };
-            return Ok((StatusCode::OK, Json(response)).into_response());
+        // Degrade to compile-time tier defaults when admin config is
+        // unavailable so usage status still reflects real counters and
+        // limits rather than disabling the view.
+        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
         };
 
-        let usage_svc = UsageCounterService::new(
-            resources.common.repos.usage_counters.as_ref(),
-            admin_config.as_ref(),
-        );
+        let usage_svc =
+            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
         // Fetch all counter statuses in parallel-friendly sequence
         let daily_messages = usage_svc
@@ -186,7 +156,7 @@ impl UsageRoutes {
             .ok()
             .flatten()
             .and_then(|v| v.as_i64())
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS);
 
         let coach_count_val = i64::from(
             resources

@@ -25,6 +25,7 @@ use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
 use pierre_contremaitre::messaging_strings::{format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC};
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::analytics::{analytics, hash_id};
 use pierre_services::usage_counter::UsageCounterService;
 
@@ -519,14 +520,18 @@ fn estimate_or_extract_messaging_tokens(
 
 /// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch
 async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: &DispatchResult) {
-    let Some(ref admin_config) = dispatch.resources.coach.admin_config else {
-        return;
-    };
+    // Record against tier defaults even when admin config is absent, so
+    // counters stay consistent with the always-on web enforcement path.
+    let admin_config: &dyn AdminConfigLookup =
+        match dispatch.resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
+        };
 
     let tenant_id_str = dispatch.channel_tenant_id.to_string();
     let usage_svc = UsageCounterService::new(
         dispatch.resources.common.repos.usage_counters.as_ref(),
-        admin_config.as_ref(),
+        admin_config,
     );
 
     // Use real token counts when available, fall back to estimation for CLI providers

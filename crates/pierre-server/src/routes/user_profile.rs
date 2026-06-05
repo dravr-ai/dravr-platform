@@ -24,6 +24,7 @@ use tracing::warn;
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 
 /// Mount the user-profile routes on the supplied router.
 pub fn routes() -> Router<Arc<ServerContext>> {
@@ -125,9 +126,13 @@ async fn get_my_quota(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<MyQuotaResponse>> {
-    let admin_config = resources.coach.admin_config.as_ref().ok_or_else(|| {
-        AppError::config("admin_config service not initialised — cannot resolve tier-keyed quotas")
-    })?;
+    // Fall back to compile-time tier defaults when admin config is
+    // unavailable so the user can still see their quota; enforcement
+    // reads the same defaults.
+    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        Some(c) => c,
+        None => default_admin_config(),
+    };
 
     let user = resources
         .common
@@ -155,7 +160,7 @@ async fn get_my_quota(
 
     let usage_svc = pierre_services::usage_counter::UsageCounterService::new(
         resources.common.repos.usage_counters.as_ref(),
-        admin_config.as_ref(),
+        admin_config,
     );
 
     let counters_to_check = [

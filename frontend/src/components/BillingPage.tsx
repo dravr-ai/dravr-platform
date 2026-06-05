@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { billingApi } from '../services/api';
+import type { PlanView } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
@@ -17,6 +18,16 @@ const TIER_LABELS: Record<string, string> = {
   professional: 'Professional',
   enterprise: 'Enterprise',
 };
+
+/** Subscription statuses that mean the user must fix their payment. */
+const PAYMENT_PROBLEM_STATUSES = new Set(['past_due', 'unpaid', 'incomplete', 'incomplete_expired']);
+
+/** Compact integer formatting for quota caps (500000 → "500K", 5000000 → "5M"). */
+function formatCompact(value: number): string {
+  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(
+    value
+  );
+}
 
 function formatCurrency(amount: number | undefined, currency: string | undefined): string {
   if (amount == null) return '—';
@@ -58,6 +69,11 @@ export default function BillingPage() {
     queryFn: () => billingApi.getMyQuota(),
   });
 
+  const plansQuery = useQuery({
+    queryKey: ['billing', 'plans'],
+    queryFn: () => billingApi.getPlans(),
+  });
+
   const checkoutMutation = useMutation({
     mutationFn: (tier: 'professional' | 'enterprise') => {
       if (!user) throw new Error('not authenticated');
@@ -93,11 +109,39 @@ export default function BillingPage() {
   });
 
   const sub = subscriptionQuery.data;
-  const tier = sub?.plan_tier ?? user?.tier ?? 'starter';
+  // Prefer the subscription row, then the quota endpoint's tier (resolved
+  // server-side from users.tier — authoritative), then the auth-context
+  // user as a last resort. The stored auth user may omit `tier`, so relying
+  // on it alone mislabels a paid user as Starter.
+  const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
   const tierLabel = TIER_LABELS[tier] ?? tier;
+  const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {hasPaymentProblem && (
+        <Card variant="dark" className="p-4 border border-pierre-red-400/60 bg-pierre-red-400/10">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-pierre-red-400">
+                Payment problem — action needed
+              </h3>
+              <p className="mt-1 text-sm text-on-surface-variant">
+                Your last payment for the {tierLabel} plan didn&apos;t go through (status:{' '}
+                {sub?.status}). Update your payment method to keep your plan — otherwise it will
+                revert to Starter.
+              </p>
+            </div>
+            <Button
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+              className="shrink-0 bg-pierre-red-400 hover:bg-pierre-red-400/80 text-on-primary"
+            >
+              {portalMutation.isPending ? 'Opening…' : 'Update payment'}
+            </Button>
+          </div>
+        </Card>
+      )}
       {showBillingHeader && (
       <Card variant="dark" className="p-6">
         <div className="flex items-center justify-between mb-4">
@@ -171,9 +215,49 @@ export default function BillingPage() {
           )}
         </div>
 
+        {sub != null && (
+          <p className="mt-3 text-xs text-on-surface-variant">
+            {sub.cancel_at_period_end
+              ? 'Your plan is scheduled to cancel at the end of the current period. Use Manage Subscription to resume.'
+              : 'Use Manage Subscription to update your payment method, change plan, or cancel.'}
+          </p>
+        )}
+
         {error && <p className="mt-4 text-sm text-pierre-red-400">Error: {error}</p>}
       </Card>
       )}
+
+      <Card variant="dark" className="p-6">
+        <h2 className="text-lg font-semibold text-on-surface mb-1">Plans</h2>
+        <p className="text-sm text-on-surface-variant mb-4">
+          Compare what each plan includes. Limits shown are the caps the app enforces.
+        </p>
+        {plansQuery.isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-pulse">
+            {[1, 2, 3].map((k) => (
+              <div key={k} className="h-48 bg-surface-container-high rounded-xl" />
+            ))}
+          </div>
+        ) : plansQuery.data ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {plansQuery.data.plans.map((plan) => (
+              <PlanCard
+                key={plan.tier}
+                plan={plan}
+                isCurrent={plan.tier === tier}
+                onUpgrade={() =>
+                  checkoutMutation.mutate(plan.tier as 'professional' | 'enterprise')
+                }
+                onManage={() => (sub != null ? portalMutation.mutate() : undefined)}
+                checkoutPending={checkoutMutation.isPending}
+                hasSubscription={sub != null}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-on-surface-variant">Plan information unavailable.</p>
+        )}
+      </Card>
 
       <Card variant="dark" className="p-6">
         <h2 className="text-lg font-semibold text-on-surface mb-4">Usage Quota</h2>
@@ -267,6 +351,81 @@ export default function BillingPage() {
           </p>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** One plan column in the comparison grid. */
+function PlanCard({
+  plan,
+  isCurrent,
+  onUpgrade,
+  onManage,
+  checkoutPending,
+  hasSubscription,
+}: {
+  plan: PlanView;
+  isCurrent: boolean;
+  onUpgrade: () => void;
+  onManage: () => void;
+  checkoutPending: boolean;
+  hasSubscription: boolean;
+}) {
+  const cap = (value: number): string => (plan.unlimited ? 'Unlimited' : formatCompact(value));
+  const includedUsage = plan.included_usd != null
+    ? `$${plan.included_usd}/mo`
+    : plan.unlimited
+    ? 'Custom'
+    : '—';
+  const features: Array<[string, string]> = [
+    ['Messages / day', cap(plan.daily_messages)],
+    ['Tokens / day', cap(plan.daily_tokens)],
+    ['Coaches', cap(plan.max_active_coaches)],
+    ['Tool calls / day', cap(plan.daily_tool_calls)],
+    ['Included usage', includedUsage],
+  ];
+
+  return (
+    <div
+      className={`rounded-xl border p-5 flex flex-col ${
+        isCurrent ? 'border-pierre-activity bg-pierre-activity/5' : 'ghost-border'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-semibold text-on-surface">{plan.label}</h3>
+        {isCurrent && <Badge variant="success">Current</Badge>}
+      </div>
+      <ul className="space-y-2 text-sm flex-1">
+        {features.map(([label, value]) => (
+          <li key={label} className="flex justify-between gap-2">
+            <span className="text-on-surface-variant">{label}</span>
+            <span className="font-medium text-on-surface">{value}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4">
+        {isCurrent ? (
+          <Button disabled variant="secondary" className="w-full">
+            Current plan
+          </Button>
+        ) : plan.tier === 'enterprise' ? (
+          <Button onClick={onUpgrade} disabled={checkoutPending} variant="secondary" className="w-full">
+            Talk to Sales
+          </Button>
+        ) : plan.tier === 'professional' ? (
+          <Button
+            onClick={onUpgrade}
+            disabled={checkoutPending}
+            className="w-full bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+          >
+            {checkoutPending ? 'Redirecting…' : 'Upgrade'}
+          </Button>
+        ) : (
+          <Button onClick={onManage} disabled={!hasSubscription} variant="secondary" className="w-full">
+            Downgrade
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

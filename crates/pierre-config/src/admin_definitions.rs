@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use crate::admin_types::{ConfigDataType, ParameterRange};
+use crate::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 
 /// Default configuration definitions with metadata.
 ///
@@ -1850,7 +1851,7 @@ pub fn register_usage_quotas<S: BuildHasher>(defs: &mut HashMap<String, Paramete
             description: "Maximum concurrent active conversations per user".to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(10),
+            default_value: serde_json::json!(DEFAULT_MAX_ACTIVE_CONVERSATIONS),
             valid_range: Some(ParameterRange {
                 min: serde_json::json!(1),
                 max: serde_json::json!(50),

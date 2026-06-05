@@ -17,10 +17,12 @@ use serde_json::{json, to_value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use chrono::Utc;
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_database::backends::shared::enums::user_tier_to_str;
+use pierre_database::repositories::UserTierOverride;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::slack_ops_notifier::ops_notifier;
@@ -705,6 +707,28 @@ pub(crate) async fn handle_set_user_tier(
         .await
         .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
 
+    // Record the admin override marker so a later Stripe webhook cannot
+    // clobber this manual tier. set_by is None — the admin token is a
+    // service token, not a user UUID.
+    let now = Utc::now();
+    let override_row = UserTierOverride {
+        user_id: user_uuid,
+        tier: new_tier.clone(),
+        note: Some(format!(
+            "admin tier override via {}",
+            admin_token.service_name
+        )),
+        set_by: None,
+        set_at: now,
+        updated_at: now,
+    };
+    context
+        .repos
+        .user_tier_overrides
+        .upsert(&override_row)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to record tier override: {e}")))?;
+
     info!(
         target_user_id = %user_uuid,
         target_user_email = %updated.email,
@@ -725,6 +749,64 @@ pub(crate) async fn handle_set_user_tier(
                 "user_id": user_uuid.to_string(),
                 "email": updated.email,
                 "tier": user_tier_to_str(&new_tier),
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    ))
+}
+
+/// Admin: clear a user's tier override so the Stripe webhook drives the
+/// tier again.
+///
+/// `DELETE /admin/users/{user_id}/tier`. Removes the marker recorded by
+/// [`handle_set_user_tier`]; the user's current `users.tier` is left as-is
+/// and the next Stripe billing event re-syncs it. Super-admin only, for
+/// symmetry with the set path.
+pub(crate) async fn handle_clear_user_tier_override(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    if !admin_token.is_super_admin {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: "Permission denied: super-admin token required".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
+    let user_uuid = Uuid::parse_str(&user_id)
+        .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+    let removed = context
+        .repos
+        .user_tier_overrides
+        .delete(user_uuid)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to clear tier override: {e}")))?;
+
+    info!(
+        target_user_id = %user_uuid,
+        admin_service = %admin_token.service_name,
+        removed,
+        "Admin tier override cleared"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: if removed {
+                "Tier override cleared; billing webhook will drive the tier".to_owned()
+            } else {
+                "No tier override was set for this user".to_owned()
+            },
+            data: to_value(json!({
+                "user_id": user_uuid.to_string(),
+                "removed": removed,
             }))
             .ok(),
         },

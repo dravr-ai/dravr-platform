@@ -11,6 +11,8 @@ import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 interface MockOptions {
   /** When true, GET /api/billing/subscription returns 404 (Starter fallback). */
   noSubscription?: boolean;
+  /** Subscription lifecycle status when a subscription exists (default 'active'). */
+  subscriptionStatus?: string;
   /** Override the quota counters returned by /api/users/me/quota. */
   quota?: {
     counters: Array<{
@@ -26,6 +28,7 @@ interface MockOptions {
 
 async function setupBillingMocks(page: Page, opts: MockOptions = {}) {
   const noSubscription = opts.noSubscription ?? true;
+  const subscriptionStatus = opts.subscriptionStatus ?? 'active';
 
   await page.route('**/api/billing/subscription', async (route: Route) => {
     if (noSubscription) {
@@ -45,7 +48,7 @@ async function setupBillingMocks(page: Page, opts: MockOptions = {}) {
           provider: 'dummy',
           provider_customer_id: 'cus_test_abc123',
           provider_subscription_id: 'sub_test_abc123',
-          status: 'active',
+          status: subscriptionStatus,
           plan_tier: 'professional',
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
@@ -123,6 +126,50 @@ async function setupBillingMocks(page: Page, opts: MockOptions = {}) {
       body: JSON.stringify({ invoices: [] }),
     });
   });
+
+  await page.route('**/api/billing/plans', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        plans: [
+          {
+            tier: 'starter',
+            label: 'Starter',
+            unlimited: false,
+            daily_messages: 50,
+            daily_tokens: 500_000,
+            monthly_tokens: 8_000_000,
+            max_active_coaches: 3,
+            daily_tool_calls: 200,
+            included_usd: null,
+          },
+          {
+            tier: 'professional',
+            label: 'Professional',
+            unlimited: false,
+            daily_messages: 500,
+            daily_tokens: 5_000_000,
+            monthly_tokens: 100_000_000,
+            max_active_coaches: 20,
+            daily_tool_calls: 2_000,
+            included_usd: 50,
+          },
+          {
+            tier: 'enterprise',
+            label: 'Enterprise',
+            unlimited: true,
+            daily_messages: 9_007_199_254_740_991,
+            daily_tokens: 9_007_199_254_740_991,
+            monthly_tokens: 9_007_199_254_740_991,
+            max_active_coaches: 9_007_199_254_740_991,
+            daily_tool_calls: 9_007_199_254_740_991,
+            included_usd: null,
+          },
+        ],
+      }),
+    });
+  });
 }
 
 test.describe('Billing - Starter fallback (no subscription on file)', () => {
@@ -183,6 +230,20 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
     ]) {
       await expect(page.getByText(label, { exact: false })).toBeVisible();
     }
+  });
+
+  test('renders the plan comparison with all three tiers and a Current badge', async ({ page }) => {
+    await page.locator('button', { hasText: 'Usage' }).first().click();
+    await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible({ timeout: 5000 });
+    // The three tier headings inside the Plans grid.
+    await expect(page.getByRole('heading', { name: 'Starter', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Professional', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Enterprise', exact: true })).toBeVisible();
+    // Feature rows sourced from the plans endpoint.
+    await expect(page.getByText('Messages / day', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText('Included usage', { exact: false }).first()).toBeVisible();
+    // Starter is the current plan → its card shows a Current-plan button.
+    await expect(page.getByRole('button', { name: 'Current plan' })).toBeVisible();
   });
 
   test('upgrade button POSTs /api/billing/checkout with body + redirects on success', async ({ page }) => {
@@ -295,5 +356,45 @@ test.describe('Billing - Existing Professional subscription', () => {
     );
     expect(portalBody!.provider_customer_id).toBe('cus_test_abc123');
     expect(portalBody!.return_url).toContain('/billing');
+  });
+});
+
+test.describe('Billing - Payment problem (dunning)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'pro@pierre.dev' });
+    await setupBillingMocks(page, { noSubscription: false, subscriptionStatus: 'past_due' });
+    await loginToDashboard(page);
+    await page.waitForSelector('nav', { timeout: 10000 });
+  });
+
+  test('shows the payment-problem banner with an Update payment CTA', async ({ page }) => {
+    await page.locator('button', { hasText: 'Usage' }).first().click();
+    await expect(
+      page.getByRole('heading', { name: /Payment problem/i })
+    ).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Update payment' })).toBeVisible();
+  });
+
+  test('Update payment opens the billing portal', async ({ page }) => {
+    await page.route('**/api/billing/portal', async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ portal_url: 'https://example.test/portal/dunning_fix' }),
+      });
+    });
+    let portalNavigation: string | null = null;
+    await page.route('https://example.test/portal/**', async (route: Route) => {
+      portalNavigation = route.request().url();
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<html></html>' });
+    });
+
+    await page.locator('button', { hasText: 'Usage' }).first().click();
+    await expect(page.getByRole('button', { name: 'Update payment' })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Update payment' }).click();
+
+    await expect.poll(() => portalNavigation, { timeout: 5000 }).toBe(
+      'https://example.test/portal/dunning_fix',
+    );
   });
 });

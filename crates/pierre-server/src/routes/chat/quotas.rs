@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Outcome of the pre-chat quota check that the response-building code
@@ -88,21 +89,21 @@ pub async fn check_pre_chat_quotas_scoped(
     user_uuid: Uuid,
     scope: &PreChatScope<'_>,
 ) -> Result<UsageWarning, AppError> {
-    let Some(ref admin_config) = resources.coach.admin_config else {
-        debug!("Admin config not available, skipping quota check");
-        return Ok(None);
-    };
-
     if is_quota_bypass_user(user_uuid) {
         debug!("Skipping quota check for user {user_id} via QUOTA_BYPASS_USER_IDS allow-list",);
         return Ok(None);
     }
 
+    // Degrade to compile-time tier defaults (rather than skipping
+    // enforcement) when the admin config service is unavailable.
+    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        Some(c) => c,
+        None => default_admin_config(),
+    };
+
     let tier = resolve_user_tier(resources, user_uuid).await;
-    let usage_svc = UsageCounterService::new(
-        resources.common.repos.usage_counters.as_ref(),
-        admin_config.as_ref(),
-    );
+    let usage_svc =
+        UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
     // Daily message cap (allows 1.5x burst).
     let daily_msg_check = usage_svc

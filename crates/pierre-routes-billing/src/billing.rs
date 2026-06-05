@@ -20,7 +20,7 @@ use pierre_core::billing::{
     SubscriptionEventPayload, WebhookPayload,
 };
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserTier};
+use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, TierQuotaConfig, UserTier};
 use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
@@ -64,6 +64,87 @@ pub struct InvoicesResponse {
     pub invoices: Vec<Invoice>,
 }
 
+/// One plan in the `GET /api/billing/plans` comparison catalog.
+///
+/// Derived from [`TierQuotaConfig`] so the plan-picker UI shows exactly the
+/// caps the server enforces — no second copy of the numbers in the frontend
+/// to drift from enforcement. Prices are intentionally absent (set in the
+/// provider dashboard, surfaced at checkout).
+#[derive(Debug, Clone, Serialize)]
+pub struct PlanView {
+    /// Tier slug — `starter`, `professional`, `enterprise`.
+    pub tier: String,
+    /// Human-facing tier name.
+    pub label: String,
+    /// True when the tier's caps are effectively unlimited (Enterprise).
+    /// The UI renders "Unlimited" instead of the sentinel cap values.
+    pub unlimited: bool,
+    /// Daily chat-message cap.
+    pub daily_messages: i64,
+    /// Daily billable-token cap.
+    pub daily_tokens: i64,
+    /// Monthly billable-token cap.
+    pub monthly_tokens: i64,
+    /// Cap on concurrently active coaches.
+    pub max_active_coaches: i64,
+    /// Daily data-tool-call cap.
+    pub daily_tool_calls: i64,
+    /// Monthly USD spend included before metered overage. `None` when the
+    /// tier has no overage billing (Starter, Enterprise).
+    pub included_usd: Option<f64>,
+}
+
+/// Container for `GET /api/billing/plans`.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlansResponse {
+    /// Plans ordered Starter → Professional → Enterprise.
+    pub plans: Vec<PlanView>,
+}
+
+/// Build a [`PlanView`] from a tier's [`TierQuotaConfig`].
+fn plan_view(tier: &UserTier) -> PlanView {
+    let q = TierQuotaConfig::for_tier(tier);
+    PlanView {
+        tier: tier.as_str().to_owned(),
+        label: tier.display_name().to_owned(),
+        unlimited: matches!(tier, UserTier::Enterprise),
+        daily_messages: q.daily_messages,
+        daily_tokens: q.daily_tokens,
+        monthly_tokens: q.monthly_tokens,
+        max_active_coaches: q.max_active_coaches,
+        daily_tool_calls: q.daily_tool_calls,
+        included_usd: if q.monthly_cost_cap_usd.is_finite() {
+            Some(q.monthly_cost_cap_usd)
+        } else {
+            None
+        },
+    }
+}
+
+/// The plan-comparison catalog, ordered Starter → Professional → Enterprise.
+///
+/// Single source for the plan-picker UI; the caps come straight from
+/// [`TierQuotaConfig`] so displayed limits always match enforcement.
+///
+/// ```
+/// let plans = pierre_routes_billing::plan_catalog();
+/// assert_eq!(plans.len(), 3);
+/// assert_eq!(plans[0].tier, "starter");
+/// assert_eq!(plans[0].daily_messages, 50);
+/// assert_eq!(plans[1].tier, "professional");
+/// assert_eq!(plans[1].included_usd, Some(50.0));
+/// assert!(plans[2].unlimited);
+/// assert_eq!(plans[2].included_usd, None);
+/// ```
+#[must_use]
+pub fn plan_catalog() -> Vec<PlanView> {
+    vec![
+        plan_view(&UserTier::Starter),
+        plan_view(&UserTier::Professional),
+        plan_view(&UserTier::Enterprise),
+    ]
+}
+
 /// Build the billing router.
 ///
 /// Every endpoint requires a logged-in user whose tenant matches the
@@ -79,7 +160,18 @@ where
         .route("/api/billing/portal", post(portal::<C>))
         .route("/api/billing/subscription", get(get_subscription::<C>))
         .route("/api/billing/invoices", get(list_invoices::<C>))
+        .route("/api/billing/plans", get(plans))
         .route("/webhooks/{provider}", post(webhook::<C>))
+}
+
+/// `GET /api/billing/plans` — the static plan-comparison catalog.
+///
+/// Pure tier metadata (no provider call, no per-user state), so the
+/// plan-picker can render before any subscription exists.
+async fn plans() -> Json<PlansResponse> {
+    Json(PlansResponse {
+        plans: plan_catalog(),
+    })
 }
 
 /// `POST /api/billing/checkout` — create a hosted-checkout session.
@@ -266,6 +358,65 @@ pub async fn dispatch_billing_event(
     }
 }
 
+/// Returns `true` when an admin tier override pins this user's tier, in
+/// which case the billing webhook must leave `users.tier` and the tenant
+/// plan untouched (the caller still persists the subscription row).
+async fn admin_override_blocks_tier_change(
+    usage_repos: &UsageRepos,
+    provider: &str,
+    user_id: Uuid,
+) -> AppResult<bool> {
+    if usage_repos
+        .user_tier_overrides
+        .get(user_id)
+        .await?
+        .is_some()
+    {
+        tracing::info!(
+            billing_provider = provider,
+            user_id = %user_id,
+            "admin tier override in effect — skipping webhook tier change",
+        );
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Apply (or skip) the tier flip for an upserted subscription: entitled
+/// subscriptions push their `plan_tier` onto the user and tenant; others
+/// only log the status update.
+async fn apply_entitled_tier(
+    auth_repos: &AuthRepos,
+    provider: &str,
+    stored: &Subscription,
+) -> AppResult<()> {
+    if stored.is_entitled() {
+        auth_repos
+            .users
+            .set_tier(stored.user_id, stored.plan_tier.clone())
+            .await?;
+        auth_repos
+            .tenants
+            .set_plan(stored.tenant_id, stored.plan_tier.as_str())
+            .await?;
+        tracing::info!(
+            billing_provider = provider,
+            user_id = %stored.user_id,
+            tenant_id = %stored.tenant_id,
+            tier = stored.plan_tier.as_str(),
+            "billing webhook applied tier change",
+        );
+    } else {
+        tracing::info!(
+            billing_provider = provider,
+            user_id = %stored.user_id,
+            status = stored.status.as_str(),
+            "billing webhook updated subscription status without tier flip",
+        );
+    }
+    Ok(())
+}
+
 async fn handle_subscription_upsert(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
@@ -302,31 +453,13 @@ async fn handle_subscription_upsert(
     };
     let stored = usage_repos.subscriptions.upsert_subscription(&sub).await?;
 
-    if stored.is_entitled() {
-        auth_repos
-            .users
-            .set_tier(stored.user_id, stored.plan_tier.clone())
-            .await?;
-        auth_repos
-            .tenants
-            .set_plan(stored.tenant_id, stored.plan_tier.as_str())
-            .await?;
-        tracing::info!(
-            billing_provider = provider,
-            user_id = %stored.user_id,
-            tenant_id = %stored.tenant_id,
-            tier = stored.plan_tier.as_str(),
-            "billing webhook applied tier change",
-        );
-    } else {
-        tracing::info!(
-            billing_provider = provider,
-            user_id = %stored.user_id,
-            status = stored.status.as_str(),
-            "billing webhook updated subscription status without tier flip",
-        );
+    // The subscription row is updated above; the tier flip is gated on the
+    // absence of an admin override.
+    if admin_override_blocks_tier_change(usage_repos, provider, stored.user_id).await? {
+        return Ok(());
     }
-    Ok(())
+
+    apply_entitled_tier(auth_repos, provider, &stored).await
 }
 
 async fn handle_subscription_canceled(
@@ -354,6 +487,13 @@ async fn handle_subscription_canceled(
         .subscriptions
         .upsert_subscription(&existing)
         .await?;
+
+    // The subscription row is marked canceled above; a cancel event must
+    // not downgrade a user whose tier is pinned by an admin override.
+    if admin_override_blocks_tier_change(usage_repos, provider, stored.user_id).await? {
+        return Ok(());
+    }
+
     auth_repos
         .users
         .set_tier(stored.user_id, UserTier::Starter)

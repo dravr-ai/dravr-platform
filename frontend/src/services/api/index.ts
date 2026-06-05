@@ -35,7 +35,14 @@ export { adminApi } from './admin';
 export { usageApi } from './usage';
 export { messagingApi } from './messaging';
 export { billingApi } from './billing';
-export type { SubscriptionView, InvoicesResponse, QuotaCounter, MyQuotaResponse } from './billing';
+export type {
+  SubscriptionView,
+  InvoicesResponse,
+  QuotaCounter,
+  MyQuotaResponse,
+  PlanView,
+  PlansResponse,
+} from './billing';
 export { featureFlagsApi } from './featureFlags';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from './featureFlags';
 

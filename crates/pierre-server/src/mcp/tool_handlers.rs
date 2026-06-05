@@ -26,6 +26,7 @@ use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
 use pierre_tools_core::ToolResult;
@@ -491,14 +492,15 @@ impl ToolHandlers {
         user_id: &str,
         tool_name: &str,
     ) {
-        let Some(ref admin_config) = resources.coach.admin_config else {
-            return;
+        // Record against tier defaults even when admin config is absent,
+        // so the always-on enforcement path keeps seeing real counts.
+        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
         };
 
-        let usage_svc = UsageCounterService::new(
-            resources.common.repos.usage_counters.as_ref(),
-            admin_config.as_ref(),
-        );
+        let usage_svc =
+            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
             if let Err(e) = usage_svc
                 .increment(tenant_id, user_id, counter_type, 1)
@@ -584,11 +586,6 @@ impl ToolHandlers {
         auth_result: &AuthResult,
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
-        let Some(ref admin_config) = resources.coach.admin_config else {
-            debug!("Admin config not available, skipping MCP tool quota check");
-            return None;
-        };
-
         // Admin role bypasses quota enforcement for debugging and testing.
         // Owners (tenant creators) remain subject to quotas as cost control.
         if let Ok(Some(role)) = resources
@@ -610,10 +607,14 @@ impl ToolHandlers {
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
         let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
-        let usage_svc = UsageCounterService::new(
-            resources.common.repos.usage_counters.as_ref(),
-            admin_config.as_ref(),
-        );
+        // Degrade to tier defaults when admin config is unavailable
+        // rather than skipping enforcement.
+        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
+        };
+        let usage_svc =
+            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
         // Check daily, then weekly quota
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
@@ -731,18 +732,17 @@ impl ToolHandlers {
             return None;
         }
 
-        let Some(ref admin_config) = resources.coach.admin_config else {
-            debug!("Admin config not available, skipping activity quota check");
-            return None;
-        };
-
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
         let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
-        let usage_svc = UsageCounterService::new(
-            resources.common.repos.usage_counters.as_ref(),
-            admin_config.as_ref(),
-        );
+        // Degrade to tier defaults when admin config is unavailable
+        // rather than skipping enforcement.
+        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
+        };
+        let usage_svc =
+            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {
@@ -779,16 +779,16 @@ impl ToolHandlers {
         user_id: Uuid,
         args: &Value,
     ) {
-        let Some(ref admin_config) = resources.coach.admin_config else {
-            return;
+        // Record against tier defaults even when admin config is absent.
+        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+            Some(c) => c,
+            None => default_admin_config(),
         };
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = user_id.to_string();
-        let usage_svc = UsageCounterService::new(
-            resources.common.repos.usage_counters.as_ref(),
-            admin_config.as_ref(),
-        );
+        let usage_svc =
+            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {

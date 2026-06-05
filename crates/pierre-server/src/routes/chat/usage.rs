@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 
 use crate::mcp::resources::ServerContext;
 use pierre_llm::ChatMessage;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
 
 use pierre_tool_runtime::tool_execution;
@@ -161,14 +162,16 @@ pub async fn increment_usage_counters_scoped(
     tool_calls_count: u32,
     scope: &UsageIncrementScope<'_>,
 ) {
-    let Some(ref admin_config) = resources.coach.admin_config else {
-        return;
+    // Record against tier defaults even when admin config is absent, so
+    // the counters the (now always-on) enforcement path reads keep
+    // accumulating.
+    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        Some(c) => c,
+        None => default_admin_config(),
     };
 
-    let usage_svc = UsageCounterService::new(
-        resources.common.repos.usage_counters.as_ref(),
-        admin_config.as_ref(),
-    );
+    let usage_svc =
+        UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
     increment_base_counters(
         &usage_svc,
