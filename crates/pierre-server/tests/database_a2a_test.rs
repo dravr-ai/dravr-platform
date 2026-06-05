@@ -86,7 +86,9 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         user_id: test_user_id,
         capabilities: vec!["fitness-data-analysis".into()],
         redirect_uris: vec!["https://test.example.com".into()],
-        permissions: vec!["read_activities".into(), "write_goals".into()],
+        // The canonical a2a_clients schema dropped the permissions column; it is no
+        // longer persisted and reads back as the default ["read_activities"].
+        permissions: vec!["read_activities".into()],
         rate_limit_requests: 1000,
         rate_limit_window_seconds: 3600,
         is_active: true,
@@ -199,6 +201,13 @@ async fn test_a2a_task_management() {
 
     let (client, _user_id) = create_test_client(&db).await;
 
+    // The canonical a2a_tasks is session-keyed with a FK to a2a_sessions, so a task
+    // must reference an existing session token. Create one first.
+    let session_token = db
+        .create_session(&client.id, None, &["read".into()], 1)
+        .await
+        .expect("Failed to create A2A session");
+
     // Create task
     let task = A2ATask {
         id: format!("task_{}", Uuid::new_v4()),
@@ -216,7 +225,12 @@ async fn test_a2a_task_management() {
     };
 
     let task_id = db
-        .create_task(&task.client_id, None, &task.task_type, &task.input_data)
+        .create_task(
+            &task.client_id,
+            Some(&session_token),
+            &task.task_type,
+            &task.input_data,
+        )
         .await
         .expect("Failed to create A2A task");
 

@@ -704,18 +704,17 @@ impl SeederRepository for Database {
         // ON CONFLICT(slug) handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenants \
-             (id, name, slug, plan, owner_user_id, is_active, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, 1, $6, $7) \
+             (id, name, slug, subscription_tier, is_active, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, 1, $5, $6) \
              ON CONFLICT(slug) DO UPDATE SET \
               name = excluded.name, \
-              plan = excluded.plan, \
+              subscription_tier = excluded.subscription_tier, \
               updated_at = excluded.updated_at",
         )
         .bind(tenant.id.to_string())
         .bind(&tenant.name)
         .bind(&tenant.slug)
         .bind(&tenant.plan)
-        .bind(tenant.owner_user_id.to_string())
         .bind(tenant.created_at.to_rfc3339())
         .bind(tenant.updated_at.to_rfc3339())
         .execute(&self.pool)
@@ -735,8 +734,8 @@ impl SeederRepository for Database {
         // ON CONFLICT handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenant_users \
-             (id, tenant_id, user_id, role, invited_at, joined_at, is_active) \
-             VALUES ($1, $2, $3, 'owner', $4, $5, 1) \
+             (id, tenant_id, user_id, role, invited_at, joined_at) \
+             VALUES ($1, $2, $3, 'owner', $4, $5) \
              ON CONFLICT(tenant_id, user_id) DO NOTHING",
         )
         .bind(id.to_string())
@@ -800,14 +799,14 @@ impl SeederRepository for Database {
     }
 
     async fn seed_check_a2a_client_by_name(&self, name: &str) -> AppResult<Option<Uuid>> {
-        let row = sqlx::query("SELECT id FROM a2a_clients WHERE name = $1")
+        let row = sqlx::query("SELECT client_id FROM a2a_clients WHERE name = $1")
             .bind(name)
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to check A2A client by name: {e}")))?;
 
         row.map(|r| {
-            let id_str: String = r.get("id");
+            let id_str: String = r.get("client_id");
             id_str
                 .parse::<Uuid>()
                 .map_err(|e| AppError::database(format!("Failed to parse A2A client ID: {e}")))
@@ -816,12 +815,15 @@ impl SeederRepository for Database {
     }
 
     async fn seed_insert_a2a_client(&self, client: &SeedA2AClient) -> AppResult<()> {
+        // Map seed fields to the canonical columns: public_key -> api_key_hash,
+        // client_secret -> client_secret_hash, rate_limit_requests/window ->
+        // rate_limit_per_minute/per_day. The permissions field is no longer persisted.
         sqlx::query(
             "INSERT INTO a2a_clients \
-             (id, user_id, name, description, public_key, client_secret, \
-              permissions, capabilities, rate_limit_requests, rate_limit_window_seconds, \
+             (client_id, user_id, name, description, api_key_hash, client_secret_hash, \
+              capabilities, rate_limit_per_minute, rate_limit_per_day, \
               is_active, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1000, 3600, 1, $9, $10)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 1000, 3600, 1, $8, $9)",
         )
         .bind(client.id.to_string())
         .bind(client.user_id.to_string())
@@ -829,7 +831,6 @@ impl SeederRepository for Database {
         .bind(&client.description)
         .bind(&client.public_key)
         .bind(&client.client_secret)
-        .bind(&client.permissions)
         .bind(&client.capabilities)
         .bind(client.created_at.to_rfc3339())
         .bind(client.updated_at.to_rfc3339())
@@ -858,9 +859,10 @@ impl SeederRepository for Database {
     }
 
     async fn seed_insert_a2a_usage(&self, usage: &SeedA2AUsage) -> AppResult<()> {
+        // The model's tool_name maps to the canonical endpoint column.
         sqlx::query(
             "INSERT INTO a2a_usage \
-             (id, client_id, timestamp, tool_name, status_code, response_time_ms, protocol_version) \
+             (id, client_id, timestamp, endpoint, status_code, response_time_ms, protocol_version) \
              VALUES ($1, $2, $3, $4, $5, $6, '1.0')",
         )
         .bind(usage.id.to_string())

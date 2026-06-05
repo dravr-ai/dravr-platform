@@ -593,8 +593,8 @@ impl Database {
     pub async fn create_tenant_impl(&self, tenant: &Tenant) -> AppResult<()> {
         sqlx::query(
             r"
-            INSERT INTO tenants (id, name, slug, domain, plan, owner_user_id, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tenants (id, name, slug, domain, subscription_tier, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind(tenant.id.to_string())
@@ -602,7 +602,6 @@ impl Database {
         .bind(&tenant.slug)
         .bind(&tenant.domain)
         .bind(&tenant.plan)
-        .bind(tenant.owner_user_id.to_string())
         .bind(true)
         .bind(tenant.created_at)
         .bind(tenant.updated_at)
@@ -729,7 +728,7 @@ impl Database {
     pub async fn get_tenant_by_id_impl(&self, tenant_id: TenantId) -> AppResult<Tenant> {
         let row = sqlx::query(
             r"
-            SELECT t.id, t.name, t.slug, t.domain, t.plan, tu.user_id, t.created_at, t.updated_at
+            SELECT t.id, t.name, t.slug, t.domain, t.subscription_tier, tu.user_id, t.created_at, t.updated_at
             FROM tenants t
             JOIN tenant_users tu ON t.id = tu.tenant_id AND tu.role = 'owner'
             WHERE t.id = ? AND t.is_active = 1
@@ -761,7 +760,7 @@ impl Database {
                         .try_get("domain")
                         .map_err(|e| AppError::database(format!("Failed to get domain: {e}")))?,
                     plan: row
-                        .try_get("plan")
+                        .try_get("subscription_tier")
                         .map_err(|e| AppError::database(format!("Failed to get plan: {e}")))?,
                     owner_user_id: Uuid::parse_str(&user_id_str)?,
                     created_at: row.try_get("created_at").map_err(|e| {
@@ -784,7 +783,7 @@ impl Database {
     pub async fn get_tenant_by_slug_impl(&self, slug: &str) -> AppResult<Tenant> {
         let row = sqlx::query(
             r"
-            SELECT t.id, t.name, t.slug, t.domain, t.plan, tu.user_id, t.created_at, t.updated_at
+            SELECT t.id, t.name, t.slug, t.domain, t.subscription_tier, tu.user_id, t.created_at, t.updated_at
             FROM tenants t
             JOIN tenant_users tu ON t.id = tu.tenant_id AND tu.role = 'owner'
             WHERE t.slug = ? AND t.is_active = 1
@@ -816,7 +815,7 @@ impl Database {
                         .try_get("domain")
                         .map_err(|e| AppError::database(format!("Failed to get domain: {e}")))?,
                     plan: row
-                        .try_get("plan")
+                        .try_get("subscription_tier")
                         .map_err(|e| AppError::database(format!("Failed to get plan: {e}")))?,
                     owner_user_id: Uuid::parse_str(&user_id_str)?,
                     created_at: row.try_get("created_at").map_err(|e| {
@@ -839,7 +838,7 @@ impl Database {
     pub async fn list_tenants_for_user_impl(&self, user_id: Uuid) -> AppResult<Vec<Tenant>> {
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT t.id, t.name, t.slug, t.domain, t.plan,
+            SELECT DISTINCT t.id, t.name, t.slug, t.domain, t.subscription_tier,
                    owner.user_id as owner_user_id, t.created_at, t.updated_at
             FROM tenants t
             JOIN tenant_users tu ON t.id = tu.tenant_id
@@ -875,7 +874,7 @@ impl Database {
                         .try_get("domain")
                         .map_err(|e| AppError::database(format!("Failed to get domain: {e}")))?,
                     plan: row
-                        .try_get("plan")
+                        .try_get("subscription_tier")
                         .map_err(|e| AppError::database(format!("Failed to get plan: {e}")))?,
                     owner_user_id: Uuid::parse_str(&owner_user_id_str)?,
                     created_at: row.try_get("created_at").map_err(|e| {
@@ -899,10 +898,12 @@ impl Database {
     pub async fn get_all_tenants_impl(&self) -> AppResult<Vec<Tenant>> {
         let rows = sqlx::query(
             r"
-            SELECT id, slug, name, domain, plan, owner_user_id, created_at, updated_at
-            FROM tenants
-            WHERE is_active = 1
-            ORDER BY created_at
+            SELECT t.id, t.slug, t.name, t.domain, t.subscription_tier,
+                   tu.user_id AS owner_user_id, t.created_at, t.updated_at
+            FROM tenants t
+            JOIN tenant_users tu ON tu.tenant_id = t.id AND tu.role = 'owner'
+            WHERE t.is_active = 1
+            ORDER BY t.created_at
             ",
         )
         .fetch_all(&self.pool)
@@ -931,7 +932,7 @@ impl Database {
                         .try_get("domain")
                         .map_err(|e| AppError::database(format!("Failed to get domain: {e}")))?,
                     plan: row
-                        .try_get("plan")
+                        .try_get("subscription_tier")
                         .map_err(|e| AppError::database(format!("Failed to get plan: {e}")))?,
                     owner_user_id: Uuid::parse_str(&owner_user_id_str)?,
                     created_at: row.try_get("created_at").map_err(|e| {
@@ -1261,7 +1262,7 @@ impl Database {
         sqlx::query(
             r"
             INSERT INTO oauth_apps
-                (id, client_id, client_secret_hash, name, description, redirect_uris,
+                (id, client_id, client_secret, name, description, redirect_uris,
                  scopes, app_type, owner_user_id, is_active, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?11)
             ",
@@ -1292,7 +1293,7 @@ impl Database {
     async fn get_oauth_app_by_client_id_impl(&self, client_id: &str) -> AppResult<OAuthApp> {
         let row = sqlx::query(
             r"
-            SELECT id, client_id, client_secret_hash, name, description, redirect_uris,
+            SELECT id, client_id, client_secret, name, description, redirect_uris,
                    scopes, app_type, owner_user_id, created_at, updated_at
             FROM oauth_apps
             WHERE client_id = ?1 AND is_active = 1
@@ -1311,7 +1312,7 @@ impl Database {
                 Ok(OAuthApp {
                     id: Uuid::parse_str(&row.get::<String, _>("id"))?,
                     client_id: row.get("client_id"),
-                    client_secret: row.get("client_secret_hash"),
+                    client_secret: row.get("client_secret"),
                     name: row.get("name"),
                     description: row.get("description"),
                     redirect_uris: serde_json::from_str(&redirect_uris_json)?,

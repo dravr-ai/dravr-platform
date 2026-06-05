@@ -47,13 +47,6 @@ fn safe_i32_to_u32(value: i32) -> AppResult<u32> {
     })
 }
 
-/// Safely convert i32 to u64, returning an error if negative
-fn safe_i32_to_u64(value: i32) -> AppResult<u64> {
-    u64::try_from(value).map_err(|_| {
-        AppError::invalid_input(format!("Cannot convert negative value {value} to u64"))
-    })
-}
-
 /// Safely convert i64 to u64, returning an error if negative
 fn safe_i64_to_u64(value: i64) -> AppResult<u64> {
     u64::try_from(value).map_err(|_| {
@@ -101,15 +94,17 @@ impl Database {
         // Hash the client secret before storage (never store plaintext secrets)
         let secret_hash = format!("{:x}", Sha256::digest(client_secret.as_bytes()));
 
-        // Insert A2A client within transaction
+        // Insert A2A client within transaction. The model's public_key maps to the
+        // canonical api_key_hash column, rate_limit_requests to rate_limit_per_minute,
+        // and rate_limit_window_seconds to rate_limit_per_day; permissions is dropped.
         sqlx::query(
             r"
             INSERT INTO a2a_clients (
-                id, user_id, name, description, public_key, client_secret, permissions,
+                client_id, user_id, name, description, api_key_hash, client_secret_hash,
                 capabilities, redirect_uris,
-                rate_limit_requests, rate_limit_window_seconds, is_active,
+                rate_limit_per_minute, rate_limit_per_day, is_active,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ",
         )
         .bind(&client.id)
@@ -118,7 +113,6 @@ impl Database {
         .bind(&client.description)
         .bind(&client.public_key)
         .bind(&secret_hash)
-        .bind(serde_json::to_string(&client.permissions)?)
         .bind(serde_json::to_string(&client.capabilities)?)
         .bind(serde_json::to_string(&client.redirect_uris)?)
         .bind(safe_u32_to_i32(client.rate_limit_requests)?)
@@ -166,11 +160,11 @@ impl Database {
     pub async fn get_a2a_client_impl(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, name, description, public_key, permissions, capabilities, redirect_uris,
-                   rate_limit_requests, rate_limit_window_seconds, is_active,
+            SELECT client_id, user_id, name, description, api_key_hash, capabilities, redirect_uris,
+                   rate_limit_per_minute, rate_limit_per_day, is_active,
                    created_at, updated_at
             FROM a2a_clients
-            WHERE id = $1
+            WHERE client_id = $1
             ",
         )
         .bind(client_id)
@@ -179,51 +173,61 @@ impl Database {
         .map_err(|e| AppError::database(format!("Failed to query A2A client: {e}")))?;
 
         if let Some(row) = row {
-            let permissions_json: String = row.get("permissions");
-            let permissions = serde_json::from_str(&permissions_json)?;
-
-            let capabilities_json: String = row.get("capabilities");
-            let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    error = %e,
-                    operation = "get_a2a_client",
-                    "A2A client capabilities JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            let redirect_uris_json: String = row.get("redirect_uris");
-            let redirect_uris = serde_json::from_str(&redirect_uris_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    error = %e,
-                    operation = "get_a2a_client",
-                    "A2A client redirect_uris JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            Ok(Some(A2AClient {
-                id: row.get("id"),
-                user_id: Uuid::parse_str(&row.get::<String, _>("user_id"))?,
-                name: row.get("name"),
-                description: row.get("description"),
-                public_key: row.get("public_key"),
-                capabilities,
-                redirect_uris,
-                is_active: row.get("is_active"),
-                created_at: row.get("created_at"),
-                permissions,
-                rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_requests"))?,
-                rate_limit_window_seconds: safe_i32_to_u32(
-                    row.get::<i32, _>("rate_limit_window_seconds"),
-                )?,
-                updated_at: row.get("updated_at"),
-            }))
+            Ok(Some(Self::a2a_client_from_row(&row, "get_a2a_client")?))
         } else {
             Ok(None)
         }
+    }
+
+    /// Build an `A2AClient` from a SQLite row using canonical column names.
+    ///
+    /// The canonical schema renamed `public_key` to `api_key_hash`, dropped the
+    /// `permissions` column (defaulted here), and renamed the rate-limit columns
+    /// to `rate_limit_per_minute` / `rate_limit_per_day`. The model field names
+    /// stay unchanged; only the column keys differ.
+    ///
+    /// # Errors
+    /// Returns an error if required columns are missing or type conversion fails.
+    fn a2a_client_from_row(row: &sqlx::sqlite::SqliteRow, operation: &str) -> AppResult<A2AClient> {
+        let capabilities_json: String = row.get("capabilities");
+        let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
+            warn!(
+                client_id = ?row.get::<String, _>("client_id"),
+                error = %e,
+                operation = operation,
+                "A2A client capabilities JSON parsing failed, using empty array"
+            );
+            vec![]
+        });
+
+        let redirect_uris_json: String = row.get("redirect_uris");
+        let redirect_uris = serde_json::from_str(&redirect_uris_json).unwrap_or_else(|e| {
+            warn!(
+                client_id = ?row.get::<String, _>("client_id"),
+                error = %e,
+                operation = operation,
+                "A2A client redirect_uris JSON parsing failed, using empty array"
+            );
+            vec![]
+        });
+
+        Ok(A2AClient {
+            id: row.get("client_id"),
+            user_id: Uuid::parse_str(&row.get::<String, _>("user_id"))?,
+            name: row.get("name"),
+            description: row.get("description"),
+            public_key: row.get("api_key_hash"),
+            capabilities,
+            redirect_uris,
+            is_active: row.get("is_active"),
+            created_at: row.get("created_at"),
+            // permissions column dropped from the canonical schema; default it like
+            // the Postgres backend does (it has no permissions column either).
+            permissions: vec!["read_activities".to_string()],
+            rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_per_minute"))?,
+            rate_limit_window_seconds: safe_i32_to_u32(row.get::<i32, _>("rate_limit_per_day"))?,
+            updated_at: row.get("updated_at"),
+        })
     }
 
     /// Get A2A client by API key ID
@@ -236,11 +240,11 @@ impl Database {
     ) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
-            SELECT c.id, c.user_id, c.name, c.description, c.public_key, c.permissions, c.capabilities,
-                   c.redirect_uris, c.rate_limit_requests, c.rate_limit_window_seconds, c.is_active,
+            SELECT c.client_id, c.user_id, c.name, c.description, c.api_key_hash, c.capabilities,
+                   c.redirect_uris, c.rate_limit_per_minute, c.rate_limit_per_day, c.is_active,
                    c.created_at, c.updated_at
             FROM a2a_clients c
-            INNER JOIN a2a_client_api_keys k ON c.id = k.client_id
+            INNER JOIN a2a_client_api_keys k ON c.client_id = k.client_id
             WHERE k.api_key_id = $1 AND c.is_active = 1
             ",
         )
@@ -250,50 +254,10 @@ impl Database {
         .map_err(|e| AppError::database(format!("Failed to query A2A client by API key: {e}")))?;
 
         if let Some(row) = row {
-            let permissions_json: String = row.get("permissions");
-            let permissions = serde_json::from_str(&permissions_json)?;
-
-            let capabilities_json: String = row.get("capabilities");
-            let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    api_key_id = api_key_id,
-                    error = %e,
-                    operation = "get_a2a_client_by_api_key_id",
-                    "A2A client capabilities JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            let redirect_uris_json: String = row.get("redirect_uris");
-            let redirect_uris = serde_json::from_str(&redirect_uris_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    api_key_id = api_key_id,
-                    error = %e,
-                    operation = "get_a2a_client_by_api_key_id",
-                    "A2A client redirect_uris JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            Ok(Some(A2AClient {
-                id: row.get("id"),
-                user_id: Uuid::parse_str(&row.get::<String, _>("user_id"))?,
-                name: row.get("name"),
-                description: row.get("description"),
-                public_key: row.get("public_key"),
-                capabilities,
-                redirect_uris,
-                is_active: row.get("is_active"),
-                created_at: row.get("created_at"),
-                permissions,
-                rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_requests"))?,
-                rate_limit_window_seconds: safe_i32_to_u32(
-                    row.get::<i32, _>("rate_limit_window_seconds"),
-                )?,
-                updated_at: row.get("updated_at"),
-            }))
+            Ok(Some(Self::a2a_client_from_row(
+                &row,
+                "get_a2a_client_by_api_key_id",
+            )?))
         } else {
             Ok(None)
         }
@@ -307,10 +271,10 @@ impl Database {
         let rows = if user_id == &Uuid::nil() {
             // Admin/system-wide query - list all active A2A clients
             let query = r"
-                SELECT c.id, c.user_id, c.name, c.description, c.public_key, c.permissions, c.capabilities, c.redirect_uris,
-                       c.rate_limit_requests, c.rate_limit_window_seconds, c.is_active,
+                SELECT c.client_id, c.user_id, c.name, c.description, c.api_key_hash, c.capabilities, c.redirect_uris,
+                       c.rate_limit_per_minute, c.rate_limit_per_day, c.is_active,
                        c.created_at, c.updated_at
-                FROM a2a_clients c 
+                FROM a2a_clients c
                 WHERE c.is_active = 1
                 ORDER BY c.created_at DESC
             ";
@@ -322,8 +286,8 @@ impl Database {
         } else {
             // User-specific query - filter directly by c.user_id (the A2A client owner)
             let query = r"
-                SELECT c.id, c.user_id, c.name, c.description, c.public_key, c.permissions, c.capabilities, c.redirect_uris,
-                       c.rate_limit_requests, c.rate_limit_window_seconds, c.is_active,
+                SELECT c.client_id, c.user_id, c.name, c.description, c.api_key_hash, c.capabilities, c.redirect_uris,
+                       c.rate_limit_per_minute, c.rate_limit_per_day, c.is_active,
                        c.created_at, c.updated_at
                 FROM a2a_clients c
                 WHERE c.is_active = 1 AND c.user_id = ?
@@ -339,48 +303,7 @@ impl Database {
 
         let mut clients = Vec::new();
         for row in rows {
-            let permissions_json: String = row.get("permissions");
-            let permissions = serde_json::from_str(&permissions_json)?;
-
-            let capabilities_json: String = row.get("capabilities");
-            let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    error = %e,
-                    operation = "list_a2a_clients",
-                    "A2A client capabilities JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            let redirect_uris_json: String = row.get("redirect_uris");
-            let redirect_uris = serde_json::from_str(&redirect_uris_json).unwrap_or_else(|e| {
-                warn!(
-                    client_id = ?row.get::<String, _>("id"),
-                    error = %e,
-                    operation = "list_a2a_clients",
-                    "A2A client redirect_uris JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            clients.push(A2AClient {
-                id: row.get("id"),
-                user_id: Uuid::parse_str(&row.get::<String, _>("user_id"))?,
-                name: row.get("name"),
-                description: row.get("description"),
-                public_key: row.get("public_key"),
-                capabilities,
-                redirect_uris,
-                is_active: row.get("is_active"),
-                created_at: row.get("created_at"),
-                permissions,
-                rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_requests"))?,
-                rate_limit_window_seconds: safe_i32_to_u32(
-                    row.get::<i32, _>("rate_limit_window_seconds"),
-                )?,
-                updated_at: row.get("updated_at"),
-            });
+            clients.push(Self::a2a_client_from_row(&row, "list_a2a_clients")?);
         }
 
         Ok(clients)
@@ -391,7 +314,7 @@ impl Database {
     /// # Errors
     /// Returns an error if database operations fail or client not found
     pub async fn deactivate_a2a_client_impl(&self, client_id: &str) -> AppResult<()> {
-        let query = "UPDATE a2a_clients SET is_active = 0, updated_at = ? WHERE id = ?";
+        let query = "UPDATE a2a_clients SET is_active = 0, updated_at = ? WHERE client_id = ?";
         let now = Utc::now();
 
         let result = sqlx::query(query)
@@ -416,7 +339,8 @@ impl Database {
         &self,
         client_id: &str,
     ) -> AppResult<Option<(String, String)>> {
-        let query = "SELECT id, client_secret FROM a2a_clients WHERE id = ? AND is_active = 1";
+        let query =
+            "SELECT client_id, client_secret_hash FROM a2a_clients WHERE client_id = ? AND is_active = 1";
 
         let row = sqlx::query(query)
             .bind(client_id)
@@ -429,8 +353,8 @@ impl Database {
         Ok(row.map_or_else(
             || None,
             |row| {
-                let id: String = row.get("id");
-                let secret: String = row.get("client_secret");
+                let id: String = row.get("client_id");
+                let secret: String = row.get("client_secret_hash");
                 Some((id, secret))
             },
         ))
@@ -481,8 +405,8 @@ impl Database {
     pub async fn get_a2a_client_by_name_impl(&self, name: &str) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
-            SELECT id, name, description, public_key, permissions, capabilities, redirect_uris,
-                   rate_limit_requests, rate_limit_window_seconds, is_active,
+            SELECT client_id, user_id, name, description, api_key_hash, capabilities, redirect_uris,
+                   rate_limit_per_minute, rate_limit_per_day, is_active,
                    created_at, updated_at
             FROM a2a_clients
             WHERE name = $1
@@ -494,48 +418,10 @@ impl Database {
         .map_err(|e| AppError::database(format!("Failed to query A2A client by name: {e}")))?;
 
         if let Some(row) = row {
-            let permissions_json: String = row.get("permissions");
-            let permissions = serde_json::from_str(&permissions_json)?;
-
-            let capabilities_json: String = row.get("capabilities");
-            let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
-                warn!(
-                    client_name = name,
-                    error = %e,
-                    operation = "get_a2a_client_by_name",
-                    "A2A client capabilities JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            let redirect_uris_json: String = row.get("redirect_uris");
-            let redirect_uris = serde_json::from_str(&redirect_uris_json).unwrap_or_else(|e| {
-                warn!(
-                    client_name = name,
-                    error = %e,
-                    operation = "get_a2a_client_by_name",
-                    "A2A client redirect_uris JSON parsing failed, using empty array"
-                );
-                vec![]
-            });
-
-            Ok(Some(A2AClient {
-                id: row.get("id"),
-                user_id: Uuid::parse_str(&row.get::<String, _>("user_id"))?,
-                name: row.get("name"),
-                description: row.get("description"),
-                public_key: row.get("public_key"),
-                capabilities,
-                redirect_uris,
-                is_active: row.get("is_active"),
-                created_at: row.get("created_at"),
-                permissions,
-                rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_requests"))?,
-                rate_limit_window_seconds: safe_i32_to_u32(
-                    row.get::<i32, _>("rate_limit_window_seconds"),
-                )?,
-                updated_at: row.get("updated_at"),
-            }))
+            Ok(Some(Self::a2a_client_from_row(
+                &row,
+                "get_a2a_client_by_name",
+            )?))
         } else {
             Ok(None)
         }
@@ -560,8 +446,8 @@ impl Database {
             r"
             INSERT INTO a2a_sessions (
                 session_token, client_id, user_id, granted_scopes,
-                expires_at, last_activity, created_at, requests_count
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                expires_at, last_active_at, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ",
         )
         .bind(&session_token)
@@ -571,7 +457,6 @@ impl Database {
         .bind(expires_at)
         .bind(now)
         .bind(now)
-        .bind(0) // Initial requests count
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create A2A session: {e}")))?;
@@ -587,7 +472,7 @@ impl Database {
         let row = sqlx::query(
             r"
             SELECT session_token, client_id, user_id, granted_scopes,
-                   expires_at, last_activity, created_at, requests_count
+                   expires_at, last_active_at, created_at
             FROM a2a_sessions
             WHERE session_token = $1 AND expires_at > CURRENT_TIMESTAMP
             ",
@@ -614,8 +499,10 @@ impl Database {
                 granted_scopes,
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
-                last_activity: row.get("last_activity"),
-                requests_count: safe_i32_to_u64(row.get::<i32, _>("requests_count"))?,
+                last_activity: row.get("last_active_at"),
+                // requests_count column dropped from the canonical schema; the model
+                // field is retained but no longer persisted, so default it to zero.
+                requests_count: 0,
             }))
         } else {
             Ok(None)
@@ -629,8 +516,8 @@ impl Database {
     pub async fn update_a2a_session_activity_impl(&self, session_token: &str) -> AppResult<()> {
         sqlx::query(
             r"
-            UPDATE a2a_sessions 
-            SET last_activity = datetime('now'), requests_count = requests_count + 1
+            UPDATE a2a_sessions
+            SET last_active_at = datetime('now')
             WHERE session_token = $1
             ",
         )
@@ -653,10 +540,10 @@ impl Database {
         let rows = sqlx::query(
             r"
             SELECT session_token, client_id, user_id, granted_scopes,
-                   expires_at, last_activity, created_at, requests_count
+                   expires_at, last_active_at, created_at
             FROM a2a_sessions
             WHERE client_id = $1 AND expires_at > CURRENT_TIMESTAMP
-            ORDER BY last_activity DESC
+            ORDER BY last_active_at DESC
             ",
         )
         .bind(client_id)
@@ -682,8 +569,9 @@ impl Database {
                 granted_scopes,
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),
-                last_activity: row.get("last_activity"),
-                requests_count: safe_i32_to_u64(row.get::<i32, _>("requests_count"))?,
+                last_activity: row.get("last_active_at"),
+                // requests_count column dropped from the canonical schema; default it.
+                requests_count: 0,
             });
         }
 
@@ -697,31 +585,33 @@ impl Database {
     pub async fn create_a2a_task(
         &self,
         client_id: &str,
-        _session_id: Option<&str>,
+        session_id: Option<&str>,
         task_type: &str,
         input_data: &Value,
     ) -> AppResult<String> {
         let task_id = format!("task_{}", Uuid::new_v4());
         let now = Utc::now();
 
+        // The canonical a2a_tasks is session-keyed (no client_id column). Use the
+        // session token when provided; otherwise fall back to the client_id as a
+        // best-effort session identifier, mirroring the schema-rebuild migration.
+        let session_token = session_id.unwrap_or(client_id);
+
         sqlx::query(
             r"
             INSERT INTO a2a_tasks (
-                id, client_id, task_type, input_data, output_data,
-                status, error_message, created_at, updated_at, completed_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                task_id, session_token, task_type, parameters,
+                status, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ",
         )
         .bind(&task_id)
-        .bind(client_id)
+        .bind(session_token)
         .bind(task_type)
         .bind(serde_json::to_string(input_data)?)
-        .bind(None::<String>) // output_data
         .bind(enums::task_status_to_str(&TaskStatus::Pending))
-        .bind(None::<String>) // error_message
         .bind(now)
         .bind(now)
-        .bind(None::<DateTime<Utc>>) // completed_at
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create A2A task: {e}")))?;
@@ -742,8 +632,8 @@ impl Database {
     ) -> AppResult<Vec<A2ATask>> {
         let mut query = String::from(
             r"
-            SELECT id, client_id, task_type, input_data, output_data,
-                   status, error_message, created_at, updated_at, completed_at
+            SELECT task_id, session_token, task_type, parameters, result,
+                   status, created_at, updated_at
             FROM a2a_tasks
             ",
         );
@@ -752,8 +642,10 @@ impl Database {
         let mut bind_count = 0;
 
         if client_id.is_some() {
+            // a2a_tasks is session-keyed; the client filter matches the session_token
+            // (which carries the client_id for client-keyed tasks created without a session).
             bind_count += 1;
-            conditions.push(format!("client_id = ${bind_count}"));
+            conditions.push(format!("session_token = ${bind_count}"));
         }
 
         if status_filter.is_some() {
@@ -820,10 +712,10 @@ impl Database {
     pub async fn get_a2a_task_impl(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
         let row = sqlx::query(
             r"
-            SELECT id, client_id, task_type, input_data, output_data,
-                   status, error_message, created_at, updated_at, completed_at
+            SELECT task_id, session_token, task_type, parameters, result,
+                   status, created_at, updated_at
             FROM a2a_tasks
-            WHERE id = $1
+            WHERE task_id = $1
             ",
         )
         .bind(task_id)
@@ -850,26 +742,23 @@ impl Database {
         result: Option<&Value>,
         error: Option<&str>,
     ) -> AppResult<()> {
-        let output_json = result.map(serde_json::to_string).transpose()?;
+        let result_json = result.map(serde_json::to_string).transpose()?;
 
-        let completed_at = match status {
-            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => Some(Utc::now()),
-            _ => None,
-        };
+        // The canonical a2a_tasks dropped error_message and completed_at; the
+        // error argument is therefore not persisted. updated_at advances to mark
+        // completion (read back into A2ATask.completed_at by the row mapper).
+        let _ = error;
 
         sqlx::query(
             r"
-            UPDATE a2a_tasks 
-            SET status = $2, output_data = $3, error_message = $4,
-                updated_at = datetime('now'), completed_at = $5
-            WHERE id = $1
+            UPDATE a2a_tasks
+            SET status = $2, result = $3, updated_at = datetime('now')
+            WHERE task_id = $1
             ",
         )
         .bind(task_id)
         .bind(status.to_string())
-        .bind(output_json)
-        .bind(error)
-        .bind(completed_at)
+        .bind(result_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update A2A task status: {e}")))?;
@@ -882,22 +771,25 @@ impl Database {
     /// # Errors
     /// Returns an error if database operations fail or JSON serialization fails
     pub async fn record_a2a_usage_impl(&self, usage: &A2AUsage) -> AppResult<()> {
+        // The model's tool_name maps to the canonical endpoint column; error_message
+        // is no longer persisted, and the new method column is left NULL here.
         sqlx::query(
             r"
             INSERT INTO a2a_usage (
-                client_id, session_token, timestamp, tool_name, response_time_ms,
-                status_code, error_message, request_size_bytes, response_size_bytes,
+                id, client_id, session_token, timestamp, endpoint, response_time_ms,
+                status_code, method, request_size_bytes, response_size_bytes,
                 ip_address, user_agent, protocol_version, client_capabilities, granted_scopes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ",
         )
+        .bind(Uuid::new_v4().to_string())
         .bind(&usage.client_id)
         .bind(&usage.session_token)
         .bind(usage.timestamp)
         .bind(&usage.tool_name)
         .bind(usage.response_time_ms.map(safe_u32_to_i32).transpose()?)
         .bind(i32::from(usage.status_code))
-        .bind(&usage.error_message)
+        .bind(None::<String>) // method (not tracked by A2AUsage model)
         .bind(usage.request_size_bytes.map(safe_u32_to_i32).transpose()?)
         .bind(usage.response_size_bytes.map(safe_u32_to_i32).transpose()?)
         .bind(&usage.ip_address)

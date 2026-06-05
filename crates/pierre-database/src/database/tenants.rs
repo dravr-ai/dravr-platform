@@ -60,7 +60,7 @@ impl TenantRepository for Database {
     async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant> {
         let result = sqlx::query(
             r"
-            UPDATE tenants SET plan = ?1, updated_at = CURRENT_TIMESTAMP
+            UPDATE tenants SET subscription_tier = ?1, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?2
             ",
         )

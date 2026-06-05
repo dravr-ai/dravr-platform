@@ -52,15 +52,14 @@ async fn seed_user_tenant_coach(db: &SqliteDatabase) -> Result<(TenantId, String
         sqlx::query(
             r"
             INSERT INTO tenants (
-                id, name, slug, owner_user_id, created_at, updated_at
+                id, name, slug, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $5)
+            VALUES ($1, $2, $3, $4, $4)
             ",
         )
         .bind(&tenant_id_str)
         .bind("Test Tenant")
         .bind(format!("tenant-{tenant_uuid}"))
-        .bind(&user_id)
         .bind(&now),
     )
     .await?;
