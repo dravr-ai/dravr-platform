@@ -83,7 +83,7 @@ export const CircularProgress: React.FC<CircularProgressProps> = ({
       {showLabel && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={clsx(
-            'font-bold text-pierre-gray-900',
+            'font-bold text-on-surface',
             size === 'sm' && 'text-xs',
             size === 'md' && 'text-sm',
             size === 'lg' && 'text-base'
@@ -92,7 +92,7 @@ export const CircularProgress: React.FC<CircularProgressProps> = ({
           </span>
           {label && (
             <span className={clsx(
-              'text-pierre-gray-500',
+              'text-on-surface-variant',
               size === 'sm' && 'text-[8px]',
               size === 'md' && 'text-[10px]',
               size === 'lg' && 'text-xs'

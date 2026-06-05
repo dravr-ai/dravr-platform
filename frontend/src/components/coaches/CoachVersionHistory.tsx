@@ -123,11 +123,11 @@ export function CoachVersionHistory({
       typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
 
     return (
-      <div key={key} className="py-2 border-b border-pierre-gray-100 last:border-0">
-        <dt className="text-xs font-medium text-pierre-gray-500 uppercase tracking-wide">
+      <div key={key} className="py-2 border-b ghost-border last:border-0">
+        <dt className="text-xs font-medium text-on-surface-variant uppercase tracking-wide">
           {key.replace(/_/g, ' ')}
         </dt>
-        <dd className="mt-1 text-sm text-pierre-gray-900 whitespace-pre-wrap break-words">
+        <dd className="mt-1 text-sm text-on-surface whitespace-pre-wrap break-words">
           {displayValue}
         </dd>
       </div>
@@ -143,8 +143,8 @@ export function CoachVersionHistory({
           : String(val);
 
     return (
-      <div key={change.field} className="py-3 border-b border-pierre-gray-100 last:border-0">
-        <div className="text-sm font-medium text-pierre-gray-700 mb-2">
+      <div key={change.field} className="py-3 border-b ghost-border last:border-0">
+        <div className="text-sm font-medium text-on-surface-variant mb-2">
           {change.field.replace(/_/g, ' ')}
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -172,10 +172,10 @@ export function CoachVersionHistory({
           {/* Stats bar */}
           {versionsData && (
             <div className="flex items-center justify-between px-4 py-2 bg-surface-container-low rounded-lg">
-              <span className="text-sm text-pierre-gray-600">
+              <span className="text-sm text-on-surface-variant">
                 {versionsData.total} version{versionsData.total !== 1 ? 's' : ''} saved
               </span>
-              <span className="text-sm font-medium text-pierre-gray-900">
+              <span className="text-sm font-medium text-on-surface">
                 Current: v{versionsData.current_version}
               </span>
             </div>
@@ -200,17 +200,17 @@ export function CoachVersionHistory({
 
           {/* Diff view */}
           {diffData && diffData.changes && (
-            <Card className="bg-white">
+            <Card className="bg-surface">
               <div className="p-4">
-                <h3 className="text-sm font-semibold text-pierre-gray-900 mb-3">
+                <h3 className="text-sm font-semibold text-on-surface mb-3">
                   Changes between v{diffData.from_version} and v{diffData.to_version}
                 </h3>
                 {isDiffLoading ? (
-                  <div className="text-sm text-pierre-gray-500">Loading diff...</div>
+                  <div className="text-sm text-on-surface-variant">Loading diff...</div>
                 ) : diffData.changes.length === 0 ? (
-                  <div className="text-sm text-pierre-gray-500">No changes between versions</div>
+                  <div className="text-sm text-on-surface-variant">No changes between versions</div>
                 ) : (
-                  <div className="divide-y divide-pierre-gray-100">
+                  <div className="divide-y divide-[var(--ghost-border)]">
                     {diffData.changes.map(renderDiffChange)}
                   </div>
                 )}
@@ -221,9 +221,9 @@ export function CoachVersionHistory({
           {/* Version list */}
           <div className="max-h-96 overflow-y-auto">
             {isLoading ? (
-              <div className="text-center py-8 text-pierre-gray-500">Loading versions...</div>
+              <div className="text-center py-8 text-on-surface-variant">Loading versions...</div>
             ) : !versionsData || versionsData.versions.length === 0 ? (
-              <div className="text-center py-8 text-pierre-gray-500">
+              <div className="text-center py-8 text-on-surface-variant">
                 No version history yet. Versions are created automatically when you update the
                 coach.
               </div>
@@ -236,7 +236,7 @@ export function CoachVersionHistory({
                       'border rounded-lg transition-all',
                       selectedVersion?.version === version.version
                         ? 'border-pierre-primary bg-pierre-primary/5'
-                        : 'border-pierre-gray-200 hover:border-pierre-gray-300',
+                        : 'ghost-border hover:ghost-border',
                       compareFrom === version.version || compareTo === version.version
                         ? 'ring-2 ring-blue-500 ring-offset-1'
                         : ''
@@ -249,14 +249,14 @@ export function CoachVersionHistory({
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-pierre-gray-100 text-pierre-gray-700 font-semibold text-sm">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant font-semibold text-sm">
                             v{version.version}
                           </span>
                           <div>
-                            <div className="text-sm font-medium text-pierre-gray-900">
+                            <div className="text-sm font-medium text-on-surface">
                               {version.change_summary || 'Update'}
                             </div>
-                            <div className="text-xs text-pierre-gray-500">
+                            <div className="text-xs text-on-surface-variant">
                               {formatDate(version.created_at)}
                               {version.created_by_name && ` by ${version.created_by_name}`}
                             </div>
@@ -272,14 +272,14 @@ export function CoachVersionHistory({
                               'px-2 py-1 text-xs rounded',
                               compareFrom === version.version || compareTo === version.version
                                 ? 'bg-blue-100 text-blue-700'
-                                : 'bg-pierre-gray-100 text-pierre-gray-600 hover:bg-pierre-gray-200'
+                                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'
                             )}
                           >
                             Compare
                           </button>
                           <svg
                             className={clsx(
-                              'w-5 h-5 text-pierre-gray-400 transition-transform',
+                              'w-5 h-5 text-on-surface-variant transition-transform',
                               selectedVersion?.version === version.version ? 'rotate-180' : ''
                             )}
                             fill="none"
@@ -299,12 +299,12 @@ export function CoachVersionHistory({
 
                     {/* Expanded content */}
                     {selectedVersion?.version === version.version && (
-                      <div className="px-4 pb-4 border-t border-pierre-gray-100">
+                      <div className="px-4 pb-4 border-t ghost-border">
                         <div className="mt-3 bg-surface-container-low rounded-lg p-4">
-                          <h4 className="text-xs font-semibold text-pierre-gray-700 uppercase tracking-wide mb-2">
+                          <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-2">
                             Snapshot Content
                           </h4>
-                          <dl className="divide-y divide-pierre-gray-100">
+                          <dl className="divide-y divide-[var(--ghost-border)]">
                             {Object.entries(version.content_snapshot).map(([key, value]) =>
                               renderSnapshotField(key, value)
                             )}
@@ -343,7 +343,7 @@ export function CoachVersionHistory({
         title="Confirm Revert"
         size="sm"
       >
-        <p className="text-sm text-pierre-gray-600">
+        <p className="text-sm text-on-surface-variant">
           Are you sure you want to revert to version {selectedVersion?.version}? This will create a
           new version with the reverted content. Your current changes will be preserved in the
           version history.

@@ -43,12 +43,12 @@ export default function CoachFormModal({
         onClick={onClose}
       />
       {/* Modal Content */}
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-pierre-gray-400 hover:text-pierre-gray-600 hover:bg-pierre-gray-100 rounded-lg transition-colors"
+            className="absolute top-4 right-4 p-2 text-on-surface-variant hover:text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,10 +62,10 @@ export default function CoachFormModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-pierre-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-on-surface mb-2">
               {isEditing ? 'Edit Coach' : 'Create Custom Coach'}
             </h2>
-            <p className="text-pierre-gray-500 text-sm">
+            <p className="text-on-surface-variant text-sm">
               {isEditing
                 ? 'Update your coaching persona settings'
                 : 'Define a specialized AI coaching persona for your training'}
@@ -74,7 +74,7 @@ export default function CoachFormModal({
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">
                 Coach Name
               </label>
               <input
@@ -82,26 +82,26 @@ export default function CoachFormModal({
                 placeholder="e.g., Marathon Training Coach"
                 value={formData.title}
                 onChange={(e) => onFormDataChange({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
-                Description <span className="text-pierre-gray-400">(optional)</span>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">
+                Description <span className="text-on-surface-variant">(optional)</span>
               </label>
               <input
                 type="text"
                 placeholder="Brief description of what this coach specializes in"
                 value={formData.description}
                 onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">
                 System Prompt
               </label>
               <textarea
@@ -109,24 +109,24 @@ export default function CoachFormModal({
                 value={formData.system_prompt}
                 onChange={(e) => onFormDataChange({ ...formData, system_prompt: e.target.value })}
                 rows={4}
-                className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                 required
               />
               {formData.system_prompt && (
-                <p className="text-xs text-pierre-gray-500 mt-1">
+                <p className="text-xs text-on-surface-variant mt-1">
                   ~{Math.ceil(formData.system_prompt.length / 4)} tokens ({((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)
                 </p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">
                 Category
               </label>
               <select
                 value={formData.category}
                 onChange={(e) => onFormDataChange({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
               >
                 <option value="Training">Training</option>
                 <option value="Nutrition">Nutrition</option>
@@ -139,19 +139,19 @@ export default function CoachFormModal({
             </div>
 
             {/* Data Context Section */}
-            <div className="border-t border-pierre-gray-100 pt-4">
-              <h3 className="text-sm font-medium text-pierre-gray-700 mb-3">Data Context</h3>
+            <div className="border-t ghost-border pt-4">
+              <h3 className="text-sm font-medium text-on-surface-variant mb-3">Data Context</h3>
 
               <div className="mb-3">
-                <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
-                  Startup Query <span className="text-pierre-gray-400">(optional)</span>
+                <label className="block text-sm font-medium text-on-surface-variant mb-1">
+                  Startup Query <span className="text-on-surface-variant">(optional)</span>
                 </label>
                 <textarea
                   placeholder="What should the coach analyze on first message? e.g., Analyze my training load and identify trends"
                   value={formData.startup_query}
                   onChange={(e) => onFormDataChange({ ...formData, startup_query: e.target.value })}
                   rows={2}
-                  className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                  className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                 />
               </div>
 
@@ -160,31 +160,31 @@ export default function CoachFormModal({
                   type="checkbox"
                   checked={formData.prefetch_enabled}
                   onChange={(e) => onFormDataChange({ ...formData, prefetch_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded border-pierre-gray-300 text-primary focus:ring-primary"
+                  className="w-4 h-4 rounded ghost-border text-primary focus:ring-primary"
                 />
-                <span className="text-sm text-pierre-gray-700">Pre-fetch activity data when conversation starts</span>
+                <span className="text-sm text-on-surface-variant">Pre-fetch activity data when conversation starts</span>
               </label>
 
               {formData.prefetch_enabled && (
                 <div className="space-y-3 pl-6 border-l-2 border-pierre-violet/20">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-pierre-gray-600 mb-1">Activity count</label>
+                      <label className="block text-xs font-medium text-on-surface-variant mb-1">Activity count</label>
                       <input
                         type="number"
                         min={1}
                         max={200}
                         value={formData.activity_count}
                         onChange={(e) => onFormDataChange({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
-                        className="w-full px-2 py-1.5 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-pierre-gray-600 mb-1">Time frame</label>
+                      <label className="block text-xs font-medium text-on-surface-variant mb-1">Time frame</label>
                       <select
                         value={formData.time_frame}
                         onChange={(e) => onFormDataChange({ ...formData, time_frame: e.target.value })}
-                        className="w-full px-2 py-1.5 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                        className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
                       >
                         <option value="3w">3 weeks</option>
                         <option value="8w">8 weeks</option>
@@ -196,8 +196,8 @@ export default function CoachFormModal({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-pierre-gray-600 mb-1">
-                      Sport types <span className="text-pierre-gray-400">(none = all types)</span>
+                    <label className="block text-xs font-medium text-on-surface-variant mb-1">
+                      Sport types <span className="text-on-surface-variant">(none = all types)</span>
                     </label>
                     <div className="flex flex-wrap gap-1.5">
                       {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
@@ -215,7 +215,7 @@ export default function CoachFormModal({
                             className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                               isSelected
                                 ? 'bg-primary text-on-primary border-primary'
-                                : 'bg-white text-pierre-gray-600 border-pierre-gray-200 hover:border-pierre-violet/50'
+                                : 'bg-surface text-on-surface-variant ghost-border hover:border-pierre-violet/50'
                             }`}
                           >
                             {sport}
@@ -234,7 +234,7 @@ export default function CoachFormModal({
                         onChange={() => onFormDataChange({ ...formData, detail_mode: 'summary' })}
                         className="text-primary focus:ring-primary"
                       />
-                      <span className="text-xs text-pierre-gray-600">Summary</span>
+                      <span className="text-xs text-on-surface-variant">Summary</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -244,7 +244,7 @@ export default function CoachFormModal({
                         onChange={() => onFormDataChange({ ...formData, detail_mode: 'detailed' })}
                         className="text-primary focus:ring-primary"
                       />
-                      <span className="text-xs text-pierre-gray-600">Detailed (laps, splits)</span>
+                      <span className="text-xs text-on-surface-variant">Detailed (laps, splits)</span>
                     </label>
                   </div>
 
@@ -253,9 +253,9 @@ export default function CoachFormModal({
                       type="checkbox"
                       checked={formData.athlete_profile}
                       onChange={(e) => onFormDataChange({ ...formData, athlete_profile: e.target.checked })}
-                      className="w-3.5 h-3.5 rounded border-pierre-gray-300 text-primary focus:ring-primary"
+                      className="w-3.5 h-3.5 rounded ghost-border text-primary focus:ring-primary"
                     />
-                    <span className="text-xs text-pierre-gray-600">Also fetch athlete profile</span>
+                    <span className="text-xs text-on-surface-variant">Also fetch athlete profile</span>
                   </label>
                 </div>
               )}
@@ -265,7 +265,7 @@ export default function CoachFormModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm font-medium text-pierre-gray-600 bg-pierre-gray-100 rounded-lg hover:bg-pierre-gray-200 transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-surface-variant bg-surface-container-high rounded-lg hover:bg-surface-container-highest transition-colors"
               >
                 Cancel
               </button>

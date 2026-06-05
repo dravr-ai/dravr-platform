@@ -43,11 +43,11 @@ export default function PendingApproval() {
                 <ClockIcon className="w-16 h-16 text-pierre-nutrition mx-auto" />
               </div>
 
-              <h1 className="text-xl font-bold text-pierre-gray-900">
+              <h1 className="text-xl font-bold text-on-surface">
                 Account Pending Approval
               </h1>
 
-              <p className="mt-3 text-sm text-pierre-gray-600 max-w-sm">
+              <p className="mt-3 text-sm text-on-surface-variant max-w-sm">
                 Your account has been created successfully and is awaiting approval
                 by an administrator. You&apos;ll receive an email notification once
                 your account is approved.
@@ -57,31 +57,31 @@ export default function PendingApproval() {
             {/* Status card */}
             <div className="mt-8 bg-surface-container-low rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-pierre-gray-700">Status</span>
+                <span className="text-sm font-medium text-on-surface-variant">Status</span>
                 <Badge variant="warning">Pending</Badge>
               </div>
 
               {user?.email && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-pierre-gray-700">Email</span>
-                  <span className="text-sm text-pierre-gray-600">{user.email}</span>
+                  <span className="text-sm font-medium text-on-surface-variant">Email</span>
+                  <span className="text-sm text-on-surface-variant">{user.email}</span>
                 </div>
               )}
 
               {user?.display_name && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-pierre-gray-700">Name</span>
-                  <span className="text-sm text-pierre-gray-600">{user.display_name}</span>
+                  <span className="text-sm font-medium text-on-surface-variant">Name</span>
+                  <span className="text-sm text-on-surface-variant">{user.display_name}</span>
                 </div>
               )}
             </div>
 
             {/* What happens next */}
             <div className="mt-6">
-              <h2 className="text-sm font-semibold text-pierre-gray-900 mb-3">
+              <h2 className="text-sm font-semibold text-on-surface mb-3">
                 What happens next?
               </h2>
-              <ul className="text-sm text-pierre-gray-600 space-y-2">
+              <ul className="text-sm text-on-surface-variant space-y-2">
                 <li className="flex items-start gap-2">
                   <span className="text-pierre-activity mt-0.5">•</span>
                   <span>An administrator will review your registration</span>

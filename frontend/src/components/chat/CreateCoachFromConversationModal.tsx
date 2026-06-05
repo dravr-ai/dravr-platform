@@ -122,12 +122,12 @@ export default function CreateCoachFromConversationModal({
         onClick={onClose}
       />
       {/* Modal Content */}
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-pierre-gray-400 hover:text-pierre-gray-600 hover:bg-pierre-gray-100 rounded-lg transition-colors"
+            className="absolute top-4 right-4 p-2 text-on-surface-variant hover:text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,10 +139,10 @@ export default function CreateCoachFromConversationModal({
             <div className="w-12 h-12 boreal-hero-gradient rounded-xl flex items-center justify-center mx-auto mb-4">
               <Sparkles className="w-6 h-6 text-on-primary" />
             </div>
-            <h2 className="text-xl font-semibold text-pierre-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-on-surface mb-2">
               Create Coach from Conversation
             </h2>
-            <p className="text-pierre-gray-500 text-sm">
+            <p className="text-on-surface-variant text-sm">
               AI analyzes your conversation to generate a specialized coach
             </p>
           </div>
@@ -156,8 +156,8 @@ export default function CreateCoachFromConversationModal({
                   <MessageSquareText className="w-8 h-8 text-primary animate-pulse" />
                 </div>
               </div>
-              <p className="text-pierre-gray-700 font-medium mb-2">Analyzing conversation...</p>
-              <p className="text-pierre-gray-500 text-sm">
+              <p className="text-on-surface-variant font-medium mb-2">Analyzing conversation...</p>
+              <p className="text-on-surface-variant text-sm">
                 Reading last {Math.min(messageCount, MAX_MESSAGES_ANALYZED)} of {messageCount} messages
               </p>
             </div>
@@ -169,8 +169,8 @@ export default function CreateCoachFromConversationModal({
               <div className="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
                 <AlertCircle className="w-8 h-8 text-red-500" />
               </div>
-              <p className="text-pierre-gray-700 font-medium mb-2">Analysis Failed</p>
-              <p className="text-pierre-gray-500 text-sm mb-4">{errorMessage}</p>
+              <p className="text-on-surface-variant font-medium mb-2">Analysis Failed</p>
+              <p className="text-on-surface-variant text-sm mb-4">{errorMessage}</p>
               <button
                 onClick={handleRegenerate}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 transition-colors"
@@ -204,7 +204,7 @@ export default function CreateCoachFromConversationModal({
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
                     Coach Name
                   </label>
                   <input
@@ -212,26 +212,26 @@ export default function CreateCoachFromConversationModal({
                     placeholder="e.g., Marathon Training Coach"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
-                    Description <span className="text-pierre-gray-400">(optional)</span>
+                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
+                    Description <span className="text-on-surface-variant">(optional)</span>
                   </label>
                   <input
                     type="text"
                     placeholder="Brief description of what this coach specializes in"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
                     System Prompt
                   </label>
                   <textarea
@@ -239,24 +239,24 @@ export default function CreateCoachFromConversationModal({
                     value={formData.system_prompt}
                     onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
                     rows={6}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                     required
                   />
                   {formData.system_prompt && (
-                    <p className="text-xs text-pierre-gray-500 mt-1">
+                    <p className="text-xs text-on-surface-variant mt-1">
                       ~{Math.ceil(formData.system_prompt.length / 4)} tokens ({((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
                     Category
                   </label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
                   >
                     <option value="Training">Training</option>
                     <option value="Nutrition">Nutrition</option>
@@ -272,7 +272,7 @@ export default function CreateCoachFromConversationModal({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-pierre-gray-600 bg-pierre-gray-100 rounded-lg hover:bg-pierre-gray-200 transition-colors"
+                    className="flex-1 px-4 py-2 text-sm font-medium text-on-surface-variant bg-surface-container-high rounded-lg hover:bg-surface-container-highest transition-colors"
                   >
                     Cancel
                   </button>

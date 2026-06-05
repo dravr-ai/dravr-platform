@@ -16,7 +16,7 @@ export const Skeleton: React.FC<SkeletonBaseProps> = ({ className = '', style })
   return (
     <div
       className={`
-        bg-gradient-to-r from-pierre-gray-200 via-pierre-gray-100 to-pierre-gray-200
+        bg-gradient-to-r from-surface-container-highest via-surface-container-high to-surface-container-highest
         bg-[length:200%_100%] animate-shimmer rounded
         ${className}
       `}
@@ -52,7 +52,7 @@ export const TextSkeleton: React.FC<TextSkeletonProps> = ({
 // Card skeleton
 export const CardSkeleton: React.FC<SkeletonBaseProps> = ({ className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg border border-pierre-gray-200 p-6 ${className}`}>
+    <div className={`bg-surface rounded-lg border ghost-border p-6 ${className}`}>
       <div className="flex items-center gap-4 mb-4">
         <Skeleton className="w-12 h-12 rounded-full" />
         <div className="flex-1">
@@ -68,7 +68,7 @@ export const CardSkeleton: React.FC<SkeletonBaseProps> = ({ className = '' }) =>
 // Stat card skeleton
 export const StatCardSkeleton: React.FC<SkeletonBaseProps> = ({ className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg border border-pierre-gray-200 p-6 ${className}`}>
+    <div className={`bg-surface rounded-lg border ghost-border p-6 ${className}`}>
       <Skeleton className="h-8 w-20 mb-2" />
       <Skeleton className="h-4 w-24" />
     </div>
@@ -82,7 +82,7 @@ interface TableRowSkeletonProps extends SkeletonBaseProps {
 
 export const TableRowSkeleton: React.FC<TableRowSkeletonProps> = ({ columns = 4, className = '' }) => {
   return (
-    <div className={`flex items-center gap-4 p-4 border-b border-pierre-gray-200 ${className}`}>
+    <div className={`flex items-center gap-4 p-4 border-b ghost-border ${className}`}>
       {Array.from({ length: columns }).map((_, index) => (
         <Skeleton key={index} className="h-4 flex-1" />
       ))}
@@ -98,9 +98,9 @@ interface TableSkeletonProps extends SkeletonBaseProps {
 
 export const TableSkeleton: React.FC<TableSkeletonProps> = ({ rows = 5, columns = 4, className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg border border-pierre-gray-200 overflow-hidden ${className}`}>
+    <div className={`bg-surface rounded-lg border ghost-border overflow-hidden ${className}`}>
       {/* Header */}
-      <div className="flex items-center gap-4 p-4 bg-surface-container-low border-b border-pierre-gray-200">
+      <div className="flex items-center gap-4 p-4 bg-surface-container-low border-b ghost-border">
         {Array.from({ length: columns }).map((_, index) => (
           <Skeleton key={index} className="h-4 flex-1" />
         ))}
@@ -116,7 +116,7 @@ export const TableSkeleton: React.FC<TableSkeletonProps> = ({ rows = 5, columns 
 // Chart skeleton
 export const ChartSkeleton: React.FC<SkeletonBaseProps> = ({ className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg border border-pierre-gray-200 p-6 ${className}`}>
+    <div className={`bg-surface rounded-lg border ghost-border p-6 ${className}`}>
       <div className="flex items-end gap-2 h-48">
         {[40, 65, 45, 80, 55, 70, 50, 85, 60, 75, 45, 90].map((height, index) => (
           <Skeleton
@@ -180,7 +180,7 @@ export const ListSkeleton: React.FC<ListSkeletonProps> = ({
 // Zone editor skeleton for fitness configuration
 export const ZoneEditorSkeleton: React.FC<SkeletonBaseProps> = ({ className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg border border-pierre-gray-200 p-6 ${className}`}>
+    <div className={`bg-surface rounded-lg border ghost-border p-6 ${className}`}>
       <Skeleton className="h-6 w-48 mb-4" />
       <div className="space-y-3">
         {Array.from({ length: 5 }).map((_, index) => (
