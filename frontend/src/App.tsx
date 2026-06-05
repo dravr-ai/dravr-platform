@@ -88,6 +88,11 @@ function AppContent() {
     staleTime: 5_000,
   });
 
+  // Session-only "continue without a provider": lets the user into the app
+  // without connecting. Deliberately not persisted (no skip flag) — the connect
+  // prompts in chat and on the coach screens carry the nudge from here on.
+  const [skippedOnboarding, setSkippedOnboarding] = useState(false);
+
   // Coach-proposal step: shown once, right after the provider connection lands
   // and before the dashboard, to drive the
   // `connect → analyzing → profile → coaches` onboarding flow.
@@ -294,12 +299,15 @@ function AppContent() {
   // spinner first races E2E tests against UI elements that don't render
   // until the query resolves, and a one-frame flash of dashboard chrome
   // before a redirect is acceptable on the first-login edge case.
-  if (onboardingStatus?.needs_provider_connection === true) {
+  if (onboardingStatus?.needs_provider_connection === true && !skippedOnboarding) {
     return (
       <div className="min-h-screen bg-surface">
         <ConnectionBanner />
         <ImpersonationBanner />
-        <OnboardingConnectProvider userDisplayName={user?.display_name} />
+        <OnboardingConnectProvider
+          userDisplayName={user?.display_name}
+          onContinueWithoutProvider={() => setSkippedOnboarding(true)}
+        />
       </div>
     );
   }

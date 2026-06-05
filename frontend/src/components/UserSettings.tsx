@@ -185,10 +185,10 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
 
 const ADMIN_HIDDEN_TABS: Set<SettingsTab> = new Set(['connections', 'about', 'messaging']);
 
-export default function UserSettings() {
+export default function UserSettings({ initialTab = 'profile' }: { initialTab?: SettingsTab }) {
   const { user, logout, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   // Admin users don't need Data Providers, About, or Messaging tabs.
   // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
