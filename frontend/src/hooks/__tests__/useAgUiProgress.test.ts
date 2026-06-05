@@ -71,8 +71,13 @@ describe('useAgUiProgress', () => {
     renderHook(() => useAgUiProgress('run-abc', 'jwt-xyz'));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe('/api/agui/runs/run-abc/stream');
+    // Find this run's call explicitly — a prior test's hook can leave an
+    // unaborted fetch in the spy's history, so calls[0] is not reliably ours.
+    const call = fetchSpy.mock.calls.find(
+      ([url]) => url === '/api/agui/runs/run-abc/stream',
+    );
+    expect(call).toBeDefined();
+    const init = call?.[1];
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer jwt-xyz');
   });
 
