@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -10,6 +10,7 @@ import ResetPassword from './components/ResetPassword';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingConnectProvider from './components/OnboardingConnectProvider';
+import OnboardingCoachProposal from './components/OnboardingCoachProposal';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import ConnectionBanner from './components/ConnectionBanner';
 import OAuthCallback from './components/OAuthCallback';
@@ -86,6 +87,31 @@ function AppContent() {
     // soon as the provider connection lands.
     staleTime: 5_000,
   });
+
+  // Coach-proposal step: shown once, right after the provider connection lands
+  // and before the dashboard, to drive the
+  // `connect → analyzing → profile → coaches` onboarding flow.
+  //
+  // It fires ONLY when the user connects their first provider *in this session*
+  // — detected as a `needs_provider_connection` true→false transition — so it
+  // never intercepts an already-onboarded user simply logging in (or an E2E
+  // run that authenticates a provider-connected fixture user). Completion is
+  // also persisted per-user in localStorage as a belt-and-suspenders guard.
+  const coachProposalKey = user?.user_id ? `dravr.coach_proposal_done.${user.user_id}` : null;
+  const [coachProposalDone, setCoachProposalDone] = useState(false);
+  useEffect(() => {
+    setCoachProposalDone(coachProposalKey ? localStorage.getItem(coachProposalKey) === '1' : true);
+  }, [coachProposalKey]);
+
+  const [justOnboarded, setJustOnboarded] = useState(false);
+  const prevNeedsProvider = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const now = onboardingStatus?.needs_provider_connection;
+    if (prevNeedsProvider.current === true && now === false) {
+      setJustOnboarded(true);
+    }
+    prevNeedsProvider.current = now;
+  }, [onboardingStatus?.needs_provider_connection]);
 
   // Boot/teardown PostHog analytics in lockstep with the user's
   // analytics_consent flag. Default is opt-out so this is a no-op
@@ -274,6 +300,31 @@ function AppContent() {
         <ConnectionBanner />
         <ImpersonationBanner />
         <OnboardingConnectProvider userDisplayName={user?.display_name} />
+      </div>
+    );
+  }
+
+  // Coach-proposal onboarding step: a provider is connected (needs === false)
+  // but the user hasn't seen their inferred-profile coach suggestions yet.
+  if (
+    onboardingActive &&
+    justOnboarded &&
+    onboardingStatus?.needs_provider_connection === false &&
+    coachProposalKey &&
+    !coachProposalDone
+  ) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <ConnectionBanner />
+        <ImpersonationBanner />
+        <OnboardingCoachProposal
+          userDisplayName={user?.display_name}
+          onComplete={() => {
+            localStorage.setItem(coachProposalKey, '1');
+            setCoachProposalDone(true);
+            setJustOnboarded(false);
+          }}
+        />
       </div>
     );
   }

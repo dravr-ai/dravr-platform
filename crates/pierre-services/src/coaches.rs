@@ -5,7 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::hash::BuildHasher;
+
+use serde::Deserialize;
 
 use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::models::coaches::CoachPrerequisites;
@@ -154,6 +157,132 @@ pub fn score_coach<S: BuildHasher>(
             }
         }
     }
+}
+
+/// One candidate coach reduced to the fields the LLM re-ranking step reads.
+///
+/// Deliberately excludes the full `system_prompt` (bulk, and irrelevant to
+/// *which* coach fits) so the re-rank prompt stays small and on-point — the
+/// model ranks on `title` / `category` / `tags` / `blurb` only.
+#[derive(Debug, Clone)]
+pub struct ProposalCandidate {
+    /// Coach id (slug) the model must echo back to select this coach.
+    pub id: String,
+    /// Coach display title.
+    pub title: String,
+    /// Coach category label (e.g. `training`, `recovery`).
+    pub category: String,
+    /// Free-form tags.
+    pub tags: Vec<String>,
+    /// The "when to use this coach" / purpose blurb the model ranks on.
+    pub blurb: String,
+    /// Deterministic prefilter score, retained for fallback ordering.
+    pub match_score: f32,
+}
+
+/// One coach the re-ranking step selected, in priority order.
+#[derive(Debug, Clone)]
+pub struct RankedSelection {
+    /// Coach id echoed from the candidate list.
+    pub id: String,
+    /// One-sentence, second-person rationale for surfacing this coach.
+    pub reason: String,
+}
+
+/// System prompt for the coach re-ranking step.
+///
+/// The model receives an athlete's training profile and a candidate list and
+/// returns the up-to-`max` best-fitting coaches as a JSON array. The "reject a
+/// coach whose purpose targets a situation the athlete is not in" instruction
+/// is what stops a race-week taper coach surfacing for an athlete with no
+/// upcoming race — the exact mismatch that motivated this feature.
+pub const COACH_RERANK_SYSTEM_PROMPT: &str = "You are a fitness coach matchmaker. \
+Given an athlete's training profile and a list of candidate coaches, pick the coaches that \
+best fit this athlete right now. Reject any coach whose purpose targets a situation the \
+athlete is not in (for example, a race-week taper coach when the athlete has no upcoming \
+race, or a sport the athlete does not practice). Respond with ONLY a JSON array, best fit \
+first, each item an object {\"id\": \"<coach id from the list>\", \"reason\": \"<one \
+second-person sentence explaining why this coach fits>\"}. Use only ids from the candidate \
+list and do not exceed the requested count.";
+
+/// Build the user-message body for the coach re-ranking LLM call.
+///
+/// Pairs the athlete `profile_summary` (a short human-readable description the
+/// caller derives from the [`SportProfile`]) with the candidate list, and asks
+/// for at most `max` selections. Pure and deterministic so it unit-tests
+/// without an LLM.
+#[must_use]
+pub fn build_rerank_user_prompt(
+    profile_summary: &str,
+    candidates: &[ProposalCandidate],
+    max: usize,
+) -> String {
+    let mut list = String::new();
+    for candidate in candidates {
+        let tags = if candidate.tags.is_empty() {
+            String::new()
+        } else {
+            format!("\n  tags: {}", candidate.tags.join(", "))
+        };
+        let _ = writeln!(
+            list,
+            "- id: {id}\n  title: {title}\n  category: {category}{tags}\n  when_to_use: {blurb}",
+            id = candidate.id,
+            title = candidate.title,
+            category = candidate.category,
+            blurb = candidate.blurb,
+        );
+    }
+    format!(
+        "Athlete profile:\n{profile_summary}\n\nCandidate coaches:\n{list}\n\
+         Select at most {max} coaches that best fit this athlete right now."
+    )
+}
+
+/// Raw shape the model returns; mapped into [`RankedSelection`] after
+/// validating ids against the candidate set.
+#[derive(Debug, Deserialize)]
+struct RawSelection {
+    id: String,
+    reason: String,
+}
+
+/// Parse the model's response into ordered selections.
+///
+/// Tolerant of the model wrapping the JSON array in prose or a markdown fence:
+/// the first `[` and last `]` delimit the array. Selections referencing an id
+/// outside `valid_ids` are dropped, duplicates are removed (first wins), and
+/// the result is capped at `max`. Returns an empty vec on any parse failure —
+/// the caller then falls back to deterministic ordering.
+#[must_use]
+pub fn parse_rerank_response<S: BuildHasher>(
+    content: &str,
+    valid_ids: &HashSet<String, S>,
+    max: usize,
+) -> Vec<RankedSelection> {
+    let Some(array) = extract_json_array(content) else {
+        return Vec::new();
+    };
+    let Ok(raw) = serde_json::from_str::<Vec<RawSelection>>(array) else {
+        return Vec::new();
+    };
+    let mut seen: HashSet<String> = HashSet::new();
+    raw.into_iter()
+        .filter(|s| valid_ids.contains(&s.id) && seen.insert(s.id.clone()))
+        .take(max)
+        .map(|s| RankedSelection {
+            id: s.id,
+            reason: s.reason.trim().to_owned(),
+        })
+        .collect()
+}
+
+/// Slice the substring spanning the first `[` to the last `]`, or `None` when
+/// the content holds no bracket pair.
+fn extract_json_array(content: &str) -> Option<&str> {
+    let start = content.find('[')?;
+    let end = content.rfind(']')?;
+    (end > start).then(|| &content[start..=end])
 }
 
 /// Format a rejection reason by combining the base reason with optional notes

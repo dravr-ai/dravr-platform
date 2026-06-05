@@ -77,6 +77,10 @@ export type {
   ImportCoachResponse,
   ImportPreviewResponse,
   ImportFromUrlRequest,
+  SportShare,
+  SportProfileSummary,
+  ProposedCoach,
+  CoachProposalResponse,
 } from './coaches.js';
 
 // Auth types (users, login, OAuth)

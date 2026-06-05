@@ -69,6 +69,8 @@ export const ENDPOINTS = {
       `/api/coaches/${id}/versions/${fromVersion}/diff/${toVersion}`,
     /** Coach assignments */
     ASSIGNMENTS: (id: string) => `/api/coaches/${id}/assignments`,
+    /** Onboarding coach proposal (inferred profile + top-3 coaches) */
+    PROPOSAL: '/api/coaches/proposal',
     /** Generate coach from conversation */
     GENERATE: '/api/coaches/generate',
     /** Import a coach from markdown content */

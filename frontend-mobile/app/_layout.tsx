@@ -38,6 +38,7 @@ import { QueryProvider } from '../src/providers/QueryProvider';
 import { WebSocketProvider } from '../src/contexts/WebSocketContext';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
+import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -115,12 +116,30 @@ function RootLayoutNav() {
   const needsOnboardingFetch =
     isAuthenticated && user?.user_status === 'active' && !isAdminRole;
   const { data: onboardingStatus } = useOnboardingStatus(needsOnboardingFetch);
+  // One-time coach-proposal step shown after the provider connection lands.
+  const { seen: coachProposalSeen } = useCoachProposalSeen(user?.id);
+
+  // Only divert to the coach proposal when the user connects their first
+  // provider *in this session* (a `needs_provider_connection` true→false
+  // transition), so an already-onboarded user simply opening the app — or an
+  // E2E run authenticating a provider-connected fixture — is never intercepted.
+  const [justOnboarded, setJustOnboarded] = React.useState(false);
+  const prevNeedsProvider = React.useRef<boolean | undefined>(undefined);
+  React.useEffect(() => {
+    const now = onboardingStatus?.needs_provider_connection;
+    if (prevNeedsProvider.current === true && now === false) {
+      setJustOnboarded(true);
+    }
+    prevNeedsProvider.current = now;
+  }, [onboardingStatus?.needs_provider_connection]);
 
   React.useEffect(() => {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
+    const onCoachProposal =
+      inOnboardingGroup && (segments as readonly string[])[1] === 'coach-proposal';
     const showAuth = !isAuthenticated || user?.user_status === 'pending';
 
     if (showAuth) {
@@ -141,6 +160,25 @@ function RootLayoutNav() {
       return;
     }
 
+    // Provider connected: insert the one-time coach-proposal step before chat.
+    // `seen === undefined` means the AsyncStorage read is still in flight — hold
+    // routing rather than flash chat then bounce back to the proposal.
+    if (
+      needsOnboardingFetch &&
+      justOnboarded &&
+      onboardingStatus?.needs_provider_connection === false
+    ) {
+      if (coachProposalSeen === undefined) {
+        return;
+      }
+      if (coachProposalSeen === false) {
+        if (!onCoachProposal) {
+          router.replace('/(onboarding)/coach-proposal');
+        }
+        return;
+      }
+    }
+
     if (inAuthGroup || inOnboardingGroup) {
       router.replace('/(app)/(tabs)/(chat)');
     }
@@ -150,7 +188,10 @@ function RootLayoutNav() {
     segments,
     router,
     user?.user_status,
+    needsOnboardingFetch,
+    justOnboarded,
     onboardingStatus?.needs_provider_connection,
+    coachProposalSeen,
   ]);
 
   if (isLoading || !fontsLoaded) {

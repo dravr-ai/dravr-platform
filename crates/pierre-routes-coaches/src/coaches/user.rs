@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +21,8 @@ use pierre_coach_parser::{parse_coach_content, to_markdown};
 use pierre_config::coach_recommendations::CoachRecommendationConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::coaches::{
-    CoachCategory, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
+    CoachCategory, CoachListItem, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter,
+    UpdateCoachRequest,
 };
 use pierre_core::models::{SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
@@ -32,15 +33,15 @@ use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tracing::{field, info, Span};
+use tracing::{field, info, warn, Span};
 use uuid::Uuid;
 
 use super::types::{
-    CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse,
-    GeneratedCoachData, HideCoachResponse, ImportCoachResponse, ImportFromUrlBody,
-    ImportPreviewResponse, ListCoachesQuery, ListCoachesResponse, MissingPrerequisite,
-    ParsedCoachFields, RecordUsageResponse, SearchCoachesQuery, ToggleFavoriteResponse,
-    UpdateCoachBody,
+    CoachProposalResponse, CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest,
+    GenerateCoachResponse, GeneratedCoachData, HideCoachResponse, ImportCoachResponse,
+    ImportFromUrlBody, ImportPreviewResponse, ListCoachesQuery, ListCoachesResponse,
+    MissingPrerequisite, ParsedCoachFields, ProposedCoach, RecordUsageResponse, SearchCoachesQuery,
+    SportProfileSummary, SportShare, ToggleFavoriteResponse, UpdateCoachBody,
 };
 
 /// Resolve the [`ChatProvider`] handle the coach-generation route needs.
@@ -233,6 +234,364 @@ async fn load_sport_profile<C: ToolRuntime>(
         .await;
 
     Some(profile)
+}
+
+/// Handle GET /api/coaches/proposal - Onboarding coach proposal.
+///
+/// Drives the post-onboarding "we analyzed your data → here are your coaches"
+/// screen in one call: infers the user's recent sport profile, deterministically
+/// prefilters the system-coach catalog to an eligible candidate pool, then asks
+/// the LLM to re-rank that pool down to the top
+/// [`max_recommended`](CoachRecommendationConfig::max_recommended) with a
+/// one-line rationale each. The LLM step reads each candidate's "when to use"
+/// text so a situational coach (e.g. a race-week taper builder) is rejected for
+/// an athlete it does not fit. Any LLM failure falls back to deterministic
+/// prefilter order, so the proposal never hard-fails.
+pub(super) async fn handle_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    let tenant_id = super::get_user_tenant(&auth)?;
+    let (profile, coaches) = build_coach_proposal(&ctx, auth.user_id, tenant_id).await?;
+    let response = CoachProposalResponse {
+        profile,
+        coaches,
+        metadata: super::build_metadata(),
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Build the onboarding coach proposal for a user.
+///
+/// The shared core behind both the REST route and the messaging auto-send, so
+/// every surface proposes identically. Infers the sport profile, deterministically
+/// prefilters the system-coach catalog to an eligible pool, LLM-re-ranks it to the
+/// top [`max_recommended`](CoachRecommendationConfig::max_recommended) with a
+/// rationale each, and falls back to deterministic order on any LLM failure.
+///
+/// # Errors
+///
+/// Returns an error only if listing the coach catalog fails; profile inference
+/// and the LLM step degrade gracefully rather than erroring.
+pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
+    ctx: &Arc<C>,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+) -> Result<(SportProfileSummary, Vec<ProposedCoach>), AppError> {
+    let manager = super::get_coaches_manager(ctx);
+    let rec_config = CoachRecommendationConfig::from_env();
+
+    // Connected providers (lowercased names), needed for prefilter eligibility.
+    let user_providers = MiddlewareCtx::repos(ctx.as_ref())
+        .oauth_tokens
+        .get_tokens(user_id, None)
+        .await
+        .map(|tokens| {
+            tokens
+                .iter()
+                .map(|t| t.provider.to_lowercase())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+
+    // Recent sport profile (`None` ⇒ cold start: no provider or no activities).
+    let sport_profile = load_sport_profile(ctx, user_id, tenant_id, &rec_config).await;
+    let profile_view = build_profile_view(sport_profile.as_ref(), &user_providers, &rec_config);
+
+    // Score the full system-coach catalog and keep only eligible candidates,
+    // best deterministic score first, capped to the re-rank pool size.
+    let filter = ListCoachesFilter {
+        category: None,
+        favorites_only: false,
+        limit: None,
+        offset: None,
+        include_system: true,
+        include_hidden: false,
+    };
+    let items = manager.list(user_id, tenant_id, &filter).await?;
+
+    let mut eligible: Vec<(CoachListItem, f32)> = items
+        .into_iter()
+        .filter_map(|item| {
+            let recommendation = coaches_service::score_coach(
+                &item.coach.prerequisites,
+                sport_profile.as_ref(),
+                &user_providers,
+                &rec_config,
+            );
+            recommendation
+                .eligible
+                .then_some((item, recommendation.match_score))
+        })
+        .collect();
+    eligible.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.coach.id.cmp(&b.0.coach.id))
+    });
+    eligible.truncate(rec_config.rerank_pool_size);
+
+    // Re-rank the candidate pool with the LLM. Cold start (no profile) skips the
+    // LLM — there is nothing situational to reason about — and just takes the
+    // deterministic top set.
+    let ranked = rerank_candidates(
+        ctx,
+        &profile_view,
+        eligible,
+        rec_config.max_recommended,
+        sport_profile.is_some(),
+    )
+    .await;
+
+    let coaches: Vec<ProposedCoach> = ranked
+        .into_iter()
+        .map(|(item, match_score, reason)| ProposedCoach {
+            match_score,
+            reason,
+            coach: item.into(),
+        })
+        .collect();
+
+    Ok((profile_view.summary, coaches))
+}
+
+/// The user's sport profile in the two shapes the proposal needs: the
+/// serializable [`SportProfileSummary`] for the response, and a short
+/// human-readable `prompt_text` describing the athlete for the LLM re-rank.
+struct ProfileView {
+    summary: SportProfileSummary,
+    prompt_text: String,
+    primary_sport: Option<String>,
+}
+
+/// Build the [`ProfileView`] from a (possibly absent) sport profile.
+///
+/// With activities present, produces the sport mix (sorted by count desc) and a
+/// one-line athlete description. Otherwise returns a cold-start view describing
+/// whether a provider is connected at all.
+fn build_profile_view(
+    profile: Option<&SportProfile>,
+    providers: &HashSet<String>,
+    config: &CoachRecommendationConfig,
+) -> ProfileView {
+    match profile {
+        Some(profile) if profile.total_activities > 0 => {
+            let total = profile.total_activities.max(1);
+            let mut sport_mix: Vec<SportShare> = profile
+                .sport_counts
+                .iter()
+                .map(|(sport, &count)| SportShare {
+                    sport: prettify_sport_label(sport),
+                    count,
+                    share: share_fraction(count, total),
+                })
+                .collect();
+            sport_mix.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.sport.cmp(&b.sport)));
+
+            let primary_sport = profile.primary_sport().map(|s| prettify_sport_label(&s));
+            let mix_text = sport_mix
+                .iter()
+                .map(|s| format!("{} {:.0}%", s.sport, s.share * 100.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let prompt_text = format!(
+                "Trains primarily {primary}; recent sport mix over {days} days: {mix_text} \
+                 ({total} activities).",
+                primary = primary_sport.as_deref().unwrap_or("various sports"),
+                days = profile.window_days,
+                total = profile.total_activities,
+            );
+
+            ProfileView {
+                summary: SportProfileSummary {
+                    has_profile: true,
+                    primary_sport: primary_sport.clone(),
+                    total_activities: profile.total_activities,
+                    window_days: profile.window_days,
+                    sport_mix,
+                },
+                prompt_text,
+                primary_sport,
+            }
+        }
+        _ => {
+            let prompt_text = if providers.is_empty() {
+                "New athlete: no fitness provider connected yet.".to_owned()
+            } else {
+                "New athlete: a provider is connected but no recent activities are available yet."
+                    .to_owned()
+            };
+            ProfileView {
+                summary: SportProfileSummary {
+                    has_profile: false,
+                    primary_sport: None,
+                    total_activities: 0,
+                    window_days: config.window_days,
+                    sport_mix: Vec::new(),
+                },
+                prompt_text,
+                primary_sport: None,
+            }
+        }
+    }
+}
+
+/// Turn a canonical sport label into a human-readable display string.
+///
+/// `SportProfile` stores uncatalogued sports as the `Debug` form of
+/// [`SportType::Other`] — e.g. `Other("alpine_ski")`. This unwraps that wrapper
+/// and title-cases the `snake_case` token so the onboarding profile shows
+/// "Alpine Ski" rather than `Other("alpine_ski")`. Catalogued labels like
+/// `run` become `Run`.
+fn prettify_sport_label(label: &str) -> String {
+    let inner = label
+        .strip_prefix("Other(\"")
+        .and_then(|rest| rest.strip_suffix("\")"))
+        .unwrap_or(label);
+    inner
+        .split('_')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            chars.next().map_or_else(String::new, |first| {
+                format!("{}{}", first.to_uppercase(), chars.as_str())
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `count / total` as an `f32` fraction without precision-loss casts, mirroring
+/// the approach in [`SportProfile`].
+fn share_fraction(count: u32, total: u32) -> f32 {
+    let count = f32::from(u16::try_from(count).unwrap_or(u16::MAX));
+    let total = f32::from(u16::try_from(total.max(1)).unwrap_or(u16::MAX));
+    count / total
+}
+
+/// Re-rank `eligible` candidates into the final proposal list.
+///
+/// When `use_llm` is true, asks the configured chat provider to pick the best
+/// `max` coaches with a rationale each; selections are applied in the model's
+/// order. Any LLM failure (no provider, request error, unparseable output)
+/// yields no selections and the function fills entirely from deterministic
+/// prefilter order. When the LLM returns fewer than `max`, the remaining slots
+/// are filled deterministically. Returns `(coach, match_score, reason)` tuples.
+async fn rerank_candidates<C: CoachesCtx>(
+    ctx: &Arc<C>,
+    profile: &ProfileView,
+    eligible: Vec<(CoachListItem, f32)>,
+    max: usize,
+    use_llm: bool,
+) -> Vec<(CoachListItem, f32, String)> {
+    if eligible.is_empty() {
+        return Vec::new();
+    }
+
+    let candidates: Vec<coaches_service::ProposalCandidate> = eligible
+        .iter()
+        .map(|(item, score)| {
+            // Rank on the explicit "when to use" guidance, then purpose, then
+            // description — whichever the coach defines first.
+            let blurb = item
+                .coach
+                .when_to_use
+                .clone()
+                .or_else(|| item.coach.purpose.clone())
+                .or_else(|| item.coach.description.clone())
+                .unwrap_or_default();
+            coaches_service::ProposalCandidate {
+                id: item.coach.id.to_string(),
+                title: item.coach.title.clone(),
+                category: item.coach.category.as_str().to_owned(),
+                tags: item.coach.tags.clone(),
+                blurb,
+                match_score: *score,
+            }
+        })
+        .collect();
+    let valid_ids: HashSet<String> = candidates.iter().map(|c| c.id.clone()).collect();
+
+    let selections = if use_llm {
+        llm_rerank_selections(ctx, &profile.prompt_text, &candidates, &valid_ids, max).await
+    } else {
+        Vec::new()
+    };
+
+    // Index candidates by id so selections pull out in the model's order.
+    let mut by_id: HashMap<String, (CoachListItem, f32)> = eligible
+        .into_iter()
+        .map(|(item, score)| (item.coach.id.to_string(), (item, score)))
+        .collect();
+
+    let mut out: Vec<(CoachListItem, f32, String)> = Vec::with_capacity(max);
+    for selection in selections {
+        if let Some((item, score)) = by_id.remove(&selection.id) {
+            out.push((item, score, selection.reason));
+        }
+    }
+
+    // Deterministic fill for any unfilled slots (LLM returned too few, or off).
+    if out.len() < max {
+        let mut remaining: Vec<(CoachListItem, f32)> = by_id.into_values().collect();
+        remaining.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.0.coach.id.cmp(&b.0.coach.id))
+        });
+        for (item, score) in remaining {
+            if out.len() >= max {
+                break;
+            }
+            let reason = fallback_reason(&item, profile.primary_sport.as_deref());
+            out.push((item, score, reason));
+        }
+    }
+
+    out
+}
+
+/// Run the LLM re-rank call, returning ordered selections or an empty vec on any
+/// failure (logged, never propagated — onboarding falls back deterministically).
+async fn llm_rerank_selections<C: CoachesCtx>(
+    ctx: &Arc<C>,
+    profile_prompt: &str,
+    candidates: &[coaches_service::ProposalCandidate],
+    valid_ids: &HashSet<String>,
+    max: usize,
+) -> Vec<coaches_service::RankedSelection> {
+    let provider = match chat_provider_from_ctx(ctx) {
+        Ok(provider) => provider,
+        Err(e) => {
+            warn!(error = %e, "coach proposal: no chat provider, using deterministic order");
+            return Vec::new();
+        }
+    };
+
+    let user_prompt = coaches_service::build_rerank_user_prompt(profile_prompt, candidates, max);
+    let messages = vec![
+        ChatMessage::system(coaches_service::COACH_RERANK_SYSTEM_PROMPT),
+        ChatMessage::user(&user_prompt),
+    ];
+
+    match provider.complete(&ChatRequest::new(messages)).await {
+        Ok(response) => coaches_service::parse_rerank_response(&response.content, valid_ids, max),
+        Err(e) => {
+            warn!(error = %e, "coach proposal: re-rank LLM call failed, using deterministic order");
+            Vec::new()
+        }
+    }
+}
+
+/// Deterministic rationale used when the LLM does not select a coach.
+fn fallback_reason(item: &CoachListItem, primary_sport: Option<&str>) -> String {
+    match primary_sport {
+        Some(sport) if !item.coach.prerequisites.activity_types.is_empty() => {
+            format!("Matches your {sport} training.")
+        }
+        _ => "A solid all-round coach to start with.".to_owned(),
+    }
 }
 
 /// Check if prerequisites are met given user's connected providers

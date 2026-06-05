@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::any::Any;
+use std::fmt::Write as _;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,6 +24,7 @@ use uuid::Uuid;
 use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
 use pierre_contremaitre::messaging_strings::{format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC};
 use pierre_core::errors::AppError;
+use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
 use pierre_services::analytics::{analytics, hash_id};
 use pierre_services::usage_counter::UsageCounterService;
 
@@ -30,6 +32,129 @@ use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::{
     build_messaging_profile, content_body_text, PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
 };
+
+/// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
+/// been sent on this channel link yet.
+///
+/// Fires on the user's first provider-connected messaging turn: builds the
+/// inferred-profile proposal (shared with the REST route via
+/// [`build_coach_proposal`]), renders it to text, sends it through the channel
+/// adapter, and stamps the link so it never re-sends. Entirely best-effort —
+/// any failure is logged and the turn proceeds normally. When no coaches are
+/// eligible yet (cold start, activities not synced) it returns *without*
+/// stamping, so a later turn can propose once data lands.
+async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
+    let Some(outgoing) = build_coach_proposal_message(dispatch).await else {
+        return;
+    };
+
+    if let Err(e) = dispatch.adapter.send(&outgoing, channel_config).await {
+        warn!(error = %e, "coach proposal: send failed; will retry next turn");
+        return;
+    }
+
+    stamp_coach_proposal_sent(dispatch).await;
+
+    info!(
+        hashed_user = %hash_id(&dispatch.session.user_id),
+        "coach proposal auto-sent"
+    );
+}
+
+/// Stamp the channel link so the proposal is never re-sent. Best-effort: a
+/// failure here only risks a duplicate proposal on a later turn, never the turn.
+async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch) {
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
+    if let Err(e) = db
+        .mark_coach_proposal_sent(
+            dispatch.channel_tenant_id,
+            &dispatch.channel,
+            &dispatch.sender_id,
+        )
+        .await
+    {
+        warn!(error = %e, "coach proposal: sent but failed to stamp link; may re-send next turn");
+    }
+}
+
+/// Decide whether to auto-send and, if so, build the outbound proposal message.
+///
+/// Returns `None` when the proposal was already sent (or the idempotency read
+/// errored — fail closed), when the build fails, or when no coaches are eligible
+/// yet (cold start). In the cold-start case the link is intentionally left
+/// un-stamped so a later turn can propose once activities sync.
+async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<OutgoingMessage> {
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
+
+    let already_sent = db
+        .coach_proposal_sent(
+            dispatch.channel_tenant_id,
+            &dispatch.channel,
+            &dispatch.sender_id,
+        )
+        .await
+        .unwrap_or(true); // fail closed: never risk double-sending on a read error
+    if already_sent {
+        return None;
+    }
+
+    let (profile, coaches) = build_coach_proposal(
+        &dispatch.resources,
+        dispatch.auth_result.user_id,
+        dispatch.user_tenant_id,
+    )
+    .await
+    .inspect_err(|e| warn!(error = %e, "coach proposal: build failed; skipping"))
+    .ok()?;
+
+    if coaches.is_empty() {
+        return None;
+    }
+
+    Some(OutgoingMessage {
+        channel_type: dispatch.channel_type,
+        recipient_id: dispatch.sender_id.clone(),
+        content: MessageContent::Text {
+            body: render_coach_proposal_text(&profile, &coaches),
+        },
+        // A fresh turn id: the proposal is a proactive message, not a reply to
+        // the user's inbound turn.
+        turn_id: CanotTurnId::new(),
+        reply_to: None,
+        thread_id: dispatch.thread_id.clone(),
+    })
+}
+
+/// Render the onboarding coach proposal as a channel text message: a short
+/// profile-aware lead-in, then a numbered list of `title — reason` lines.
+fn render_coach_proposal_text(profile: &SportProfileSummary, coaches: &[ProposedCoach]) -> String {
+    let plural = if coaches.len() == 1 { "" } else { "es" };
+    let mut body = if profile.has_profile {
+        let primary = profile.primary_sport.as_deref().unwrap_or("your training");
+        format!("Welcome! Based on your recent {primary} training, here are {n} coach{plural} for you:\n\n", n = coaches.len())
+    } else {
+        format!(
+            "Welcome! Here {verb} {n} coach{plural} to get you started:\n\n",
+            verb = if coaches.len() == 1 { "is" } else { "are" },
+            n = coaches.len(),
+        )
+    };
+    for (index, proposed) in coaches.iter().enumerate() {
+        let reason = if proposed.reason.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", proposed.reason)
+        };
+        let _ = writeln!(
+            body,
+            "{number}. {title}{reason}",
+            number = index + 1,
+            title = proposed.coach.title,
+        );
+    }
+    body.push_str("\nReply with a number to start, or just ask me anything.");
+    body
+}
 
 /// Route the assistant reply back to the user.
 ///
@@ -202,6 +327,11 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
         return;
     };
+
+    // One-time onboarding coach proposal: on the user's first provider-connected
+    // turn, lead with the inferred-profile coach suggestions before processing
+    // their message. Best-effort — never blocks or fails the turn.
+    maybe_send_coach_proposal(&dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so in-process
     // consumers (channel-side status adapters, ops dashboards) can
