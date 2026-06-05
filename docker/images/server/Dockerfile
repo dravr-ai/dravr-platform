@@ -61,6 +61,7 @@ RUN apt-get update && apt-get upgrade -y \
     npm \
     chromium \
     xvfb \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI and Anthropic Claude Code CLI in one layer so the
