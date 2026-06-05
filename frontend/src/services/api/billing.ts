@@ -50,6 +50,22 @@ export interface MyQuotaResponse {
   counters: QuotaCounter[];
 }
 
+export interface PlanView {
+  tier: string;
+  label: string;
+  unlimited: boolean;
+  daily_messages: number;
+  daily_tokens: number;
+  monthly_tokens: number;
+  max_active_coaches: number;
+  daily_tool_calls: number;
+  included_usd: number | null;
+}
+
+export interface PlansResponse {
+  plans: PlanView[];
+}
+
 export const billingApi = {
   async startCheckout(req: {
     tier: 'starter' | 'professional' | 'enterprise';
@@ -85,6 +101,11 @@ export const billingApi = {
 
   async getMyQuota(): Promise<MyQuotaResponse> {
     const response = await axios.get('/api/users/me/quota');
+    return response.data;
+  },
+
+  async getPlans(): Promise<PlansResponse> {
+    const response = await axios.get('/api/billing/plans');
     return response.data;
   },
 };

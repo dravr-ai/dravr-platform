@@ -266,6 +266,45 @@ pub trait AdminConfigLookup: Send + Sync + 'static {
     ) -> AppResult<Option<serde_json::Value>>;
 }
 
+/// No-override [`AdminConfigLookup`] used when the database-backed admin
+/// config service failed to initialise.
+///
+/// Both lookups return `None`, so consumers fall back to their
+/// compile-time defaults — for [`crate::AdminConfigLookup`]-driven quota
+/// checks that means the per-tier caps in
+/// `pierre_core::models::TierQuotaConfig`. Routing enforcement through
+/// this instead of skipping it keeps quotas active (degraded to tier
+/// defaults) rather than silently disabling them when admin config is
+/// unavailable.
+pub struct DefaultAdminConfig;
+
+#[async_trait]
+impl AdminConfigLookup for DefaultAdminConfig {
+    async fn get_value(&self, _: &str, _: Option<&str>) -> AppResult<Option<serde_json::Value>> {
+        Ok(None)
+    }
+
+    async fn get_override_value(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> AppResult<Option<serde_json::Value>> {
+        Ok(None)
+    }
+}
+
+static DEFAULT_ADMIN_CONFIG: DefaultAdminConfig = DefaultAdminConfig;
+
+/// Shared `'static` [`DefaultAdminConfig`] fallback.
+///
+/// Enforcement paths use this when the database-backed admin config
+/// service is absent, so quota checks and counter writes degrade to tier
+/// defaults instead of being skipped.
+#[must_use]
+pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
+    &DEFAULT_ADMIN_CONFIG
+}
+
 /// Slice of runtime state the coaches/roster/store route layer needs.
 ///
 /// Covers `/api/coaches/*`, `/api/admin/coaches/*`, `/api/admin/store/*`,

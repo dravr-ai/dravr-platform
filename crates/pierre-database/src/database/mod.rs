@@ -86,6 +86,8 @@ pub mod user_oauth_tokens;
 pub mod user_physiological_profiles;
 /// Per-user rate-limit exemption table (`SQLite`) backing `UserRateLimitOverrideRepository`.
 pub mod user_rate_limit_overrides;
+/// Per-user admin tier override table (`SQLite`) backing `UserTierOverrideRepository`.
+pub mod user_tier_overrides;
 /// User account management and authentication
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)

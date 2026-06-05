@@ -273,7 +273,7 @@ impl AdminRoutes {
             .route("/admin/users/{user_id}", delete(users::handle_delete_user))
             .route(
                 "/admin/users/{user_id}/tier",
-                post(users::handle_set_user_tier),
+                post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
             )
             .with_state(context)
     }

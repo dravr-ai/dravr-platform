@@ -22,7 +22,7 @@ use crate::repositories::{
     SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
     TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -134,6 +134,10 @@ pub struct RepositoryRegistry {
     /// Row presence wins over `UserTier::monthly_limit()` in admin views and
     /// the rate-limit middleware.
     pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
+    /// Per-user admin tier override marker. Row presence makes the billing
+    /// webhook skip `set_tier`/`set_plan` so a Stripe event cannot clobber a
+    /// manual operator override.
+    pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
@@ -195,6 +199,7 @@ impl RepositoryRegistry {
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
+            user_tier_overrides: db.clone(),
             feature_flags: db,
         }
     }
@@ -252,6 +257,7 @@ impl RepositoryRegistry {
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
+            user_tier_overrides: db.clone(),
             feature_flags: db,
         }
     }

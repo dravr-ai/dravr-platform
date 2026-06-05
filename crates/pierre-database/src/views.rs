@@ -41,7 +41,7 @@ use crate::repositories::{
     SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
     TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use crate::RepositoryRegistry;
 use dravr_riviere::TimeSeriesStore;
@@ -269,6 +269,8 @@ pub struct UsageRepos {
     pub tool_selection: Arc<dyn ToolSelectionRepository>,
     /// Per-user rate-limit overrides
     pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
+    /// Per-user admin tier override marker — gates Stripe webhook tier writes
+    pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// LLM provider credential management
     pub llm_credentials: Arc<dyn LlmCredentialRepository>,
     /// LLM usage tracking for cost analysis
@@ -287,6 +289,7 @@ impl UsageRepos {
             feature_flags: Arc::clone(&registry.feature_flags),
             tool_selection: Arc::clone(&registry.tool_selection),
             user_rate_limit_overrides: Arc::clone(&registry.user_rate_limit_overrides),
+            user_tier_overrides: Arc::clone(&registry.user_tier_overrides),
             llm_credentials: Arc::clone(&registry.llm_credentials),
             llm_usage: Arc::clone(&registry.llm_usage),
             subscriptions: Arc::clone(&registry.subscriptions),

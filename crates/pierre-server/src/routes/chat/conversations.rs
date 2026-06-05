@@ -17,10 +17,12 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
+use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_core::errors::AppError;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 
 use super::common::get_tenant_id;
 use super::dto::{
@@ -93,33 +95,37 @@ pub async fn create_conversation(
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
-    // Enforce max_active_conversations limit from admin config
-    if let Some(ref admin_config) = resources.coach.admin_config {
-        let max_conversations = admin_config
-            .get_value(
-                "usage_quotas.max_active_conversations",
-                Some(&tenant_id.to_string()),
-            )
-            .await
-            .ok()
-            .flatten()
-            .and_then(|v| v.as_i64())
-            .unwrap_or(2);
+    // Enforce max_active_conversations. Degrade to the registered
+    // default when admin config is unavailable rather than skipping the
+    // limit entirely.
+    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        Some(c) => c,
+        None => default_admin_config(),
+    };
+    let max_conversations = admin_config
+        .get_value(
+            "usage_quotas.max_active_conversations",
+            Some(&tenant_id.to_string()),
+        )
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_i64())
+        .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS);
 
-        let current_count = resources
-            .common
-            .repos
-            .chat
-            .count_conversations(&user_id_str, tenant_id)
-            .await?;
-        if current_count >= max_conversations {
-            return Err(AppError::quota_exceeded(
-                "max_active_conversations",
-                current_count,
-                max_conversations,
-                "",
-            ));
-        }
+    let current_count = resources
+        .common
+        .repos
+        .chat
+        .count_conversations(&user_id_str, tenant_id)
+        .await?;
+    if current_count >= max_conversations {
+        return Err(AppError::quota_exceeded(
+            "max_active_conversations",
+            current_count,
+            max_conversations,
+            "",
+        ));
     }
 
     // Verify group membership when caller asks to attach a group_id —

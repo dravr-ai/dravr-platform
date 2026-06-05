@@ -13,6 +13,7 @@ use pierre_core::models::usage::{
     EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
     LlmUsageDailyRow,
 };
+use pierre_core::models::UserTier;
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
 use pierre_core::models::{
     ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
@@ -247,6 +248,53 @@ pub trait UserRateLimitOverrideRepository: Send + Sync {
     async fn upsert(&self, row: &UserRateLimitOverride) -> AppResult<()>;
 
     /// Remove the override row so the user reverts to the tier default.
+    /// Returns `true` when a row was removed, `false` when no override
+    /// existed.
+    async fn delete(&self, user_id: Uuid) -> AppResult<bool>;
+}
+
+// ================================
+// User tier override repository
+// ================================
+
+/// Per-user admin tier override marker.
+///
+/// When a row exists for a user, an operator has manually set the user's
+/// billing tier outside the Stripe loop (QA, comp accounts, manual
+/// overrides). While the row is present the Stripe webhook MUST NOT change
+/// `users.tier` or the tenant plan — it still upserts the subscription row
+/// and logs that it skipped the tier flip. No row means the webhook drives
+/// the tier as usual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserTierOverride {
+    /// User the override applies to.
+    pub user_id: Uuid,
+    /// Tier the operator pinned the user to.
+    pub tier: UserTier,
+    /// Operator-facing note explaining why the override exists.
+    pub note: Option<String>,
+    /// Admin user who set the override (audit trail). `None` for service
+    /// tokens that do not map to a user UUID.
+    pub set_by: Option<Uuid>,
+    /// First-set timestamp.
+    pub set_at: DateTime<Utc>,
+    /// Most-recent update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// CRUD for `user_tier_overrides` — the marker consulted by the billing
+/// webhook before applying a Stripe-driven tier change.
+#[async_trait]
+pub trait UserTierOverrideRepository: Send + Sync {
+    /// Fetch the override row for a user, or `None` if no override is set
+    /// (the webhook drives the tier).
+    async fn get(&self, user_id: Uuid) -> AppResult<Option<UserTierOverride>>;
+
+    /// Insert or update the override row for a user. `set_at` is preserved
+    /// on update; `updated_at` is always bumped to the call time.
+    async fn upsert(&self, row: &UserTierOverride) -> AppResult<()>;
+
+    /// Remove the override row so the webhook drives the tier again.
     /// Returns `true` when a row was removed, `false` when no override
     /// existed.
     async fn delete(&self, user_id: Uuid) -> AppResult<bool>;

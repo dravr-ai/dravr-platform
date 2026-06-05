@@ -66,6 +66,8 @@ pub mod user;
 pub mod user_physiological_profiles;
 /// Per-user rate-limit exemption table (`Postgres`) backing `UserRateLimitOverrideRepository`.
 pub mod user_rate_limit_overrides;
+/// Per-user admin tier override table (`Postgres`) backing `UserTierOverrideRepository`.
+pub mod user_tier_overrides;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
 /// Endurance user-authored `workout_templates` repository (Postgres)

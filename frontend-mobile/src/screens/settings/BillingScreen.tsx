@@ -57,11 +57,39 @@ interface InvoiceRow {
   hosted_invoice_url?: string;
 }
 
+interface PlanView {
+  tier: string;
+  label: string;
+  unlimited: boolean;
+  daily_messages: number;
+  daily_tokens: number;
+  monthly_tokens: number;
+  max_active_coaches: number;
+  daily_tool_calls: number;
+  included_usd: number | null;
+}
+
 const TIER_LABEL: Record<string, string> = {
   starter: 'Starter',
   professional: 'Professional',
   enterprise: 'Enterprise',
 };
+
+/** Subscription statuses that mean the user must fix their payment. */
+const PAYMENT_PROBLEM_STATUSES = new Set([
+  'past_due',
+  'unpaid',
+  'incomplete',
+  'incomplete_expired',
+]);
+
+/** Compact integer formatting for quota caps (500000 → "500K"). */
+function formatCompact(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
 
 export function BillingScreen(): React.ReactElement {
   const { user } = useAuth();
@@ -100,6 +128,14 @@ export function BillingScreen(): React.ReactElement {
     enabled: subscriptionQuery.data != null,
   });
 
+  const plansQuery = useQuery({
+    queryKey: ['mobile-billing', 'plans'],
+    queryFn: async (): Promise<{ plans: PlanView[] }> => {
+      const r = await apiClient.get('/api/billing/plans');
+      return r.data as { plans: PlanView[] };
+    },
+  });
+
   const checkoutMutation = useMutation({
     mutationFn: async (tier: 'professional' | 'enterprise'): Promise<{ checkout_url: string }> => {
       if (!user) throw new Error('not authenticated');
@@ -135,10 +171,32 @@ export function BillingScreen(): React.ReactElement {
   });
 
   const sub = subscriptionQuery.data;
-  const tier = sub?.plan_tier ?? user?.tier ?? 'starter';
+  // Prefer the subscription row, then the quota endpoint's tier (resolved
+  // server-side from users.tier — authoritative), then the auth-context user.
+  // The stored auth user may omit `tier`, which would mislabel a paid user.
+  const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
+  const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      {hasPaymentProblem && (
+        <View style={[styles.card, styles.dunningCard]}>
+          <Text style={styles.dunningTitle}>Payment problem — action needed</Text>
+          <Text style={styles.muted}>
+            Your last payment for the {TIER_LABEL[tier] ?? tier} plan didn&apos;t go through
+            (status: {sub?.status}). Update your payment method to keep your plan.
+          </Text>
+          <TouchableOpacity
+            style={[styles.button, styles.buttonDanger]}
+            disabled={portalMutation.isPending}
+            onPress={() => portalMutation.mutate()}
+          >
+            <Text style={styles.buttonText}>
+              {portalMutation.isPending ? 'Opening…' : 'Update payment'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {showBillingHeader && (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -182,9 +240,85 @@ export function BillingScreen(): React.ReactElement {
           </TouchableOpacity>
         )}
 
+        {sub != null && (
+          <Text style={styles.fineprint}>
+            {sub.cancel_at_period_end
+              ? 'Your plan is scheduled to cancel at the end of the current period. Use Manage Subscription to resume.'
+              : 'Use Manage Subscription to update your payment method, change plan, or cancel.'}
+          </Text>
+        )}
+
         {error != null && <Text style={styles.error}>Error: {error}</Text>}
       </View>
       )}
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Plans</Text>
+        <Text style={styles.muted}>
+          Compare what each plan includes. Limits shown are the caps the app enforces.
+        </Text>
+        {plansQuery.isLoading ? (
+          <ActivityIndicator />
+        ) : plansQuery.data ? (
+          plansQuery.data.plans.map((plan) => {
+            const cap = (v: number): string => (plan.unlimited ? 'Unlimited' : formatCompact(v));
+            const includedUsage =
+              plan.included_usd != null
+                ? `$${plan.included_usd}/mo`
+                : plan.unlimited
+                ? 'Custom'
+                : '—';
+            const isCurrent = plan.tier === tier;
+            return (
+              <View
+                key={plan.tier}
+                style={[styles.planCard, isCurrent && styles.planCardCurrent]}
+              >
+                <View style={styles.cardHeader}>
+                  <Text style={styles.planTitle}>{plan.label}</Text>
+                  {isCurrent && <Text style={styles.tierBadge}>Current</Text>}
+                </View>
+                {(
+                  [
+                    ['Messages / day', cap(plan.daily_messages)],
+                    ['Tokens / day', cap(plan.daily_tokens)],
+                    ['Coaches', cap(plan.max_active_coaches)],
+                    ['Tool calls / day', cap(plan.daily_tool_calls)],
+                    ['Included usage', includedUsage],
+                  ] as Array<[string, string]>
+                ).map(([planLabel, planValue]) => (
+                  <View key={planLabel} style={styles.row}>
+                    <Text style={styles.label}>{planLabel}</Text>
+                    <Text style={styles.value}>{planValue}</Text>
+                  </View>
+                ))}
+                {!isCurrent && plan.tier === 'professional' && (
+                  <TouchableOpacity
+                    style={[styles.button, styles.buttonPrimary]}
+                    disabled={checkoutMutation.isPending}
+                    onPress={() => checkoutMutation.mutate('professional')}
+                  >
+                    <Text style={styles.buttonText}>
+                      {checkoutMutation.isPending ? 'Opening Checkout…' : 'Upgrade'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {!isCurrent && plan.tier === 'enterprise' && (
+                  <TouchableOpacity
+                    style={[styles.button, styles.buttonSecondary]}
+                    disabled={checkoutMutation.isPending}
+                    onPress={() => checkoutMutation.mutate('enterprise')}
+                  >
+                    <Text style={styles.buttonText}>Talk to Sales</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })
+        ) : (
+          <Text style={styles.muted}>Plan information unavailable.</Text>
+        )}
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Usage Quota</Text>
@@ -274,7 +408,19 @@ const styles = StyleSheet.create({
   label: { color: '#a1a1aa', textTransform: 'capitalize' },
   value: { color: '#f5f5f5' },
   muted: { color: '#a1a1aa', fontSize: 14 },
+  fineprint: { color: '#a1a1aa', fontSize: 12 },
   error: { color: '#ef4444', fontSize: 14 },
+  dunningCard: { borderColor: 'rgba(239,68,68,0.6)', backgroundColor: 'rgba(239,68,68,0.1)' },
+  dunningTitle: { color: '#ef4444', fontSize: 14, fontWeight: '600' },
+  planCard: {
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 10,
+    padding: 12,
+    gap: 8,
+  },
+  planCardCurrent: { borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.05)' },
+  planTitle: { color: '#f5f5f5', fontSize: 15, fontWeight: '600' },
   button: {
     paddingVertical: 12,
     borderRadius: 10,
@@ -282,6 +428,7 @@ const styles = StyleSheet.create({
   },
   buttonPrimary: { backgroundColor: '#10b981' },
   buttonSecondary: { backgroundColor: '#2a2a2a' },
+  buttonDanger: { backgroundColor: '#ef4444' },
   buttonText: { color: '#f5f5f5', fontWeight: '600' },
   quotaRow: { gap: 6 },
   quotaTopRow: { flexDirection: 'row', justifyContent: 'space-between' },

@@ -57,6 +57,19 @@ pub fn try_get_server_config() -> Option<&'static ServerConfig> {
 /// and are reachable via the parent re-export below.
 pub mod protocol;
 
+/// Usage-quota fallback defaults.
+///
+/// These mirror the canonical `ParameterDefinition` defaults in
+/// [`crate::admin_definitions`]. Route handlers fall back to them when
+/// the admin config service is unavailable, so enforcement and display
+/// stay consistent with the registered defaults instead of diverging
+/// per call site.
+pub mod usage_quotas {
+    /// Maximum concurrent active conversations per user. Mirrors the
+    /// `usage_quotas.max_active_conversations` parameter default.
+    pub const DEFAULT_MAX_ACTIVE_CONVERSATIONS: i64 = 10;
+}
+
 // ============================================================================
 // Re-exports from pierre_core::constants
 // ============================================================================

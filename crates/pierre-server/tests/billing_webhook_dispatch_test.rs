@@ -18,6 +18,7 @@ use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::UserTierOverride;
 use pierre_routes_billing::dispatch_billing_event;
 use uuid::Uuid;
 
@@ -261,6 +262,147 @@ async fn payment_failed_flips_status_to_past_due() {
     // wired in dravr-stripe / dravr-revenuecat / etc.).
     let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
     assert_eq!(user_after.tier, UserTier::Professional);
+}
+
+#[tokio::test]
+async fn admin_tier_override_blocks_webhook_tier_change() {
+    let db = create_test_db().await.unwrap();
+    let (overridden_user, overridden_tenant) = seed_starter_user_and_tenant(&db).await;
+    let (plain_user, plain_tenant) = seed_starter_user_and_tenant(&db).await;
+    let repos = db.repositories();
+
+    // Operator pins the first user to Enterprise (set_tier + override marker),
+    // mirroring what handle_set_user_tier does.
+    repos
+        .users
+        .set_tier(overridden_user, UserTier::Enterprise)
+        .await
+        .unwrap();
+    let now = Utc::now();
+    repos
+        .user_tier_overrides
+        .upsert(&UserTierOverride {
+            user_id: overridden_user,
+            tier: UserTier::Enterprise,
+            note: Some("admin tier override via test".to_owned()),
+            set_by: None,
+            set_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+
+    // A Stripe upsert for a DIFFERENT entitled tier (Professional) must NOT
+    // clobber the overridden user's Enterprise tier.
+    let overridden_event = BillingEvent::SubscriptionUpserted(Box::new(upsert_payload(
+        overridden_tenant,
+        overridden_user,
+        &format!("cus_test_{}", Uuid::new_v4().simple()),
+        Some(&format!("sub_test_{}", Uuid::new_v4().simple())),
+        "professional",
+        "active",
+    )));
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &overridden_event)
+        .await
+        .expect("dispatch should succeed");
+
+    // Tier unchanged (override respected) but the subscription row still landed.
+    let overridden_after = repos
+        .users
+        .get_global(overridden_user)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(overridden_after.tier, UserTier::Enterprise);
+    assert!(repos
+        .subscriptions
+        .get_subscription_by_user(overridden_user)
+        .await
+        .unwrap()
+        .is_some());
+
+    // The same event for a user WITHOUT an override DOES flip the tier — the
+    // gate only fires for overridden users.
+    let plain_event = BillingEvent::SubscriptionUpserted(Box::new(upsert_payload(
+        plain_tenant,
+        plain_user,
+        &format!("cus_test_{}", Uuid::new_v4().simple()),
+        Some(&format!("sub_test_{}", Uuid::new_v4().simple())),
+        "professional",
+        "active",
+    )));
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &plain_event)
+        .await
+        .expect("dispatch should succeed");
+
+    let plain_after = repos.users.get_global(plain_user).await.unwrap().unwrap();
+    assert_eq!(plain_after.tier, UserTier::Professional);
+}
+
+#[tokio::test]
+async fn admin_tier_override_blocks_cancel_downgrade() {
+    let db = create_test_db().await.unwrap();
+    let (user_id, tenant_id) = seed_starter_user_and_tenant(&db).await;
+    let repos = db.repositories();
+
+    repos
+        .users
+        .set_tier(user_id, UserTier::Enterprise)
+        .await
+        .unwrap();
+    let now = Utc::now();
+    repos
+        .user_tier_overrides
+        .upsert(&UserTierOverride {
+            user_id,
+            tier: UserTier::Enterprise,
+            note: Some("admin tier override via test".to_owned()),
+            set_by: None,
+            set_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    let customer_id = format!("cus_test_{}", Uuid::new_v4().simple());
+    let subscription_id = format!("sub_test_{}", Uuid::new_v4().simple());
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+
+    // Seed a subscription row so the cancel path has something to update.
+    let upsert = BillingEvent::SubscriptionUpserted(Box::new(upsert_payload(
+        tenant_id,
+        user_id,
+        &customer_id,
+        Some(&subscription_id),
+        "professional",
+        "active",
+    )));
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
+        .await
+        .unwrap();
+
+    let cancel = BillingEvent::SubscriptionCanceled {
+        provider_subscription_id: subscription_id.clone(),
+        canceled_at: Some(Utc::now()),
+    };
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &cancel)
+        .await
+        .expect("dispatch should succeed");
+
+    // Override respected — no downgrade — but the subscription is canceled.
+    let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
+    assert_eq!(user_after.tier, UserTier::Enterprise);
+    let row = repos
+        .subscriptions
+        .get_subscription_by_user(user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, SubscriptionStatus::Canceled);
 }
 
 #[tokio::test]
