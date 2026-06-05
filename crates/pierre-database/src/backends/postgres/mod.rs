@@ -138,10 +138,12 @@ impl PostgresDatabase {
         offset: Option<u32>,
     ) -> AppResult<String> {
         use std::fmt::Write;
+        // parameters/result are JSONB; cast to text so the shared row mapper (which
+        // decodes them as JSON strings, matching the SQLite TEXT columns) works on both backends.
         let mut query = String::from(
             r"
-            SELECT task_id, client_id, session_id, task_type, input_data,
-                   status, result_data, method, created_at, updated_at
+            SELECT task_id, session_token, task_type, parameters::text AS parameters,
+                   status, result::text AS result, created_at, updated_at
             FROM a2a_tasks
             ",
         );
@@ -150,8 +152,10 @@ impl PostgresDatabase {
         let mut bind_count = 0;
 
         if client_id.is_some() {
+            // a2a_tasks is session-keyed; the client filter matches the session_token
+            // (which carries the client_id for client-keyed tasks created without a session).
             bind_count += 1;
-            conditions.push(format!("client_id = ${bind_count}"));
+            conditions.push(format!("session_token = ${bind_count}"));
         }
 
         if status_filter.is_some() {

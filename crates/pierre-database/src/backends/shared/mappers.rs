@@ -176,28 +176,29 @@ where
     DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<DateTime<Utc>>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    // Get task_id for logging
+    // Get task_id for logging (canonical column is task_id)
     let task_id: String = row
         .try_get("task_id")
-        .or_else(|_| row.try_get("id"))
-        .map_err(|e| AppError::database(format!("Failed to get task_id or id: {e}")))?; // Try both column names
+        .map_err(|e| AppError::database(format!("Failed to get column 'task_id': {e}")))?;
 
-    // Parse input_data JSON with fallback to null
+    // Parse parameters JSON with fallback to null. The model field stays input_data;
+    // the canonical column is `parameters`.
     let input_str: String = row
-        .try_get("input_data")
-        .map_err(|e| AppError::database(format!("Failed to get column 'input_data': {e}")))?;
+        .try_get("parameters")
+        .map_err(|e| AppError::database(format!("Failed to get column 'parameters': {e}")))?;
     let input_data: Value = serde_json::from_str(&input_str).unwrap_or_else(|e| {
         warn!(
             task_id = %task_id,
             error = %e,
-            "Failed to deserialize A2A task input_data, using null"
+            "Failed to deserialize A2A task parameters, using null"
         );
         Value::Null
     });
 
-    // Parse result_data JSON (optional) with fallback to None
+    // Parse result JSON (optional) with fallback to None. The model fields stay
+    // result/output_data; the canonical column is `result`.
     let result_data = row
-        .try_get::<Option<String>, _>("output_data") // Column is "output_data" not "result_data"
+        .try_get::<Option<String>, _>("result")
         .map_or(None, |result_str| {
             result_str.and_then(|s| {
                 serde_json::from_str(&s)
@@ -205,7 +206,7 @@ where
                         warn!(
                             task_id = %task_id,
                             error = %e,
-                            "Failed to deserialize A2A task output_data"
+                            "Failed to deserialize A2A task result"
                         );
                     })
                     .ok()
@@ -224,18 +225,23 @@ where
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
+        // completed_at column was dropped; reflect completion via updated_at.
         completed_at: row.try_get("updated_at").ok(),
         result: result_data.clone(), // Safe: JSON value ownership for A2ATask struct
-        error: row.try_get("method").ok(),
+        // error/error_message columns were dropped; no longer persisted.
+        error: None,
+        // a2a_tasks is session-keyed with no client_id column; the model field is
+        // populated best-effort from session_token (carries the client_id for
+        // client-keyed tasks created without a session).
         client_id: row
-            .try_get("client_id")
+            .try_get("session_token")
             .unwrap_or_else(|_| "unknown".into()),
         task_type: row
             .try_get("task_type")
             .map_err(|e| AppError::database(format!("Failed to get column 'task_type': {e}")))?,
         input_data,
         output_data: result_data,
-        error_message: row.try_get("method").ok(),
+        error_message: None,
         updated_at: row
             .try_get("updated_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'updated_at': {e}")))?,

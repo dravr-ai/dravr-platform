@@ -297,7 +297,7 @@ impl Database {
         sqlx::query(
             r"
             INSERT INTO api_key_usage (
-                api_key_id, timestamp, tool_name, status_code,
+                api_key_id, timestamp, endpoint, status_code,
                 response_time_ms, request_size_bytes, response_size_bytes,
                 ip_address, user_agent
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -421,13 +421,13 @@ impl Database {
         // Get tool usage aggregation
         let tool_usage_stats = sqlx::query(
             r"
-            SELECT tool_name, 
+            SELECT endpoint,
                    COUNT(*) as tool_count,
                    AVG(response_time_ms) as avg_response_time,
                    COUNT(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 END) as success_count
             FROM api_key_usage
             WHERE api_key_id = $1 AND timestamp >= $2 AND timestamp <= $3
-            GROUP BY tool_name
+            GROUP BY endpoint
             ORDER BY tool_count DESC
             ",
         )
@@ -440,7 +440,7 @@ impl Database {
 
         let mut tool_usage = serde_json::Map::new();
         for row in tool_usage_stats {
-            let tool_name: String = row.get("tool_name");
+            let tool_name: String = row.get("endpoint");
             let tool_count: i32 = row.get("tool_count");
             let avg_response_time: Option<f64> = row.get("avg_response_time");
             let success_count: i32 = row.get("success_count");

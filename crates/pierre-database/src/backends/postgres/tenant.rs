@@ -495,10 +495,12 @@ impl TenantRepository for PostgresDatabase {
 
     async fn get_all(&self) -> AppResult<Vec<Tenant>> {
         let query = r"
-            SELECT id, slug, name, domain, plan, owner_user_id, created_at, updated_at
-            FROM tenants
-            WHERE is_active = true
-            ORDER BY created_at
+            SELECT t.id, t.slug, t.name, t.domain, t.subscription_tier,
+                   tu.user_id::text AS owner_user_id, t.created_at, t.updated_at
+            FROM tenants t
+            JOIN tenant_users tu ON tu.tenant_id = t.id AND tu.role = 'owner'
+            WHERE t.is_active = true
+            ORDER BY t.created_at
         ";
 
         let rows = sqlx::query(query)
@@ -526,8 +528,8 @@ impl TenantRepository for PostgresDatabase {
                     domain: row.try_get("domain").map_err(|e| {
                         AppError::database(format!("Failed to parse domain column: {e}"))
                     })?,
-                    plan: row.try_get("plan").map_err(|e| {
-                        AppError::database(format!("Failed to parse plan column: {e}"))
+                    plan: row.try_get("subscription_tier").map_err(|e| {
+                        AppError::database(format!("Failed to parse subscription_tier column: {e}"))
                     })?,
                     owner_user_id: uuid::Uuid::parse_str(
                         &row.try_get::<String, _>("owner_user_id").map_err(|e| {
@@ -565,7 +567,7 @@ impl TenantRepository for PostgresDatabase {
     async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant> {
         let result = sqlx::query(
             r"
-            UPDATE tenants SET plan = $1, updated_at = NOW() WHERE id = $2
+            UPDATE tenants SET subscription_tier = $1, updated_at = NOW() WHERE id = $2
             ",
         )
         .bind(plan)

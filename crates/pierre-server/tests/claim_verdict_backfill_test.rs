@@ -77,12 +77,11 @@ async fn seed_assistant_message(
     .await?;
     pool.execute(
         sqlx::query(
-            r"INSERT INTO tenants (id, name, slug, owner_user_id, created_at, updated_at)
-              VALUES ($1, 'Test Tenant', $2, $3, $4, $4)",
+            r"INSERT INTO tenants (id, name, slug, created_at, updated_at)
+              VALUES ($1, 'Test Tenant', $2, $3, $3)",
         )
         .bind(&tenant_id_str)
         .bind(format!("tenant-{tenant_uuid}"))
-        .bind(&user_id)
         .bind(&created_at),
     )
     .await?;

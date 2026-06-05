@@ -882,11 +882,11 @@ impl SeederRepository for PostgresDatabase {
     }
 
     async fn seed_insert_a2a_client(&self, client: &SeedA2AClient) -> AppResult<()> {
-        // a2a_clients.client_id is TEXT (PK), user_id is UUID
-        // PG schema uses client_id, client_secret_hash, api_key_hash, capabilities, redirect_uris
-        // Seed model has id, public_key, client_secret, permissions, capabilities
-        // Map: id -> client_id, client_secret -> client_secret_hash (store as-is for seeding),
-        //       public_key -> api_key_hash, permissions -> redirect_uris (closest available)
+        // a2a_clients.client_id is TEXT (PK), user_id is UUID.
+        // PG schema uses client_id, client_secret_hash, api_key_hash, capabilities, redirect_uris.
+        // Map seed fields: id -> client_id, client_secret -> client_secret_hash (stored as-is
+        // for seeding), public_key -> api_key_hash. The seed model's permissions field is not
+        // persisted; capabilities and redirect_uris seed as empty arrays.
         sqlx::query(
             "INSERT INTO a2a_clients \
              (client_id, user_id, name, description, client_secret_hash, api_key_hash, \
