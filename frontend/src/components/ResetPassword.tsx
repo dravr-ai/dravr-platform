@@ -102,11 +102,7 @@ export default function ResetPassword({
     <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         <div
-          className="rounded-xl border ghost-border overflow-hidden relative"
-          style={{
-            background: 'rgba(244, 244, 241, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
+          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container"
         >
           <div className="h-1 w-full boreal-hero-gradient" />
 

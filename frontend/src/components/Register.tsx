@@ -58,11 +58,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
       <div className="max-w-md w-full">
         {/* Card with glassmorphism and gradient accent bar */}
         <div
-          className="rounded-xl border ghost-border overflow-hidden relative"
-          style={{
-            background: 'rgba(244, 244, 241, 0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
+          className="rounded-xl border ghost-border overflow-hidden relative bg-surface-container"
         >
           {/* Gradient accent bar at top */}
           <div className="h-1 w-full boreal-hero-gradient" />
