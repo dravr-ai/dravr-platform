@@ -1538,6 +1538,52 @@ impl MessagingRepository for Database {
         Ok(())
     }
 
+    async fn coach_proposal_sent(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool> {
+        let sent_at: Option<Option<String>> = sqlx::query_scalar(
+            r"
+            SELECT coach_proposal_sent_at
+            FROM messaging_channel_links
+            WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
+            ",
+        )
+        .bind(tenant_id.0.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read coach_proposal_sent_at: {e}")))?;
+
+        Ok(sent_at.flatten().is_some())
+    }
+
+    async fn mark_coach_proposal_sent(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_channel_links
+               SET coach_proposal_sent_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
+            ",
+        )
+        .bind(tenant_id.0.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to mark coach_proposal_sent: {e}")))?;
+
+        Ok(())
+    }
+
     async fn logout_channel_sender(
         &self,
         tenant_id: TenantId,

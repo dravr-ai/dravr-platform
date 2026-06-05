@@ -341,6 +341,28 @@ pub trait MessagingRepository: Send + Sync {
         locale: Option<&str>,
     ) -> AppResult<()>;
 
+    /// Whether the one-time onboarding coach proposal has already been
+    /// auto-sent for this channel link.
+    ///
+    /// Backs the messaging ingress idempotency check: returns `true` once
+    /// [`Self::mark_coach_proposal_sent`] has stamped the link. A missing link
+    /// returns `false` (nothing has been sent yet).
+    async fn coach_proposal_sent(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Stamp the channel link as having received the onboarding coach proposal,
+    /// so the ingress never re-sends it. Idempotent — re-stamping is harmless.
+    async fn mark_coach_proposal_sent(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()>;
+
     /// Logout a channel sender: delete their channel link, sessions, and OTP states.
     /// Identified by channel identity (`sender_id`), not `user_id`.
     async fn logout_channel_sender(

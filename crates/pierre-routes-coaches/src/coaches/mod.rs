@@ -31,10 +31,13 @@ use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
-    CoachResponse, CoachesMetadata, CreateCoachBody, HideCoachResponse, ListCoachesQuery,
-    ListCoachesResponse, RecordUsageResponse, SearchCoachesQuery, ToggleFavoriteResponse,
-    UpdateCoachBody,
+    CoachProposalResponse, CoachResponse, CoachesMetadata, CreateCoachBody, HideCoachResponse,
+    ListCoachesQuery, ListCoachesResponse, ProposedCoach, RecordUsageResponse, SearchCoachesQuery,
+    SportProfileSummary, SportShare, ToggleFavoriteResponse, UpdateCoachBody,
 };
+/// Shared coach-proposal builder — used by the REST route and the messaging
+/// auto-send so both surfaces propose identically.
+pub use user::build_coach_proposal;
 
 /// Build the user-facing coaches router under `/api/coaches/{...}`.
 pub fn build_coaches_router<C>() -> Router<Arc<C>>
@@ -45,6 +48,7 @@ where
         .route("/api/coaches", get(user::handle_list::<C>))
         .route("/api/coaches", post(user::handle_create::<C>))
         .route("/api/coaches/search", get(user::handle_search::<C>))
+        .route("/api/coaches/proposal", get(user::handle_proposal::<C>))
         .route("/api/coaches/hidden", get(user::handle_list_hidden::<C>))
         .route("/api/coaches/import", post(user::handle_import::<C>))
         .route(

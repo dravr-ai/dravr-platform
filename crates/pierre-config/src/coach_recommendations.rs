@@ -25,7 +25,12 @@ mod defaults {
     /// Multiplier applied to a sport match when the user is below `min_activities`.
     pub const BELOW_MIN_ACTIVITIES_PENALTY: f32 = 0.5;
     /// Maximum coaches surfaced in the "Recommended for you" set.
-    pub const MAX_RECOMMENDED: usize = 6;
+    pub const MAX_RECOMMENDED: usize = 3;
+    /// Candidate pool size the deterministic prefilter hands to the LLM
+    /// re-ranking step. Larger gives the model more to choose from at the
+    /// cost of a longer prompt; the model still returns at most
+    /// `MAX_RECOMMENDED`.
+    pub const RERANK_POOL_SIZE: usize = 8;
 }
 
 /// Tuning knobs for the personalized coach recommender.
@@ -51,6 +56,8 @@ pub struct CoachRecommendationConfig {
     pub below_min_activities_penalty: f32,
     /// Maximum coaches surfaced in the "Recommended for you" set.
     pub max_recommended: usize,
+    /// Candidate pool size handed to the LLM re-ranking step.
+    pub rerank_pool_size: usize,
 }
 
 impl Default for CoachRecommendationConfig {
@@ -64,6 +71,7 @@ impl Default for CoachRecommendationConfig {
             sport_agnostic_base_score: defaults::SPORT_AGNOSTIC_BASE_SCORE,
             below_min_activities_penalty: defaults::BELOW_MIN_ACTIVITIES_PENALTY,
             max_recommended: defaults::MAX_RECOMMENDED,
+            rerank_pool_size: defaults::RERANK_POOL_SIZE,
         }
     }
 }
@@ -97,6 +105,7 @@ impl CoachRecommendationConfig {
                 defaults::BELOW_MIN_ACTIVITIES_PENALTY,
             ),
             max_recommended: parse_env("COACH_REC_MAX_RECOMMENDED", defaults::MAX_RECOMMENDED),
+            rerank_pool_size: parse_env("COACH_REC_RERANK_POOL_SIZE", defaults::RERANK_POOL_SIZE),
         }
     }
 }

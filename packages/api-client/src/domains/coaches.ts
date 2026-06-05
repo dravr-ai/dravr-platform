@@ -15,11 +15,12 @@ import type {
   ForkCoachResponse,
   ImportCoachResponse,
   ImportPreviewResponse,
+  CoachProposalResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Coach, CreateCoachRequest, UpdateCoachRequest, ListCoachesResponse, CoachVersion, ForkCoachResponse, ImportCoachResponse, ImportPreviewResponse };
+export type { Coach, CreateCoachRequest, UpdateCoachRequest, ListCoachesResponse, CoachVersion, ForkCoachResponse, ImportCoachResponse, ImportPreviewResponse, CoachProposalResponse };
 
 export interface ListCoachesOptions {
   category?: string;
@@ -78,6 +79,16 @@ export function createCoachesApi(axios: AxiosInstance) {
       const url = queryString ? `${ENDPOINTS.COACHES.LIST}?${queryString}` : ENDPOINTS.COACHES.LIST;
 
       const response = await axios.get<ListCoachesResponse>(url);
+      return response.data;
+    },
+
+    /**
+     * Onboarding coach proposal: returns the user's inferred sport profile plus
+     * the top (≤3) coaches for them, each with a one-line rationale. Backs the
+     * post-onboarding "we analyzed your data → here are your coaches" screen.
+     */
+    async getProposal(): Promise<CoachProposalResponse> {
+      const response = await axios.get<CoachProposalResponse>(ENDPOINTS.COACHES.PROPOSAL);
       return response.data;
     },
 
@@ -308,6 +319,7 @@ export function createCoachesApi(axios: AxiosInstance) {
     revertCoachToVersion: api.revertToVersion,
     getCoachVersionDiff: api.getVersionDiff,
     generateCoachFromConversation: api.generateFromConversation,
+    getCoachProposal: api.getProposal,
   };
 }
 

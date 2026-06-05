@@ -98,6 +98,50 @@ export interface ForkCoachResponse {
   source_coach_id: string;
 }
 
+// -- Onboarding coach proposal (GET /api/coaches/proposal) --
+
+/** One sport's share of the user's recent activity mix. */
+export interface SportShare {
+  /** Canonical snake_case sport label (e.g. "run", "ride") */
+  sport: string;
+  /** Activity count for this sport in the look-back window */
+  count: number;
+  /** Fraction of total activities this sport represents (0..1) */
+  share: number;
+}
+
+/** The user's inferred sport profile, shown on the "we analyzed your data" screen. */
+export interface SportProfileSummary {
+  /** false ⇒ cold start (no provider or no recent activities) */
+  has_profile: boolean;
+  /** Most-logged sport, if any */
+  primary_sport?: string;
+  /** Total activities scanned to build the profile */
+  total_activities: number;
+  /** Look-back window (days) the activities were drawn from */
+  window_days: number;
+  /** Per-sport breakdown, sorted by count descending */
+  sport_mix: SportShare[];
+}
+
+/** A coach proposed during onboarding, with its score and a rationale. */
+export interface ProposedCoach {
+  /** The proposed coach */
+  coach: Coach;
+  /** Relevance score in 0..1 from the deterministic prefilter */
+  match_score: number;
+  /** One-sentence, second-person rationale ("why this coach fits you") */
+  reason: string;
+}
+
+/** Response for GET /api/coaches/proposal. */
+export interface CoachProposalResponse {
+  /** The inferred sport profile shown before the coach list */
+  profile: SportProfileSummary;
+  /** Up to 3 proposed coaches, best fit first */
+  coaches: ProposedCoach[];
+}
+
 /** Request to create a new coach */
 export interface CreateCoachRequest {
   title: string;

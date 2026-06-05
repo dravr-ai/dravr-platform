@@ -874,3 +874,64 @@ pub struct RejectCoachBody {
     /// Optional additional notes
     pub notes: Option<String>,
 }
+
+// ============================================
+// Onboarding coach proposal
+// ============================================
+
+/// One sport's share of the user's recent activity mix.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct SportShare {
+    /// Canonical `snake_case` sport label (e.g. `run`, `ride`).
+    pub sport: String,
+    /// Activity count for this sport in the look-back window.
+    pub count: u32,
+    /// Fraction of total activities this sport represents (`0.0..=1.0`).
+    pub share: f32,
+}
+
+/// The user's inferred sport profile, rendered on the onboarding
+/// "we analyzed your data" screen before coach suggestions.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct SportProfileSummary {
+    /// `false` ⇒ cold start (no connected provider or no activities in the
+    /// window); the proposal falls back to broadly-useful starter coaches.
+    pub has_profile: bool,
+    /// Most-logged sport, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_sport: Option<String>,
+    /// Total activities scanned to build the profile.
+    pub total_activities: u32,
+    /// Look-back window (days) the activities were drawn from.
+    pub window_days: u32,
+    /// Per-sport breakdown, sorted by count descending.
+    pub sport_mix: Vec<SportShare>,
+}
+
+/// A coach proposed to the user, with its match score and the rationale for
+/// surfacing it. `reason` is LLM-authored when the re-ranking step runs, or a
+/// deterministic fallback string otherwise.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ProposedCoach {
+    /// The proposed coach.
+    pub coach: CoachResponse,
+    /// Relevance score in `0.0..=1.0` from the deterministic prefilter.
+    pub match_score: f32,
+    /// One-sentence, second-person rationale ("why this coach fits you").
+    pub reason: String,
+}
+
+/// Response for `GET /api/coaches/proposal`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct CoachProposalResponse {
+    /// The inferred sport profile shown before the coach list.
+    pub profile: SportProfileSummary,
+    /// Up to `COACH_REC_MAX_RECOMMENDED` proposed coaches, best fit first.
+    pub coaches: Vec<ProposedCoach>,
+    /// Standard response metadata.
+    pub metadata: CoachesMetadata,
+}
