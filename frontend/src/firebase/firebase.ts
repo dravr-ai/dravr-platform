@@ -22,17 +22,15 @@ import {
 //   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
 //   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
 //
-// authDomain is the app's own origin, not firebaseapp.com. The Firebase auth
-// handler (/__/auth/*) is reverse-proxied to {projectId}.firebaseapp.com by the
-// frontend nginx in production and by the vite dev server locally. Keeping the
-// handler same-origin means Firebase stores its pending-redirect state on our
-// own origin instead of a third-party site — without that, mobile browsers
-// (Safari ITP, Chrome storage partitioning) block the cross-site storage that
-// signInWithRedirect/getRedirectResult depend on, so the redirect leg of
-// Google sign-in silently never completes on phones.
+// authDomain points at Firebase's hosted handler ({projectId}.firebaseapp.com).
+// A same-origin authDomain (window.location.host) was tried to fix mobile
+// redirect sign-in but broke local dev — vite serves http, so Firebase's
+// https://localhost:<port>/__/auth/handler URL fails to load and the popup
+// hangs on "Signing in…". The mobile redirect-completion issue is tracked
+// separately; this value is the one that authenticates reliably everywhere.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: window.location.host,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
