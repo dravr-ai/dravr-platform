@@ -258,6 +258,10 @@ export default function UserSettings() {
     queryKey: QUERY_KEYS.user.providerConnections(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
+    // Always refetch when the Data Providers tab is opened — a provider connected
+    // elsewhere (onboarding/chat OAuth, which uses a different query key) would
+    // otherwise show stale "Connect" here until a manual reconnect.
+    refetchOnMount: 'always',
   });
 
   // Native `strava` (official OAuth) is reached only through the Sciotte
@@ -265,7 +269,9 @@ export default function UserSettings() {
   // second Strava card alongside `sciotte` (the Strava-mirror). Mirrors the
   // filter in ProviderConnectionCards.
   const fitnessProviders: ProviderStatus[] = (providersResponse?.providers || []).filter(
-    (p) => p.provider !== 'strava',
+    // Hide native `strava` (see above) and `garmin` ("Garmin Connect") — Garmin's
+    // OAuth API is uncredentialed/unsupported, so it must not be offered.
+    (p) => p.provider !== 'strava' && p.provider !== 'garmin',
   );
 
   // Fetch OAuth apps

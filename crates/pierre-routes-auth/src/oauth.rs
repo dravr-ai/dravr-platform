@@ -59,6 +59,42 @@ pub async fn handle_oauth_callback(
         resources.oauth_notification_sender.clone(),
     );
 
+    // Check if we should redirect to a separate frontend URL
+    let frontend_url = &resources.config.frontend_url.clone();
+
+    // The user cancelled, or the provider returned an error: there is no `code`
+    // (e.g. Strava sends `?error=access_denied`). Redirect back to the frontend
+    // callback page (or mobile deep link) with a friendly error instead of
+    // surfacing a raw `AuthInvalid` JSON body to the browser.
+    if !params.contains_key("code") {
+        let error_msg = params.get("error").map_or("cancelled", String::as_str);
+        let state = params.get("state").map_or("", String::as_str);
+        let mobile_redirect_url = oauth_flow_service::extract_mobile_redirect_from_state(
+            state,
+            &resources.config.base_url,
+            &resources.config.security.allowed_mobile_redirect_origins,
+        );
+        if let Some(mobile_url) = mobile_redirect_url {
+            let redirect_url = format!(
+                "{}?provider={}&success=false&error={}",
+                mobile_url.trim_end_matches('/'),
+                encode(&provider),
+                encode(error_msg)
+            );
+            return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response());
+        }
+        if let Some(url) = frontend_url {
+            let redirect_url = format!(
+                "{}/oauth-callback?provider={}&success=false&error={}",
+                url.trim_end_matches('/'),
+                encode(&provider),
+                encode(error_msg)
+            );
+            return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response());
+        }
+        return Err(AppError::auth_invalid("OAuth authorization was cancelled"));
+    }
+
     let code = params
         .get("code")
         .ok_or_else(|| AppError::auth_invalid("Missing OAuth code parameter"))?;
@@ -66,9 +102,6 @@ pub async fn handle_oauth_callback(
     let state = params
         .get("state")
         .ok_or_else(|| AppError::auth_invalid("Missing OAuth state parameter"))?;
-
-    // Check if we should redirect to a separate frontend URL
-    let frontend_url = &resources.config.frontend_url.clone();
 
     match oauth_routes.handle_callback(code, state, &provider).await {
         Ok(response) => {

@@ -226,7 +226,10 @@ export default function ProviderConnectionCards({
   // on the Sciotte card via the merge below.
   const stravaOAuthConnection = providersData?.providers?.find((p) => p.provider === 'strava' && p.connected);
   const providers = (providersData?.providers ?? [])
-    .filter((p) => p.provider !== 'strava')
+    // Hide the raw `strava` OAuth (the `sciotte` card is the Strava data path) and
+    // `garmin` ("Garmin Connect") — Garmin's OAuth API is uncredentialed/unsupported,
+    // so it must not be offered. The `sciotte_garmin` ("Garmin") scrape card stays.
+    .filter((p) => p.provider !== 'strava' && p.provider !== 'garmin')
     .map((p) =>
       p.provider === 'sciotte' && stravaOAuthConnection && !p.connected
         ? { ...p, connected: true }
