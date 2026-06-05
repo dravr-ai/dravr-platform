@@ -6,6 +6,24 @@ import '@testing-library/jest-dom'
 // Mock fetch for API calls
 global.fetch = vi.fn()
 
+// Polyfill matchMedia — jsdom does not implement it, so hooks/tests that read or
+// spy on window.matchMedia (e.g. useBreakpoint) get a real function in every test
+// file. Without this, the test only passes when another file happens to leak a
+// matchMedia into the shared worker first (flaky across CI test ordering).
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
+}
+
 // Mock IntersectionObserver (not available in jsdom)
 class MockIntersectionObserver implements IntersectionObserver {
   root: Element | Document | null = null
