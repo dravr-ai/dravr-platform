@@ -120,15 +120,38 @@ pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
     // Synthesize a `ValidatedAdminToken` so handlers downstream that
     // expect `Extension<ValidatedAdminToken>` (set by the programmatic
     // `admin_auth_middleware`) work identically when the request comes
-    // through cookie auth. Web admins always get full permissions —
-    // the gate is the `is_admin` check above.
-    request.extensions_mut().insert(ValidatedAdminToken {
+    // through cookie auth.
+    let admin_token = cookie_admin_token(&user, auth.active_tenant_id);
+    request.extensions_mut().insert(admin_token);
+    Ok(next.run(request).await)
+}
+
+/// Build the `ValidatedAdminToken` granted to a cookie-authenticated admin.
+///
+/// Permissions mirror the user's actual role so the granular
+/// `require_permission`/`is_super_admin` checks inside cookie-mounted handlers
+/// stay meaningful: a plain `Admin` gets only `default_admin` (key management),
+/// while `SuperAdmin` gets the full set and `is_super_admin = true`. Granting
+/// `super_admin` to every admin role would flatten RBAC and silently always-pass
+/// the downstream gates (store moderation, admin-token management, impersonation).
+///
+/// This mirrors the programmatic admin-token regime, where a non-super admin
+/// token also carries `default_admin` permissions — cookie and token auth now
+/// grant identical authority for the same role.
+#[must_use]
+pub fn cookie_admin_token(user: &User, active_tenant_id: Option<Uuid>) -> ValidatedAdminToken {
+    let is_super_admin = user.role.is_super_admin();
+    let permissions = if is_super_admin {
+        AdminPermissions::super_admin()
+    } else {
+        AdminPermissions::default_admin()
+    };
+    ValidatedAdminToken {
         token_id: format!("cookie:{}", user.id),
         service_name: user.email.clone(),
-        permissions: AdminPermissions::super_admin(),
-        is_super_admin: true,
-        tenant_id: auth.active_tenant_id.map(|t| t.to_string()),
+        permissions,
+        is_super_admin,
+        tenant_id: active_tenant_id.map(|t| t.to_string()),
         user_info: None,
-    });
-    Ok(next.run(request).await)
+    }
 }

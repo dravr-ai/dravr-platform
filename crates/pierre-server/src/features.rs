@@ -243,12 +243,6 @@ impl FeatureConfig {
         cfg!(feature = "client-messaging")
     }
 
-    /// Check if store tools are enabled (Coach Store MCP tools)
-    #[must_use]
-    pub const fn tools_store() -> bool {
-        cfg!(feature = "tools-store")
-    }
-
     /// Check if any client feature is enabled
     #[must_use]
     pub const fn has_any_client() -> bool {

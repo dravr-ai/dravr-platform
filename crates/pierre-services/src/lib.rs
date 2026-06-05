@@ -46,6 +46,10 @@ pub mod chat_verdicts;
 /// pierre-llm wiring, free of `ServerContext`.
 pub mod chat_provider_factory;
 
+/// Per-tenant chat-provider resolution from stored BYO LLM credentials, with a
+/// short TTL cache, so production chat uses a tenant's own key.
+pub mod tenant_chat_provider;
+
 /// Chat stream event surface: token-level streaming primitives shared by
 /// chat pipeline channel adapters and tool-loop strategies that support
 /// progressive streaming.
@@ -138,7 +142,7 @@ pub mod provider_rate_limiter;
 
 /// Provider data refresh service: freshness checks, on-chat triggers, manual sync.
 ///
-/// Owns `RefreshService`, `RepositorySyncCursorChecker`, `start_scheduled_sync`,
+/// Owns `RefreshService`, `start_scheduled_sync`,
 /// `compute_smart_interval`, and `SyncMetrics`. Push notifications go through
 /// the abstract `SyncNotifier` trait so the service is decoupled from the
 /// concrete pierre-server `SseManager`.

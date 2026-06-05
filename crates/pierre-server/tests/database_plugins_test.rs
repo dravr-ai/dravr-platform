@@ -273,53 +273,6 @@ async fn test_goal_management() {
 }
 
 #[tokio::test]
-async fn test_insight_management() {
-    let db = create_test_database().await;
-    let user_id = create_test_user(&db).await;
-
-    // Test storing insights
-    let insight_data = json!({
-        "type": "performance",
-        "content": "Your running pace has improved by 10% this month",
-        "metadata": {
-            "confidence": 0.85,
-            "data_points": 15
-        }
-    });
-
-    let repos = db.repositories();
-    let insight_id = repos
-        .insights
-        .store(user_id, insight_data.clone())
-        .await
-        .expect("Failed to store insight");
-
-    assert!(!insight_id.is_empty(), "Insight ID should not be empty");
-
-    // Test retrieving insights
-    let insights = repos
-        .insights
-        .get_for_user(user_id, None, Some(10))
-        .await
-        .expect("Failed to get user insights");
-
-    assert_eq!(insights.len(), 1, "Should have exactly one insight");
-
-    // Test retrieving insights with type filter (Note: this depends on the implementation)
-    let filtered_insights = repos
-        .insights
-        .get_for_user(user_id, Some("performance"), Some(10))
-        .await
-        .expect("Failed to get filtered insights");
-
-    // This might be 0 or 1 depending on how the insight storage/retrieval is implemented
-    assert!(
-        filtered_insights.len() <= 1,
-        "Should have at most one filtered insight"
-    );
-}
-
-#[tokio::test]
 async fn test_database_trait_abstraction() {
     let db = create_test_database().await;
 

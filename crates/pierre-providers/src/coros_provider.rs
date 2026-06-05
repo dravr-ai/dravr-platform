@@ -21,6 +21,25 @@
     clippy::cast_precision_loss
 )]
 
+//! # COROS Provider Module
+//!
+//! Provider scaffold for COROS GPS sports watches.
+//!
+//! ## Production Status — cannot authenticate yet
+//!
+//! This module is **feature-gated scaffolding** behind the `provider-coros`
+//! cargo feature, which is **not** part of the `server-full` / default
+//! production build (only the `all-providers` / `production-providers`
+//! aggregates enable it). The HTTP client and response parsing are real, but the
+//! provider **cannot authenticate**:
+//!
+//! - **Placeholder OAuth endpoints.** `auth_url`, `token_url`, `revoke_url`, and
+//!   `api_base_url` point at `open.coros.com/oauth2/*` / `open.coros.com/api/v1`
+//!   guesses. COROS's API is private — access must be requested at
+//!   <https://support.coros.com/hc/en-us/articles/17085887816340-Submitting-an-API-Application>.
+//!   These URLs and the response structs are best-effort placeholders and must be
+//!   corrected once official credentials and documentation are received.
+
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,

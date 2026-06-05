@@ -274,6 +274,70 @@ mod messaging_e2e_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // Security: cross-tenant routing must fail closed when two tenants
+    // share a channel identity+secret (P0-2). The registration route guards
+    // against creating such a duplicate, but a pre-existing one must never
+    // route a message to a nondeterministic tenant — the webhook is rejected.
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_webhook_rejects_ambiguous_cross_tenant_signature() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        // Two tenants, each with a Telegram config sharing the SAME webhook
+        // secret. Inserted directly via the repo to simulate a pre-existing
+        // duplicate that bypassed the registration-time identity guard.
+        let shared_secret = "shared_tg_secret_across_tenants";
+        let (_user_a, tenant_a) =
+            create_e2e_user(&resources, "tg_collide_a@example.com", "PassA123!").await;
+        let (_user_b, tenant_b) =
+            create_e2e_user(&resources, "tg_collide_b@example.com", "PassB123!").await;
+
+        for (tenant_id, bot_token) in [(tenant_a, "111:BOT_A"), (tenant_b, "222:BOT_B")] {
+            db.upsert_channel_config(&UpsertChannelConfigParams {
+                id: &Uuid::new_v4().to_string(),
+                tenant_id,
+                channel_type: "telegram",
+                api_key: None,
+                api_secret: None,
+                webhook_secret: Some(shared_secret),
+                verify_token: None,
+                account_id: None,
+                phone_number: None,
+                bot_token: Some(bot_token),
+                is_active: true,
+            })
+            .await
+            .unwrap();
+        }
+
+        // A webhook whose secret token verifies for BOTH tenants' configs.
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", shared_secret)
+            .json(&json!({
+                "update_id": 2001,
+                "message": {
+                    "message_id": 1,
+                    "from": { "id": 7, "first_name": "Ambiguous" },
+                    "chat": { "id": 7 },
+                    "text": "who owns me?"
+                }
+            }))
+            .send(router)
+            .await;
+
+        // Must fail closed (401), NOT accept (200) and route to a random tenant.
+        assert_eq!(
+            resp.status_code(),
+            StatusCode::UNAUTHORIZED,
+            "ambiguous cross-tenant webhook must be rejected, not routed"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // E2E: Slack — challenge handshake + unlinked message + auth flow
     // ════════════════════════════════════════════════════════════════
 

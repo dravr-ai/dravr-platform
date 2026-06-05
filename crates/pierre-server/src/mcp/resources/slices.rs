@@ -99,6 +99,7 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
 use pierre_tool_runtime::protocol::types::CancellationToken;
@@ -132,6 +133,9 @@ pub struct CommonSlice {
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
     /// Pre-built [`ChatProvider`] singleton shared across chat/coach/health-probe.
     pub chat_provider: Option<Arc<ChatProvider>>,
+    /// TTL cache of per-tenant chat providers built from stored BYO LLM keys.
+    /// Empty for tenants on the system default; resolved lazily per turn.
+    pub tenant_chat_providers: TenantChatProviderCache,
     /// Shared LLM startup-probe state — read by `/ready` and `/health/llm`.
     pub llm_health: Arc<LlmHealthState>,
     /// Embedding provider wrapped for usage instrumentation. `None` when no

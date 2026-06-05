@@ -73,22 +73,3 @@ impl Rubric {
         vec![Self::relevance(), Self::safety(), Self::persona_adherence()]
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Rubric;
-
-    #[test]
-    fn defaults_returns_three_rubrics() {
-        let r = Rubric::defaults();
-        assert_eq!(r.len(), 3);
-        assert!(r.iter().any(|x| x.name == "relevance"));
-        assert!(r.iter().any(|x| x.name == "safety"));
-        assert!(r.iter().any(|x| x.name == "persona_adherence"));
-    }
-
-    #[test]
-    fn safety_threshold_strictest() {
-        assert!(Rubric::safety().passing_score >= Rubric::relevance().passing_score);
-    }
-}

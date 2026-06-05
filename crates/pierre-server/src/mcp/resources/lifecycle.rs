@@ -75,6 +75,7 @@ use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_services::embedding_sink::RepositoryEmbeddingSink;
 use pierre_services::pricing_loader;
+use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -377,6 +378,7 @@ impl ServerContext {
             email_service,
             llm_provider,
             chat_provider,
+            tenant_chat_providers: TenantChatProviderCache::new(),
             llm_health: Arc::new(LlmHealthState::new()),
             embedding_provider,
             #[cfg(feature = "client-messaging")]

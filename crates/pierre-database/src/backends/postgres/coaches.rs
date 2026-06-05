@@ -75,7 +75,11 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         .unwrap_or_else(|_| "private".to_owned());
     let sample_prompts_json: Option<String> = row.try_get("sample_prompts").ok().flatten();
     let prerequisites_json: Option<String> = row.try_get("prerequisites").ok().flatten();
-    let forked_from: Option<String> = row.try_get("forked_from").ok().flatten();
+    let forked_from: Option<Uuid> = row
+        .try_get::<Option<String>, _>("forked_from")
+        .ok()
+        .flatten()
+        .and_then(|s| Uuid::parse_str(&s).ok());
     let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
     let temperature: Option<f32> = row.try_get("temperature").ok().flatten();
     let startup_query: Option<String> = row.try_get("startup_query").ok().flatten();
@@ -888,7 +892,7 @@ impl CoachesRepository for PostgresDatabase {
             is_system: false,
             visibility: CoachVisibility::Private,
             prerequisites: source.prerequisites,
-            forked_from: Some(source_coach_id.to_owned()),
+            forked_from: Some(source.id),
             max_tool_iterations: source.max_tool_iterations,
             temperature: source.temperature,
             startup_query: source.startup_query,

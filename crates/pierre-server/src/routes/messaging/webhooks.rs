@@ -16,10 +16,11 @@ use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, field, info, warn, Instrument, Span};
+use tracing::{debug, error, field, info, warn, Instrument, Span};
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
@@ -276,8 +277,64 @@ async fn parse_and_verify(
         )));
     }
 
-    // Try each config's signing secret until one verifies
-    for config in &configs {
+    // Collect every config whose signing secret verifies this webhook. With a
+    // correctly de-duplicated channel identity exactly one tenant should match.
+    // If the signature verifies for configs owned by MORE THAN ONE tenant, two
+    // tenants share an identity+secret and routing would be nondeterministic
+    // (a cross-tenant message-leak path) — fail closed rather than route to
+    // whichever config the DB happened to return first.
+    let matches = collect_verified_matches(channel_type, &configs, headers, body)?;
+
+    let distinct_tenants: HashSet<TenantId> = matches.iter().map(|(t, _)| *t).collect();
+    if distinct_tenants.len() > 1 {
+        error!(
+            channel = %channel_type,
+            match_count = matches.len(),
+            tenant_count = distinct_tenants.len(),
+            "Webhook signature verified for configs owned by multiple tenants — ambiguous cross-tenant routing, rejecting"
+        );
+        return Err(AppError::auth_invalid(
+            "Ambiguous channel configuration: identity claimed by multiple tenants",
+        ));
+    }
+
+    let Some((tenant_id, adapter)) = matches.into_iter().next() else {
+        warn!(
+            channel = %channel_type,
+            config_count = configs.len(),
+            "No matching channel configuration for webhook signature"
+        );
+        return Err(AppError::auth_invalid("No matching channel configuration"));
+    };
+
+    let messages = adapter.receive(headers, body).await.map_err(|e| {
+        warn!(channel = %channel_type, error = %e, "Failed to parse inbound webhook");
+        AppError::invalid_input(format!("Invalid webhook payload: {e}"))
+    })?;
+
+    Ok(WebhookVerification {
+        tenant_id,
+        channel_type,
+        adapter,
+        messages,
+    })
+}
+
+/// A verified webhook config: its owning tenant paired with the constructed
+/// channel adapter whose signature check passed.
+type VerifiedMatch = (TenantId, Arc<dyn MessagingChannel>);
+
+/// Build adapters for each active config and return those whose signing secret
+/// verifies the webhook, paired with their owning tenant. Configs with missing
+/// credentials are skipped.
+fn collect_verified_matches(
+    channel_type: ChannelType,
+    configs: &[Value],
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<Vec<VerifiedMatch>, AppError> {
+    let mut matches: Vec<VerifiedMatch> = Vec::new();
+    for config in configs {
         let enriched = enrich_slack_bot_allow_list(channel_type, config);
         let adapter_config = enriched.as_ref().unwrap_or(config);
         let adapter = match create_adapter_from_config(channel_type, adapter_config) {
@@ -297,33 +354,15 @@ async fn parse_and_verify(
                 .get("tenant_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::internal("Channel config missing tenant_id"))?;
-
             let tenant_id = TenantId::from_str(tenant_id_str).map_err(|_| {
                 AppError::internal(format!(
                     "Channel config has invalid tenant_id: {tenant_id_str}"
                 ))
             })?;
-
-            let messages = adapter.receive(headers, body).await.map_err(|e| {
-                warn!(channel = %channel_type, error = %e, "Failed to parse inbound webhook");
-                AppError::invalid_input(format!("Invalid webhook payload: {e}"))
-            })?;
-
-            return Ok(WebhookVerification {
-                tenant_id,
-                channel_type,
-                adapter,
-                messages,
-            });
+            matches.push((tenant_id, adapter));
         }
     }
-
-    warn!(
-        channel = %channel_type,
-        config_count = configs.len(),
-        "No matching channel configuration for webhook signature"
-    );
-    Err(AppError::auth_invalid("No matching channel configuration"))
+    Ok(matches)
 }
 
 /// Inject `allowed_bot_ids` from the `SLACK_ALLOWED_BOT_IDS` env var into the

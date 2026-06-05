@@ -798,6 +798,21 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start group weekly-digest scheduler (weekly cadence). Reads the
+    // per-tenant `weekly_digest` tier flag to decide eligibility, computes
+    // the same weekly report the on-demand /report endpoint returns, and
+    // pushes it to each group's owner/admins. The spawned task is fire-and-
+    // forget: the scheduler is best-effort and a restart re-arms the timer.
+    #[cfg(feature = "client-groups")]
+    {
+        use pierre_routes_social::group_digest_scheduler::start_digest_scheduler;
+        start_digest_scheduler(
+            Arc::clone(&resources),
+            #[cfg(feature = "client-notifications")]
+            resources.common.notification_service.clone(),
+        );
+    }
+
     // Start Discord Gateway WebSocket client for real-time message delivery
     #[cfg(feature = "client-messaging")]
     {

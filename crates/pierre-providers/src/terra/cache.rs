@@ -162,6 +162,12 @@ impl UserCache {
 ///
 /// This cache stores data received from Terra webhooks and makes it available
 /// to the `TerraProvider` for `FitnessProvider` trait implementation.
+///
+/// **In-memory only, not persisted.** All state lives in the in-process
+/// `HashMap`s below; both [`TerraDataCache::new_in_memory`] and
+/// [`TerraDataCache::with_config`] build an in-memory cache. Data is lost on
+/// restart — there is no database backing store. See the module-level docs for
+/// the full feature-gated / not-production-wired status.
 pub struct TerraDataCache {
     config: TerraDataCacheConfig,
     /// User data cache keyed by Terra user ID

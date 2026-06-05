@@ -1,7 +1,7 @@
 ---
 name: status
 command: /status
-aliases: []
+aliases: ["/me"]
 description: Account summary
 domain: general
 required_role: any

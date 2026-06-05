@@ -21,6 +21,7 @@ fn grade(coach_id: &str, score: f32) -> CoachGrade {
         total_verdicts: 10,
         supported: 0,
         unsupported: 0,
+        unsupported_prescription: 0,
         contradicted: 0,
         rhetorical: 0,
         unverifiable: 0,

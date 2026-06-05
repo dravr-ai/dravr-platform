@@ -289,6 +289,16 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>>;
 
+    /// List every active group owned by a tenant.
+    ///
+    /// Used by the weekly-digest scheduler to enumerate the groups eligible
+    /// for a periodic report. Tenant-scoped so the cross-tenant sweep stays a
+    /// loop of per-tenant queries rather than an unscoped table scan.
+    async fn list_active_groups_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachingGroup>>;
+
     /// Update a coaching group
     async fn update_group(
         &self,

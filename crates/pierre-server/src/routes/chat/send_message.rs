@@ -326,7 +326,14 @@ pub async fn send_message(
         agui: agui_wiring.as_ref().map(AgUiWiring::run),
         ..pipeline::PipelineHooks::none()
     };
-    let ctx = resources.chat_pipeline_context();
+    let mut ctx = resources.chat_pipeline_context();
+    // Use the tenant's own LLM key (BYO) for this turn when one is stored.
+    if let Some(provider) = resources
+        .resolve_byo_chat_provider(tenant_id, auth.user_id)
+        .await
+    {
+        ctx.chat_provider = Some(provider);
+    }
     let dispatch = pipeline::run(&ctx, turn_input, &profile, &hooks).await?;
 
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
@@ -463,7 +470,14 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             stream_sink: Some(stream_tx),
             ..pipeline::PipelineHooks::none()
         };
-        let ctx = resources_for_task.chat_pipeline_context();
+        let mut ctx = resources_for_task.chat_pipeline_context();
+        // Use the tenant's own LLM key (BYO) for this turn when one is stored.
+        if let Some(provider) = resources_for_task
+            .resolve_byo_chat_provider(tenant_id, auth_user_id)
+            .await
+        {
+            ctx.chat_provider = Some(provider);
+        }
         let outcome = pipeline::run(&ctx, turn_input, &profile, &hooks).await;
         let _ = done_tx.send(outcome);
         // agui_wiring drops here, unregistering the AG-UI run.
@@ -686,6 +700,8 @@ async fn try_handle_chat_command(
         // no multi-party DM surface here.
         is_direct_message: true,
         conversation_id: Some(conversation_id),
+        // Web/mobile have no channel link to unlink.
+        sender_id: None,
         text: &request.content,
     })
     .await?;

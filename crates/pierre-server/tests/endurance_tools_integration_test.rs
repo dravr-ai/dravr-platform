@@ -209,6 +209,20 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
         serialised.contains("52"),
         "seeded vo2_max=52 must appear in dossier payload"
     );
+    // LT1/LT2 threshold estimation is wired into the dossier: the seeded FTP
+    // (280W) yields LT2 power = 280 and LT1 power = 0.75 * 280 = 210 (Coggan),
+    // surfaced under `threshold_estimate`.
+    let estimate = &result["threshold_estimate"];
+    assert_eq!(
+        estimate["lt2_power_watts"].as_f64(),
+        Some(280.0),
+        "LT2 power should equal the seeded FTP"
+    );
+    assert_eq!(
+        estimate["lt1_power_watts"].as_f64(),
+        Some(210.0),
+        "LT1 power should be 0.75 * FTP (Coggan)"
+    );
     Ok(())
 }
 

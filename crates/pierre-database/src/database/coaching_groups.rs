@@ -262,6 +262,25 @@ impl CoachingGroupRepository for Database {
         Ok(rows.iter().map(row_to_group).collect())
     }
 
+    async fn list_active_groups_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachingGroup>> {
+        let rows = sqlx::query(
+            r"SELECT id, tenant_id, name, description, coach_id, owner_id,
+              peer_data_sharing, max_members, is_active, created_at, updated_at
+              FROM coaching_groups
+              WHERE tenant_id = $1 AND is_active = 1
+              ORDER BY created_at DESC",
+        )
+        .bind(tenant_id.to_string())
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list active groups for tenant: {e}")))?;
+
+        Ok(rows.iter().map(row_to_group).collect())
+    }
+
     async fn update_group(
         &self,
         group_id: &str,

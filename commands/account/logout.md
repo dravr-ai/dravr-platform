@@ -6,11 +6,8 @@ description: Unlink this messaging account
 domain: account
 required_role: any
 requires_group: false
-confirmation: true
+confirmation: false
 ---
 
 ## Response Template
-Your {channel} account has been unlinked from Pierre. Send /start to re-link anytime.
-
-## Confirmation Prompt
-This will unlink your {channel} account from Pierre. You will need to re-link to use messaging again. Reply YES to confirm.
+Your {channel} account has been unlinked from Dravr. Send a message anytime to re-link.

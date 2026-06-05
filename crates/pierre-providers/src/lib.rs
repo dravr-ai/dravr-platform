@@ -16,12 +16,8 @@ pub use pierre_core::models;
 pub use pierre_core::pagination;
 
 // Core provider infrastructure
-/// Streaming activity iterator for memory-efficient paginated fetching
-pub mod activity_iterator;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
 pub mod backend_resolver;
-/// Caching decorator for transparent API response caching
-pub mod caching_provider;
 /// Circuit breaker pattern for provider resilience
 pub mod circuit_breaker;
 /// Core provider traits and interfaces
@@ -69,14 +65,6 @@ pub mod whoop_provider;
 
 // Re-export key types for convenience
 
-pub use activity_iterator::{
-    create_activity_stream, ActivityStream, ActivityStreamExt, StreamConfig, DEFAULT_PAGE_SIZE,
-    MAX_PAGE_SIZE, MIN_PAGE_SIZE,
-};
-pub use caching_provider::{
-    create_caching_provider, create_caching_provider_with_ttl, CachePolicy, CachingFitnessProvider,
-    SyncCursorChecker,
-};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use core::{
     ActivityQueryParams, FitnessProvider as CoreFitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -117,7 +105,6 @@ pub use utils::{
 #[cfg(feature = "provider-terra")]
 pub use registry::global_terra_cache;
 pub use registry::{
-    create_caching_provider_global, create_caching_provider_with_admin_config_global,
     create_provider, create_registry_with_external_providers, create_tenant_provider,
     get_supported_providers, global_registry, is_provider_supported, ProviderRegistry,
 };

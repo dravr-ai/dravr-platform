@@ -29,7 +29,7 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
     coach_notes, feature_flags, harness_config, memory_worker, myth_busting, settings, setup,
-    store, tokens, users,
+    tokens, users,
 };
 
 /// Admin routes implementation (Axum).
@@ -65,10 +65,6 @@ impl AdminRoutes {
         ));
 
         let settings_routes = Self::settings_routes(context.clone()).layer(
-            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
-        );
-
-        let store_review_routes = Self::store_review_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
@@ -80,7 +76,6 @@ impl AdminRoutes {
             .merge(admin_token_routes)
             .merge(user_routes)
             .merge(settings_routes)
-            .merge(store_review_routes)
             .merge(setup_routes)
     }
 
@@ -391,24 +386,6 @@ impl AdminRoutes {
             .route(
                 "/admin/tokens/{token_id}/rotate",
                 post(tokens::handle_rotate_admin_token),
-            )
-            .with_state(context)
-    }
-
-    /// Store review queue routes for admin coach approval (Axum)
-    fn store_review_routes(context: Arc<AdminApiContext>) -> Router {
-        Router::new()
-            .route(
-                "/admin/store/pending",
-                get(store::handle_list_pending_coaches),
-            )
-            .route(
-                "/admin/store/coaches/{coach_id}/approve",
-                post(store::handle_approve_coach),
-            )
-            .route(
-                "/admin/store/coaches/{coach_id}/reject",
-                post(store::handle_reject_coach),
             )
             .with_state(context)
     }

@@ -10,7 +10,10 @@
 mod common;
 mod helpers;
 
-use common::{create_test_server_resources, create_test_user_with_email, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_email, create_test_user_with_plan,
+    generate_test_token,
+};
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
@@ -45,8 +48,14 @@ async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
 }
 
 async fn setup_single_user() -> (axum::Router, String, String, String) {
+    setup_single_user_with("groupuser@test.com", "professional").await
+}
+
+/// Like [`setup_single_user`] but on an explicit billing `plan` so tier
+/// enforcement (group coaching availability + member cap) can be exercised.
+async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (uid, u) = create_test_user_with_email(&res.coach.database, "groupuser@test.com")
+    let (uid, u, _tid) = create_test_user_with_plan(&res.coach.database, email, plan)
         .await
         .unwrap();
     let auth = format!("Bearer {}", generate_test_token(&res, &u).await);
@@ -64,9 +73,11 @@ async fn setup_single_user() -> (axum::Router, String, String, String) {
 
 async fn setup_two_users() -> (axum::Router, String, String, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (u1id, u1) = create_test_user_with_email(&res.coach.database, "groupowner@test.com")
-        .await
-        .unwrap();
+    // Owner on Professional: the shared tenant must allow group coaching.
+    let (u1id, u1, _t1) =
+        create_test_user_with_plan(&res.coach.database, "groupowner@test.com", "professional")
+            .await
+            .unwrap();
     let (u2id, u2) = create_test_user_with_email(&res.coach.database, "groupmember@test.com")
         .await
         .unwrap();
@@ -158,6 +169,52 @@ async fn test_create_group() {
     assert_eq!(
         body["peer_data_sharing"], true,
         "REST POST should default peer_data_sharing=true (kill-switch off, individual consent gates) — matches messaging_group_bind auto-bind default"
+    );
+}
+
+#[tokio::test]
+async fn test_starter_plan_cannot_create_group() {
+    // Starter tier has group coaching disabled (max_members_per_group == 0).
+    let (router, auth, _user_id, coach_id) =
+        setup_single_user_with("starteruser@test.com", "starter").await;
+
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", &auth)
+        .json(&json!({
+            "name": "Starter Club",
+            "coach_id": &coach_id,
+            "max_members": 5
+        }))
+        .send(router)
+        .await;
+
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::FORBIDDEN,
+        "Starter plan must be denied group creation"
+    );
+}
+
+#[tokio::test]
+async fn test_professional_clamps_max_members_to_tier_cap() {
+    // Professional tier caps members per group at 10.
+    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", &auth)
+        .json(&json!({
+            "name": "Big Club",
+            "coach_id": &coach_id,
+            "max_members": 50
+        }))
+        .send(router)
+        .await;
+
+    assert_eq!(resp.status_code(), StatusCode::CREATED);
+    let body: Value = resp.json();
+    assert_eq!(
+        body["max_members"], 10,
+        "requested 50 must be clamped to the Professional tier cap of 10"
     );
 }
 

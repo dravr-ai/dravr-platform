@@ -296,9 +296,12 @@ pub struct Coach {
     /// Prerequisites required to use this coach (providers, activities, etc.)
     #[serde(default)]
     pub prerequisites: CoachPrerequisites,
-    /// ID of the coach this was forked from (None for original coaches)
+    /// ID of the coach this was forked from (None for original coaches).
+    ///
+    /// Persisted as TEXT in the database (matching the other coach id columns)
+    /// and parsed into a `Uuid` on read; serializes as a string on the wire.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub forked_from: Option<String>,
+    pub forked_from: Option<Uuid>,
     /// Maximum tool call iterations for this coach (overrides global config)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_iterations: Option<i32>,

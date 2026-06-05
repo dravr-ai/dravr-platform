@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -13,9 +14,11 @@ use axum::{
     Json,
 };
 use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
 use pierre_services::recipes as recipes_service;
+use uuid::Uuid;
 
 use super::types::{
     CoachDiffResponse, CoachVersionResponse, FieldChange, ListVersionsQuery, ListVersionsResponse,
@@ -37,8 +40,15 @@ pub(super) async fn handle_list_versions<C: CoachesCtx + MiddlewareCtx>(
     let versions = manager.get_versions(&id, tenant_id, limit).await?;
     let current_version = manager.get_current_version(&id).await?;
 
-    let version_responses: Vec<CoachVersionResponse> =
-        versions.into_iter().map(Into::into).collect();
+    let mut creator_names: HashMap<Uuid, Option<String>> = HashMap::new();
+    let mut version_responses: Vec<CoachVersionResponse> = Vec::with_capacity(versions.len());
+    for version in versions {
+        let created_by = version.created_by;
+        let mut response: CoachVersionResponse = version.into();
+        response.created_by_name =
+            resolve_creator_name(&ctx, tenant_id, created_by, &mut creator_names).await;
+        version_responses.push(response);
+    }
 
     let response = ListVersionsResponse {
         total: version_responses.len(),
@@ -64,7 +74,11 @@ pub(super) async fn handle_get_version<C: CoachesCtx + MiddlewareCtx>(
         .await?
         .ok_or_else(|| AppError::not_found(format!("Version {version} for coach {id}")))?;
 
-    let response: CoachVersionResponse = version_data.into();
+    let created_by = version_data.created_by;
+    let mut response: CoachVersionResponse = version_data.into();
+    let mut creator_names: HashMap<Uuid, Option<String>> = HashMap::new();
+    response.created_by_name =
+        resolve_creator_name(&ctx, tenant_id, created_by, &mut creator_names).await;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -126,9 +140,42 @@ pub(super) async fn handle_diff_versions<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
+/// Resolve a version author's `Uuid` to a human-readable name.
+///
+/// Prefers the user's `display_name`, falls back to email, and returns `None`
+/// when the version has no recorded author or the user can no longer be found.
+/// Results are memoized in `cache` so listing many versions by the same author
+/// performs a single database lookup.
+async fn resolve_creator_name<C: CoachesCtx + MiddlewareCtx>(
+    ctx: &Arc<C>,
+    tenant_id: TenantId,
+    created_by: Option<Uuid>,
+    cache: &mut HashMap<Uuid, Option<String>>,
+) -> Option<String> {
+    let user_id = created_by?;
+    if let Some(name) = cache.get(&user_id) {
+        return name.clone();
+    }
+    let name = ctx
+        .database()
+        .repositories()
+        .users
+        .get(user_id, tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.display_name.unwrap_or(user.email));
+    cache.insert(user_id, name.clone());
+    name
+}
+
 /// Compute field-level differences between two JSON snapshots
 ///
-/// Delegates to `services::recipes::compute_version_diff`.
+/// Delegates to `services::recipes::compute_version_diff`. The version-diff
+/// machinery lives in the `recipes` service module and is deliberately reused
+/// for the coaches domain: coach version snapshots and recipe snapshots share
+/// the same JSON shape, so the diff helper is domain-agnostic despite the
+/// module name.
 fn compute_diff(from: &serde_json::Value, to: &serde_json::Value) -> Vec<FieldChange> {
     recipes_service::compute_version_diff(from, to)
         .into_iter()

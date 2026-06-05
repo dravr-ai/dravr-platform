@@ -362,11 +362,17 @@ pub(super) async fn handle_export<C: CoachesCtx + MiddlewareCtx>(
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 
-    // Convert Coach to CoachDefinition for export
+    // Convert Coach to CoachDefinition for export.
+    //
+    // The markdown <-> definition conversion machinery lives in the `recipes`
+    // service module and is deliberately reused here for the coaches domain:
+    // coaches and recipes share the same on-disk markdown-with-frontmatter
+    // representation, so the `coach_to_definition` / `generate_coach_filename`
+    // helpers are domain-agnostic despite the module name.
     let definition = recipes_service::coach_to_definition(&coach);
     let markdown = to_markdown(&definition);
 
-    // Generate filename from coach name/title
+    // Generate filename from coach name/title (shared recipe markdown machinery).
     let filename = recipes_service::generate_coach_filename(&coach.title);
 
     Ok((

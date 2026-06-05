@@ -22,13 +22,15 @@
 //! ## Migrated since the initial split
 //!
 //! - **Group analytics** (`/stats`, `/report`, `/health`) — moved into
-//!   [`mod@group_analytics`] with the [`mod@group_snapshots`] helper.
-//!   Routes are generic over `C: ToolRuntime + MiddlewareCtx + SocialCtx`
-//!   so they can construct OAuth-authenticated fitness providers per
-//!   member from the same `Arc<C>` that satisfies the social trait
-//!   bounds. Mounted by the composition root next to
-//!   [`groups::GroupRoutes::routes`] under the shared `/api/groups`
-//!   prefix.
+//!   [`mod@group_analytics`], which builds member snapshots via the
+//!   canonical [`pierre_tool_runtime::group_fitness::fetch_member_snapshots`]
+//!   so REST analytics and the chat coach share one all-providers +
+//!   deduplicated snapshot source. Routes are generic over
+//!   `C: ToolRuntime + MiddlewareCtx + SocialCtx` so they can construct
+//!   OAuth-authenticated fitness providers per member from the same
+//!   `Arc<C>` that satisfies the social trait bounds. Mounted by the
+//!   composition root next to [`groups::GroupRoutes::routes`] under the
+//!   shared `/api/groups` prefix.
 //!
 //!
 //! - **`/api/social/insights/*`** (and the reactions / adapted endpoints
@@ -74,11 +76,9 @@ pub mod settings;
 /// `/api/groups/*` URL prefix.
 pub mod group_analytics;
 
-/// Per-member fitness snapshot helper for [`mod@group_analytics`].
-///
-/// Builds [`pierre_core::models::groups::MemberFitnessSnapshot`] values
-/// from OAuth-authenticated provider activity fetches.
-pub mod group_snapshots;
+/// Background scheduler that pushes group weekly digests on a weekly cadence,
+/// gated by the per-tenant `weekly_digest` tier flag.
+pub mod group_digest_scheduler;
 
 /// Group coaching endpoints (CRUD, membership, invites, analytics).
 pub mod groups;

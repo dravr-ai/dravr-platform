@@ -194,6 +194,97 @@ async fn test_a2a_status_idempotency() {
     }
 }
 
+// ============================================================================
+// POST /a2a/jsonrpc - A2A JSON-RPC transport endpoint Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_a2a_jsonrpc_route_is_mounted() {
+    let routes = a2a_routes().await;
+
+    // The agent card advertises {base_url}/a2a/jsonrpc; the route must exist
+    // and dispatch into A2AServer (initialize requires no auth).
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "a2a/initialize",
+        "id": 1
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .json(&body)
+        .send(routes)
+        .await;
+
+    // A mounted route returns 200, not 404.
+    assert_eq!(response.status(), 200, "/a2a/jsonrpc must be mounted");
+
+    let envelope: serde_json::Value = response.json();
+    assert_eq!(envelope["jsonrpc"], "2.0");
+    assert_eq!(envelope["id"], 1);
+    assert!(
+        envelope["error"].is_null(),
+        "a2a/initialize must not error: {envelope:?}"
+    );
+    assert!(envelope["result"].is_object());
+}
+
+#[tokio::test]
+async fn test_a2a_jsonrpc_tools_list_returns_registry_tools() {
+    let routes = a2a_routes().await;
+
+    // tools/list is dispatched into A2AServer with real resources, so it
+    // returns the live tool registry's user-visible schemas.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "a2a/tools/list",
+        "id": 2
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let envelope: serde_json::Value = response.json();
+    let tools = &envelope["result"]["tools"];
+    assert!(tools.is_array(), "tools/list must return a tools array");
+    assert!(
+        !tools.as_array().unwrap().is_empty(),
+        "tool registry should expose at least one tool"
+    );
+}
+
+#[tokio::test]
+async fn test_a2a_jsonrpc_message_send_requires_auth() {
+    let routes = a2a_routes().await;
+
+    // message/send now performs real, tenant-scoped work and is auth-gated;
+    // an unauthenticated call must surface an auth error rather than a
+    // hardcoded success constant.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "params": { "parts": [{ "type": "text", "content": "hi" }] },
+        "id": 3
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let envelope: serde_json::Value = response.json();
+    assert!(
+        envelope["result"].is_null(),
+        "unauthenticated message/send must not return a result"
+    );
+    assert_eq!(
+        envelope["error"]["code"], -32001,
+        "unauthenticated message/send must return an auth error: {envelope:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_a2a_status_always_active() {
     let routes = a2a_routes().await;

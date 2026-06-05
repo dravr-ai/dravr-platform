@@ -147,9 +147,10 @@ use pierre_intelligence::config::intelligence::{
     AggressiveStrategy, ConservativeStrategy, DefaultStrategy, IntelligenceConfig,
     IntelligenceStrategy,
 };
+use pierre_intelligence::performance_analyzer::AdvancedPerformanceAnalyzer;
+use pierre_intelligence::recommendation_engine::AdvancedRecommendationEngine;
 use pierre_intelligence::{
-    AdvancedGoalEngine, AdvancedPerformanceAnalyzer, AdvancedRecommendationEngine, FitnessLevel,
-    TimeAvailability, UserFitnessProfile, UserPreferences,
+    AdvancedGoalEngine, FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
 
 #[test]

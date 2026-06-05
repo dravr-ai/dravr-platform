@@ -26,8 +26,6 @@ pub mod fitness_config;
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
 pub mod health;
-/// Repository traits for persisted analytical insights.
-pub mod insights;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
 /// Repository traits for mobility (yoga and stretching) persistence.
@@ -70,7 +68,6 @@ pub use feature_flags::*;
 pub use fitness_config::*;
 pub use harness_memory::*;
 pub use health::*;
-pub use insights::*;
 pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;

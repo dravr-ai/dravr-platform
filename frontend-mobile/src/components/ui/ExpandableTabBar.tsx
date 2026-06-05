@@ -20,6 +20,7 @@ import {
   MessageCircle,
   Award,
   Compass,
+  Users,
   Zap,
   Settings,
   Plus,
@@ -31,10 +32,10 @@ import { useThemeColors } from '../../constants/theme';
 import { GlassContainer } from './GlassContainer';
 import { TabMenuItem } from './TabMenuItem';
 
-const TAB_ICONS: LucideIcon[] = [MessageCircle, Award, Compass, Zap, Settings];
-const TAB_LABELS = ['Chat', 'Coaches', 'Discover', 'Insights', 'Settings'];
-const TAB_ROUTES = ['(chat)', '(coaches)', '(discover)', '(social)', '(settings)'] as const;
-const TAB_TEST_IDS = ['tab-chat', 'tab-coaches', 'tab-discover', 'tab-insights', 'tab-settings'];
+const TAB_ICONS: LucideIcon[] = [MessageCircle, Award, Compass, Users, Zap, Settings];
+const TAB_LABELS = ['Chat', 'Coaches', 'Discover', 'Groups', 'Insights', 'Settings'];
+const TAB_ROUTES = ['(chat)', '(coaches)', '(discover)', '(groups)', '(social)', '(settings)'] as const;
+const TAB_TEST_IDS = ['tab-chat', 'tab-coaches', 'tab-discover', 'tab-groups', 'tab-insights', 'tab-settings'];
 const TAB_COUNT = TAB_ROUTES.length;
 
 const ICON_SIZE = 22;

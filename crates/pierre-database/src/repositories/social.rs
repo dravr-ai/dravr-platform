@@ -33,18 +33,10 @@ pub trait SocialRepository: Send + Sync {
         user_id: Uuid,
         status: FriendStatus,
     ) -> AppResult<()>;
-    /// Get all accepted friends for a user
-    async fn get_friends(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>>;
     /// Get pending incoming friend requests
     async fn get_pending_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>>;
-    /// Get outgoing friend requests sent by the user
-    async fn get_sent_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>>;
-    /// Check whether two users are friends
-    async fn are_friends(&self, user_a: Uuid, user_b: Uuid) -> AppResult<bool>;
     /// Delete a friend connection
     async fn delete_friend_connection(&self, id: Uuid, user_id: Uuid) -> AppResult<bool>;
-    /// Get social settings for a user, creating defaults if not found
-    async fn get_or_create_social_settings(&self, user_id: Uuid) -> AppResult<UserSocialSettings>;
     /// Get social settings for a user (returns None if not set)
     async fn get_social_settings(&self, user_id: Uuid) -> AppResult<Option<UserSocialSettings>>;
     /// Create or update social settings for a user
@@ -85,21 +77,12 @@ pub trait SocialRepository: Send + Sync {
     async fn get_insight_reactions(&self, insight_id: Uuid) -> AppResult<Vec<InsightReaction>>;
     /// Create an adapted version of a shared insight
     async fn create_adapted_insight(&self, insight: &AdaptedInsight) -> AppResult<Uuid>;
-    /// Get an adapted insight by ID
-    async fn get_adapted_insight(&self, id: Uuid) -> AppResult<Option<AdaptedInsight>>;
     /// Get a user's adaptation of a specific source insight
     async fn get_user_adaptation(
         &self,
         source_insight_id: Uuid,
         user_id: Uuid,
     ) -> AppResult<Option<AdaptedInsight>>;
-    /// Get all adapted insights for a user
-    async fn get_user_adapted_insights(
-        &self,
-        user_id: Uuid,
-        limit: u32,
-        offset: u32,
-    ) -> AppResult<Vec<AdaptedInsight>>;
     /// Update whether an adapted insight was helpful
     async fn update_adapted_insight_helpful(
         &self,
@@ -114,14 +97,9 @@ pub trait SocialRepository: Send + Sync {
         exclude_user_id: Uuid,
         limit: u32,
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>>;
-    /// Get total friend count for a user
-    async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64>;
-
     /// Paginated friends list (i64 limit/offset for direct sqlx binding).
     ///
-    /// Distinct from `get_friends` (which returns the entire accepted set)
-    /// and from `get_friends_feed` (which returns shared insights). This
-    /// returns `FriendConnection` rows for callers that need the connection
+    /// Returns `FriendConnection` rows for callers that need the connection
     /// metadata, paginated.
     async fn get_friends_paginated(
         &self,

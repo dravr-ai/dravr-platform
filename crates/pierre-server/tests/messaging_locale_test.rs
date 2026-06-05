@@ -224,6 +224,7 @@ async fn status_handler_renders_french_by_default() {
         locale: "fr".to_owned(),
         is_direct_message: false,
         conversation_id: None,
+        sender_id: None,
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status FR");
@@ -252,6 +253,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         locale: "en".to_owned(),
         is_direct_message: false,
         conversation_id: None,
+        sender_id: None,
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status EN");

@@ -24,7 +24,7 @@ use tracing::error;
 
 use pierre_core::models::TenantId;
 use pierre_database::CoachRepos;
-use pierre_memory::{ClaimStatus, ClaimVerdict};
+use pierre_memory::{ClaimCategory, ClaimStatus, ClaimVerdict};
 
 use pierre_core::errors::{AppError, AppResult};
 
@@ -83,6 +83,9 @@ pub struct CoachGrade {
     pub supported: u64,
     /// Verdicts classified as `unsupported`.
     pub unsupported: u64,
+    /// `Unsupported` training-prescription verdicts, excluded from score
+    /// weighting (advice has no evidence corpus to cite).
+    pub unsupported_prescription: u64,
     /// Verdicts classified as `contradicted`.
     pub contradicted: u64,
     /// Verdicts classified as `rhetorical` (excluded from score weighting).
@@ -200,6 +203,7 @@ struct GradeBucket {
     total: u64,
     supported: u64,
     unsupported: u64,
+    unsupported_prescription: u64,
     contradicted: u64,
     rhetorical: u64,
     unverifiable: u64,
@@ -210,6 +214,14 @@ impl GradeBucket {
         self.total += 1;
         match v.status {
             ClaimStatus::Supported => self.supported += 1,
+            // Training-prescription advice has no evidence corpus to cite, so an
+            // `Unsupported` verdict there is expected — not a quality failure.
+            // Mirror the user-facing banner carve-out (chat-pipeline
+            // verification.rs) and exclude it from the scored denominator
+            // instead of penalizing advice-heavy coaches in store rank.
+            ClaimStatus::Unsupported if v.category == ClaimCategory::TrainingPrescription => {
+                self.unsupported_prescription += 1;
+            }
             ClaimStatus::Unsupported => self.unsupported += 1,
             ClaimStatus::Contradicted => self.contradicted += 1,
             ClaimStatus::Rhetorical => self.rhetorical += 1,
@@ -248,6 +260,7 @@ impl GradeBucket {
             total_verdicts: self.total,
             supported: self.supported,
             unsupported: self.unsupported,
+            unsupported_prescription: self.unsupported_prescription,
             contradicted: self.contradicted,
             rhetorical: self.rhetorical,
             unverifiable: self.unverifiable,
@@ -255,4 +268,18 @@ impl GradeBucket {
             grade,
         }
     }
+}
+
+/// Compute a single coach's grade from its claim verdicts.
+///
+/// Convenience wrapper over the same `consume`/`finalize` weighting used by
+/// [`compute_coach_grades`], for callers that have already grouped verdicts by
+/// coach (and for unit-testing the scoring rules in isolation).
+#[must_use]
+pub fn grade_from_verdicts(coach_id: String, verdicts: &[ClaimVerdict]) -> CoachGrade {
+    let mut bucket = GradeBucket::default();
+    for v in verdicts {
+        bucket.consume(v);
+    }
+    bucket.finalize(coach_id)
 }

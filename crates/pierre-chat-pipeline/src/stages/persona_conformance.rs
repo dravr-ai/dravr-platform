@@ -35,7 +35,8 @@
 use std::sync::Arc;
 
 use pierre_core::models::CoachingPersona;
-use tracing::{error, warn};
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
+use tracing::{error, info, warn};
 
 use pierre_contremaitre::persona_contracts::{
     PersonaContract, PersonaContractRegistry, TOOL_NARRATION_PHRASES,
@@ -86,6 +87,93 @@ pub fn check_reply_conformance(
 
     log_violations(persona, contract.strict_mode, &violations);
     violations
+}
+
+/// Enforce a persona's output-format contract when it is in `strict_mode`.
+///
+/// When the reply violated the contract and the persona's contract has
+/// `strict_mode: true`, re-prompt the LLM to rewrite the reply in compliance —
+/// preserving every fact, number, recommendation, and citation, changing only
+/// wording, structure, and length. Returns the rewritten reply.
+///
+/// Fails OPEN: with no violations, no strict contract, no chat provider, or a
+/// failed/empty rewrite, the original reply is returned unchanged — a style
+/// miss must never drop or blank the user's answer. `strict_mode` is `false`
+/// for every shipped persona today, so this is inert until a contract enables
+/// it in contremaitre.
+#[must_use]
+pub async fn enforce_conformance(
+    chat_provider: Option<&Arc<ChatProvider>>,
+    registry: &Arc<PersonaContractRegistry>,
+    persona: CoachingPersona,
+    content: String,
+    violations: &[ContractViolation],
+) -> String {
+    if violations.is_empty() {
+        return content;
+    }
+    let strict = registry
+        .snapshot()
+        .contract(persona)
+        .is_some_and(|c| c.strict_mode);
+    if !strict {
+        return content;
+    }
+    let Some(provider) = chat_provider else {
+        warn!(
+            persona = persona.as_str(),
+            violations = violations.len(),
+            "strict persona conformance active but no chat provider to re-prompt; keeping original reply"
+        );
+        return content;
+    };
+
+    rewrite_to_satisfy_contract(provider, persona, content, violations).await
+}
+
+/// Re-prompt the LLM to rewrite `content` so it satisfies the persona contract,
+/// preserving all substance. Returns the rewrite, or the original on any
+/// failure / empty response (fail open).
+async fn rewrite_to_satisfy_contract(
+    provider: &Arc<ChatProvider>,
+    persona: CoachingPersona,
+    content: String,
+    violations: &[ContractViolation],
+) -> String {
+    let rules = violations
+        .iter()
+        .map(|v| format!("- {}", v.detail))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let system = format!(
+        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. Output only the rewritten reply, with no preamble.",
+        persona.as_str()
+    );
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(system),
+        ChatMessage::user(content.clone()),
+    ])
+    .with_temperature(0.2);
+
+    match provider.complete(&request).await {
+        Ok(resp) if !resp.content.trim().is_empty() => {
+            info!(
+                persona = persona.as_str(),
+                violations = violations.len(),
+                "persona conformance enforced: reply rewritten to satisfy the contract"
+            );
+            resp.content
+        }
+        Ok(_) => content,
+        Err(e) => {
+            warn!(
+                persona = persona.as_str(),
+                error = %e,
+                "persona conformance re-prompt failed; keeping original reply"
+            );
+            content
+        }
+    }
 }
 
 /// Emit one structured log per violation. Strict-mode violations escalate

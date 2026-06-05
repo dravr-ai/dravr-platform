@@ -4,10 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::caching_provider::{
-    create_caching_provider as build_caching_provider,
-    create_caching_provider_with_ttl as build_caching_provider_with_ttl, CachingFitnessProvider,
-};
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory, TenantProvider};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 #[cfg(any(
@@ -18,8 +14,6 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
     feature = "provider-coros"
 ))]
 use pierre_auth::config::oauth::load_provider_env_config;
-use pierre_cache::memory::InMemoryCache;
-use pierre_cache::{CacheConfig, CacheTtlConfig, CacheTtlConfigProvider};
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
@@ -562,60 +556,6 @@ impl ProviderRegistry {
         let provider = self.create_provider_with_config(provider_name, config)?;
         Ok(TenantProvider::new(provider, tenant_id, user_id))
     }
-
-    /// Create a caching provider with default configuration
-    ///
-    /// This wraps a provider with transparent caching using the cache-aside pattern.
-    /// The cache backend is determined by the `CacheConfig` (Redis if URL provided,
-    /// otherwise in-memory).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is not supported, cache initialization fails,
-    /// or no default configuration exists.
-    pub async fn create_caching_provider(
-        &self,
-        provider_name: &str,
-        cache_config: CacheConfig,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> AppResult<CachingFitnessProvider<InMemoryCache>> {
-        let provider = self.create_provider(provider_name)?;
-        build_caching_provider(provider, cache_config, tenant_id, user_id).await
-    }
-
-    /// Create a caching provider with TTL configuration from a config provider
-    ///
-    /// This wraps a provider with transparent caching, loading TTL values from
-    /// any source implementing [`CacheTtlConfigProvider`] (e.g. the server's
-    /// `AdminConfigService`). This allows runtime configuration of cache TTLs
-    /// through the admin UI without coupling the registry to server-internal types.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider_name` - Name of the provider to wrap (e.g., "strava", "garmin")
-    /// * `cache_config` - Base cache configuration (capacity, cleanup interval, etc.)
-    /// * `tenant_id` - Tenant ID for multi-tenant cache isolation
-    /// * `user_id` - User ID for per-user cache isolation
-    /// * `ttl_provider` - Configuration provider for loading TTL values
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is not supported or cache initialization fails.
-    pub async fn create_caching_provider_with_admin_config(
-        &self,
-        provider_name: &str,
-        cache_config: CacheConfig,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        ttl_provider: &dyn CacheTtlConfigProvider,
-    ) -> AppResult<CachingFitnessProvider<InMemoryCache>> {
-        let provider = self.create_provider(provider_name)?;
-        let ttl_config =
-            CacheTtlConfig::from_config_provider(ttl_provider, Some(&tenant_id.to_string())).await;
-        build_caching_provider_with_ttl(provider, cache_config, tenant_id, user_id, ttl_config)
-            .await
-    }
 }
 
 impl Default for ProviderRegistry {
@@ -668,52 +608,6 @@ pub fn create_tenant_provider(
     user_id: Uuid,
 ) -> AppResult<TenantProvider> {
     global_registry().create_tenant_provider(provider_name, tenant_id, user_id)
-}
-
-/// Convenience function to create a caching provider using the global registry
-///
-/// This wraps a provider with transparent caching using the cache-aside pattern.
-/// For test isolation, prefer creating a local `ProviderRegistry` instance.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or cache initialization fails.
-pub async fn create_caching_provider_global(
-    provider_name: &str,
-    cache_config: CacheConfig,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> AppResult<CachingFitnessProvider<InMemoryCache>> {
-    global_registry()
-        .create_caching_provider(provider_name, cache_config, tenant_id, user_id)
-        .await
-}
-
-/// Convenience function to create a caching provider with admin-config-driven TTLs
-///
-/// Uses the global registry and loads TTL configuration from any
-/// [`CacheTtlConfigProvider`] (typically the server's `AdminConfigService`).
-/// For test isolation, prefer creating a local `ProviderRegistry` instance.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or cache initialization fails.
-pub async fn create_caching_provider_with_admin_config_global(
-    provider_name: &str,
-    cache_config: CacheConfig,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    ttl_provider: &dyn CacheTtlConfigProvider,
-) -> AppResult<CachingFitnessProvider<InMemoryCache>> {
-    global_registry()
-        .create_caching_provider_with_admin_config(
-            provider_name,
-            cache_config,
-            tenant_id,
-            user_id,
-            ttl_provider,
-        )
-        .await
 }
 
 /// Convenience function to check if a provider is supported

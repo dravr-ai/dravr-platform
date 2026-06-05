@@ -12,6 +12,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_intelligence::activity_analyzer::AdvancedActivityAnalyzer;
+use pierre_intelligence::performance_analyzer::AdvancedPerformanceAnalyzer;
 use pierre_intelligence::*;
 use std::collections::HashMap;
 

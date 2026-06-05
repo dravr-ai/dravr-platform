@@ -13,17 +13,16 @@ use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
     CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
     FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
-    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
-    SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository,
-    UsageRepository, UserMcpTokenRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, WeatherCacheRepository,
-    WorkoutTemplateRepository,
+    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
+    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
+    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -49,8 +48,6 @@ pub struct RepositoryRegistry {
     pub fitness_config: Arc<dyn FitnessConfigRepository>,
     /// Admin impersonation sessions
     pub impersonation: Arc<dyn ImpersonationRepository>,
-    /// AI-generated insight storage
-    pub insights: Arc<dyn InsightRepository>,
     /// LLM provider credential management
     pub llm_credentials: Arc<dyn LlmCredentialRepository>,
     /// LLM usage tracking for cost analysis
@@ -158,7 +155,6 @@ impl RepositoryRegistry {
             coaches: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
-            insights: db.clone(),
             llm_credentials: db.clone(),
             llm_usage: db.clone(),
             messaging: db.clone(),
@@ -216,7 +212,6 @@ impl RepositoryRegistry {
             coaches: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
-            insights: db.clone(),
             llm_credentials: db.clone(),
             llm_usage: db.clone(),
             messaging: db.clone(),

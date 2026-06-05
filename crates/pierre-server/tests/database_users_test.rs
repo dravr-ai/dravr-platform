@@ -76,6 +76,35 @@ async fn test_create_and_get_user() {
 }
 
 #[tokio::test]
+async fn test_get_global_many_batches_users() {
+    let db = create_test_database().await;
+
+    let alice = create_test_user("alice_batch@example.com", Some("Alice".to_owned()));
+    let bob = create_test_user("bob_batch@example.com", Some("Bob".to_owned()));
+    UserRepository::create(&db, &alice).await.unwrap();
+    UserRepository::create(&db, &bob).await.unwrap();
+
+    let missing = Uuid::new_v4();
+    let found = db
+        .get_global_many(&[alice.id, bob.id, missing])
+        .await
+        .expect("batch fetch failed");
+
+    // Existing ids are present and correct; the missing id is simply omitted.
+    assert_eq!(found.len(), 2);
+    assert_eq!(found.get(&alice.id).unwrap().email, alice.email);
+    assert_eq!(found.get(&bob.id).unwrap().email, bob.email);
+    assert!(!found.contains_key(&missing));
+}
+
+#[tokio::test]
+async fn test_get_global_many_empty_input() {
+    let db = create_test_database().await;
+    let found = db.get_global_many(&[]).await.expect("empty batch failed");
+    assert!(found.is_empty());
+}
+
+#[tokio::test]
 async fn test_last_active_update() {
     let db = Database::new("sqlite::memory:", vec![0u8; 32])
         .await

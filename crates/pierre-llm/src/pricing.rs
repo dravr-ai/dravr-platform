@@ -28,7 +28,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 /// Process-wide [`PricingRegistry`] singleton.
 ///
@@ -54,6 +54,52 @@ pub struct ModelPricing {
     /// USD per 1 million output (completion) tokens
     pub output_per_million: f64,
 }
+
+/// Providers whose per-token cost is genuinely \$0 by design, so a \$0 billed
+/// cost is *correct* rather than a missing-price undercount.
+///
+/// Two classes share this property:
+///
+/// - **Self-hosted** runtimes (Ollama / vLLM / `LocalAI` / generic local
+///   `OpenAI`-compatible endpoints): the operator pays for the hardware, not
+///   per token, so the metered per-token cost is zero.
+/// - **Flat-rate subscription** CLI/agent runners (Claude Code, GitHub
+///   Copilot, Cursor, `OpenCode`, Codex, Goose, Cline, Continue, Warp, Kiro,
+///   Kilo): billed by the upstream subscription, not per token through this
+///   platform.
+///
+/// Entries match the machine `name()` string each provider reports onto the
+/// usage record (see `LlmProvider::name`). A model under one of these prefixes
+/// resolves to \$0 *without* the missing-price warning, so cost dashboards do
+/// not flag it as an undercount. `copilot_headless` and `claude_code` are
+/// deliberately absent here: they carry real per-token `PRICING_TABLE` entries
+/// because their Anthropic pass-through usage is metered.
+const NOT_PER_TOKEN_METERED_PROVIDERS: &[&str] = &[
+    // Self-hosted OpenAI-compatible runtimes.
+    "local",
+    "ollama",
+    "vllm",
+    "localai",
+    // Flat-rate subscription CLI / agent runners (machine names as reported
+    // by each runner's name()).
+    "cursor-agent",
+    "claude-code",
+    "opencode",
+    "codex",
+    "goose",
+    "cline",
+    "continue",
+    "warp_cli",
+    "kiro",
+    "kilo",
+    "copilot",
+];
+
+/// `OpenRouter` exposes 200+ models with per-model pricing, so a static table
+/// can never be exhaustive. An unknown `OpenRouter` model is therefore logged
+/// as *model-specific price unset* (a deliberate, non-alarming message) rather
+/// than counted as a silent undercount alongside genuinely-unexpected misses.
+const OPENROUTER_PROVIDER: &str = "openrouter";
 
 /// Compile-time pricing table: `(provider, model_prefix, pricing)`
 ///
@@ -248,6 +294,100 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
             output_per_million: 0.60,
         },
     ),
+    // OpenRouter — the gateway passes through the underlying model's published
+    // price. These cover the curated default slugs the platform ships
+    // (HARDCODED_DEFAULT_MODEL + openrouter::AVAILABLE_MODELS); any other slug
+    // is honestly logged as model-specific-unset rather than silently $0.
+    // Prefixes carry the provider/model slug so prefix matching still resolves
+    // dated or suffixed variants (e.g. `:free`, `-001`).
+    (
+        "openrouter",
+        "meta-llama/llama-3.3-70b-instruct",
+        ModelPricing {
+            input_per_million: 0.12,
+            output_per_million: 0.30,
+        },
+    ),
+    (
+        "openrouter",
+        "meta-llama/llama-3.1-8b-instruct",
+        ModelPricing {
+            input_per_million: 0.02,
+            output_per_million: 0.03,
+        },
+    ),
+    (
+        "openrouter",
+        "anthropic/claude-3.5-sonnet",
+        ModelPricing {
+            input_per_million: 3.0,
+            output_per_million: 15.0,
+        },
+    ),
+    (
+        "openrouter",
+        "anthropic/claude-3.5-haiku",
+        ModelPricing {
+            input_per_million: 0.80,
+            output_per_million: 4.0,
+        },
+    ),
+    (
+        "openrouter",
+        "openai/gpt-4o-mini",
+        ModelPricing {
+            input_per_million: 0.15,
+            output_per_million: 0.60,
+        },
+    ),
+    (
+        "openrouter",
+        "openai/gpt-4o",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "openrouter",
+        "google/gemini-2.0-flash-001",
+        ModelPricing {
+            input_per_million: 0.10,
+            output_per_million: 0.40,
+        },
+    ),
+    (
+        "openrouter",
+        "google/gemini-pro-1.5",
+        ModelPricing {
+            input_per_million: 1.25,
+            output_per_million: 5.0,
+        },
+    ),
+    (
+        "openrouter",
+        "mistralai/mistral-large",
+        ModelPricing {
+            input_per_million: 2.0,
+            output_per_million: 6.0,
+        },
+    ),
+    (
+        "openrouter",
+        "mistralai/mistral-nemo",
+        ModelPricing {
+            input_per_million: 0.03,
+            output_per_million: 0.07,
+        },
+    ),
+    (
+        "openrouter",
+        "qwen/qwen-2.5-72b-instruct",
+        ModelPricing {
+            input_per_million: 0.13,
+            output_per_million: 0.40,
+        },
+    ),
 ];
 
 /// Look up pricing for a (provider, model) pair using prefix matching
@@ -256,6 +396,47 @@ fn lookup_pricing(provider: &str, model: &str) -> Option<ModelPricing> {
         .iter()
         .find(|(p, prefix, _)| *p == provider && model.starts_with(prefix))
         .map(|(_, _, pricing)| *pricing)
+}
+
+/// True when a provider bills via flat-rate subscription or self-hosting, so a
+/// \$0 per-token cost is correct rather than a missing-price undercount.
+#[must_use]
+pub fn is_not_per_token_metered(provider: &str) -> bool {
+    NOT_PER_TOKEN_METERED_PROVIDERS.contains(&provider)
+}
+
+/// Log the resolution of a (provider, model) pair that has no `PRICING_TABLE`
+/// or override entry, at a severity matching *why* it is unpriced, and return
+/// the \$0 cost all three paths fall back to.
+///
+/// - Subscription / self-hosted providers: \$0 is correct — `debug!` only, no
+///   undercount warning.
+/// - `OpenRouter`: model-specific price genuinely unset for this slug —
+///   `info!` with a distinct, non-alarming message.
+/// - Anything else: a genuinely-unexpected miss that *does* undercount —
+///   keep the `warn!`.
+fn zero_cost_for_unpriced(provider: &str, model: &str, tenant_id: Option<&str>) -> f64 {
+    if is_not_per_token_metered(provider) {
+        debug!(
+            provider = provider,
+            model = model,
+            "Provider is subscription/self-hosted; per-token cost is $0 by design (not an undercount)"
+        );
+    } else if provider == OPENROUTER_PROVIDER {
+        info!(
+            provider = provider,
+            model = model,
+            "OpenRouter model price is model-specific and unset for this slug; recording $0 (add a PRICING_TABLE or admin override to meter it)"
+        );
+    } else {
+        warn!(
+            provider = provider,
+            model = model,
+            tenant_id = tenant_id,
+            "No pricing data for model, cost will be recorded as 0.0"
+        );
+    }
+    0.0
 }
 
 /// Calculate the cost of an LLM request using compile-time pricing.
@@ -278,9 +459,12 @@ pub fn calculate_cost(
 /// Cached tokens bill at [`CACHED_TOKEN_RATE`] of the model's input rate;
 /// the remaining `(prompt_tokens - cached_tokens)` bill at the full input
 /// rate. Completion tokens always bill at the full output rate. Returns
-/// 0.0 for unknown (provider, model) pairs and logs a warning —
-/// billing-silent fallback behaviour is deliberate so a missing pricing
-/// entry never blocks a chat turn.
+/// 0.0 for unpriced (provider, model) pairs — the $0 fallback is deliberate
+/// so a missing pricing entry never blocks a chat turn. The log severity of
+/// that fallback depends on *why* the pair is unpriced (see
+/// [`zero_cost_for_unpriced`]): subscription/self-hosted providers log at
+/// debug (their $0 is correct), `OpenRouter` logs an honest model-specific
+/// notice, and only a genuinely-unexpected miss emits the undercount warning.
 #[must_use]
 pub fn calculate_cost_with_cache(
     provider: &str,
@@ -290,12 +474,7 @@ pub fn calculate_cost_with_cache(
     completion_tokens: i64,
 ) -> f64 {
     let Some(pricing) = lookup_pricing(provider, model) else {
-        warn!(
-            provider = provider,
-            model = model,
-            "No pricing data for model, cost will be recorded as 0.0"
-        );
-        return 0.0;
+        return zero_cost_for_unpriced(provider, model, None);
     };
 
     cost_from_pricing(&pricing, prompt_tokens, cached_tokens, completion_tokens)
@@ -409,13 +588,7 @@ impl PricingRegistry {
         completion_tokens: i64,
     ) -> f64 {
         let Some(pricing) = self.resolve(tenant_id, provider, model) else {
-            warn!(
-                provider = provider,
-                model = model,
-                tenant_id = tenant_id,
-                "No pricing data for model, cost will be recorded as 0.0"
-            );
-            return 0.0;
+            return zero_cost_for_unpriced(provider, model, tenant_id);
         };
         cost_from_pricing(&pricing, prompt_tokens, cached_tokens, completion_tokens)
     }

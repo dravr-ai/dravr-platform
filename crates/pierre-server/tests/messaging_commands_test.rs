@@ -241,10 +241,29 @@ mod command_tests {
     #[tokio::test]
     async fn test_logout_command() {
         let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
+        let (router, _user_id, tenant_id) = setup_linked_user(&resources).await;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        // Linked before /logout.
+        assert!(
+            db.get_channel_link(tenant_id, "telegram", SENDER_ID)
+                .await
+                .unwrap()
+                .is_some(),
+            "sender must be linked after setup_linked_user"
+        );
 
         let (status, _) = send_command(&router, "/logout", 4).await;
         assert_eq!(status, StatusCode::OK);
+
+        // /logout must actually unlink the channel — not just show a prompt.
+        assert!(
+            db.get_channel_link(tenant_id, "telegram", SENDER_ID)
+                .await
+                .unwrap()
+                .is_none(),
+            "/logout must delete the channel link"
+        );
     }
 
     /// Logout retains `messaging_sessions` and `messaging_messages` for
@@ -282,9 +301,10 @@ mod command_tests {
         .await
         .unwrap();
 
-        // Bare "logout" (no slash) is the confirmation reply that triggers the
-        // actual unlink — `/logout` only shows the confirmation prompt.
-        let (status, _) = send_command(&router, "logout", 100).await;
+        // `/logout` unlinks the channel directly (the same DELETE the bare-word
+        // "logout" path performs); this exercises the FK-protected unlink with
+        // stored history present.
+        let (status, _) = send_command(&router, "/logout", 100).await;
         assert_eq!(status, StatusCode::OK);
 
         assert!(
@@ -486,6 +506,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            sender_id: None,
         };
 
         let response = PrivacyOnHandler.execute(&ctx).await.unwrap();
@@ -540,6 +561,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            sender_id: None,
         };
 
         let response = PrivacyOffHandler.execute(&ctx).await.unwrap();
@@ -644,6 +666,7 @@ mod command_tests {
             locale: "fr".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            sender_id: None,
         };
 
         let response = CoachSelectHandler.execute(&ctx).await.unwrap();
@@ -697,6 +720,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            sender_id: None,
         };
 
         CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
@@ -750,6 +774,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            sender_id: None,
         };
 
         let response = CoachListHandler.execute(&ctx).await.unwrap();
@@ -912,6 +937,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: Some(conversation.id.clone()),
+            sender_id: None,
         };
 
         let response = GroupConsentHandler.execute(&ctx).await.unwrap();
@@ -978,6 +1004,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            sender_id: None,
         };
 
         // Default state: consent disabled
@@ -1029,6 +1056,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            sender_id: None,
         };
 
         // Valid IANA name persists and is echoed in the confirmation.
@@ -1196,6 +1224,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id,
+            sender_id: None,
         }
     }
 

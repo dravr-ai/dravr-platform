@@ -19,6 +19,7 @@ use pierre_core::permissions::UserRole;
 use serde_json::Value;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
+use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -121,6 +122,51 @@ impl Database {
     pub async fn get_user_global_impl(&self, user_id: Uuid) -> AppResult<Option<User>> {
         let user_id_str = user_id.to_string();
         self.get_user_by_field("id", &user_id_str).await
+    }
+
+    /// Batch-fetch users by ID without tenant scoping (system-level operations).
+    ///
+    /// Replaces per-id `get_global` loops with a single `WHERE id IN (...)`
+    /// query. Missing ids are simply absent from the returned map.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn get_users_global_impl(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, User>> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders = (1..=user_ids.len())
+            .map(|i| format!("${i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            r"
+            SELECT id, email, display_name, password_hash, tier,
+                   is_active, user_status, is_admin, role, approved_by, approved_at,
+                   created_at, last_active, firebase_uid, auth_provider,
+                   analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster, timezone
+            FROM users WHERE id IN ({placeholders})
+            "
+        );
+
+        let mut q = sqlx::query(&query);
+        for id in user_ids {
+            q = q.bind(id.to_string());
+        }
+        let rows = q
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to batch-get users: {e}")))?;
+
+        let mut users = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let user = Self::row_to_user(row)?;
+            users.insert(user.id, user);
+        }
+        Ok(users)
     }
 
     /// Get a user by ID, scoped to a specific tenant for multi-tenant isolation
@@ -1241,6 +1287,9 @@ impl UserRepository for Database {
     }
     async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
         Self::get_user_global_impl(self, user_id).await
+    }
+    async fn get_global_many(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, User>> {
+        Self::get_users_global_impl(self, user_ids).await
     }
     async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
         Self::get_user_by_email_impl(self, email).await

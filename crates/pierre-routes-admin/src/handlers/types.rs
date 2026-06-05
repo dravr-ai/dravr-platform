@@ -76,31 +76,6 @@ pub struct DeleteUserRequest {
     pub reason: Option<String>,
 }
 
-/// Coach rejection request
-#[derive(Debug, Deserialize)]
-pub struct RejectCoachRequest {
-    /// Reason for rejection (required to help author improve)
-    pub reason: String,
-}
-
-/// Query parameters for listing pending coaches
-#[derive(Debug, Deserialize)]
-pub struct ListPendingCoachesQuery {
-    /// Tenant ID to filter by (required for tenant-scoped operations)
-    pub tenant_id: String,
-    /// Maximum number of results (default: 50, max: 100)
-    pub limit: Option<u32>,
-    /// Offset for pagination
-    pub offset: Option<u32>,
-}
-
-/// Query parameters for coach review operations
-#[derive(Debug, Deserialize)]
-pub struct CoachReviewQuery {
-    /// Tenant ID (required for tenant-scoped operations)
-    pub tenant_id: String,
-}
-
 /// Query parameters for listing API keys
 #[derive(Debug, Deserialize)]
 pub struct ListApiKeysQuery {

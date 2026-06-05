@@ -30,14 +30,18 @@ pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
-pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
+# tools-groups gates group_fitness::fetch_member_snapshots — the canonical
+# member-snapshot builder the group analytics routes (/stats, /report, /health)
+# delegate to so REST and chat see identical all-providers + deduplicated data.
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["tools-groups"] }
 
 axum = { version = "0.8", features = ["macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-rand = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# rt + time + macros power the weekly-digest background scheduler (tokio::spawn + interval).
+tokio = { version = "1.50", features = ["rt", "time", "macros"] }
 tracing = "0.1"
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 uuid = { version = "1.22", features = ["v4", "serde"] }

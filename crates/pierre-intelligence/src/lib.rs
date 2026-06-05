@@ -118,7 +118,7 @@ pub use pierre_core::intelligence::{
 };
 
 // Re-export specific types at crate root for backward compatibility
-pub use dravr_cageux::activity_analyzer::{ActivityAnalyzerTrait, AdvancedActivityAnalyzer};
+pub use dravr_cageux::activity_analyzer::ActivityAnalyzerTrait;
 pub use dravr_cageux::analysis_config::{AnalysisConfig, AnalysisConfigError, ConfidenceLevel};
 pub use dravr_cageux::analyzer::ActivityAnalyzer;
 pub use dravr_cageux::config::intelligence::{
@@ -127,7 +127,7 @@ pub use dravr_cageux::config::intelligence::{
 };
 pub use dravr_cageux::friend_activity_cache::{
     create_shared_cache, CacheConfig, CacheStats, DurationCategory, EffortLevel,
-    FriendActivityCache, FriendActivitySummary, SharedFriendActivityCache,
+    FriendActivitySummary,
 };
 pub use dravr_cageux::goal_engine::{
     AdjustmentType, AdvancedGoalEngine, GoalAdjustment, GoalDifficulty, GoalEngineTrait,
@@ -151,12 +151,9 @@ pub use dravr_cageux::pattern_detection::{
     HardEasyPattern, OvertrainingSignals, PatternDetector, VolumeProgressionPattern, VolumeTrend,
     WeeklySchedulePattern,
 };
-pub use dravr_cageux::performance_analyzer::{
-    AdvancedPerformanceAnalyzer, PerformanceAnalyzerTrait,
-};
+pub use dravr_cageux::performance_analyzer::PerformanceAnalyzerTrait;
 pub use dravr_cageux::performance_analyzer_v2::{
-    ActivityGoal, FitnessScore, PerformanceAnalyzerV2, PerformancePrediction, TrainingLoadAnalysis,
-    WeeklyLoad,
+    ActivityGoal, FitnessScore, PerformancePrediction, TrainingLoadAnalysis, WeeklyLoad,
 };
 pub use dravr_cageux::performance_prediction::{PerformancePredictor, RacePredictions};
 pub use dravr_cageux::recipes::{
@@ -164,9 +161,7 @@ pub use dravr_cageux::recipes::{
     MacroTargets, MealTiming, Recipe, RecipeConstraints, RecipeIngredient, SkillLevel,
     ValidatedNutrition,
 };
-pub use dravr_cageux::recommendation_engine::{
-    AdvancedRecommendationEngine, RecommendationEngineTrait,
-};
+pub use dravr_cageux::recommendation_engine::RecommendationEngineTrait;
 pub use dravr_cageux::recovery_calculator::{
     RecoveryCalculator, RecoveryCategory, RecoveryComponents, RecoveryScore, RestDayRecommendation,
     TrainingReadiness,

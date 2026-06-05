@@ -1,5 +1,5 @@
-// ABOUTME: Tests for CachingFitnessProvider decorator
-// ABOUTME: Validates cache key generation, policy defaults, and cache-aside pattern
+// ABOUTME: Tests for tenant-scoped cache key generation used by provider caching
+// ABOUTME: Validates cache key resource encoding and time-filter serialization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,14 +9,7 @@
 
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::models::TenantId;
-use pierre_providers::CachePolicy;
 use uuid::Uuid;
-
-#[test]
-fn test_cache_policy_default() {
-    let policy = CachePolicy::default();
-    assert_eq!(policy, CachePolicy::UseCache);
-}
 
 #[test]
 fn test_cache_key_generation() {

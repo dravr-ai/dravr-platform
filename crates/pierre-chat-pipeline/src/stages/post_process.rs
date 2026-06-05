@@ -16,7 +16,7 @@ use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
-use super::persona_conformance::check_reply_conformance;
+use super::persona_conformance::{check_reply_conformance, enforce_conformance};
 use super::prompt_assembly::resolve_user_persona;
 #[cfg(feature = "tools-verification")]
 use super::verification::{
@@ -87,7 +87,9 @@ pub(crate) async fn post_process_assistant_reply(
         locale_opt.unwrap_or(DEFAULT_LOCALE),
     );
 
-    // Stage 16b: Per-persona output-format conformance.
+    // Stage 16b: Per-persona output-format conformance. In strict_mode the
+    // reply is re-prompted into compliance before verification; otherwise the
+    // violations are logged only (shadow mode).
     let persona = resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id).await;
     let conformance_violations =
         check_reply_conformance(&ctx.persona_contract_registry, persona, &content);
@@ -96,6 +98,14 @@ pub(crate) async fn post_process_assistant_reply(
         violations = conformance_violations.len(),
         "persona conformance scan complete"
     );
+    content = enforce_conformance(
+        ctx.chat_provider.as_ref(),
+        &ctx.persona_contract_registry,
+        persona,
+        content,
+        &conformance_violations,
+    )
+    .await;
 
     // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
     #[cfg(feature = "tools-verification")]

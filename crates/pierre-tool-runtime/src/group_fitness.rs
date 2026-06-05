@@ -545,17 +545,40 @@ fn log_per_activity_tss(calculator: &TrainingLoadCalculator, sorted: &[Activity]
     );
 }
 
-/// Compute weekly metrics from activities in the past 7 days.
+/// Number of days in one week, used to split current vs previous week.
+const DAYS_PER_WEEK: i64 = 7;
+
+/// Aggregated current-week metrics plus the prior week's volume trend input.
 ///
-/// Returns `(activity_count, volume_km, duration_seconds, days_since_last)`.
+/// `previous_week_volume_km` is `None` when no activity falls in the
+/// 7-to-14-day window — the group trend aggregation treats a missing prior
+/// week as "no trend signal" rather than a zero-volume week.
+pub struct WeeklyMetrics {
+    /// Number of activities in the trailing 7-day window.
+    pub activity_count: i32,
+    /// Distance (km) summed across the trailing 7-day window.
+    pub volume_km: f64,
+    /// Total active duration (seconds) across the trailing 7-day window.
+    pub duration_seconds: i64,
+    /// Distance (km) for the 7-to-14-day window, or `None` when that window
+    /// holds no activities. Feeds the group-level weekly trend.
+    pub previous_week_volume_km: Option<f64>,
+    /// Whole days since the most-recent activity, or `None` when there are none.
+    pub days_since_last: Option<i32>,
+}
+
+/// Compute weekly metrics from activities in the past 7 days, plus the prior
+/// week's volume for trend detection.
+///
 /// `duration_seconds` is the sum of `Activity::duration_seconds()` across the
 /// week — preserved separately from `volume_km` so HR/duration-only sources
 /// (WHOOP, indoor trainers) surface as training volume even with no GPS.
-fn compute_weekly_metrics(
-    activities: &[Activity],
-    now: DateTime<Utc>,
-) -> (i32, f64, i64, Option<i32>) {
-    let seven_days_ago = now - Duration::days(7);
+/// `previous_week_volume_km` covers the 7-to-14-day window and feeds the
+/// group-level weekly trend; the 60-day lookback already fetched that data.
+#[must_use]
+pub fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> WeeklyMetrics {
+    let seven_days_ago = now - Duration::days(DAYS_PER_WEEK);
+    let fourteen_days_ago = now - Duration::days(2 * DAYS_PER_WEEK);
     let weekly_activities: Vec<_> = activities
         .iter()
         .filter(|a| a.start_date() >= seven_days_ago)
@@ -574,18 +597,35 @@ fn compute_weekly_metrics(
         .map(|a| i64::try_from(a.duration_seconds()).unwrap_or(i64::MAX))
         .sum();
 
+    let previous_week: Vec<_> = activities
+        .iter()
+        .filter(|a| a.start_date() >= fourteen_days_ago && a.start_date() < seven_days_ago)
+        .collect();
+    let previous_week_volume_km = if previous_week.is_empty() {
+        None
+    } else {
+        Some(
+            previous_week
+                .iter()
+                .filter_map(|a| a.distance_meters())
+                .sum::<f64>()
+                / 1000.0,
+        )
+    };
+
     let days_since_last = activities
         .iter()
         .map(Activity::start_date)
         .max()
         .map(|last| i32::try_from((now - last).num_days()).unwrap_or(i32::MAX));
 
-    (
-        weekly_activity_count,
-        weekly_volume_km,
-        weekly_duration_seconds,
+    WeeklyMetrics {
+        activity_count: weekly_activity_count,
+        volume_km: weekly_volume_km,
+        duration_seconds: weekly_duration_seconds,
+        previous_week_volume_km,
         days_since_last,
-    )
+    }
 }
 
 /// Get all connected provider names for a user.
@@ -782,8 +822,7 @@ fn build_snapshot_from_activities(
     algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
     let (ctl, atl, tsb) = compute_training_metrics(activities, algorithm_config);
-    let (weekly_activity_count, weekly_volume_km, weekly_duration_seconds, days_since_last) =
-        compute_weekly_metrics(activities, now);
+    let weekly = compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
@@ -795,14 +834,14 @@ fn build_snapshot_from_activities(
         ctl,
         atl,
         tsb,
-        weekly_volume_km,
-        previous_week_volume_km: None,
-        weekly_activity_count,
-        weekly_duration_seconds,
+        weekly_volume_km: weekly.volume_km,
+        previous_week_volume_km: weekly.previous_week_volume_km,
+        weekly_activity_count: weekly.activity_count,
+        weekly_duration_seconds: weekly.duration_seconds,
         primary_sport,
         vdot: None,
         overtraining_risk,
-        days_since_last_activity: days_since_last,
+        days_since_last_activity: weekly.days_since_last,
         last_activity_per_provider,
         recent_activities,
         computed_at: now,

@@ -129,7 +129,7 @@ impl From<Coach> for CoachResponse {
             is_system: coach.is_system,
             visibility: coach.visibility.as_str().to_owned(),
             is_assigned: false, // Default for single coach responses
-            forked_from: coach.forked_from,
+            forked_from: coach.forked_from.map(|id| id.to_string()),
             prerequisites_met: None,
             missing_prerequisites: None,
             startup_query: coach.startup_query,
@@ -164,7 +164,7 @@ impl From<CoachListItem> for CoachResponse {
             is_system: item.coach.is_system,
             visibility: item.coach.visibility.as_str().to_owned(),
             is_assigned: item.is_assigned,
-            forked_from: item.coach.forked_from,
+            forked_from: item.coach.forked_from.map(|id| id.to_string()),
             prerequisites_met: None,
             missing_prerequisites: None,
             startup_query: item.coach.startup_query,
@@ -552,7 +552,10 @@ impl From<CoachVersion> for CoachVersionResponse {
             content_snapshot: v.content_snapshot,
             change_summary: v.change_summary,
             created_at: v.created_at.to_rfc3339(),
-            created_by_name: None, // Populated separately with user lookup
+            // Left None here; the version route handlers resolve created_by ->
+            // display name via resolve_creator_name (async user lookup) since
+            // this From impl cannot perform database access.
+            created_by_name: None,
         }
     }
 }

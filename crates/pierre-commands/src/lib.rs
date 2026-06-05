@@ -95,6 +95,10 @@ pub struct PlatformCommandContext {
     /// messaging ingress); `None` only on synthetic dispatch sites
     /// without a persisted conversation.
     pub conversation_id: Option<String>,
+    /// Channel sender identifier (Telegram chat id, Slack user id, ...) on
+    /// messaging surfaces; `None` on web/mobile and synthetic dispatch.
+    /// `/logout` uses it to unlink the exact channel sender.
+    pub sender_id: Option<String>,
 }
 
 /// Handler for a slash command.
