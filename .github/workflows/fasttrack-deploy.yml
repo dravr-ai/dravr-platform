@@ -68,8 +68,11 @@ jobs:
           file: docker/images/server/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.server_tag }}
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,mode=max,scope=server
+          # Registry-backed buildx cache (Artifact Registry) — durable + reliable
+          # vs the flaky type=gha cache; reuses the cargo-chef dep layer so cold
+          # fasttrack server builds drop from ~20min to ~3-5min.
+          cache-from: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server:buildcache
+          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
           secrets: |
@@ -85,7 +88,9 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.frontend_tag }}
           no-cache: true
-          cache-to: type=gha,mode=max,scope=frontend
+          # Registry-backed buildx cache (see server step) — replaces the flaky
+          # type=gha cache-to export that intermittently failed the build.
+          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             COMMIT_SHA=${{ github.sha }}
             VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
