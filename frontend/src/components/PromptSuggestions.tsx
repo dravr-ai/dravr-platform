@@ -483,8 +483,13 @@ const CoachCard = memo(function CoachCard({
           coachesApi.recordUsage(coach.id).catch(() => {
             // Silently ignore usage tracking errors
           });
+          // Open the coach with its natural-language startup query (e.g.
+          // "Pull my latest training snapshot…"), NOT its description. The
+          // description is marketplace metadata full of internal jargon and
+          // template slugs — surfacing it as the user's opening turn reads as
+          // nonsense. Fall back to a plain opener when no startup query is set.
           onSelectPrompt(
-            coach.description || `Chat with ${coach.title}`,
+            coach.startup_query || `Chat with ${coach.title}`,
             coach.id
           );
         }}
