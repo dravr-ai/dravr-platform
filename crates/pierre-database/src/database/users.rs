@@ -897,8 +897,8 @@ impl Database {
         // Upsert into tenant_users junction table (queries INNER JOIN on it)
         sqlx::query(
             r"
-            INSERT OR IGNORE INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at, is_active)
-            VALUES (lower(hex(randomblob(16))), ?1, ?2, 'member', datetime('now'), datetime('now'), 1)
+            INSERT OR IGNORE INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at)
+            VALUES (lower(hex(randomblob(16))), ?1, ?2, 'member', datetime('now'), datetime('now'))
             ",
         )
         .bind(tenant_id.to_string())
