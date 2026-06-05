@@ -136,8 +136,11 @@ jobs:
           file: docker/images/server/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.server_tags }}
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,mode=max,scope=server
+          # Registry-backed buildx cache (Artifact Registry) instead of type=gha:
+          # the GHA cache export flaked intermittently (tar/zstd exit 1) and is
+          # capped/evicted; a registry buildcache tag is durable and reliable.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/server:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/server:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             GIT_COMMIT_SHA=${{ needs.resolve-sha.outputs.sha }}
           secrets: |
@@ -236,8 +239,10 @@ jobs:
             VITE_FIREBASE_STORAGE_BUCKET=${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
             VITE_FIREBASE_APP_ID=${{ vars.VITE_FIREBASE_APP_ID }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          # Registry-backed buildx cache (see server job) — replaces the flaky
+          # type=gha cache whose export step intermittently failed the build.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Scan frontend image for vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
