@@ -47,8 +47,9 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
 # chromium + libs: required by dravr-sciotte (Chrome scraping via chromiumoxide)
-# xvfb: virtual X display so credential login runs headed — Garmin/Google SSO
-#       block true-headless Chrome (see chromium-launcher.sh)
+# xvfb + xauth: virtual X display so credential login runs headed — Garmin/Google
+#       SSO block true-headless Chrome (see chromium-launcher.sh). xauth is not an
+#       xvfb recommend, so it must be listed explicitly under --no-install-recommends.
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
