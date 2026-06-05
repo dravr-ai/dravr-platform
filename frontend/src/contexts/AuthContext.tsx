@@ -24,8 +24,18 @@ const defaultImpersonationState: ImpersonationState = {
  * locally. Best-effort: failures are logged to the console but never
  * surfaced as errors, since the date anchor's UTC fallback keeps chat
  * working when the timezone capture path is unavailable.
+ *
+ * Only runs for active users. Pending/suspended accounts are gated out of
+ * feature endpoints by the account-status policy, so PUT /users/me/timezone
+ * returns 401 for them — which the api-client's global 401 interceptor turns
+ * into a forced logout, bouncing the user off the "pending approval" screen
+ * straight back to login. Timezone only matters for chat (active users), so
+ * skip it for everyone else.
  */
-async function captureUserTimezone(): Promise<void> {
+async function captureUserTimezone(userStatus: string): Promise<void> {
+  if (userStatus !== 'active') {
+    return;
+  }
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz) {
@@ -120,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // day (otherwise the resolver falls back to UTC and the coach
     // misreads "today"). A failure here must not break login — swallow
     // it and log to the browser console.
-    void captureUserTimezone();
+    void captureUserTimezone(userData.user_status);
   };
 
   const loginWithFirebase = async (idToken: string) => {
@@ -141,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Best-effort: capture the browser's IANA timezone (see notes in
     // the password-login branch above).
-    void captureUserTimezone();
+    void captureUserTimezone(userData.user_status);
 
     return response;
   };
