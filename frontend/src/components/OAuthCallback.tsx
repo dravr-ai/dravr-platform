@@ -36,7 +36,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
   return (
     <div className="min-h-screen bg-surface-container-low flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-xl shadow-lg overflow-hidden">
+      <div className="max-w-md w-full bg-surface rounded-xl shadow-lg overflow-hidden">
         {/* Top gradient bar */}
         <div
           className={`h-1 w-full ${
@@ -52,7 +52,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
             <DravrLogo size={80} className="mx-auto" />
           </div>
 
-          <div className="text-lg font-bold text-pierre-gray-900 mb-6">Dravr</div>
+          <div className="text-lg font-bold text-on-surface mb-6">Dravr</div>
 
           {success ? (
             <>
@@ -76,7 +76,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
               <h1 className="text-xl font-bold text-pierre-activity mb-2">
                 {providerDisplay} Connected
               </h1>
-              <p className="text-sm text-pierre-gray-600 mb-6">
+              <p className="text-sm text-on-surface-variant mb-6">
                 Your {providerDisplay} account has been successfully connected to Pierre.
               </p>
             </>
@@ -100,7 +100,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
               </div>
 
               <h1 className="text-xl font-bold text-pierre-red-600 mb-2">Connection Failed</h1>
-              <p className="text-sm text-pierre-gray-600 mb-6">
+              <p className="text-sm text-on-surface-variant mb-6">
                 {error || `Failed to connect your ${providerDisplay} account. Please try again.`}
               </p>
             </>
@@ -114,7 +114,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
               Continue to Dashboard
             </button>
           ) : (
-            <p className="text-xs text-pierre-gray-500">
+            <p className="text-xs text-on-surface-variant">
               You can close this tab and return to your conversation.
             </p>
           )}

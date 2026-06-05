@@ -299,17 +299,17 @@ ${formData.successCriteria}
                   ? 'bg-primary text-on-primary'
                   : index < currentStep
                   ? 'bg-pierre-activity text-on-primary'
-                  : 'bg-pierre-gray-200 text-pierre-gray-500'
+                  : 'bg-surface-container-highest text-on-surface-variant'
               }`}
             >
               {index < currentStep ? '✓' : index + 1}
             </div>
-            <span className={`text-xs mt-1 ${index === currentStep ? 'text-primary font-medium' : 'text-pierre-gray-500'}`}>
+            <span className={`text-xs mt-1 ${index === currentStep ? 'text-primary font-medium' : 'text-on-surface-variant'}`}>
               {step.title}
             </span>
           </button>
           {index < STEPS.length - 1 && (
-            <div className={`flex-1 h-0.5 mx-2 ${index < currentStep ? 'bg-pierre-activity' : 'bg-pierre-gray-200'}`} />
+            <div className={`flex-1 h-0.5 mx-2 ${index < currentStep ? 'bg-pierre-activity' : 'bg-surface-container-highest'}`} />
           )}
         </React.Fragment>
       ))}
@@ -320,38 +320,38 @@ ${formData.successCriteria}
   const renderBasicInfo = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Title *</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Title *</label>
         <input
           type="text"
           value={formData.title}
           onChange={(e) => updateField('title', e.target.value)}
           placeholder="Enter coach title"
-          className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-            errors.title ? 'border-pierre-red-500' : 'border-pierre-gray-300'
+          className={`w-full px-4 py-3 bg-surface border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
+            errors.title ? 'border-pierre-red-500' : 'ghost-border'
           }`}
           maxLength={100}
         />
         <div className="flex justify-between mt-1">
           {errors.title && <span className="text-pierre-red-500 text-xs">{errors.title}</span>}
-          <span className="text-pierre-gray-500 text-xs ml-auto">{formData.title.length}/100</span>
+          <span className="text-on-surface-variant text-xs ml-auto">{formData.title.length}/100</span>
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Description</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Description</label>
         <textarea
           value={formData.description}
           onChange={(e) => updateField('description', e.target.value)}
           placeholder="Brief description of what this coach does"
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={3}
           maxLength={500}
         />
-        <span className="text-pierre-gray-500 text-xs float-right">{formData.description.length}/500</span>
+        <span className="text-on-surface-variant text-xs float-right">{formData.description.length}/500</span>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Category</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Category</label>
         <div className="grid grid-cols-3 gap-3">
           {CATEGORIES.map((cat) => (
             <button
@@ -360,18 +360,18 @@ ${formData.successCriteria}
               className={`px-4 py-3 rounded-lg border-2 transition-colors ${
                 formData.category === cat.key
                   ? 'border-primary bg-pierre-violet/10'
-                  : 'border-pierre-gray-200 hover:border-pierre-gray-300'
+                  : 'ghost-border hover:ghost-border'
               }`}
             >
               <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: cat.color }} />
-              <span className="text-pierre-gray-800">{cat.label}</span>
+              <span className="text-on-surface">{cat.label}</span>
             </button>
           ))}
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Tags</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Tags</label>
         <div className="flex gap-2 mb-2">
           <input
             type="text"
@@ -379,7 +379,7 @@ ${formData.successCriteria}
             onChange={(e) => setNewTag(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
             placeholder="Add a tag"
-            className="flex-1 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
+            className="flex-1 px-4 py-2 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
           />
           <button
             onClick={addTag}
@@ -390,12 +390,12 @@ ${formData.successCriteria}
         </div>
         <div className="flex flex-wrap gap-2">
           {formData.tags.map((tag) => (
-            <span key={tag} className="inline-flex items-center px-3 py-1 rounded-full bg-pierre-gray-100 text-pierre-gray-700">
+            <span key={tag} className="inline-flex items-center px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant">
               {tag}
-              <button onClick={() => removeTag(tag)} className="ml-2 text-pierre-gray-400 hover:text-pierre-gray-700">×</button>
+              <button onClick={() => removeTag(tag)} className="ml-2 text-on-surface-variant hover:text-on-surface-variant">×</button>
             </span>
           ))}
-          {formData.tags.length === 0 && <span className="text-pierre-gray-500 text-sm italic">No tags added</span>}
+          {formData.tags.length === 0 && <span className="text-on-surface-variant text-sm italic">No tags added</span>}
         </div>
       </div>
     </div>
@@ -405,24 +405,24 @@ ${formData.successCriteria}
   const renderPurpose = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Purpose</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Purpose</label>
         <textarea
           value={formData.purpose}
           onChange={(e) => updateField('purpose', e.target.value)}
           placeholder="Describe what this coach helps users accomplish..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={5}
         />
-        <span className="text-pierre-gray-500 text-xs float-right">~{tokenCounts.purpose} tokens</span>
+        <span className="text-on-surface-variant text-xs float-right">~{tokenCounts.purpose} tokens</span>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">When to Use</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">When to Use</label>
         <textarea
           value={formData.whenToUse}
           onChange={(e) => updateField('whenToUse', e.target.value)}
           placeholder="Describe scenarios when users should activate this coach..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={4}
         />
       </div>
@@ -433,12 +433,12 @@ ${formData.successCriteria}
   const renderSystemPrompt = () => (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <label className="block text-sm font-medium text-pierre-gray-700">System Prompt *</label>
+        <label className="block text-sm font-medium text-on-surface-variant">System Prompt *</label>
         <div className="flex gap-2">
           <button
             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
             className={`px-3 py-1 text-sm rounded ${
-              isMarkdownMode ? 'bg-primary text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              isMarkdownMode ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'
             }`}
           >
             {isMarkdownMode ? 'Visual' : 'Markdown'}
@@ -446,7 +446,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setShowPreview(!showPreview)}
             className={`px-3 py-1 text-sm rounded ${
-              showPreview ? 'bg-primary text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              showPreview ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'
             }`}
           >
             Preview
@@ -460,27 +460,27 @@ ${formData.successCriteria}
             value={formData.systemPrompt}
             onChange={(e) => updateField('systemPrompt', e.target.value)}
             placeholder="Define how this coach should behave, what expertise it has, and how it should respond to users..."
-            className={`w-full px-4 py-3 bg-white border rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none font-mono ${
-              errors.systemPrompt ? 'border-pierre-red-500' : 'border-pierre-gray-300'
+            className={`w-full px-4 py-3 bg-surface border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none font-mono ${
+              errors.systemPrompt ? 'border-pierre-red-500' : 'ghost-border'
             }`}
             rows={15}
           />
           {errors.systemPrompt && <span className="text-pierre-red-500 text-xs">{errors.systemPrompt}</span>}
         </div>
         {showPreview && (
-          <div className="px-4 py-3 bg-surface-container-low border border-pierre-gray-200 rounded-lg overflow-auto max-h-[400px]">
+          <div className="px-4 py-3 bg-surface-container-low border ghost-border rounded-lg overflow-auto max-h-[400px]">
             <div className="prose prose-sm">
-              <pre className="whitespace-pre-wrap text-pierre-gray-700 text-sm">{formData.systemPrompt}</pre>
+              <pre className="whitespace-pre-wrap text-on-surface-variant text-sm">{formData.systemPrompt}</pre>
             </div>
           </div>
         )}
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-sm text-pierre-gray-500">
+        <div className="text-sm text-on-surface-variant">
           ~{tokenCounts.systemPrompt.toLocaleString()} tokens ({tokenCounts.percentage}% of context)
         </div>
-        <div className="w-48 h-2 bg-pierre-gray-200 rounded-full overflow-hidden">
+        <div className="w-48 h-2 bg-surface-container-highest rounded-full overflow-hidden">
           <div
             className="h-full bg-primary transition-all"
             style={{ width: `${Math.min(parseFloat(tokenCounts.percentage), 100)}%` }}
@@ -494,28 +494,28 @@ ${formData.successCriteria}
   const renderExamples = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Example Inputs</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Example Inputs</label>
         <textarea
           value={formData.exampleInputs}
           onChange={(e) => updateField('exampleInputs', e.target.value)}
           placeholder="List example prompts users might ask this coach..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={6}
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Example Outputs</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Example Outputs</label>
         <textarea
           value={formData.exampleOutputs}
           onChange={(e) => updateField('exampleOutputs', e.target.value)}
           placeholder="Show example responses the coach should provide..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={6}
         />
       </div>
 
-      <div className="text-sm text-pierre-gray-500">
+      <div className="text-sm text-on-surface-variant">
         Examples contribute ~{tokenCounts.examples.toLocaleString()} tokens
       </div>
     </div>
@@ -525,8 +525,8 @@ ${formData.successCriteria}
   const renderPrerequisites = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-3">Required Providers</label>
-        <p className="text-pierre-gray-500 text-sm mb-3">Users must have these connected to use this coach</p>
+        <label className="block text-sm font-medium text-on-surface-variant mb-3">Required Providers</label>
+        <p className="text-on-surface-variant text-sm mb-3">Users must have these connected to use this coach</p>
         <div className="flex flex-wrap gap-2">
           {PROVIDERS.map((provider) => (
             <button
@@ -535,7 +535,7 @@ ${formData.successCriteria}
               className={`px-4 py-2 rounded-lg border transition-colors ${
                 formData.prerequisites.providers.includes(provider)
                   ? 'border-primary bg-pierre-violet/10 text-pierre-violet-light'
-                  : 'border-pierre-gray-200 text-pierre-gray-600 hover:border-pierre-gray-300'
+                  : 'ghost-border text-on-surface-variant hover:ghost-border'
               }`}
             >
               {provider}
@@ -545,7 +545,7 @@ ${formData.successCriteria}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Minimum Activities</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Minimum Activities</label>
         <input
           type="number"
           min="0"
@@ -554,13 +554,13 @@ ${formData.successCriteria}
             ...formData.prerequisites,
             minActivities: parseInt(e.target.value) || 0,
           })}
-          className="w-32 px-4 py-2 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
+          className="w-32 px-4 py-2 bg-surface border ghost-border rounded-lg text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
         />
-        <span className="text-pierre-gray-500 text-sm ml-2">activities required</span>
+        <span className="text-on-surface-variant text-sm ml-2">activities required</span>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-3">Activity Types</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-3">Activity Types</label>
         <div className="flex flex-wrap gap-2">
           {ACTIVITY_TYPES.map((type) => (
             <button
@@ -569,7 +569,7 @@ ${formData.successCriteria}
               className={`px-4 py-2 rounded-lg border transition-colors ${
                 formData.prerequisites.activityTypes.includes(type)
                   ? 'border-pierre-activity bg-pierre-activity/10 text-pierre-activity'
-                  : 'border-pierre-gray-200 text-pierre-gray-600 hover:border-pierre-gray-300'
+                  : 'ghost-border text-on-surface-variant hover:ghost-border'
               }`}
             >
               {type}
@@ -584,25 +584,25 @@ ${formData.successCriteria}
   const renderAdvanced = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Success Criteria</label>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Success Criteria</label>
         <textarea
           value={formData.successCriteria}
           onChange={(e) => updateField('successCriteria', e.target.value)}
           placeholder="Define what successful coaching looks like..."
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
           rows={4}
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-pierre-gray-700 mb-2">Related Coaches</label>
-        <p className="text-pierre-gray-500 text-sm mb-3">Suggest other coaches users might find helpful</p>
+        <label className="block text-sm font-medium text-on-surface-variant mb-2">Related Coaches</label>
+        <p className="text-on-surface-variant text-sm mb-3">Suggest other coaches users might find helpful</p>
         <input
           type="text"
           placeholder="Enter coach names separated by commas"
           value={formData.relatedCoaches.join(', ')}
           onChange={(e) => updateField('relatedCoaches', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-          className="w-full px-4 py-3 bg-white border border-pierre-gray-300 rounded-lg text-pierre-gray-900 placeholder-pierre-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
+          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
         />
       </div>
     </div>
@@ -614,17 +614,17 @@ ${formData.successCriteria}
 
     return (
       <div className="space-y-6">
-        <h3 className="text-xl font-bold text-pierre-gray-900">Review Your Coach</h3>
+        <h3 className="text-xl font-bold text-on-surface">Review Your Coach</h3>
 
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-4">
             <div>
-              <span className="text-pierre-gray-500 text-sm">Title</span>
-              <p className="text-pierre-gray-900 font-medium">{formData.title || '(not set)'}</p>
+              <span className="text-on-surface-variant text-sm">Title</span>
+              <p className="text-on-surface font-medium">{formData.title || '(not set)'}</p>
             </div>
 
             <div>
-              <span className="text-pierre-gray-500 text-sm">Category</span>
+              <span className="text-on-surface-variant text-sm">Category</span>
               <p>
                 <span
                   className="inline-block px-3 py-1 rounded-full text-on-surface text-sm"
@@ -637,10 +637,10 @@ ${formData.successCriteria}
 
             {formData.tags.length > 0 && (
               <div>
-                <span className="text-pierre-gray-500 text-sm">Tags</span>
+                <span className="text-on-surface-variant text-sm">Tags</span>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {formData.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-1 bg-pierre-gray-100 rounded text-pierre-gray-700 text-sm">
+                    <span key={tag} className="px-2 py-1 bg-surface-container-high rounded text-on-surface-variant text-sm">
                       {tag}
                     </span>
                   ))}
@@ -650,37 +650,37 @@ ${formData.successCriteria}
 
             {formData.prerequisites.providers.length > 0 && (
               <div>
-                <span className="text-pierre-gray-500 text-sm">Required Providers</span>
-                <p className="text-pierre-gray-900">{formData.prerequisites.providers.join(', ')}</p>
+                <span className="text-on-surface-variant text-sm">Required Providers</span>
+                <p className="text-on-surface">{formData.prerequisites.providers.join(', ')}</p>
               </div>
             )}
           </div>
 
           <div className="space-y-4">
             <div>
-              <span className="text-pierre-gray-500 text-sm">Token Usage</span>
-              <p className="text-pierre-gray-900">~{tokenCounts.total.toLocaleString()} tokens ({tokenCounts.percentage}%)</p>
+              <span className="text-on-surface-variant text-sm">Token Usage</span>
+              <p className="text-on-surface">~{tokenCounts.total.toLocaleString()} tokens ({tokenCounts.percentage}%)</p>
             </div>
 
             {formData.description && (
               <div>
-                <span className="text-pierre-gray-500 text-sm">Description</span>
-                <p className="text-pierre-gray-700 text-sm">{formData.description}</p>
+                <span className="text-on-surface-variant text-sm">Description</span>
+                <p className="text-on-surface-variant text-sm">{formData.description}</p>
               </div>
             )}
 
             {formData.purpose && (
               <div>
-                <span className="text-pierre-gray-500 text-sm">Purpose</span>
-                <p className="text-pierre-gray-700 text-sm line-clamp-3">{formData.purpose}</p>
+                <span className="text-on-surface-variant text-sm">Purpose</span>
+                <p className="text-on-surface-variant text-sm line-clamp-3">{formData.purpose}</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="p-4 bg-surface-container-low rounded-lg border border-pierre-gray-200">
-          <span className="text-pierre-gray-500 text-sm">System Prompt Preview</span>
-          <pre className="text-pierre-gray-700 text-sm mt-2 whitespace-pre-wrap line-clamp-6 font-mono">
+        <div className="p-4 bg-surface-container-low rounded-lg border ghost-border">
+          <span className="text-on-surface-variant text-sm">System Prompt Preview</span>
+          <pre className="text-on-surface-variant text-sm mt-2 whitespace-pre-wrap line-clamp-6 font-mono">
             {formData.systemPrompt || '(not set)'}
           </pre>
         </div>
@@ -703,31 +703,31 @@ ${formData.successCriteria}
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-50 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-surface z-50 overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-pierre-gray-200">
-        <button onClick={onCancel} className="text-pierre-gray-500 hover:text-pierre-gray-900 transition-colors">
+      <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
+        <button onClick={onCancel} className="text-on-surface-variant hover:text-on-surface transition-colors">
           Cancel
         </button>
-        <h2 className="text-lg font-semibold text-pierre-gray-900">
+        <h2 className="text-lg font-semibold text-on-surface">
           {isEditMode ? 'Edit Coach' : 'Create Coach'}
         </h2>
         <div className="flex gap-2">
           {isEditMode && (
             <button
               onClick={() => setShowVersionHistory(true)}
-              className="px-3 py-1 text-sm bg-pierre-gray-100 text-pierre-gray-700 rounded hover:bg-pierre-gray-200 transition-colors"
+              className="px-3 py-1 text-sm bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-container-highest transition-colors"
             >
               History
             </button>
           )}
-          <label className="cursor-pointer px-3 py-1 text-sm bg-pierre-gray-100 text-pierre-gray-700 rounded hover:bg-pierre-gray-200 transition-colors">
+          <label className="cursor-pointer px-3 py-1 text-sm bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-container-highest transition-colors">
             Import
             <input type="file" accept=".md" onChange={importFromMarkdown} className="hidden" />
           </label>
           <button
             onClick={exportToMarkdown}
-            className="px-3 py-1 text-sm bg-pierre-gray-100 text-pierre-gray-700 rounded hover:bg-pierre-gray-200 transition-colors"
+            className="px-3 py-1 text-sm bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-container-highest transition-colors"
           >
             Export
           </button>
@@ -735,34 +735,34 @@ ${formData.successCriteria}
       </div>
 
       {/* Step Indicator */}
-      <div className="px-6 py-6 border-b border-pierre-gray-200 bg-surface-container-low">
+      <div className="px-6 py-6 border-b ghost-border bg-surface-container-low">
         {renderStepIndicator()}
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 bg-surface-container-low">
         <div className="max-w-3xl mx-auto">
-          <h3 className="text-lg font-semibold text-pierre-gray-900 mb-2">{STEPS[currentStep].title}</h3>
-          <p className="text-pierre-gray-500 mb-6">{STEPS[currentStep].description}</p>
+          <h3 className="text-lg font-semibold text-on-surface mb-2">{STEPS[currentStep].title}</h3>
+          <p className="text-on-surface-variant mb-6">{STEPS[currentStep].description}</p>
           {renderStepContent()}
         </div>
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between px-6 py-4 border-t border-pierre-gray-200 bg-white">
+      <div className="flex items-center justify-between px-6 py-4 border-t ghost-border bg-surface">
         <button
           onClick={handleBack}
           disabled={currentStep === 0}
           className={`px-4 py-2 rounded-lg transition-colors ${
             currentStep === 0
-              ? 'text-pierre-gray-300 cursor-not-allowed'
-              : 'text-pierre-gray-500 hover:text-pierre-gray-900'
+              ? 'text-outline cursor-not-allowed'
+              : 'text-on-surface-variant hover:text-on-surface'
           }`}
         >
           ← Back
         </button>
 
-        <div className="text-pierre-gray-500 text-sm">
+        <div className="text-on-surface-variant text-sm">
           Step {currentStep + 1} of {STEPS.length}
         </div>
 

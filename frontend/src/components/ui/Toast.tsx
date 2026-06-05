@@ -98,25 +98,25 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
 
   const typeStyles: Record<ToastType, { bg: string; border: string; icon: string; progressBg: string }> = {
     success: {
-      bg: 'bg-white',
+      bg: 'bg-surface',
       border: 'border-pierre-activity',
       icon: 'text-pierre-activity',
       progressBg: 'bg-pierre-activity',
     },
     error: {
-      bg: 'bg-white',
+      bg: 'bg-surface',
       border: 'border-pierre-red-500',
       icon: 'text-pierre-red-500',
       progressBg: 'bg-pierre-red-500',
     },
     warning: {
-      bg: 'bg-white',
+      bg: 'bg-surface',
       border: 'border-pierre-nutrition',
       icon: 'text-pierre-nutrition',
       progressBg: 'bg-pierre-nutrition',
     },
     info: {
-      bg: 'bg-white',
+      bg: 'bg-surface',
       border: 'border-pierre-recovery',
       icon: 'text-pierre-recovery',
       progressBg: 'bg-pierre-recovery',
@@ -169,14 +169,14 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
         <div className="flex items-start gap-3">
           <div className={`flex-shrink-0 ${style.icon}`}>{icons[toast.type]}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-pierre-gray-900">{toast.title}</p>
-            {toast.message && <p className="mt-1 text-sm text-pierre-gray-500">{toast.message}</p>}
+            <p className="text-sm font-medium text-on-surface">{toast.title}</p>
+            {toast.message && <p className="mt-1 text-sm text-on-surface-variant">{toast.message}</p>}
           </div>
           <button
             type="button"
             onClick={onDismiss}
             aria-label="Dismiss notification"
-            className="flex-shrink-0 p-1 text-pierre-gray-400 hover:text-pierre-gray-600 rounded transition-colors"
+            className="flex-shrink-0 p-1 text-on-surface-variant hover:text-on-surface-variant rounded transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -187,7 +187,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
 
       {/* Progress bar */}
       {duration > 0 && (
-        <div className="h-1 bg-pierre-gray-100">
+        <div className="h-1 bg-surface-container-high">
           <div
             className={`h-full ${style.progressBg} transition-all duration-100`}
             style={{ width: `${progress}%` }}

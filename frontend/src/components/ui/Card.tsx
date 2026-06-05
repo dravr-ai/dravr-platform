@@ -45,9 +45,9 @@ export const CardHeader: React.FC<CardHeaderProps> = ({
   <div className="card-header">
     <div className="flex justify-between items-start">
       <div>
-        <h3 className="text-lg font-semibold text-pierre-gray-900 m-0">{title}</h3>
+        <h3 className="text-lg font-semibold text-on-surface m-0">{title}</h3>
         {subtitle && (
-          <p className="text-sm text-pierre-gray-500 mt-1 m-0">{subtitle}</p>
+          <p className="text-sm text-on-surface-variant mt-1 m-0">{subtitle}</p>
         )}
       </div>
       {children}
