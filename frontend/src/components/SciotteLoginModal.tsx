@@ -237,7 +237,7 @@ export default function SciotteLoginModal({
     if (elapsedSecs < 10) return `Navigating to ${providerLabel}…`;
     if (elapsedSecs < 18) return 'Submitting credentials…';
     if (elapsedSecs < 28) return `Waiting for ${providerLabel} to respond…`;
-    return `Still working… provider login can be slow. ${elapsedSecs}s`;
+    return 'Still working… provider login can be slow.';
   })();
 
   // OTP submission
