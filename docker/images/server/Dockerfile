@@ -46,7 +46,9 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
-# chromium + libs: required by dravr-sciotte (headless Chrome scraping via chromiumoxide)
+# chromium + libs: required by dravr-sciotte (Chrome scraping via chromiumoxide)
+# xvfb: virtual X display so credential login runs headed — Garmin/Google SSO
+#       block true-headless Chrome (see chromium-launcher.sh)
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -57,6 +59,7 @@ RUN apt-get update && apt-get upgrade -y \
     nodejs \
     npm \
     chromium \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI and Anthropic Claude Code CLI in one layer so the
@@ -98,14 +101,14 @@ COPY --from=builder /app/commands /app/commands
 COPY --from=builder /app/crates/pierre-evals/fixtures /app/fixtures
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
-COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
+COPY docker/images/server/chromium-launcher.sh /usr/local/bin/chromium-launcher
 
 # Make binaries and entrypoints executable and owned by appuser
 RUN chmod +x /app/pierre-mcp-server \
     && chmod +x /app/pierre-cli \
     && chmod +x /app/docker-entrypoint.sh \
     && chmod +x /app/seed-entrypoint.sh \
-    && chmod +x /usr/local/bin/chromium-headless \
+    && chmod +x /usr/local/bin/chromium-launcher \
     && chown -R appuser:appuser /app
 
 # Switch to non-root user
@@ -128,9 +131,10 @@ ENV HTTP_PORT=8081
 # this env var first; absent or pointing at a missing dir falls back to
 # the workspace-relative default and logs a single warn (no Slack page).
 ENV PIERRE_EVALS_FIXTURES_DIR=/app/fixtures
-# chromiumoxide auto-detection uses CHROME env var; point to our headless wrapper
-# which injects --ozone-platform=headless before delegating to the real binary
-ENV CHROME=/usr/local/bin/chromium-headless
+# chromiumoxide auto-detection uses CHROME env var; point to our launcher wrapper
+# which runs Chromium under Xvfb so credential login can run headed (Garmin/Google
+# SSO block true-headless Chrome)
+ENV CHROME=/usr/local/bin/chromium-launcher
 
 # Expose ports
 EXPOSE 8080 8081
