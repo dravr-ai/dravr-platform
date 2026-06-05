@@ -27,8 +27,6 @@
 //!   (`tools-recipes`)
 //! - `routes` — `discover_routes` OSM + Overpass route discovery
 //!   (`tools-analytics`)
-//! - `store` — coach store browse / search / install / uninstall
-//!   (`tools-store`)
 //! - `sync` — `refresh_provider_data`, `get_data_freshness` (`tools-connection`)
 //! - `verification` — Tier 5.5 `verify_claim` tool (`tools-verification`)
 
@@ -115,10 +113,6 @@ pub mod routes;
 /// `suggest_rest_day`, etc. (`tools-sleep` feature).
 #[cfg(feature = "tools-sleep")]
 pub mod sleep;
-
-/// Coach store tools (`tools-store` feature).
-#[cfg(feature = "tools-store")]
-pub mod store;
 
 /// Sync / refresh tools: `refresh_provider_data`, `get_data_freshness`
 /// (`tools-connection` feature).

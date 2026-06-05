@@ -38,17 +38,19 @@ pub mod service;
 
 use axum::{
     extract::{FromRequestParts, Path, State},
-    http::{request::Parts, StatusCode},
+    http::{header::AUTHORIZATION, request::Parts, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::Utc;
 use pierre_a2a::{
     agent_card::AgentCard,
     client::{A2AClientManager, ClientRegistrationRequest},
+    A2ARequest, A2AServer,
 };
 use pierre_auth::auth::AuthResult;
+use pierre_core::auth_header::extract_bearer_token;
 use pierre_core::errors::AppError;
 use pierre_middleware::{extract_auth_from_headers, McpAuthMiddleware};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
@@ -211,6 +213,10 @@ impl A2ARoutes {
                 "/.well-known/agent-card.json",
                 get(Self::handle_agent_card_discovery::<C>),
             )
+            // JSON-RPC transport endpoint advertised by the agent card.
+            // Per-method auth is enforced inside `A2AServer::handle_request`,
+            // so the route itself is not behind the `A2AAuth` extractor.
+            .route("/a2a/jsonrpc", post(Self::handle_jsonrpc::<C>))
             // Client management routes (auth required)
             .route(
                 "/a2a/clients",
@@ -260,6 +266,38 @@ impl A2ARoutes {
         // Yield to scheduler for cooperative multitasking
         task::yield_now().await;
         Json(AgentCard::with_base_url(state.ctx.base_url()))
+    }
+
+    /// Handle the A2A JSON-RPC transport endpoint (`/a2a/jsonrpc`).
+    ///
+    /// This is the endpoint advertised by the agent card's `jsonrpc`
+    /// transport. It deserializes a JSON-RPC `A2ARequest` body and dispatches
+    /// it to [`A2AServer::handle_request`], which enforces per-method
+    /// authentication. A bearer token supplied via the `Authorization` header
+    /// is folded into the request's `auth` field when the body omits it, so
+    /// discovering agents can authenticate the standard HTTP way.
+    async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
+        State(state): State<A2ARoutesState<C>>,
+        headers: HeaderMap,
+        Json(mut request): Json<A2ARequest>,
+    ) -> Response {
+        // Fold the Authorization-header bearer into the request body when the
+        // JSON-RPC payload did not carry its own `auth` field.
+        if request.auth_token.is_none() {
+            if let Some(token) = headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|header| extract_bearer_token(header).ok())
+            {
+                request.auth_token = Some(token.to_owned());
+            }
+        }
+
+        let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
+        let server = A2AServer::new_with_resources(ctx, state.tool_runtime.clone()); // Safe: Arc clone of trait object
+        let response = server.handle_request(request).await;
+
+        (StatusCode::OK, Json(response)).into_response()
     }
 
     /// List all A2A clients for authenticated user

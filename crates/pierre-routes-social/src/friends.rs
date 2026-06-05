@@ -252,22 +252,34 @@ impl SocialRestRoutes {
             None
         };
 
+        // Determine who the friend is in each connection (the other person).
+        let friend_ids = friends
+            .iter()
+            .map(|conn| {
+                if conn.initiator_id == auth.user_id {
+                    conn.receiver_id
+                } else {
+                    conn.initiator_id
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Batch-fetch friend user info (social connections enforce tenant scope).
+        let friend_users = resources.repos().users.get_global_many(&friend_ids).await?;
+
         // Build response with friend user info
         let mut friends_with_info = Vec::with_capacity(friends.len());
         for conn in friends {
-            // Determine who the friend is (the other person in the connection)
             let friend_id = if conn.initiator_id == auth.user_id {
                 conn.receiver_id
             } else {
                 conn.initiator_id
             };
 
-            // Fetch friend's user info (social connections enforce tenant scope)
-            let friend_user = resources.repos().users.get_global(friend_id).await?;
-            let (friend_display_name, friend_email) = match friend_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{friend_id}")),
-            };
+            let (friend_display_name, friend_email) = friend_users.get(&friend_id).map_or_else(
+                || (None, format!("user-{friend_id}")),
+                |user| (user.display_name.clone(), user.email.clone()),
+            );
 
             friends_with_info.push(FriendWithInfoResponse {
                 id: conn.id.to_string(),
@@ -344,15 +356,28 @@ impl SocialRestRoutes {
             .into_iter()
             .partition(|conn| conn.initiator_id == auth.user_id);
 
+        // Batch-fetch the counterpart user for every pending request in one go:
+        // sent requests need the receiver, received requests need the initiator.
+        let counterpart_ids = sent_conns
+            .iter()
+            .map(|conn| conn.receiver_id)
+            .chain(received_conns.iter().map(|conn| conn.initiator_id))
+            .collect::<Vec<_>>();
+        let counterpart_users = resources
+            .repos()
+            .users
+            .get_global_many(&counterpart_ids)
+            .await?;
+
         // Build sent requests with receiver's user info
         let mut sent = Vec::with_capacity(sent_conns.len());
         for conn in sent_conns {
             let receiver_id_str = conn.receiver_id.to_string();
-            let receiver_user = resources.repos().users.get_global(conn.receiver_id).await?;
-            let (user_display_name, user_email) = match receiver_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{receiver_id_str}")),
-            };
+            let (user_display_name, user_email) =
+                counterpart_users.get(&conn.receiver_id).map_or_else(
+                    || (None, format!("user-{receiver_id_str}")),
+                    |user| (user.display_name.clone(), user.email.clone()),
+                );
 
             sent.push(PendingRequestWithInfoResponse {
                 id: conn.id.to_string(),
@@ -372,15 +397,11 @@ impl SocialRestRoutes {
         let mut received = Vec::with_capacity(received_conns.len());
         for conn in received_conns {
             let initiator_id_str = conn.initiator_id.to_string();
-            let initiator_user = resources
-                .repos()
-                .users
-                .get_global(conn.initiator_id)
-                .await?;
-            let (user_display_name, user_email) = match initiator_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{initiator_id_str}")),
-            };
+            let (user_display_name, user_email) =
+                counterpart_users.get(&conn.initiator_id).map_or_else(
+                    || (None, format!("user-{initiator_id_str}")),
+                    |user| (user.display_name.clone(), user.email.clone()),
+                );
 
             received.push(PendingRequestWithInfoResponse {
                 id: conn.id.to_string(),

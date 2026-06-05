@@ -32,8 +32,6 @@ pub mod myth_busting;
 pub mod settings;
 /// Admin endpoints driving first-run / bootstrap setup of a tenant.
 pub mod setup;
-/// Admin endpoints for the coach marketplace store (offerings, pricing).
-pub mod store;
 /// Admin endpoints for issuing and revoking admin / service API tokens.
 pub mod tokens;
 pub mod types;

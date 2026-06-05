@@ -12,19 +12,17 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::{DateTime, Duration, Utc};
-use rand::{distr::Alphanumeric, Rng};
 use serde::Serialize;
 use serde_json::{json, to_value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
+use pierre_services::admin_ops;
 use pierre_services::slack_ops_notifier::ops_notifier;
 use pierre_services::tenant_admin as tenant_admin_service;
 
@@ -266,40 +264,10 @@ pub(crate) async fn handle_approve_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    let user = ctx
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
-
-    if user.user_status == UserStatus::Active {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "User is already approved".to_owned(),
-                data: None,
-            },
-            StatusCode::BAD_REQUEST,
-        ));
-    }
-
-    let updated_user = ctx
-        .repos
-        .users
-        .update_status(user_uuid, UserStatus::Active, None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to update user status in database");
-            AppError::internal(format!("Failed to approve user: {e}"))
-        })?;
+    // Shared get/guard/update-status core; the admin-token surface layers its
+    // own tenant provisioning (named tenant from request body) below.
+    let updated_user =
+        admin_ops::transition_user_status(&ctx.repos, user_uuid, UserStatus::Active, None).await?;
 
     let tenant_created = create_and_link_tenant(
         &ctx.repos,
@@ -392,40 +360,10 @@ pub(crate) async fn handle_suspend_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    let user = ctx
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
-
-    if user.user_status == UserStatus::Suspended {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "User is already suspended".to_owned(),
-                data: None,
-            },
-            StatusCode::BAD_REQUEST,
-        ));
-    }
-
-    let updated_user = ctx
-        .repos
-        .users
-        .update_status(user_uuid, UserStatus::Suspended, None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to update user status in database");
-            AppError::internal(format!("Failed to suspend user: {e}"))
-        })?;
+    // Shared get/guard/update-status core (no tenant step on suspension).
+    let updated_user =
+        admin_ops::transition_user_status(&ctx.repos, user_uuid, UserStatus::Suspended, None)
+            .await?;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!(
@@ -544,8 +482,6 @@ pub(crate) async fn handle_reset_user_password(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(user_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    use sha2::{Digest, Sha256};
-
     if !admin_token
         .permissions
         .has_permission(&AdminPerm::ManageUsers)
@@ -571,6 +507,7 @@ pub(crate) async fn handle_reset_user_password(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
+    // Admin-token surface uses an unscoped global lookup (no admin tenant).
     let user = ctx
         .repos
         .users
@@ -585,22 +522,10 @@ pub(crate) async fn handle_reset_user_password(
             AppError::not_found("User not found")
         })?;
 
-    let raw_token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect();
-
-    let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
-
-    ctx.repos
-        .password_reset
-        .store_token(user_uuid, &token_hash, &admin_token.service_name)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to store password reset token");
-            AppError::internal(format!("Failed to create reset token: {e}"))
-        })?;
+    // Shared token-generation + storage core; audit identity is the service name.
+    let raw_token =
+        admin_ops::issue_password_reset_token(&ctx.repos, user_uuid, &admin_token.service_name)
+            .await?;
 
     info!(
         "Password reset token issued for user {} by service {}",
@@ -615,7 +540,7 @@ pub(crate) async fn handle_reset_user_password(
                 "user_id": user_uuid.to_string(),
                 "email": user.email,
                 "reset_token": raw_token,
-                "expires_in_seconds": 3600,
+                "expires_in_seconds": admin_ops::PASSWORD_RESET_TTL_SECONDS,
                 "reset_by": admin_token.service_name,
                 "note": "Deliver this token to the user. They must call POST /api/auth/complete-reset with the token and their new password within 1 hour."
             }))
@@ -649,71 +574,33 @@ pub(crate) async fn handle_get_user_rate_limit(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-    let user = ctx
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    let monthly_used = ctx
-        .repos
-        .usage
-        .get_jwt_current_usage(user_uuid)
-        .await
-        .unwrap_or(0);
-
-    let now = Utc::now();
-    let today_start = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
-    let daily_used = ctx
-        .repos
-        .usage
-        .get_top_tools_analysis(user_uuid, today_start, now)
-        .await
-        .map_or(0, |tools| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            tools.iter().map(|t| t.request_count as u32).sum::<u32>()
-        });
-
-    let monthly_limit = user.tier.monthly_limit();
-    let daily_limit = monthly_limit.map(|m| m / 30);
-
-    let monthly_remaining = monthly_limit.map(|l| l.saturating_sub(monthly_used));
-    let daily_remaining = daily_limit.map(|l| l.saturating_sub(daily_used));
-
-    let daily_reset = (now + Duration::days(1))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
-    let monthly_reset = UnifiedRateLimitCalculator::calculate_monthly_reset();
+    let limits = admin_ops::compute_user_rate_limits(&ctx.repos, user_uuid).await?;
 
     Ok(json_response(
         AdminResponse {
             success: true,
             message: "Rate limit information retrieved".to_owned(),
             data: to_value(json!({
-                "user_id": user_uuid.to_string(),
-                "tier": user.tier.to_string(),
+                "user_id": limits.user_id,
+                "tier": limits.tier,
                 "rate_limits": {
                     "daily": {
-                        "limit": daily_limit,
-                        "used": daily_used,
-                        "remaining": daily_remaining,
+                        "limit": limits.daily_limit,
+                        "used": limits.daily_used,
+                        "remaining": limits.daily_remaining,
                     },
                     "monthly": {
-                        "limit": monthly_limit,
-                        "used": monthly_used,
-                        "remaining": monthly_remaining,
+                        "limit": limits.monthly_limit,
+                        "used": limits.monthly_used,
+                        "remaining": limits.monthly_remaining,
                     },
                 },
                 "reset_times": {
-                    "daily_reset": daily_reset.to_rfc3339(),
-                    "monthly_reset": monthly_reset.to_rfc3339(),
+                    "daily_reset": limits.daily_reset.to_rfc3339(),
+                    "monthly_reset": limits.monthly_reset.to_rfc3339(),
                 },
+                "override_active": limits.override_active,
+                "override_note": limits.override_note,
             }))
             .ok(),
         },
@@ -746,52 +633,17 @@ pub(crate) async fn handle_get_user_activity(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-    ctx.repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    let days = i64::from(params.days.unwrap_or(30).clamp(1, 365));
-    let now = Utc::now();
-    let start_time = now - Duration::days(days);
-
-    let top_tools_raw = ctx
-        .repos
-        .usage
-        .get_top_tools_analysis(user_uuid, start_time, now)
-        .await
-        .unwrap_or_default();
-
-    let total_requests: u64 = top_tools_raw.iter().map(|t| t.request_count).sum();
-    let top_tools: Vec<serde_json::Value> = top_tools_raw
-        .into_iter()
-        .map(|t| {
-            let percentage = if total_requests > 0 {
-                #[allow(clippy::cast_precision_loss)]
-                let pct = (t.request_count as f64 / total_requests as f64) * 100.0;
-                pct
-            } else {
-                0.0
-            };
-            json!({
-                "tool_name": t.tool_name,
-                "call_count": t.request_count,
-                "percentage": percentage,
-            })
-        })
-        .collect();
+    let activity = admin_ops::compute_user_activity(&ctx.repos, user_uuid, params.days).await?;
 
     Ok(json_response(
         AdminResponse {
             success: true,
             message: "User activity retrieved".to_owned(),
             data: to_value(json!({
-                "user_id": user_uuid.to_string(),
-                "period_days": days,
-                "total_requests": total_requests,
-                "top_tools": top_tools,
+                "user_id": activity.user_id,
+                "period_days": activity.period_days,
+                "total_requests": activity.total_requests,
+                "top_tools": activity.top_tools,
             }))
             .ok(),
         },

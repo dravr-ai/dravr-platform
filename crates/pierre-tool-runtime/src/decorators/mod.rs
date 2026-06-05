@@ -11,8 +11,8 @@
 //!
 //! - `AuditedTool` - Logs tool executions for audit/security purposes
 //!
-//! These decorators follow the same pattern as `CachingFitnessProvider`
-//! from `src/providers/caching_provider.rs`.
+//! These decorators follow the standard decorator pattern: each wraps an
+//! inner tool and delegates execution while layering in cross-cutting behavior.
 //!
 //! ## Future Decorators
 //!

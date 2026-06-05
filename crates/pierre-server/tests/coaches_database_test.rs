@@ -3043,7 +3043,7 @@ async fn test_fork_preserves_structured_fields() {
 
     // Fork should not be a system coach
     assert!(!forked.is_system);
-    assert_eq!(forked.forked_from, Some(system_coach.id.to_string()));
+    assert_eq!(forked.forked_from, Some(system_coach.id));
 
     // Verify persistence through a fresh get
     let fetched = manager

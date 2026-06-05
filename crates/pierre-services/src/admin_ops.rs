@@ -10,9 +10,10 @@ use pierre_config::mcp::AppBehaviorConfig;
 use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_core::models::UserStatus;
+use pierre_core::models::{User, UserStatus};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
+use pierre_database::RepositoryRegistry;
 use pierre_llm::pricing::calculate_cost;
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
@@ -398,6 +399,60 @@ pub async fn require_super_admin(user_id: Uuid, data: &DataContext) -> Result<()
 // User approval and suspension
 // =========================================================================
 
+/// Shared user-status state transition: global lookup, already-in-target-state
+/// guard, and status update.
+///
+/// Used by both the session admin surface ([`approve_user`] / [`suspend_user`])
+/// and the admin-token route handlers, which layer their own
+/// tenant-provisioning steps on top.
+///
+/// `approved_by` is the audit identity recorded against the transition: the
+/// session path passes the acting admin's UUID, the admin-token path passes
+/// `None` (the token is not tied to a user row).
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if the user is already in `target_status`, `NotFound`
+/// if the user does not exist, or `Internal` if a repository call fails.
+pub async fn transition_user_status(
+    repos: &RepositoryRegistry,
+    target_user_id: Uuid,
+    target_status: UserStatus,
+    approved_by: Option<Uuid>,
+) -> Result<User, AppError> {
+    // Admin operations use global lookup (users may not have tenant_users entries)
+    let user = repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch user from database");
+            AppError::internal(format!("Failed to fetch user: {e}"))
+        })?
+        .ok_or_else(|| {
+            warn!("User not found: {}", target_user_id);
+            AppError::not_found("User not found")
+        })?;
+
+    if user.user_status == target_status {
+        let message = match target_status {
+            UserStatus::Active => "User is already approved",
+            UserStatus::Suspended => "User is already suspended",
+            UserStatus::Pending => "User is already pending",
+        };
+        return Err(AppError::invalid_input(message));
+    }
+
+    repos
+        .users
+        .update_status(target_user_id, target_status, approved_by)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to update user status in database");
+            AppError::internal(format!("Failed to update user status: {e}"))
+        })
+}
+
 /// Approve a pending user: validate status, transition to Active, assign tenant,
 /// and auto-create a default MCP token.
 ///
@@ -412,35 +467,14 @@ pub async fn approve_user(
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<ApproveUserResult, AppError> {
-    // Admin operations use global lookup (users may not have tenant_users entries)
-    let user = data
-        .repos()
-        .users
-        .get_global(target_user_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", target_user_id);
-            AppError::not_found("User not found")
-        })?;
-
-    if user.user_status == UserStatus::Active {
-        return Err(AppError::invalid_input("User is already approved"));
-    }
-
     // Use the admin user's UUID as the approver for proper audit trail
-    let updated_user = data
-        .repos()
-        .users
-        .update_status(target_user_id, UserStatus::Active, Some(admin_user_id))
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to update user status in database");
-            AppError::internal(format!("Failed to approve user: {e}"))
-        })?;
+    let updated_user = transition_user_status(
+        data.repos(),
+        target_user_id,
+        UserStatus::Active,
+        Some(admin_user_id),
+    )
+    .await?;
 
     // Assign approved user to admin's tenant for multi-tenant isolation
     assign_user_to_admin_tenant(data, active_tenant_id, target_user_id).await?;
@@ -473,35 +507,14 @@ pub async fn suspend_user(
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<SuspendUserResult, AppError> {
-    // Admin operations use global lookup (users may not have tenant_users entries)
-    let user = data
-        .repos()
-        .users
-        .get_global(target_user_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", target_user_id);
-            AppError::not_found("User not found")
-        })?;
-
-    if user.user_status == UserStatus::Suspended {
-        return Err(AppError::invalid_input("User is already suspended"));
-    }
-
     // Use the admin user's UUID for audit trail (Note: approved_by is used for both approve/suspend)
-    let updated_user = data
-        .repos()
-        .users
-        .update_status(target_user_id, UserStatus::Suspended, Some(admin_user_id))
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to update user status in database");
-            AppError::internal(format!("Failed to suspend user: {e}"))
-        })?;
+    let updated_user = transition_user_status(
+        data.repos(),
+        target_user_id,
+        UserStatus::Suspended,
+        Some(admin_user_id),
+    )
+    .await?;
 
     let reason_text = reason.unwrap_or("No reason provided");
     info!(
@@ -695,6 +708,49 @@ pub async fn list_all_admins(
 // Password reset
 // =========================================================================
 
+/// Token validity window for admin-issued password reset tokens, in seconds.
+pub const PASSWORD_RESET_TTL_SECONDS: u64 = 3600;
+
+/// Generate a cryptographically random password reset token and store its hash.
+///
+/// The raw token is returned to be delivered to the user; only the SHA-256 hash
+/// is persisted. `reset_by` is the audit identity recorded against the token —
+/// callers pass their own (an admin UUID for the session surface, a service
+/// name for the admin-token surface). Shared by both password-reset surfaces so
+/// the token-generation + storage logic lives once; each caller performs its
+/// own (divergent) user lookup beforehand.
+///
+/// # Errors
+///
+/// Returns `Internal` if token persistence fails.
+pub async fn issue_password_reset_token(
+    repos: &RepositoryRegistry,
+    target_user_id: Uuid,
+    reset_by: &str,
+) -> Result<String, AppError> {
+    use rand::distr::Alphanumeric;
+    use rand::Rng;
+    use sha2::{Digest, Sha256};
+
+    // Generate a cryptographically random reset token (48 chars alphanumeric)
+    let raw_token: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(48)
+        .map(char::from)
+        .collect();
+
+    // Store only the SHA-256 hash of the token in the database
+    let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
+
+    repos
+        .password_reset
+        .store_token(target_user_id, &token_hash, reset_by)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
+
+    Ok(raw_token)
+}
+
 /// Generate a cryptographically random password reset token and store its hash.
 ///
 /// The raw token is returned to be delivered to the user. Only the SHA-256 hash
@@ -710,10 +766,6 @@ pub async fn generate_password_reset_token(
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
 ) -> Result<PasswordResetResult, AppError> {
-    use rand::distr::Alphanumeric;
-    use rand::Rng;
-    use sha2::{Digest, Sha256};
-
     // Tenant-scoped lookup: admin can only reset passwords for users in their tenant
     let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
     let user = if let Some(tid) = admin_tenant {
@@ -724,22 +776,8 @@ pub async fn generate_password_reset_token(
     .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
     .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    // Generate a cryptographically random reset token (48 chars alphanumeric)
-    let raw_token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect();
-
-    // Store only the SHA-256 hash of the token in the database
-    let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
-
     let admin_id_str = admin_user_id.to_string();
-    data.repos()
-        .password_reset
-        .store_token(target_user_id, &token_hash, &admin_id_str)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
+    let raw_token = issue_password_reset_token(data.repos(), target_user_id, &admin_id_str).await?;
 
     info!(
         admin_id = %admin_user_id,
@@ -749,7 +787,7 @@ pub async fn generate_password_reset_token(
 
     Ok(PasswordResetResult {
         reset_token: raw_token,
-        expires_in_seconds: 3600,
+        expires_in_seconds: PASSWORD_RESET_TTL_SECONDS,
         user_email: user.email,
     })
 }
@@ -761,30 +799,22 @@ pub async fn generate_password_reset_token(
 /// Compute rate limit information for a specific user.
 ///
 /// Calculates daily and monthly usage, limits, remaining quota, and reset times
-/// based on the user's tier.
+/// based on the user's tier. Shared by both the cookie (`/api/admin/...`) and
+/// admin-token (`/admin/...`) surfaces so the override + reset rules live once.
 ///
 /// # Errors
 ///
 /// Returns `NotFound` if the target user does not exist, or `Internal` if the
 /// user lookup or rate-limit override fetch fails.
 pub async fn compute_user_rate_limits(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    _active_tenant_id: Option<Uuid>,
+    repos: &RepositoryRegistry,
     target_user_id: Uuid,
 ) -> Result<UserRateLimits, AppError> {
-    debug!(
-        admin_id = %admin_user_id,
-        target_user_id = %target_user_id,
-        "Fetching user rate limit"
-    );
-
     // Admin user views (rate-limit, activity, usage) are global by design — the
     // user list at /api/admin/users is also global ("Per-tenant isolation
     // applies to data operations, not admin views"). Earlier tenant scoping
     // here caused 404s for cross-tenant lookups in the Users panel.
-    let user = data
-        .repos()
+    let user = repos
         .users
         .get_global(target_user_id)
         .await
@@ -792,8 +822,7 @@ pub async fn compute_user_rate_limits(
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
     // Get current monthly usage
-    let monthly_used = data
-        .repos()
+    let monthly_used = repos
         .usage
         .get_jwt_current_usage(target_user_id)
         .await
@@ -805,8 +834,7 @@ pub async fn compute_user_rate_limits(
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
-    let daily_used = data
-        .repos()
+    let daily_used = repos
         .usage
         .get_top_tools_analysis(target_user_id, today_start, now)
         .await
@@ -818,8 +846,7 @@ pub async fn compute_user_rate_limits(
     // Per-user override wins over the tier default. Industry pattern: tier
     // baseline + admin-managed exemption table. None on the override row means
     // "unlimited" — same shape as UserTier::Enterprise.monthly_limit() = None.
-    let override_row = data
-        .repos()
+    let override_row = repos
         .user_rate_limit_overrides
         .get(target_user_id)
         .await
@@ -875,26 +902,21 @@ pub async fn compute_user_rate_limits(
 
 /// Aggregate tool usage activity for a specific user over a given time period.
 ///
+/// Shared by both the cookie (`/api/admin/...`) and admin-token (`/admin/...`)
+/// surfaces so the clamping + percentage rules live once.
+///
 /// # Errors
 ///
 /// Returns `NotFound` if the target user does not exist, or `Internal` if the
 /// user lookup fails.
 pub async fn compute_user_activity(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    _active_tenant_id: Option<Uuid>,
+    repos: &RepositoryRegistry,
     target_user_id: Uuid,
     days: Option<u32>,
 ) -> Result<UserActivityResult, AppError> {
-    debug!(
-        admin_id = %admin_user_id,
-        target_user_id = %target_user_id,
-        "Fetching user activity"
-    );
-
     // Admin user views are global by design — matches the unscoped list at
     // /api/admin/users. See compute_user_rate_limits for rationale.
-    data.repos()
+    repos
         .users
         .get_global(target_user_id)
         .await
@@ -907,8 +929,7 @@ pub async fn compute_user_activity(
     let start_time = now - Duration::days(days);
 
     // Get top tools usage
-    let top_tools_raw = data
-        .repos()
+    let top_tools_raw = repos
         .usage
         .get_top_tools_analysis(target_user_id, start_time, now)
         .await

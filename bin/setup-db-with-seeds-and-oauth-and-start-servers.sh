@@ -185,10 +185,15 @@ print_step 4 "Running migrations and seeders..."
 PIERRE_CLI="./target/$TARGET_DIR/pierre-cli"
 
 # Create admin user (also runs database migrations)
+# Operators get the SuperAdmin role: cookie_admin_middleware derives console
+# permissions from the user's role, so the operator account must be super_admin
+# to retain full console access (contremaitre config, store moderation,
+# impersonation). A plain `admin` role is intentionally limited.
 echo "    Creating admin user (runs migrations)..."
 "$PIERRE_CLI" user create \
     --email "$ADMIN_EMAIL" \
     --password "$ADMIN_PASSWORD" \
+    --super-admin \
     --force 2>&1 | tail -3
 
 # Seed coaches from a contremaitre checkout. Coach definitions live in the

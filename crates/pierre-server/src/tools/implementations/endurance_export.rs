@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
 use pierre_intelligence::latest_snapshot::{
     build_latest_snapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
+use pierre_intelligence::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 use serde_json::Value;
 
 use pierre_config::environment::default_provider;
@@ -226,9 +227,49 @@ impl McpTool for ExportDossierTool {
             .dossier
             .compose_dossier(tenant_id, user_id)
             .await?;
-        let payload = serde_json::to_value(&dossier)
+        let mut payload = serde_json::to_value(&dossier)
             .map_err(|e| AppError::internal(format!("serialize dossier: {e}")))?;
+
+        // Surface estimated lactate thresholds (LT1/LT2 heart rate, power, and
+        // pace) derived from the athlete's physiological profile — Coggan
+        // (LT1 power = 0.75 * FTP) and Seiler-style pace anchors. This gives the
+        // dossier training-zone anchors even when the athlete hasn't measured
+        // them directly. Missing profile fields stay `None`; the estimate block
+        // is always present (empty when nothing is known) to keep the shape
+        // stable, matching the dossier's "empty slots, not 404" contract.
+        let physiology = context
+            .resources
+            .repos()
+            .user_physiological_profile
+            .get_user_physiological_profile(tenant_id, user_id)
+            .await?;
+        let estimate =
+            ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
+        if let Value::Object(map) = &mut payload {
+            map.insert(
+                "threshold_estimate".to_owned(),
+                serde_json::to_value(estimate).map_err(|e| {
+                    AppError::internal(format!("serialize threshold estimate: {e}"))
+                })?,
+            );
+        }
+
         Ok(ToolResult::ok(payload))
+    }
+}
+
+/// Map a stored [`UserPhysiologicalProfile`] into [`ThresholdInputs`] for LT1/LT2
+/// estimation. Unset fields stay `None` so the estimator derives only what the
+/// athlete's known physiology supports (e.g. LT2 HR from max HR).
+fn threshold_inputs_from_profile(profile: Option<&UserPhysiologicalProfile>) -> ThresholdInputs {
+    ThresholdInputs {
+        max_hr: profile.and_then(|p| p.max_hr).map(f64::from),
+        resting_hr: profile.and_then(|p| p.resting_hr).map(f64::from),
+        // The profile stores a lactate-threshold *percentage*, not an absolute
+        // LT HR in bpm; the estimator derives LT2 HR from max HR instead.
+        lthr: None,
+        ftp_watts: profile.and_then(|p| p.ftp_watts).map(f64::from),
+        threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
     }
 }
 

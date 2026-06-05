@@ -14,6 +14,30 @@
     clippy::cast_precision_loss
 )]
 
+//! # Intervals.icu Provider Module
+//!
+//! Pull-only [`FitnessProvider`] scaffold for Intervals.icu (athlete profile,
+//! activities, streams, wellness) authenticated via HTTP Basic auth
+//! (`athlete_id : api_key`).
+//!
+//! ## Production Status — feature-gated, unregistered, not production-wired
+//!
+//! This module is **feature-gated scaffolding** behind the
+//! `provider-intervals-icu` cargo feature, which is **not** part of the
+//! `server-full` / default production build (only the `all-providers` /
+//! `production-providers` aggregates enable it). Even when the feature is on:
+//!
+//! - **No factory, never registered.** [`IntervalsIcuProvider`] has no
+//!   [`ProviderFactory`](crate::core::ProviderFactory) and is never added to the
+//!   [`ProviderRegistry`](crate::registry::ProviderRegistry), so the running
+//!   server cannot instantiate it through the normal provider lookup path.
+//! - **No real-API soak time.** As the `FIRST_INSTANTIATION` breadcrumb notes,
+//!   this is an Endurance Phase 4 beta with zero production soak time; the push
+//!   surface and registry wiring are deferred to Phase 5.
+//!
+//! It is deliberately retained as scaffolding — do not treat it as a live
+//! integration.
+
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

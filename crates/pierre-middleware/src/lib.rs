@@ -45,6 +45,8 @@ pub mod tracing;
 
 /// Cookie/session-auth + `is_admin` middleware for `/api/admin/...` routes
 pub use admin_guard::cookie_admin_middleware;
+/// Build the role-derived `ValidatedAdminToken` for a cookie-authenticated admin
+pub use admin_guard::cookie_admin_token;
 /// Require admin privileges for a user
 pub use admin_guard::require_admin;
 

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
-use crate::repositories::{InsightRepository, UsageRepository};
+use crate::repositories::UsageRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -14,7 +14,6 @@ use pierre_core::models::TenantId;
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
 use pierre_core::models::{JwtUsage, ToolUsage};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::Row;
 use tracing::{error, warn};
 use uuid::Uuid;
@@ -818,20 +817,5 @@ impl UsageRepository for Database {
         end_time: DateTime<Utc>,
     ) -> AppResult<Vec<ToolUsage>> {
         Self::get_top_tools_analysis_impl(self, user_id, start_time, end_time).await
-    }
-}
-
-#[async_trait]
-impl InsightRepository for Database {
-    async fn store(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
-        Self::store_insight_impl(self, user_id, insight_data).await
-    }
-    async fn get_for_user(
-        &self,
-        user_id: Uuid,
-        insight_type: Option<&str>,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<Value>> {
-        Self::get_user_insights(self, user_id, insight_type, limit).await
     }
 }

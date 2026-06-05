@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tab layout with 5 tabs (Chat, Coaches, Discover, Insights, Settings)
+// ABOUTME: Tab layout with 6 tabs (Chat, Coaches, Discover, Groups, Insights, Settings)
 // ABOUTME: Uses floating expandable glass tab bar with glassmorphism effect
 
 import React from 'react';
@@ -26,6 +26,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="(chat)" options={{ title: 'Chat' }} />
         <Tabs.Screen name="(coaches)" options={{ title: 'Coaches' }} />
         <Tabs.Screen name="(discover)" options={{ title: 'Discover' }} />
+        <Tabs.Screen name="(groups)" options={{ title: 'Groups' }} />
         <Tabs.Screen name="(social)" options={{ title: 'Insights' }} />
         <Tabs.Screen name="(settings)" options={{ title: 'Settings' }} />
       </Tabs>

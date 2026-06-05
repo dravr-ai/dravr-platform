@@ -119,24 +119,6 @@ impl SocialRepository for Database {
         Ok(())
     }
 
-    async fn get_friends(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
-            FROM friend_connections
-            WHERE (initiator_id = $1 OR receiver_id = $1)
-              AND status = 'accepted'
-            ORDER BY accepted_at DESC
-            ",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get friends: {e}")))?;
-
-        rows.iter().map(row_to_friend_connection).collect()
-    }
-
     async fn get_pending_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
         let rows = sqlx::query(
             r"
@@ -154,42 +136,6 @@ impl SocialRepository for Database {
         rows.iter().map(row_to_friend_connection).collect()
     }
 
-    async fn get_sent_friend_requests(&self, user_id: Uuid) -> AppResult<Vec<FriendConnection>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
-            FROM friend_connections
-            WHERE initiator_id = $1 AND status = 'pending'
-            ORDER BY created_at DESC
-            ",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get sent friend requests: {e}")))?;
-
-        rows.iter().map(row_to_friend_connection).collect()
-    }
-
-    async fn are_friends(&self, user_a: Uuid, user_b: Uuid) -> AppResult<bool> {
-        let row = sqlx::query(
-            r"
-            SELECT COUNT(*) as cnt FROM friend_connections
-            WHERE ((initiator_id = $1 AND receiver_id = $2)
-                OR (initiator_id = $2 AND receiver_id = $1))
-              AND status = 'accepted'
-            ",
-        )
-        .bind(user_a.to_string())
-        .bind(user_b.to_string())
-        .fetch_one(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to check friendship: {e}")))?;
-
-        let count: i64 = row.get("cnt");
-        Ok(count > 0)
-    }
-
     async fn delete_friend_connection(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
         // Only the two parties involved (initiator or receiver) can delete the connection
         let result = sqlx::query(
@@ -202,16 +148,6 @@ impl SocialRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to delete friend connection: {e}")))?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    async fn get_or_create_social_settings(&self, user_id: Uuid) -> AppResult<UserSocialSettings> {
-        if let Some(settings) = self.get_social_settings(user_id).await? {
-            return Ok(settings);
-        }
-
-        let defaults = UserSocialSettings::default_for_user(user_id);
-        self.upsert_social_settings(&defaults).await?;
-        Ok(defaults)
     }
 
     async fn get_social_settings(&self, user_id: Uuid) -> AppResult<Option<UserSocialSettings>> {
@@ -532,23 +468,6 @@ impl SocialRepository for Database {
         Ok(insight.id)
     }
 
-    async fn get_adapted_insight(&self, id: Uuid) -> AppResult<Option<AdaptedInsight>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
-                   was_helpful, created_at
-            FROM adapted_insights
-            WHERE id = $1
-            ",
-        )
-        .bind(id.to_string())
-        .fetch_optional(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
-
-        row.as_ref().map(row_to_adapted_insight).transpose()
-    }
-
     async fn get_user_adaptation(
         &self,
         source_insight_id: Uuid,
@@ -569,32 +488,6 @@ impl SocialRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
 
         row.as_ref().map(row_to_adapted_insight).transpose()
-    }
-
-    async fn get_user_adapted_insights(
-        &self,
-        user_id: Uuid,
-        limit: u32,
-        offset: u32,
-    ) -> AppResult<Vec<AdaptedInsight>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
-                   was_helpful, created_at
-            FROM adapted_insights
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-            ",
-        )
-        .bind(user_id.to_string())
-        .bind(i64::from(limit))
-        .bind(i64::from(offset))
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
-
-        rows.iter().map(row_to_adapted_insight).collect()
     }
 
     async fn update_adapted_insight_helpful(
@@ -657,21 +550,6 @@ impl SocialRepository for Database {
         }
 
         Ok(results)
-    }
-
-    async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64> {
-        let row = sqlx::query(
-            r"
-            SELECT COUNT(*) as cnt FROM friend_connections
-            WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'accepted'
-            ",
-        )
-        .bind(user_id.to_string())
-        .fetch_one(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to count friends: {e}")))?;
-
-        Ok(row.get("cnt"))
     }
 
     async fn get_friends_paginated(

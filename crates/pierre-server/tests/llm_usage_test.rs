@@ -19,7 +19,8 @@ use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_llm::pricing::{
-    calculate_cost_with_cache, ModelPricing, PricingOverrideMap, PricingRegistry,
+    calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, PricingOverrideMap,
+    PricingRegistry,
 };
 use sqlx::Row;
 
@@ -271,6 +272,90 @@ async fn test_llm_usage_cost_and_cache() {
     assert!(
         cost_usd < no_cache_cost,
         "cache discount should reduce billed cost"
+    );
+}
+
+#[tokio::test]
+async fn test_subscription_and_self_hosted_providers_zero_cost_without_undercount_warning() {
+    // P2-8 — self-hosted (ollama/vllm/local) and flat-rate subscription CLI
+    // runners (claude-code/cursor-agent/copilot/...) bill $0 per token *by
+    // design*. They must (a) resolve to exactly $0 and (b) be classified as
+    // not-per-token-metered so the cost path does NOT emit the misleading
+    // "No pricing data ... undercount" warning that real misses get.
+    let registry = PricingRegistry::new();
+    let subscription_and_self_hosted = [
+        "ollama",
+        "vllm",
+        "local",
+        "localai",
+        "claude-code",
+        "cursor-agent",
+        "copilot",
+        "opencode",
+        "codex",
+        "goose",
+        "cline",
+        "continue",
+        "warp_cli",
+        "kiro",
+        "kilo",
+    ];
+    for provider in subscription_and_self_hosted {
+        assert!(
+            is_not_per_token_metered(provider),
+            "{provider} must be classified as not-per-token-metered (no undercount warning)"
+        );
+        // A real model under each provider resolves to $0 — the correct cost,
+        // not a missing-price fallback.
+        let cost = registry.calculate_cost(None, provider, "some-model-x", 10_000, 0, 10_000);
+        assert!(
+            cost.abs() < f64::EPSILON,
+            "{provider} should bill $0 per token by design; got {cost}"
+        );
+    }
+
+    // A genuinely metered provider must NOT be classified as zero-by-design.
+    assert!(
+        !is_not_per_token_metered("openai_api"),
+        "metered API providers must not be treated as subscription/self-hosted"
+    );
+    assert!(
+        !is_not_per_token_metered("gemini"),
+        "metered API providers must not be treated as subscription/self-hosted"
+    );
+}
+
+#[tokio::test]
+async fn test_known_priced_provider_resolves_to_its_price() {
+    // P2-8 — a known-priced provider/model must resolve to a non-zero,
+    // exactly-computed cost. OpenRouter's default slug is now in the table,
+    // closing the silent-undercount gap for the gateway's common models.
+    let registry = PricingRegistry::new();
+
+    // OpenRouter default model: input 0.12/M, output 0.30/M.
+    let cost = registry.calculate_cost(
+        None,
+        "openrouter",
+        "meta-llama/llama-3.3-70b-instruct",
+        1_000_000,
+        0,
+        1_000_000,
+    );
+    let expected = 0.12 + 0.30;
+    assert!(
+        (cost - expected).abs() < 1e-9,
+        "OpenRouter default model should be priced; expected {expected}, got {cost}"
+    );
+    assert!(
+        !is_not_per_token_metered("openrouter"),
+        "OpenRouter is metered per model, not subscription/self-hosted"
+    );
+
+    // A direct-API priced provider still resolves to its price.
+    let gemini = registry.calculate_cost(None, "gemini", "gemini-2.0-flash", 1_000_000, 0, 0);
+    assert!(
+        (gemini - 0.075).abs() < 1e-9,
+        "Gemini flash input price should resolve; got {gemini}"
     );
 }
 

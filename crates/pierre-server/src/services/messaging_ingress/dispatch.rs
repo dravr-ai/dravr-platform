@@ -228,7 +228,15 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         ..PipelineHooks::none()
     };
 
-    let ctx = dispatch.resources.chat_pipeline_context();
+    let mut ctx = dispatch.resources.chat_pipeline_context();
+    // Use the tenant's own LLM key (BYO) for this turn when one is stored.
+    if let Some(provider) = dispatch
+        .resources
+        .resolve_byo_chat_provider(dispatch.user_tenant_id, dispatch.auth_result.user_id)
+        .await
+    {
+        ctx.chat_provider = Some(provider);
+    }
     // Panic boundary: a bug in any pipeline stage must unwind into a structured
     // failure for *this* turn (graceful user reply + correlation-id log), never
     // escape the spawned task. `AssertUnwindSafe` is sound because a caught

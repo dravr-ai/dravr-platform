@@ -87,7 +87,6 @@ tools-recipes = ["pierre-tool-runtime/tools-recipes"]         # validate_recipe,
 tools-coaches = ["pierre-tool-runtime/tools-coaches"]         # coach CRUD, activate, favorites
 tools-admin = ["tools-coaches", "pierre-tool-runtime/tools-admin"]  # admin tools depend on coach tools
 tools-mobility = ["pierre-tool-runtime/tools-mobility"]        # stretching exercises, yoga poses, mobility recommendations
-tools-store = ["pierre-tool-runtime/tools-store"]           # store MCP tools (browse, search, install coaches)
 tools-groups = ["dep:pierre-groups", "pierre-tool-runtime/tools-groups", "pierre-commands?/tools-groups", "pierre-chat-pipeline?/tools-groups"]  # group coaching tools (create, join, manage, analytics) + group_fitness snapshot fetcher
 tools-memory = ["pierre-tool-runtime/tools-memory"]          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
 tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-routes-admin/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # Tier 5.5 bullshit detector: verify_claim tool + dispatch hook
@@ -125,7 +124,7 @@ client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-c
 client-coaches = ["protocol-rest", "tools-coaches"]  # coaches.rs
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
-client-store = ["protocol-rest", "tools-store"]  # Store REST API routes + MCP tools
+client-store = ["protocol-rest"]  # Coach Store REST API routes (pierre-routes-coaches build_store_router)
 client-social = ["protocol-rest", "dep:pierre-routes-social"]   # social.rs - coach-mediated social features (friends/feed/settings via pierre-routes-social)
 client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-social"]  # group coaching routes (extracted to pierre-routes-social)
 
@@ -164,7 +163,7 @@ oauth = []
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
 server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "tools-all", "toon", "health-sync", "analytics-posthog"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]

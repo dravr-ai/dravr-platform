@@ -15,7 +15,6 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
-pierre-jsonrpc = { version = "0.3.0", path = "../pierre-jsonrpc" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }

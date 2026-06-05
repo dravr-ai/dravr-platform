@@ -961,18 +961,12 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        let limits = admin_ops::compute_user_rate_limits(
-            &resources.data,
-            auth.user_id,
-            auth.active_tenant_id,
-            user_uuid,
-        )
-        .await?;
+        let limits = admin_ops::compute_user_rate_limits(&resources.repos, user_uuid).await?;
 
         Ok((
             StatusCode::OK,
@@ -1032,19 +1026,13 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Query(params): Query<UserActivityQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        let activity = admin_ops::compute_user_activity(
-            &resources.data,
-            auth.user_id,
-            auth.active_tenant_id,
-            user_uuid,
-            params.days,
-        )
-        .await?;
+        let activity =
+            admin_ops::compute_user_activity(&resources.repos, user_uuid, params.days).await?;
 
         Ok((
             StatusCode::OK,

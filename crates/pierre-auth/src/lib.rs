@@ -52,7 +52,7 @@ pub mod oauth2_server;
 /// Unified rate limiting system
 pub mod rate_limiting;
 
-/// Security headers, key rotation, audit logging
+/// Security headers, secure cookies, CSRF protection
 pub mod security;
 
 /// Multi-tenant data isolation and OAuth/LLM management

@@ -6,15 +6,15 @@
 
 //! Minimal JSON-RPC 2.0 type definitions for `pierre-a2a`.
 //!
-//! These types are **intentionally duplicated** from the main server crate's
-//! `jsonrpc` module to avoid a circular dependency: `pierre-a2a` is a leaf
-//! crate that cannot depend on the main server crate. The structs are
-//! serde-compatible with the main crate's versions, so data serialised from
-//! one can be deserialised into the other.
+//! These types are **intentionally duplicated** from the `pierre-jsonrpc`
+//! crate. `pierre-a2a` keeps its own copy with protocol-specific extensions
+//! (like `auth_token`) rather than depending on `pierre-jsonrpc`. The structs
+//! are serde-compatible, so data serialised from one can be deserialised into
+//! the other.
 //!
 //! If these structs diverge, update both locations:
 //! - `crates/pierre-a2a/src/jsonrpc.rs` (this file)
-//! - `crates/pierre-server/src/jsonrpc/mod.rs` (main crate)
+//! - `crates/pierre-jsonrpc/src/lib.rs` (canonical base structs)
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

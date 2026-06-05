@@ -18,7 +18,6 @@ use pierre_core::models::{
     SmartScheduleWeights, TenantId,
 };
 use pierre_database::AuthRepos;
-use pierre_providers::caching_provider::SyncCursorChecker;
 #[cfg(feature = "health-sync")]
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
@@ -584,53 +583,6 @@ fn format_age(duration: chrono::Duration) -> String {
     } else {
         let mins = total_secs / 60;
         format!("{mins}m ago")
-    }
-}
-
-// ============================================================================
-// Cross-instance cache invalidation via sync cursor
-// ============================================================================
-
-/// Implements `SyncCursorChecker` by querying [`AuthRepos`].
-///
-/// Looks up the latest sync timestamp for a user/provider pair so that
-/// `CachingFitnessProvider` can invalidate cache entries when another
-/// instance has recently synced fresher data.
-pub struct RepositorySyncCursorChecker {
-    /// Narrow repository view: this checker only touches
-    /// `repos.oauth_tokens` to read the latest sync timestamp.
-    repos: AuthRepos,
-    /// Tenant ID for the query (cache is already tenant-scoped via cache key).
-    tenant_id: TenantId,
-}
-
-impl RepositorySyncCursorChecker {
-    /// Create a new sync cursor checker for the given tenant.
-    ///
-    /// Takes a narrow `AuthRepos` view — only `repos.oauth_tokens` is
-    /// consulted (via `get_provider_last_sync`).
-    #[must_use]
-    pub fn new(repos: &AuthRepos, tenant_id: TenantId) -> Self {
-        Self {
-            repos: repos.clone(),
-            tenant_id,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl SyncCursorChecker for RepositorySyncCursorChecker {
-    async fn last_sync_at(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.repos
-            .oauth_tokens
-            .get_provider_last_sync(user_id, self.tenant_id, provider)
-            .await
-            .ok()
-            .flatten()
     }
 }
 

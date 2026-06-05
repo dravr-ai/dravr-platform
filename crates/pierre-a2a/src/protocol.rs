@@ -14,8 +14,8 @@
 //! providing JSON-RPC 2.0 based communication between AI agents.
 
 use crate::{
-    A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2ARequest, A2AResponse,
-    A2A_VERSION,
+    A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2AMessage, A2ARequest,
+    A2AResponse, MessagePart, A2A_VERSION,
 };
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::OAuthAppCredentials;
@@ -87,7 +87,12 @@ impl A2AServer {
                     self.handle_initialize(request)
                 }
             }
-            "message/send" | "a2a/message/send" => Self::handle_message_send(request),
+            "message/send" | "a2a/message/send" => {
+                self.require_auth_then(request, |s, req, user_id| {
+                    Box::pin(s.handle_message_send(req, user_id))
+                })
+                .await
+            }
             "message/stream" | "a2a/message/stream" => self.handle_message_stream(request),
             // Authenticated endpoints: require valid JWT and pass user_id to handler
             "tasks/create" | "a2a/tasks/create" => {
@@ -406,13 +411,192 @@ impl A2AServer {
         )
     }
 
-    fn handle_message_send(request: A2ARequest) -> A2AResponse {
-        // Message sending would forward requests to appropriate handlers
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(json!({"status": "received"})),
-            error: None,
-            id: request.id,
+    /// Handle A2A `message/send`: deliver a client message to the agent and
+    /// return the agent's response.
+    ///
+    /// Per the A2A specification a client posts a `Message` and receives the
+    /// agent's reply. Two intents are supported, both backed by real work:
+    ///
+    /// - **Tool invocation.** When the message names a tool — either as a
+    ///   `Data` part carrying `{"tool_name": ..., "parameters": {...}}` or via
+    ///   top-level `tool_name`/`parameters` params (mirroring `tools/call`) —
+    ///   the named tool is executed against the authenticated user's tenant
+    ///   through the shared registry path, and its real output is returned as
+    ///   the agent's reply message.
+    /// - **Plain message.** When no tool is named, the agent acknowledges the
+    ///   message by returning a real reply `Message` (fresh id) that echoes the
+    ///   received text content, so the client receives an A2A `Message` rather
+    ///   than a hardcoded status constant.
+    async fn handle_message_send(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let params = request.params.as_ref().unwrap_or(&Value::Null);
+
+        // Resolve an optional tool invocation from either a structured `Data`
+        // message part or top-level `tool_name`/`parameters` params.
+        if let Some((tool_name, tool_params)) = Self::extract_tool_intent(params) {
+            let result = Self::execute_registered_tool(
+                resources,
+                user_id,
+                &tool_name,
+                tool_params,
+                request.id.as_ref(),
+            )
+            .await;
+            return match result {
+                Ok(reply) => A2AResponse {
+                    jsonrpc: "2.0".into(),
+                    result: Some(reply),
+                    error: None,
+                    id: request.id,
+                },
+                Err(err) => *err,
+            };
+        }
+
+        // No tool intent: acknowledge with a real reply message echoing the
+        // received text parts.
+        let echoed_text = Self::collect_message_text(params);
+        let reply = A2AMessage {
+            id: Uuid::new_v4().to_string(),
+            parts: vec![MessagePart::Text {
+                content: echoed_text,
+            }],
+            metadata: None,
+        };
+
+        match to_value(&reply) {
+            Ok(message) => A2AResponse {
+                jsonrpc: "2.0".into(),
+                result: Some(json!({ "message": message })),
+                error: None,
+                id: request.id,
+            },
+            Err(e) => {
+                error!("Failed to serialize A2A reply message: {e}");
+                Self::a2a_error(-32603, "Failed to serialize reply message", request.id)
+            }
+        }
+    }
+
+    /// Extract a `(tool_name, parameters)` tool invocation from `message/send`
+    /// params. Recognizes a top-level `tool_name`/`parameters` shape and a
+    /// `Data` message part carrying the same keys.
+    #[must_use]
+    pub fn extract_tool_intent(params: &Value) -> Option<(String, Value)> {
+        if let Some(tool_name) = params.get("tool_name").and_then(Value::as_str) {
+            let tool_params = params
+                .get("parameters")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Map::default()));
+            return Some((tool_name.to_owned(), tool_params));
+        }
+
+        let parts = params.get("parts").and_then(Value::as_array)?;
+        for part in parts {
+            if part.get("type").and_then(Value::as_str) != Some("data") {
+                continue;
+            }
+            let content = part.get("content")?;
+            if let Some(tool_name) = content.get("tool_name").and_then(Value::as_str) {
+                let tool_params = content
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Object(Map::default()));
+                return Some((tool_name.to_owned(), tool_params));
+            }
+        }
+        None
+    }
+
+    /// Concatenate the text content of all `text` message parts in a
+    /// `message/send` payload, falling back to an empty string.
+    #[must_use]
+    pub fn collect_message_text(params: &Value) -> String {
+        params
+            .get("parts")
+            .and_then(Value::as_array)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter_map(|part| part.get("content").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    }
+
+    /// Execute a registered tool against the authenticated user's tenant and
+    /// return the A2A tool-result JSON. Shared by `tools/call` and
+    /// `message/send` so both dispatch through the same real execution path.
+    async fn execute_registered_tool(
+        resources: &A2AResources,
+        user_id: Uuid,
+        tool_name: &str,
+        tool_params: Value,
+        request_id: Option<&Value>,
+    ) -> Result<Value, Box<A2AResponse>> {
+        // Resolve tenant context — required for all A2A tool execution.
+        let tenant_context =
+            match extract_tenant_context_internal(resources.ctx.repos(), Some(user_id), None, None)
+                .await
+            {
+                Ok(Some(ctx)) => ctx,
+                Ok(None) => {
+                    return Err(Box::new(Self::a2a_error(
+                        -32001,
+                        "User does not belong to any tenant",
+                        request_id.cloned(),
+                    )));
+                }
+                Err(e) => {
+                    error!("Failed to resolve tenant context: {e}");
+                    return Err(Box::new(Self::a2a_error(
+                        -32603,
+                        "Failed to resolve tenant context",
+                        request_id.cloned(),
+                    )));
+                }
+            };
+
+        let tool_ctx = ToolExecutionContext::new(
+            user_id,
+            Some(tenant_context.tenant_id),
+            resources.tool_runtime.clone(), // Safe: Arc clone for tool runtime
+            AuthMethod::ApiKey,
+        );
+
+        let tool_registry = resources.tool_runtime.tool_registry();
+        if !tool_registry.contains(tool_name) {
+            return Err(Box::new(Self::a2a_error(
+                -32601,
+                format!("Unknown tool: {tool_name}"),
+                request_id.cloned(),
+            )));
+        }
+
+        match tool_registry
+            .execute(tool_name, tool_params, &tool_ctx)
+            .await
+        {
+            Ok(result) => Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": result.content.to_string()
+                }],
+                "isError": result.is_error
+            })),
+            Err(e) => {
+                error!("A2A tool execution failed: {e}");
+                Err(Box::new(Self::a2a_error(
+                    -32000,
+                    "Tool execution failed",
+                    request_id.cloned(),
+                )))
+            }
         }
     }
 
@@ -723,59 +907,22 @@ impl A2AServer {
             return Self::server_not_configured_error(request.id);
         };
 
-        // Resolve tenant context — required for all A2A tool execution
-        let tenant_context =
-            match extract_tenant_context_internal(resources.ctx.repos(), Some(user_id), None, None)
-                .await
-            {
-                Ok(Some(ctx)) => ctx,
-                Ok(None) => {
-                    return Self::a2a_error(
-                        -32001,
-                        "User does not belong to any tenant",
-                        request.id,
-                    );
-                }
-                Err(e) => {
-                    error!("Failed to resolve tenant context: {e}");
-                    return Self::a2a_error(-32603, "Failed to resolve tenant context", request.id);
-                }
-            };
-
-        // Build tool execution context from authenticated user identity with tenant
-        let tool_ctx = ToolExecutionContext::new(
+        match Self::execute_registered_tool(
+            resources,
             user_id,
-            Some(tenant_context.tenant_id),
-            resources.tool_runtime.clone(), // Safe: Arc clone for tool runtime
-            AuthMethod::ApiKey,
-        );
-
-        // Try the registry first, fall back to error for unregistered tools
-        let tool_registry = resources.tool_runtime.tool_registry();
-        if tool_registry.contains(tool_name) {
-            match tool_registry
-                .execute(tool_name, tool_params, &tool_ctx)
-                .await
-            {
-                Ok(result) => A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: Some(json!({
-                        "content": [{
-                            "type": "text",
-                            "text": result.content.to_string()
-                        }],
-                        "isError": result.is_error
-                    })),
-                    error: None,
-                    id: request.id,
-                },
-                Err(e) => {
-                    error!("A2A tool execution failed: {e}");
-                    Self::a2a_error(-32000, "Tool execution failed", request.id)
-                }
-            }
-        } else {
-            Self::a2a_error(-32601, format!("Unknown tool: {tool_name}"), request.id)
+            tool_name,
+            tool_params,
+            request.id.as_ref(),
+        )
+        .await
+        {
+            Ok(result) => A2AResponse {
+                jsonrpc: "2.0".into(),
+                result: Some(result),
+                error: None,
+                id: request.id,
+            },
+            Err(err) => *err,
         }
     }
 

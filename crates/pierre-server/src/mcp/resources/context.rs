@@ -26,18 +26,22 @@ use embacle::types::LlmProvider as EmbacleLlmProvider;
 #[cfg(feature = "provider-sciotte")]
 use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner};
 use pierre_core::errors::{AppError, AppResult};
+#[cfg(feature = "client-messaging")]
+use pierre_core::models::TenantId;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
 };
+use pierre_llm::ChatProvider;
 use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
-#[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
+use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 /// Build the shared Copilot-headless LLM provider for sciotte vision login.
 ///
@@ -374,6 +378,23 @@ impl ServerContext {
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
         }
+    }
+
+    /// Resolve the chat provider a `(tenant, user)` should use for a turn,
+    /// honoring a stored BYO LLM key, or `None` to use the global singleton.
+    pub async fn resolve_byo_chat_provider(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> Option<Arc<ChatProvider>> {
+        resolve_tenant_chat_provider(
+            &self.common.tenant_chat_providers,
+            self.common.repos.llm_credentials.as_ref(),
+            self.common.repos.security.as_ref(),
+            tenant_id,
+            user_id,
+        )
+        .await
     }
 
     /// Build a [`pierre_routes_web_admin::WebAdminContext`] view over this

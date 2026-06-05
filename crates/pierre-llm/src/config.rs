@@ -154,6 +154,30 @@ impl LlmProviderType {
     /// Default wait time before attempting fallback (10 seconds, matches Gemini retry)
     pub const DEFAULT_FALLBACK_WAIT_SECS: u64 = 10;
 
+    /// Default model label for the Claude Code CLI runner (short alias)
+    const DEFAULT_CLAUDE_CODE_MODEL: &'static str = "opus";
+
+    /// Default model label for the Cursor Agent CLI runner
+    const DEFAULT_CURSOR_AGENT_MODEL: &'static str = "sonnet-4";
+
+    /// Default model label for the `OpenCode` CLI runner
+    const DEFAULT_OPENCODE_MODEL: &'static str = "anthropic/claude-sonnet-4";
+
+    /// Default model label for the Gemini CLI runner
+    const DEFAULT_GEMINI_CLI_MODEL: &'static str = "gemini-2.5-pro";
+
+    /// Default model label for the Codex CLI runner
+    const DEFAULT_CODEX_CLI_MODEL: &'static str = "codex-mini";
+
+    /// Default model label shared by the Goose/Cline/Continue/Warp/Kiro/Kilo CLI runners
+    const DEFAULT_CLAUDE_SONNET_CLI_MODEL: &'static str = "claude-sonnet-4";
+
+    /// Environment variable overriding the `OpenAI` API model
+    const OPENAI_API_MODEL_ENV_VAR: &'static str = "OPENAI_API_MODEL";
+
+    /// Default model label for the `OpenAI` API provider when unset
+    const DEFAULT_OPENAI_API_MODEL: &'static str = "gpt-5.4";
+
     /// Get model from environment, respecting the active provider
     ///
     /// For API-based providers (Gemini, Groq, Local, `OpenRouter`), reads `PIERRE_LLM_MODEL`.
@@ -213,22 +237,22 @@ impl LlmProviderType {
             // CLI runners pick their default model internally in new().
             // These fallbacks are only used for the conversation DB label when
             // RunnerConfig.model is None (no env override).
-            Self::ClaudeCode => Some("opus".to_owned()),
-            Self::CursorAgent => Some("sonnet-4".to_owned()),
-            Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
-            Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),
-            Self::CodexCli => Some("codex-mini".to_owned()),
+            Self::ClaudeCode => Some(Self::DEFAULT_CLAUDE_CODE_MODEL.to_owned()),
+            Self::CursorAgent => Some(Self::DEFAULT_CURSOR_AGENT_MODEL.to_owned()),
+            Self::OpenCode => Some(Self::DEFAULT_OPENCODE_MODEL.to_owned()),
+            Self::GeminiCli => Some(Self::DEFAULT_GEMINI_CLI_MODEL.to_owned()),
+            Self::CodexCli => Some(Self::DEFAULT_CODEX_CLI_MODEL.to_owned()),
             Self::GooseCli
             | Self::ClineCli
             | Self::ContinueCli
             | Self::WarpCli
             | Self::KiroCli
-            | Self::KiloCli => Some("claude-sonnet-4".to_owned()),
+            | Self::KiloCli => Some(Self::DEFAULT_CLAUDE_SONNET_CLI_MODEL.to_owned()),
             Self::OpenAiApi => Some(
-                env::var("OPENAI_API_MODEL")
+                env::var(Self::OPENAI_API_MODEL_ENV_VAR)
                     .ok()
                     .filter(|m| !m.is_empty())
-                    .unwrap_or_else(|| "gpt-5.4".to_owned()),
+                    .unwrap_or_else(|| Self::DEFAULT_OPENAI_API_MODEL.to_owned()),
             ),
             Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => {
                 unreachable!()

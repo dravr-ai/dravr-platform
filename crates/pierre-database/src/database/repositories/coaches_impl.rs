@@ -674,7 +674,7 @@ impl CoachesRepository for Database {
             is_system: false,
             visibility: CoachVisibility::Private,
             prerequisites: source.prerequisites,
-            forked_from: Some(source_coach_id.to_owned()),
+            forked_from: Some(source.id),
             max_tool_iterations: source.max_tool_iterations,
             temperature: source.temperature,
             startup_query: source.startup_query,

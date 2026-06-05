@@ -48,8 +48,6 @@ pub mod route_summaries;
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
-/// Social insight repository implementation
-pub mod social;
 /// Social features repository (friend connections, shared insights, reactions)
 pub mod social_features;
 /// Store listings repository implementation (marketplace publishing workflow)

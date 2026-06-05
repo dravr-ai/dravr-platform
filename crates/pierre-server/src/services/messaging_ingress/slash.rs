@@ -132,6 +132,7 @@ pub(super) async fn try_handle_slash_command(
         locale: &locale,
         is_direct_message,
         conversation_id: Some(&session.conversation),
+        sender_id: Some(sender_id),
         text,
     })
     .await

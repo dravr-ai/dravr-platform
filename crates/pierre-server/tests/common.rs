@@ -267,6 +267,20 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
 
 /// Create a test user with custom email
 pub async fn create_test_user_with_email(database: &Database, email: &str) -> Result<(Uuid, User)> {
+    let (user_id, user, _tenant_id) =
+        create_test_user_with_plan(database, email, "starter").await?;
+    Ok((user_id, user))
+}
+
+/// Create an active test user owning a tenant on the given billing `plan`.
+///
+/// Returns the tenant id too — group tests need a plan whose tier enables
+/// group coaching (`professional`/`enterprise`); `starter` has groups disabled.
+pub async fn create_test_user_with_plan(
+    database: &Database,
+    email: &str,
+    plan: &str,
+) -> Result<(Uuid, User, TenantId)> {
     // Create a proper bcrypt hash for the default test password "password123"
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
 
@@ -293,7 +307,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
         name: format!("Test Tenant for {}", email),
         slug: format!("test-tenant-{}", tenant_id),
         domain: None,
-        plan: "starter".to_owned(),
+        plan: plan.to_owned(),
         owner_user_id: user_id,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
@@ -303,7 +317,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
     // Also update legacy tenant_id column for backward compatibility
     repos.users.update_tenant_id(user_id, tenant_id).await?;
 
-    Ok((user_id, user))
+    Ok((user_id, user, tenant_id))
 }
 
 /// Generate a JWT token for a test user that includes their `active_tenant_id`.

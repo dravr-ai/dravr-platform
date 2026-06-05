@@ -105,41 +105,6 @@ async fn test_goals_management() {
 }
 
 #[tokio::test]
-async fn test_insights_storage() {
-    let db = common::create_test_database()
-        .await
-        .expect("Failed to create test database");
-
-    let user = create_test_user(&db).await;
-
-    // Store an insight
-    let insight_data = serde_json::json!({
-        "type": "performance_trend",
-        "message": "Your pace has improved by 5% over the last month",
-        "severity": "positive"
-    });
-
-    let repos = db.repositories();
-    let insight_id = repos
-        .insights
-        .store(user.id, insight_data)
-        .await
-        .expect("Failed to store insight");
-
-    // Verify the insight was stored with a valid ID
-    assert!(!insight_id.is_empty());
-
-    // Get user insights
-    let insights = repos
-        .insights
-        .get_for_user(user.id, None, Some(10))
-        .await
-        .expect("Failed to get user insights");
-    assert_eq!(insights.len(), 1);
-    assert_eq!(insights[0]["type"], "performance_trend");
-}
-
-#[tokio::test]
 async fn test_system_stats() {
     let db = common::create_test_database()
         .await

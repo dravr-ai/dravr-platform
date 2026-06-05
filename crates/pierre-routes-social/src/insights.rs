@@ -1067,7 +1067,13 @@ impl SocialRoutes {
     /// Parse JSON response from insight validation prompt
     ///
     /// Expected format: `{"verdict": "valid|improved|rejected", "reason": "...", "improved_content": "..."}`
-    pub(crate) fn parse_validation_json_response(
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::invalid_input`] when the verdict is `rejected`, when the
+    /// response cannot be parsed, or when the verdict is unrecognized — the gate
+    /// fails closed so unvalidated content is never shared.
+    pub fn parse_validation_json_response(
         raw_content: &str,
         original_content: &str,
     ) -> Result<String, AppError> {
@@ -1109,21 +1115,29 @@ impl SocialRoutes {
                     )))
                 }
                 _ => {
+                    // Fail closed: an unrecognized verdict means the quality /
+                    // redaction gate did not actually run, so we must not let
+                    // unvalidated content through to other users' feeds.
                     tracing::warn!(
                         verdict = %v.verdict,
                         reason = ?v.reason,
-                        "Unknown validation verdict"
+                        "Unknown validation verdict — rejecting share"
                     );
-                    Ok(original_content.to_owned())
+                    Err(AppError::invalid_input(
+                        "Content could not be validated for sharing. Please try again.",
+                    ))
                 }
             }
         } else {
-            // If parsing fails, accept the content (don't block sharing)
+            // Fail closed: if the validator response can't be parsed the gate did
+            // not run; rejecting is safer than sharing unvalidated content.
             tracing::warn!(
-                "Failed to parse validation JSON, accepting content: {}...",
+                "Failed to parse validation JSON, rejecting share: {}...",
                 &raw_content[..raw_content.len().min(50)]
             );
-            Ok(original_content.to_owned())
+            Err(AppError::invalid_input(
+                "Content could not be validated for sharing. Please try again.",
+            ))
         }
     }
 
@@ -1457,12 +1471,19 @@ impl SocialRoutes {
         .await
         .unwrap_or_else(|_| UserTrainingContext::default());
 
+        // Pass the wired LLM provider so the adaptation is genuinely rewritten
+        // for this audience. When none is configured the service falls back to
+        // the deterministic template adaptation rather than erroring — adapting
+        // an insight must not hard-require an LLM the way sharing/generation do.
+        let llm_provider = ToolRuntime::llm_provider(resources.as_ref());
+
         let result = social_insights::adapt_insight_for_user(
             &*social,
             auth.user_id,
             insight_id,
             &user_context,
             body.context.as_deref(),
+            llm_provider,
         )
         .await?;
 

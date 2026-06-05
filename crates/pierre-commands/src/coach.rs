@@ -13,7 +13,6 @@ use pierre_messaging::commands::{CommandAction, CommandResponse};
 
 #[cfg(feature = "tools-groups")]
 use pierre_contremaitre::messaging_strings::KEY_COACH_GROUP_CREATED;
-#[cfg(not(feature = "tools-groups"))]
 use pierre_contremaitre::messaging_strings::KEY_COACH_GROUP_CREATION_UNAVAILABLE;
 use pierre_contremaitre::messaging_strings::{
     KEY_COACH_ASSIGN_FORBIDDEN, KEY_COACH_ASSIGN_NOT_A_MEMBER, KEY_COACH_GROUP_UPDATED,
@@ -21,6 +20,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_MULTI_GROUP_CARD_TITLE, KEY_COACH_MULTI_GROUP_ITEM, KEY_COACH_MULTI_GROUP_PROMPT,
     KEY_COACH_NO_DESCRIPTION, KEY_COACH_USER_UPDATED,
 };
+#[cfg(feature = "tools-groups")]
+use pierre_groups::strategies::tier::tier_strategy_for;
 
 use crate::{CommandHandler, PlatformCommandContext};
 
@@ -172,16 +173,34 @@ impl CommandHandler for CoachSelectHandler {
                 {
                     use pierre_core::models::groups::CreateGroupRequest;
 
+                    // Resolve the tenant's plan tier (mirrors the REST create
+                    // path): Starter has group coaching disabled; Professional/
+                    // Enterprise cap members per group. The cap is passed into
+                    // GroupService::create_group, which owns the clamp and the
+                    // Starter rejection. We pre-check the disabled case here to
+                    // render the localized "group creation unavailable" reply
+                    // rather than surfacing the service's PermissionDenied error.
+                    let plan = ctx.ctx.repos().tenants.get_by_id(ctx.tenant_id).await?.plan;
+                    let tier_cap = tier_strategy_for(&plan).max_members_per_group();
+                    if tier_cap == 0 {
+                        return Ok(CommandResponse::text(reg.render(
+                            KEY_COACH_GROUP_CREATION_UNAVAILABLE,
+                            locale,
+                            &[&coach.title],
+                        )));
+                    }
+                    let tier_cap = i32::try_from(tier_cap).unwrap_or(i32::MAX);
+
                     let request = CreateGroupRequest {
                         name: group_name.clone(),
                         description: Some(format!("Group coached by {}", coach.title)),
                         coach_id: coach.id.to_string(),
-                        max_members: None,
+                        max_members: Some(tier_cap),
                     };
 
                     ctx.ctx
                         .group_service()
-                        .create_group(&request, ctx.user_id, ctx.tenant_id)
+                        .create_group(&request, ctx.user_id, ctx.tenant_id, tier_cap)
                         .await?;
 
                     return Ok(CommandResponse::text(reg.render(

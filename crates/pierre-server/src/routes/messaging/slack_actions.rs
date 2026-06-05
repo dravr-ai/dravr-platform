@@ -268,6 +268,7 @@ async fn handle_command_postback(
         // click. Group-scoped commands fall back to the user's most
         // recent group via list_groups_for_user when this is None.
         conversation_id: None,
+        sender_id: Some(action.slack_user_id.clone()),
     };
 
     let response = handler.execute(&ctx).await?;

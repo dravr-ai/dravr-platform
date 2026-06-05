@@ -27,11 +27,11 @@ use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{MiddlewareCtx, SocialCtx};
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::group_snapshots;
 use crate::groups::{GroupMetadata, HealthFlagsResponse, StatsResponse, WeeklyReportResponse};
 use pierre_auth::auth::AuthResult;
 
@@ -126,17 +126,24 @@ impl GroupAnalyticsRoutes {
     }
 
     /// Fetch members and build fitness snapshots for the given group.
+    ///
+    /// Delegates to the canonical
+    /// [`fetch_member_snapshots`](pierre_tool_runtime::group_fitness::fetch_member_snapshots)
+    /// builder so the REST analytics endpoints see the exact same
+    /// all-providers + deduplicated snapshots the chat coach sees. This is the
+    /// single source of truth for member fitness snapshots across both paths.
     async fn fetch_snapshots<C: ToolRuntime + MiddlewareCtx>(
         resources: &Arc<C>,
         group_id: &str,
-        tenant_id: &str,
+        tenant_id: TenantId,
     ) -> Result<Vec<MemberFitnessSnapshot>, AppError> {
         let members = MiddlewareCtx::repos(resources.as_ref())
             .groups
             .list_members(group_id)
             .await?;
+        let user_ids: Vec<Uuid> = members.iter().map(|m| m.user_id).collect();
         let runtime = Self::as_runtime(resources);
-        Ok(group_snapshots::build_member_snapshots(&runtime, &members, tenant_id).await)
+        Ok(fetch_member_snapshots(&runtime, &user_ids, tenant_id).await)
     }
 
     /// GET `/api/groups/:group_id/stats` — Aggregate stats for a group.
@@ -151,8 +158,7 @@ impl GroupAnalyticsRoutes {
 
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        let member_snapshots =
-            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
+        let member_snapshots = Self::fetch_snapshots(&resources, &group_id, tenant_id).await?;
 
         let stats = resources
             .group_service()
@@ -184,8 +190,7 @@ impl GroupAnalyticsRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
-        let member_snapshots =
-            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
+        let member_snapshots = Self::fetch_snapshots(&resources, &group_id, tenant_id).await?;
 
         let report = resources
             .group_service()
@@ -210,8 +215,7 @@ impl GroupAnalyticsRoutes {
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let member_snapshots =
-            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
+        let member_snapshots = Self::fetch_snapshots(&resources, &group_id, tenant_id).await?;
 
         let flags = resources
             .group_service()

@@ -109,10 +109,6 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-mobility")]
     register_mobility_tools(registry);
 
-    // Store tools
-    #[cfg(feature = "tools-store")]
-    register_store_tools(registry);
-
     // Memory tools (Tier 3 coach-authored memory)
     #[cfg(feature = "tools-memory")]
     register_memory_tools(registry);
@@ -410,27 +406,6 @@ fn register_mobility_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered mobility tools (registry now has {} tools)",
-        registry.len()
-    );
-}
-
-/// Register store tools (browse, search, install coaches)
-#[cfg(feature = "tools-store")]
-fn register_store_tools(registry: &mut ToolRegistry) {
-    use pierre_tool_runtime::implementations::store::create_store_tools;
-
-    debug!(
-        "Registering store tools (registry has {} tools)",
-        registry.len()
-    );
-
-    // Register all store tools with the "store" category
-    for tool in create_store_tools() {
-        registry.register_with_category(Arc::from(tool), "store");
-    }
-
-    info!(
-        "Registered store tools (registry now has {} tools)",
         registry.len()
     );
 }

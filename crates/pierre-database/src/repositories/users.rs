@@ -14,6 +14,7 @@ use pierre_core::models::{Dossier, UserPhysiologicalProfile};
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use serde_json::Value;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// User account management repository
@@ -25,6 +26,10 @@ pub trait UserRepository: Send + Sync {
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>>;
     /// Get user by ID without tenant scoping (for system-level operations)
     async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>>;
+    /// Batch-fetch users by ID without tenant scoping. Returns a map keyed by
+    /// user id; ids with no matching row are omitted. Replaces per-id
+    /// `get_global` loops with a single `WHERE id IN (...)` query.
+    async fn get_global_many(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, User>>;
     /// Get user by email address
     async fn get_by_email(&self, email: &str) -> AppResult<Option<User>>;
     /// Get user by email (required - fails if not found)

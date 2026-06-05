@@ -11,8 +11,6 @@
 use crate::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
-use pierre_intelligence::ActivityAnalyzer;
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde_json::Value;
 use std::sync::Arc;
@@ -39,11 +37,7 @@ pub struct ToolEngine {
 impl ToolEngine {
     /// Create a new tool engine instance
     #[must_use]
-    pub fn new(
-        _database: Arc<Database>,
-        _intelligence: Arc<ActivityAnalyzer>,
-        universal_executor: Arc<UniversalToolExecutor>,
-    ) -> Self {
+    pub fn new(universal_executor: Arc<UniversalToolExecutor>) -> Self {
         Self { universal_executor }
     }
 

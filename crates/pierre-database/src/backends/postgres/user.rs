@@ -16,7 +16,9 @@ use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
+use sqlx::postgres::PgRow;
 use sqlx::Row;
+use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -195,6 +197,34 @@ impl UserRepository for PostgresDatabase {
                 }))
             },
         )
+    }
+
+    async fn get_global_many(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, User>> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r"
+            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
+                   role, user_status, approved_by, approved_at, created_at, last_active,
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster, timezone
+            FROM users
+            WHERE id = ANY($1)
+            ",
+        )
+        .bind(user_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to batch-get users: {e}")))?;
+
+        let mut users = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let user = pg_row_to_user(row);
+            users.insert(user.id, user);
+        }
+        Ok(users)
     }
 
     async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
@@ -1214,5 +1244,57 @@ impl ProfileRepository for PostgresDatabase {
             .map_err(|e| AppError::database(format!("Failed to save user configuration: {e}")))?;
 
         Ok(())
+    }
+}
+
+/// Map a `users` table row to a [`User`].
+///
+/// OAuth tokens are loaded separately; tenant membership lives in
+/// `tenant_users`. Shared by the batch-fetch path.
+fn pg_row_to_user(row: &PgRow) -> User {
+    User {
+        id: row.get("id"),
+        email: row.get("email"),
+        display_name: row.get("display_name"),
+        password_hash: row.get("password_hash"),
+        tier: {
+            let tier_str: String = row.get("tier");
+            match tier_str.as_str() {
+                tiers::PROFESSIONAL => UserTier::Professional,
+                tiers::ENTERPRISE => UserTier::Enterprise,
+                _ => UserTier::Starter,
+            }
+        },
+        strava_token: None,
+        fitbit_token: None,
+        is_active: row.get("is_active"),
+        user_status: {
+            let status_str: String = row.get("user_status");
+            shared::enums::str_to_user_status(&status_str)
+        },
+        is_admin: row.get("is_admin"),
+        role: {
+            let role_str: Option<String> = row.try_get("role").ok().flatten();
+            role_str.map_or(UserRole::User, |s| shared::enums::str_to_user_role(&s))
+        },
+        approved_by: row.get("approved_by"),
+        approved_at: row.get("approved_at"),
+        created_at: row.get("created_at"),
+        last_active: row.get("last_active"),
+        firebase_uid: row.try_get("firebase_uid").ok().flatten(),
+        auth_provider: row
+            .try_get("auth_provider")
+            .unwrap_or_else(|_| "email".to_owned()),
+        analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+        analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+        locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
+        default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+        coaching_persona: row
+            .try_get::<String, _>("coaching_persona")
+            .ok()
+            .and_then(|s| s.parse::<CoachingPersona>().ok())
+            .unwrap_or_default(),
+        manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
+        timezone: row.try_get("timezone").ok().flatten(),
     }
 }

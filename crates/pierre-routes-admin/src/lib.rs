@@ -56,9 +56,8 @@ pub use handlers::impersonation::ImpersonationRoutes;
 pub use handlers::llm_consumption::LlmConsumptionRoutes;
 pub use handlers::types::{
     AdminResponse, AdminSetupRequest, AdminSetupResponse, ApproveUserRequest, AutoApprovalResponse,
-    CoachReviewQuery, DeleteUserRequest, ListApiKeysQuery, ListPendingCoachesQuery, ListUsersQuery,
-    ProvisionApiKeyRequest, ProvisionApiKeyResponse, RateLimitInfo, RejectCoachRequest,
-    RevokeKeyRequest, SuspendUserRequest, TenantCreatedInfo, UpdateAutoApprovalRequest,
-    UserActivityQuery,
+    DeleteUserRequest, ListApiKeysQuery, ListUsersQuery, ProvisionApiKeyRequest,
+    ProvisionApiKeyResponse, RateLimitInfo, RevokeKeyRequest, SuspendUserRequest,
+    TenantCreatedInfo, UpdateAutoApprovalRequest, UserActivityQuery,
 };
 pub use routes::AdminRoutes;

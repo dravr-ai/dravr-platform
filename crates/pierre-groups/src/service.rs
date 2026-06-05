@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
     GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTrend, GroupWeeklyReport,
@@ -111,7 +111,9 @@ impl GroupService {
 
             match groups.len() {
                 0 => return Ok(base_system_prompt.to_owned()),
-                1 => Some(groups.into_iter().next().unwrap_or_default_unreachable()),
+                1 => Some(groups.into_iter().next().ok_or_else(|| {
+                    AppError::internal("group list reported len()==1 but yielded no element")
+                })?),
                 _ => {
                     // Multiple groups — inject disambiguation prompt
                     let names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
@@ -232,17 +234,35 @@ impl GroupService {
     // Group CRUD (delegated to repository with tier enforcement)
     // ========================================================================
 
-    /// Create a new coaching group with tier limit enforcement
+    /// Create a new coaching group with tier limit enforcement.
+    ///
+    /// `tier_member_cap` is the tenant plan's per-group member cap, resolved
+    /// by the caller (which owns tenant-plan access via the tenants repo):
+    /// `tier_strategy_for(&plan).max_members_per_group()`. The service owns
+    /// the policy *application*: a cap of `0` (Starter) rejects creation with
+    /// [`ErrorCode::PermissionDenied`]; otherwise the requested `max_members`
+    /// (defaulting to 20) is clamped into `2..=tier_member_cap`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the group limit is reached or database operations fail.
+    /// Returns [`ErrorCode::PermissionDenied`] when the tenant tier disables
+    /// group coaching (`tier_member_cap == 0`), an `invalid_input` error when
+    /// the owner's group limit is reached, or a database error on failure.
     pub async fn create_group(
         &self,
         request: &CreateGroupRequest,
         owner_id: Uuid,
         tenant_id: TenantId,
+        tier_member_cap: i32,
     ) -> AppResult<CoachingGroup> {
+        // Tier gate: Starter has group coaching disabled (cap 0).
+        if tier_member_cap == 0 {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Group coaching requires a Professional or Enterprise plan",
+            ));
+        }
+
         // Check tier limits
         if let Some(max) = self.tier.max_groups() {
             let current = self
@@ -269,7 +289,9 @@ impl GroupService {
             // FALSE in group settings to disable everyone's sharing in
             // one move.
             peer_data_sharing: true,
-            max_members: request.max_members.unwrap_or(20),
+            // Clamp the requested member count to the tenant tier's
+            // per-group cap (Professional=10, Enterprise=50).
+            max_members: request.max_members.unwrap_or(20).clamp(2, tier_member_cap),
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
@@ -746,31 +768,4 @@ fn generate_invite_code() -> String {
             CHARSET[idx] as char
         })
         .collect()
-}
-
-/// Helper trait to work around the fact that `into_iter().next()` on a Vec
-/// after checking `.len()` should always produce a value.
-trait UnwrapSingle {
-    fn unwrap_or_default_unreachable(self) -> CoachingGroup;
-}
-
-impl UnwrapSingle for Option<CoachingGroup> {
-    fn unwrap_or_default_unreachable(self) -> CoachingGroup {
-        // This branch is unreachable because we only call this after checking len() == 1
-        self.unwrap_or_else(|| CoachingGroup {
-            id: Uuid::nil(),
-            tenant_id: String::new(),
-            name: String::new(),
-            description: None,
-            coach_id: String::new(),
-            owner_id: Uuid::nil(),
-            peer_data_sharing: false,
-            max_members: 0,
-            is_active: false,
-            channel_type: None,
-            channel_chat_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    }
 }

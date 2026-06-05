@@ -97,7 +97,11 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
     let prerequisites_json: String = row
         .try_get("prerequisites")
         .unwrap_or_else(|_| "{}".to_owned());
-    let forked_from: Option<String> = row.try_get("forked_from").ok();
+    let forked_from: Option<Uuid> = row
+        .try_get::<Option<String>, _>("forked_from")
+        .ok()
+        .flatten()
+        .and_then(|s| Uuid::parse_str(&s).ok());
 
     let tags: Vec<String> = serde_json::from_str(&tags_json)?;
     let sample_prompts: Vec<String> = serde_json::from_str(&sample_prompts_json)?;

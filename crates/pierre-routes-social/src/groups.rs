@@ -38,6 +38,7 @@ use pierre_core::models::groups::{
     GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{MiddlewareCtx, SocialCtx};
 
@@ -551,50 +552,20 @@ impl GroupRoutes {
             return Err(AppError::invalid_input("Group name must not be empty"));
         }
 
-        let group = CoachingGroup {
-            id: Uuid::new_v4(),
-            tenant_id: tenant_id.to_string(),
-            name: body.name.clone(),
-            description: body.description.clone(),
-            coach_id: body.coach_id.clone(),
-            owner_id: auth.user_id,
-            // Default to TRUE so that once a member runs `/group consent
-            // yes` (or toggles consent through the web UI), their data
-            // surfaces to peers without an extra owner action. Owners
-            // can flip this to FALSE in Group Settings as a global
-            // kill-switch — see `pierre_groups::GroupService::inject_group_context`
-            // for the visibility filter that honors both flags.
-            // Auto-bound channel groups (Telegram/Slack/Discord) follow
-            // the same default in `messaging_group_bind::resolve_or_create_channel_group`.
-            peer_data_sharing: true,
-            max_members: body.max_members.unwrap_or(20).clamp(2, 100),
-            is_active: true,
-            channel_type: None,
-            channel_chat_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
+        // Resolve the tenant's plan tier (the handler owns tenant-plan
+        // access). The per-group member cap is passed into
+        // GroupService::create_group, which owns the actual creation, the
+        // member-count clamp, and the Starter rejection (cap 0 →
+        // PermissionDenied). Group creation + owner auto-membership live in
+        // one place — the service — so this handler stays a thin HTTP layer.
+        let plan = resources.repos().tenants.get_by_id(tenant_id).await?.plan;
+        let tier_cap =
+            i32::try_from(tier_strategy_for(&plan).max_members_per_group()).unwrap_or(i32::MAX);
 
         let created = resources
-            .repos()
-            .groups
-            .create_group(tenant_id, &group)
+            .group_service()
+            .create_group(&body, auth.user_id, tenant_id, tier_cap)
             .await?;
-
-        // Auto-add owner as member with Owner role
-        let owner_member = GroupMember {
-            id: Uuid::new_v4(),
-            group_id: created.id,
-            user_id: auth.user_id,
-            tenant_id: tenant_id.to_string(),
-            role: GroupRole::Owner,
-            peer_sharing_consent: false,
-            consent_given_at: Utc::now(),
-            joined_at: Utc::now(),
-            left_at: None,
-            display_name: None,
-        };
-        resources.repos().groups.add_member(&owner_member).await?;
 
         // notify: a new coaching group exists. group_id is the freshly
         // minted Uuid from `created`; record on the span so future child
@@ -662,11 +633,7 @@ impl GroupRoutes {
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
 
-        let groups = resources
-            .repos()
-            .groups
-            .list_groups_for_user(auth.user_id)
-            .await?;
+        let groups = resources.group_service().list_groups(auth.user_id).await?;
 
         let response = ListGroupsResponse {
             total: groups.len(),
@@ -690,8 +657,7 @@ impl GroupRoutes {
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         let group = resources
-            .repos()
-            .groups
+            .group_service()
             .get_group(&group_id, tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
@@ -714,8 +680,7 @@ impl GroupRoutes {
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let updated = resources
-            .repos()
-            .groups
+            .group_service()
             .update_group(&group_id, tenant_id, &body)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
@@ -737,8 +702,7 @@ impl GroupRoutes {
         Self::require_owner(&resources, &group_id, auth.user_id).await?;
 
         let deleted = resources
-            .repos()
-            .groups
+            .group_service()
             .delete_group(&group_id, tenant_id)
             .await?;
 
@@ -764,7 +728,7 @@ impl GroupRoutes {
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        let members = resources.repos().groups.list_members(&group_id).await?;
+        let members = resources.group_service().list_members(&group_id).await?;
 
         let member_responses: Vec<MemberResponse> =
             members.into_iter().map(MemberResponse::from).collect();
@@ -808,8 +772,7 @@ impl GroupRoutes {
         }
 
         let removed = resources
-            .repos()
-            .groups
+            .group_service()
             .remove_member(&group_id, target_uuid)
             .await?;
 
@@ -852,8 +815,7 @@ impl GroupRoutes {
         }
 
         let updated = resources
-            .repos()
-            .groups
+            .group_service()
             .update_member_role(&group_id, target_uuid, body.role)
             .await?;
 
@@ -945,26 +907,16 @@ impl GroupRoutes {
             }
         }
 
-        // Generate invite code
-        let code = generate_invite_code();
-        let expires_at = body
-            .expires_in_days
-            .map(|days| Utc::now() + chrono::Duration::days(days));
-
-        let invite = GroupInvite {
-            id: Uuid::new_v4(),
-            group_id: group_uuid,
-            tenant_id: tenant_id.to_string(),
-            code,
-            created_by: auth.user_id,
-            expires_at,
-            max_uses: body.max_uses,
-            use_count: 0,
-            is_active: true,
-            created_at: Utc::now(),
-        };
-
-        let created = resources.repos().groups.create_invite(&invite).await?;
+        let created = resources
+            .group_service()
+            .create_invite(
+                group_uuid,
+                auth.user_id,
+                tenant_id,
+                body.expires_in_days,
+                body.max_uses,
+            )
+            .await?;
 
         let response: InviteResponse = created.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
@@ -981,7 +933,7 @@ impl GroupRoutes {
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let invites = resources.repos().groups.list_invites(&group_id).await?;
+        let invites = resources.group_service().list_invites(&group_id).await?;
 
         let invite_responses: Vec<InviteResponse> =
             invites.into_iter().map(InviteResponse::from).collect();
@@ -1046,6 +998,13 @@ impl GroupRoutes {
             return Err(AppError::invalid_input("Invite code must not be empty"));
         }
 
+        // Resolve the invite's tenant (= group's tenant) for the cross-tenant
+        // join: membership is created under the group's tenant, not the
+        // caller's home tenant. The handler reads the invite once for this
+        // tenant resolution + notification span fields; GroupService::join_group
+        // is the single implementation of the membership business logic
+        // (invite validity, capacity, already-a-member guard, invite-use
+        // increment, member insert).
         let invite = resources
             .repos()
             .groups
@@ -1053,81 +1012,14 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
 
-        // Validate invite
-        if !invite.is_active {
-            return Err(AppError::invalid_input("This invite has been deactivated"));
-        }
-        if let Some(expires) = invite.expires_at {
-            if expires < Utc::now() {
-                return Err(AppError::invalid_input("This invite has expired"));
-            }
-        }
-        if let Some(max) = invite.max_uses {
-            if invite.use_count >= max {
-                return Err(AppError::invalid_input(
-                    "This invite has reached its use limit",
-                ));
-            }
-        }
-
-        // Use the invite's tenant (= group's tenant) for cross-tenant join
         let group_tenant_id: TenantId = invite
             .tenant_id
             .parse()
             .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
 
-        // Check group capacity
-        let group = resources
-            .repos()
-            .groups
-            .get_group(&invite.group_id.to_string(), group_tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Group not found"))?;
-
-        let current_count = resources
-            .repos()
-            .groups
-            .count_members(&invite.group_id.to_string())
-            .await?;
-
-        if current_count >= i64::from(group.max_members) {
-            return Err(AppError::invalid_input("This group is full"));
-        }
-
-        // Check not already a member
-        let existing = resources
-            .repos()
-            .groups
-            .get_member(&invite.group_id.to_string(), auth.user_id)
-            .await?;
-
-        if existing.is_some() {
-            return Err(AppError::invalid_input(
-                "You are already a member of this group",
-            ));
-        }
-
-        // Create membership under the group's tenant
-        let member = GroupMember {
-            id: Uuid::new_v4(),
-            group_id: invite.group_id,
-            user_id: auth.user_id,
-            tenant_id: group_tenant_id.to_string(),
-            role: GroupRole::Member,
-            peer_sharing_consent: false,
-            consent_given_at: Utc::now(),
-            joined_at: Utc::now(),
-            left_at: None,
-            display_name: None,
-        };
-
-        let created = resources.repos().groups.add_member(&member).await?;
-
-        // Increment invite usage
-        resources
-            .repos()
-            .groups
-            .increment_invite_use_count(&invite.id.to_string())
+        let created = resources
+            .group_service()
+            .join_group(&body.invite_code, auth.user_id, group_tenant_id)
             .await?;
 
         // notify: user joined a group. The invite's tenant carries the
@@ -1166,9 +1058,8 @@ impl GroupRoutes {
         }
 
         let left = resources
-            .repos()
-            .groups
-            .remove_member(&group_id, auth.user_id)
+            .group_service()
+            .leave_group(&group_id, auth.user_id)
             .await?;
 
         if !left {
@@ -1177,17 +1068,4 @@ impl GroupRoutes {
 
         Ok((StatusCode::NO_CONTENT, ()).into_response())
     }
-}
-
-/// Generate an 8-character alphanumeric invite code
-fn generate_invite_code() -> String {
-    use rand::Rng;
-    const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut rng = rand::rng();
-    (0..8)
-        .map(|_| {
-            let idx = rng.random_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
 }

@@ -61,6 +61,11 @@ pub struct DispatchRequest<'a> {
     /// group from `list_groups_for_user` (which is non-deterministic
     /// when a user belongs to several groups).
     pub conversation_id: Option<&'a str>,
+    /// Channel sender identifier (e.g. Telegram chat id, Slack user id) for
+    /// messaging surfaces; `None` on web/mobile and synthetic dispatch where
+    /// there is no channel link. Used by `/logout` to unlink the exact
+    /// channel sender.
+    pub sender_id: Option<&'a str>,
     /// Raw user input. The dispatcher inspects it for the `/` prefix and
     /// routes accordingly.
     pub text: &'a str,
@@ -155,6 +160,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         locale: req.locale.to_owned(),
         is_direct_message: req.is_direct_message,
         conversation_id: req.conversation_id.map(ToOwned::to_owned),
+        sender_id: req.sender_id.map(ToOwned::to_owned),
     };
 
     let result = handler.execute(&ctx).await;
