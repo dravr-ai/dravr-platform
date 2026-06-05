@@ -1,4 +1,4 @@
-// ABOUTME: Endurance Phase 4 — Intervals.icu provider unit tests (auth validation, defaults, FitnessProvider trait)
+// ABOUTME: Intervals.icu provider unit tests (auth validation, defaults, registry registration, push)
 // ABOUTME: Pure unit tests; the e2e suite that hits the live API lives in intervals_icu_e2e_test.rs (env-gated)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,9 +12,33 @@
 #![cfg(feature = "provider-intervals-icu")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
+use pierre_providers::models::{
+    IntensityDistribution, SportType, WorkoutTargetZones, WorkoutTemplate,
+};
+use pierre_providers::ProviderRegistry;
+
+fn sample_template() -> WorkoutTemplate {
+    WorkoutTemplate {
+        id: uuid::Uuid::new_v4(),
+        tenant_id: None,
+        user_id: None,
+        slug: "long_run_z2".to_owned(),
+        name: "Long Run Z2".to_owned(),
+        sport: SportType::Run,
+        duration_minutes: 90,
+        intensity_distribution: IntensityDistribution::Polarized,
+        structure: Vec::new(),
+        target_zones: WorkoutTargetZones {
+            hr_pct_of_lt2: None,
+            power_pct_of_ftp: None,
+        },
+        is_compiled_in: true,
+        updated_at: Utc::now(),
+    }
+}
 
 fn empty_credentials() -> OAuth2Credentials {
     OAuth2Credentials {
@@ -149,19 +173,55 @@ async fn empty_credentials_struct_rejects_at_set() {
 }
 
 #[tokio::test]
-async fn personal_records_returns_empty_for_pull_only_phase() {
+async fn personal_records_returns_empty_no_endpoint() {
     let provider = IntervalsIcuProvider::new();
     provider
         .set_credentials(good_credentials())
         .await
         .expect("set creds");
-    // Personal records aren't part of Phase 4 (no Intervals.icu endpoint
-    // exposes them in a coach-relevant shape); the provider must return
-    // an empty list rather than an error.
+    // No Intervals.icu endpoint exposes personal records in a coach-relevant
+    // shape; the provider returns an empty list rather than an error.
     let records = provider
         .get_personal_records()
         .await
         .expect("personal_records ok");
     assert!(records.is_empty());
-    let _ = Utc::now(); // touch the import so tests compile cleanly without warnings.
+}
+
+#[tokio::test]
+async fn registry_registers_intervals_icu_as_non_oauth() {
+    // The provider is registered (factory + descriptor) and reports as an
+    // API-key (non-OAuth) provider so the connect UI offers the key modal
+    // rather than an OAuth redirect.
+    let registry = ProviderRegistry::new();
+    assert!(
+        registry.is_supported("intervals_icu"),
+        "intervals_icu must be registered"
+    );
+    assert!(
+        !registry.requires_oauth("intervals_icu"),
+        "intervals_icu is API-key, not OAuth"
+    );
+    let provider = registry
+        .create_provider("intervals_icu")
+        .expect("factory creates provider");
+    assert_eq!(provider.name(), "intervals_icu");
+}
+
+#[tokio::test]
+async fn push_planned_workout_requires_credentials() {
+    let provider = IntervalsIcuProvider::new();
+    let date = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid date");
+    let err = provider
+        .push_planned_workout(&sample_template(), date)
+        .await
+        .expect_err("push without credentials must fail");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("intervals.icu")
+            || msg.contains("link your account")
+            || msg.contains("athlete id")
+            || msg.contains("API key"),
+        "expected auth error, got: {msg}"
+    );
 }

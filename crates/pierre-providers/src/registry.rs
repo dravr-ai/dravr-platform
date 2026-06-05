@@ -21,7 +21,8 @@ use pierre_auth::config::oauth::load_provider_env_config;
     feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros",
-    feature = "provider-sciotte"
+    feature = "provider-sciotte",
+    feature = "provider-intervals-icu"
 ))]
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
@@ -41,6 +42,10 @@ use crate::coros_provider::CorosProviderFactory;
 use crate::fitbit_provider::FitbitProviderFactory;
 #[cfg(feature = "provider-garmin")]
 use crate::garmin_provider::GarminProviderFactory;
+#[cfg(feature = "provider-intervals-icu")]
+use crate::intervals_icu_provider::{
+    default_config as intervals_icu_default_config, IntervalsIcuProviderFactory,
+};
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{SciotteGarminProviderFactory, SciotteProviderFactory};
 #[cfg(feature = "provider-coros")]
@@ -49,6 +54,8 @@ use crate::spi::CorosDescriptor;
 use crate::spi::FitbitDescriptor;
 #[cfg(feature = "provider-garmin")]
 use crate::spi::GarminDescriptor;
+#[cfg(feature = "provider-intervals-icu")]
+use crate::spi::IntervalsIcuDescriptor;
 #[cfg(feature = "provider-strava")]
 use crate::spi::StravaDescriptor;
 #[cfg(feature = "provider-whoop")]
@@ -106,6 +113,7 @@ impl ProviderRegistry {
         Self::register_coros(&mut registry);
         Self::register_sciotte(&mut registry);
         Self::register_sciotte_garmin(&mut registry);
+        Self::register_intervals_icu(&mut registry);
 
         // Log registered providers at startup
         let providers = registry.supported_providers().join(", ");
@@ -361,6 +369,30 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_garmin(_registry: &mut Self) {}
+
+    /// Register the Intervals.icu provider (API-key / HTTP Basic auth, not OAuth).
+    ///
+    /// Athletes link by pasting their athlete id + API key, so the config
+    /// carries no OAuth authorize/token URLs — only the API base URL the
+    /// provider calls.
+    #[cfg(feature = "provider-intervals-icu")]
+    fn register_intervals_icu(registry: &mut Self) {
+        registry.register_factory(
+            oauth_providers::INTERVALS_ICU,
+            Box::new(IntervalsIcuProviderFactory),
+        );
+        registry.register_descriptor(
+            oauth_providers::INTERVALS_ICU,
+            Box::new(IntervalsIcuDescriptor),
+        );
+        registry.set_default_config(
+            oauth_providers::INTERVALS_ICU,
+            intervals_icu_default_config(),
+        );
+    }
+
+    #[cfg(not(feature = "provider-intervals-icu"))]
+    fn register_intervals_icu(_registry: &mut Self) {}
 
     /// Register a provider factory
     pub fn register_factory(

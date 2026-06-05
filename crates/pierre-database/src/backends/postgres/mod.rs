@@ -480,6 +480,7 @@ impl PostgresDatabase {
                 AppError::database(format!("Failed to parse expires_at column: {e}"))
             })?,
             scope: row.try_get("scope").ok(),
+            provider_user_id: row.try_get("provider_user_id").ok(),
             created_at: row.try_get("created_at").map_err(|e| {
                 AppError::database(format!("Failed to parse created_at column: {e}"))
             })?,

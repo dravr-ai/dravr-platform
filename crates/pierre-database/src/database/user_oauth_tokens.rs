@@ -35,6 +35,9 @@ pub struct OAuthTokenData<'a> {
     pub expires_at: Option<DateTime<Utc>>,
     /// OAuth scope string
     pub scope: &'a str,
+    /// Provider-side user identifier (e.g. Intervals.icu `athlete_id`), stored
+    /// plaintext. `None` for pure OAuth bearer providers.
+    pub provider_user_id: Option<&'a str>,
 }
 
 impl Database {
@@ -69,8 +72,8 @@ impl Database {
             r"
             INSERT INTO user_oauth_tokens (
                 id, user_id, tenant_id, provider, access_token, refresh_token,
-                token_type, expires_at, scope, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                token_type, expires_at, scope, created_at, updated_at, provider_user_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (user_id, tenant_id, provider)
             DO UPDATE SET
                 id = EXCLUDED.id,
@@ -79,6 +82,7 @@ impl Database {
                 token_type = EXCLUDED.token_type,
                 expires_at = EXCLUDED.expires_at,
                 scope = EXCLUDED.scope,
+                provider_user_id = EXCLUDED.provider_user_id,
                 updated_at = EXCLUDED.updated_at
             ",
         )
@@ -93,6 +97,7 @@ impl Database {
         .bind(token_data.scope)
         .bind(Utc::now())
         .bind(Utc::now())
+        .bind(token_data.provider_user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert user OAuth token: {e}")))?;
@@ -118,7 +123,7 @@ impl Database {
         let row = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
             FROM user_oauth_tokens
             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
             ",
@@ -158,7 +163,7 @@ impl Database {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
                 FROM user_oauth_tokens
                 WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY created_at DESC
@@ -173,7 +178,7 @@ impl Database {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
                 FROM user_oauth_tokens
                 WHERE user_id = $1
                 ORDER BY created_at DESC
@@ -209,7 +214,7 @@ impl Database {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
             FROM user_oauth_tokens
             WHERE tenant_id = $1 AND provider = $2
             ORDER BY created_at DESC
@@ -405,6 +410,7 @@ impl Database {
             token_type: row.get("token_type"),
             expires_at: row.get("expires_at"),
             scope: row.get::<Option<String>, _>("scope"),
+            provider_user_id: row.get::<Option<String>, _>("provider_user_id"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -456,6 +462,7 @@ impl OAuthTokenRepository for Database {
             token_type: &token.token_type,
             expires_at: token.expires_at,
             scope: token.scope.as_deref().unwrap_or(""),
+            provider_user_id: token.provider_user_id.as_deref(),
         };
 
         Self::upsert_user_oauth_token(self, &token_data).await

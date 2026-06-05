@@ -202,6 +202,11 @@ pub struct UserOAuthToken {
     pub expires_at: Option<DateTime<Utc>>,
     /// Granted OAuth scopes
     pub scope: Option<String>,
+    /// The user's identifier on the provider side, when the provider needs one
+    /// distinct from the access token (e.g. Intervals.icu's `athlete_id`, used
+    /// as the HTTP Basic username). `None` for pure OAuth bearer providers.
+    /// Stored in plaintext — it is not a secret and is queryable.
+    pub provider_user_id: Option<String>,
     /// When this token was first stored
     pub created_at: DateTime<Utc>,
     /// When this token was last updated
@@ -231,9 +236,20 @@ impl UserOAuthToken {
             token_type: "Bearer".to_owned(),
             expires_at,
             scope,
+            provider_user_id: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// Attach the provider-side user identifier (e.g. Intervals.icu `athlete_id`).
+    ///
+    /// Builder-style so the common OAuth path keeps calling [`Self::new`]
+    /// unchanged; only API-key providers that carry a separate user id set this.
+    #[must_use]
+    pub fn with_provider_user_id(mut self, provider_user_id: impl Into<String>) -> Self {
+        self.provider_user_id = Some(provider_user_id.into());
+        self
     }
 
     /// Check if the access token is expired

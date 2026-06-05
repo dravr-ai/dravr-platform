@@ -20,6 +20,7 @@ import * as Linking from 'expo-linking';
 import { PRIMARY_PALETTE, PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
 import { Card, Button } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -47,6 +48,7 @@ export function OnboardingConnectScreen() {
   const [connectError, setConnectError] = useState<string | null>(null);
   // Sciotte (credential login) target for the modal — null when closed.
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   // Whoop is BYO-OAuth-app: users register their own developer app at
   // developer.whoop.com and paste client_id/secret before the OAuth dance can
   // run. Open the setup modal in-place so first-touch users never need to
@@ -177,6 +179,10 @@ export function OnboardingConnectScreen() {
       setSciotteTarget('garmin');
       return;
     }
+    if (provider.provider === 'intervals_icu') {
+      setIntervalsModalVisible(true);
+      return;
+    }
     if (provider.provider === 'whoop') {
       // Skip the speculative OAuth init for Whoop — open the setup modal
       // directly. Modal pre-populates from any existing app, so returning
@@ -197,7 +203,7 @@ export function OnboardingConnectScreen() {
     const stravaConnected = providers.find((p) => p.provider === 'strava' && p.connected);
     return providers
       .filter((p) => p.provider !== 'strava')
-      .filter((p) => p.requires_oauth || p.provider.startsWith('sciotte'))
+      .filter((p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu')
       .map((p) =>
         p.provider === 'sciotte' && stravaConnected && !p.connected
           ? { ...p, connected: true }
@@ -213,6 +219,7 @@ export function OnboardingConnectScreen() {
       sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, swimming' },
       sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities + health metrics' },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, sleep' },
+      intervals_icu: { color: '#1273DE', icon: 'I', description: 'Endurance analytics + wellness' },
     };
     const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: 'Fitness data' };
     const isConnecting = connectingProvider === provider.provider;
@@ -352,6 +359,15 @@ export function OnboardingConnectScreen() {
           void finalizeConnection(friendly);
         }}
         target={sciotteTarget ?? 'strava'}
+      />
+
+      <IntervalsIcuLinkModal
+        visible={intervalsModalVisible}
+        onClose={() => setIntervalsModalVisible(false)}
+        onConnected={() => {
+          setIntervalsModalVisible(false);
+          void finalizeConnection('Intervals.icu');
+        }}
       />
 
       <OAuthAppSetupModal

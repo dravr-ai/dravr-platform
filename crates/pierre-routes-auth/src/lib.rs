@@ -66,6 +66,7 @@ use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::provider_refresh::SyncNotifier;
 
+mod intervals_icu;
 mod login;
 mod oauth;
 #[cfg(feature = "provider-sciotte")]
@@ -229,6 +230,17 @@ impl AuthRoutes {
             .route(
                 "/api/providers/{provider}/sync",
                 post(oauth::handle_sync_provider),
+            )
+            // Intervals.icu API-key linking (non-OAuth; validates the key live
+            // before persisting). Always registered — the handler degrades to a
+            // clear error when the provider feature is not compiled in.
+            .route(
+                "/api/providers/intervals_icu/link-credentials",
+                post(intervals_icu::handle_intervals_icu_link),
+            )
+            .route(
+                "/api/providers/intervals_icu/disconnect",
+                delete(intervals_icu::handle_intervals_icu_disconnect),
             );
 
         // Sciotte provider routes (credential login + session management)

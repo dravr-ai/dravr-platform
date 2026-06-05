@@ -11,6 +11,7 @@ import type { ProviderStatus } from '../services/api';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import SciotteLoginModal from './SciotteLoginModal';
+import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 
 // Brand colors and hover colors for known providers. After the 2026-Q2 provider
 // cleanup the API surfaces only three: `sciotte` (Strava-branded), `sciotte_garmin`
@@ -27,6 +28,10 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
   whoop: {
     brandColor: 'bg-[#1A1A1A]',
     hoverColor: 'hover:border-[#1A1A1A]',
+  },
+  intervals_icu: {
+    brandColor: 'bg-[#1273DE]',
+    hoverColor: 'hover:border-[#1273DE]',
   },
 };
 
@@ -77,6 +82,12 @@ const ProviderIcon = ({ providerId, className }: { providerId: string; className
           <circle cx="12" cy="12" r="3" />
         </svg>
       );
+    case 'intervals_icu':
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 13h4l3 7 4-14 3 7h4" />
+        </svg>
+      );
     default:
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
@@ -105,6 +116,7 @@ export default function ProviderConnectionCards({
   onOAuthLaunched,
 }: ProviderConnectionCardsProps) {
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch providers from server (includes OAuth and non-OAuth providers)
@@ -165,6 +177,12 @@ export default function ProviderConnectionCards({
       return;
     }
 
+    // Intervals.icu is an API-key provider — open the athlete-id + key modal.
+    if (provider.provider === 'intervals_icu') {
+      setIntervalsModalOpen(true);
+      return;
+    }
+
     // Non-OAuth providers (like synthetic) skip directly to chat
     if (!provider.requires_oauth) {
       if (onSkip) onSkip();
@@ -220,8 +238,8 @@ export default function ProviderConnectionCards({
       {providers.map((provider) => {
         const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
         const isConnecting = connectingProvider === provider.provider;
-        const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte');
-        const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte'));
+        const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
+        const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
 
         return (
           <button
@@ -365,6 +383,20 @@ export default function ProviderConnectionCards({
           if (onProviderConnected) onProviderConnected();
         }}
         target={sciotteModalTarget ?? 'strava'}
+      />
+
+      {/* Intervals.icu API-key link modal */}
+      <IntervalsIcuLinkModal
+        isOpen={intervalsModalOpen}
+        onClose={() => setIntervalsModalOpen(false)}
+        onConnected={() => {
+          refetch();
+          // Intervals.icu connects in-process (no OAuth callback), so bust the
+          // onboarding-status cache explicitly — same reasoning as Sciotte above.
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
+          setIntervalsModalOpen(false);
+          if (onProviderConnected) onProviderConnected();
+        }}
       />
     </div>
   );

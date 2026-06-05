@@ -34,6 +34,10 @@ pub struct TokenData {
     pub scopes: String,
     /// Provider name (e.g., "strava", "fitbit")
     pub provider: String,
+    /// Provider-side user id for API-key providers (e.g. Intervals.icu
+    /// `athlete_id`, used as the HTTP Basic username). `None` for OAuth
+    /// bearer providers, which carry identity inside the access token.
+    pub provider_user_id: Option<String>,
 }
 
 /// OAuth error types
@@ -174,6 +178,7 @@ impl AuthService {
             refresh_token: oauth_token.refresh_token.unwrap_or_default(),
             expires_at: oauth_token.expires_at.unwrap_or_else(chrono::Utc::now),
             scopes: oauth_token.scope.unwrap_or_default(),
+            provider_user_id: oauth_token.provider_user_id,
         }))
     }
 
@@ -342,7 +347,13 @@ impl AuthService {
             .requires_oauth(provider_name);
 
         let (client_id, client_secret) = if !requires_oauth {
-            (String::new(), String::new())
+            // API-key providers (e.g. Intervals.icu) carry their provider-side
+            // user id here so it reaches the provider as `client_id` (the HTTP
+            // Basic username). Synthetic providers have no id → empty string.
+            (
+                token_data.provider_user_id.clone().unwrap_or_default(),
+                String::new(),
+            )
         } else if let Some(tenant_id_str) = tenant_id {
             // Check user-specific OAuth app credentials first
             if let Ok(Some(user_app)) = self
@@ -591,13 +602,15 @@ impl AuthService {
             .await
             .map_err(|e| OAuthError::DatabaseError(e.to_string()))?;
 
-        // Return the refreshed token data
+        // Return the refreshed token data. Refresh only runs for OAuth bearer
+        // providers (strava/fitbit/whoop), which have no provider-side user id.
         Ok(TokenData {
             provider: provider.to_owned(),
             access_token: new_access_token,
             refresh_token: new_refresh_token.unwrap_or_default(),
             expires_at: new_expires_at.unwrap_or_else(chrono::Utc::now),
             scopes: new_token.scope.unwrap_or_default(),
+            provider_user_id: None,
         })
     }
 

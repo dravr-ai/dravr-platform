@@ -23,6 +23,8 @@ export const groupsApi = pierreApi.groups;
 // Providers API delegates to shared oauth module
 export const providersApi = {
   getProvidersStatus: pierreApi.oauth.getProvidersStatus.bind(pierreApi.oauth),
+  linkIntervalsIcu: pierreApi.oauth.linkIntervalsIcu.bind(pierreApi.oauth),
+  disconnectIntervalsIcu: pierreApi.oauth.disconnectIntervalsIcu.bind(pierreApi.oauth),
 };
 
 // Export web-only modules from local implementations

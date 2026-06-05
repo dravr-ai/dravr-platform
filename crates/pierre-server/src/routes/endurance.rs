@@ -32,6 +32,7 @@ use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_routes_social::SocialRoutes;
 use pierre_services::workout_library::{cornerstone_templates, require_cornerstone};
+use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Lower bound on the analysis window — defended in addition to the
@@ -99,8 +100,7 @@ pub struct PrescribeResponse {
     pub prescription_id: Uuid,
     /// The provider the workout was pushed to (currently `intervals_icu`).
     pub provider: String,
-    /// Provider-side event id when the push call returned one (may be `None`
-    /// when the provider call is stubbed).
+    /// Provider-side calendar event id returned by the push call.
     pub provider_event_id: Option<String>,
     /// The compiled-in template that was scheduled.
     pub template: WorkoutTemplate,
@@ -136,12 +136,25 @@ async fn post_prescribe(
     let payload_json = serde_json::to_string(&template)
         .map_err(|e| AppError::internal(format!("serialize template payload: {e}")))?;
 
-    // Phase 5 push surface: the Intervals.icu provider is wired but the
-    // calendar-event POST is added in a follow-on commit. For now we
-    // record the audit row and surface `provider_event_id = None` so the
-    // coach knows the prescription is queued but not yet pushed live.
     let provider = "intervals_icu".to_owned();
     let prescription_id = Uuid::new_v4();
+
+    // Push the planned workout to the athlete's Intervals.icu calendar. The
+    // provider is built through the standard auth path, which loads the
+    // athlete's stored API key and routes their athlete id into `client_id`
+    // (the HTTP Basic username) so the push authenticates correctly.
+    let auth_service = AuthService::new(into_runtime(&resources));
+    let tenant_str = tenant_id.to_string();
+    let authed = auth_service
+        .create_authenticated_provider(&provider, user_id, Some(tenant_str.as_str()))
+        .await
+        .map_err(|resp| {
+            AppError::invalid_input(resp.error.unwrap_or_else(|| {
+                "Connect your Intervals.icu account before prescribing".to_owned()
+            }))
+        })?;
+    let provider_event_id = authed.push_planned_workout(&template, body.date).await?;
+
     let prescribed = PrescribedWorkout {
         id: prescription_id,
         tenant_id: tenant_id.as_uuid(),
@@ -151,9 +164,9 @@ async fn post_prescribe(
         sport: template.sport.clone(),
         prescribed_for_date: body.date,
         provider: provider.clone(),
-        provider_event_id: None,
+        provider_event_id: Some(provider_event_id.clone()),
         payload_json,
-        status: "queued".to_owned(),
+        status: "pushed".to_owned(),
         created_at: Utc::now(),
     };
     resources
@@ -165,7 +178,7 @@ async fn post_prescribe(
     Ok(Json(PrescribeResponse {
         prescription_id,
         provider,
-        provider_event_id: None,
+        provider_event_id: Some(provider_event_id),
         template,
     }))
 }

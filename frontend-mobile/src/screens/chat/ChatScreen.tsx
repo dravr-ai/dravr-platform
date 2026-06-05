@@ -23,6 +23,7 @@ import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
 import { ProviderModal } from './ProviderModal';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { useConversations } from './useConversations';
 import { useMessages } from './useMessages';
@@ -50,6 +51,7 @@ export function ChatScreen() {
   const [isSharing, setIsSharing] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
 
   // Custom hooks
   const conversations = useConversations();
@@ -476,6 +478,10 @@ export function ChatScreen() {
             providerStatus.setProviderModalVisible(false);
             setSciotteTarget(target);
           }}
+          onConnectIntervals={() => {
+            providerStatus.setProviderModalVisible(false);
+            setIntervalsModalVisible(true);
+          }}
         />
 
         <SciotteLoginModal
@@ -486,6 +492,15 @@ export function ChatScreen() {
             setSciotteTarget(null);
           }}
           target={sciotteTarget ?? 'strava'}
+        />
+
+        <IntervalsIcuLinkModal
+          visible={intervalsModalVisible}
+          onClose={() => setIntervalsModalVisible(false)}
+          onConnected={() => {
+            providerStatus.loadProviderStatus();
+            setIntervalsModalVisible(false);
+          }}
         />
 
         {providerStatus.needsCredentialsProvider !== null && (
