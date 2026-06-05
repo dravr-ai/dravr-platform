@@ -32,8 +32,10 @@ import { DravrLogo } from './DravrLogo';
  */
 export default function OnboardingConnectProvider({
   userDisplayName,
+  onContinueWithoutProvider,
 }: {
   userDisplayName?: string | null;
+  onContinueWithoutProvider?: () => void;
 }) {
   const { logout } = useAuth();
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -220,6 +222,21 @@ export default function OnboardingConnectProvider({
             <p className="mt-6 text-xs text-on-surface-variant text-center">
               Your credentials are encrypted at rest and used only to fetch your activity data.
             </p>
+
+            {onContinueWithoutProvider && (
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={onContinueWithoutProvider}
+                  className="text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
+                >
+                  Continue without connecting &rarr;
+                </button>
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  You can connect anytime &mdash; your coach needs a provider to read your activity.
+                </p>
+              </div>
+            )}
 
             <div className="mt-8">
               <Button
