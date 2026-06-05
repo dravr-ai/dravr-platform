@@ -72,6 +72,9 @@ export default defineConfig({
           timeout: 120000,
           env: {
             E2E_TEST: 'true',
+            // Billing ships disabled (BILLING_ENABLED defaults false), but its UI
+            // must stay E2E-covered — expose the billing surface for the test run.
+            VITE_BILLING_ENABLED: 'true',
           },
         },
       }),
