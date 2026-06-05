@@ -53,27 +53,25 @@ background: linear-gradient(135deg, #b08326 0%, #8a6420 100%);
 background: linear-gradient(135deg, #3e7283 0%, #2f5664 100%);
 ```
 
-## Logo — "Stride D"
+## Logo — "Momentum"
 
-The mark is a bold **D monogram** (for Dravr) with a forward **chevron** set into its
-counter. The chevron reads as both a running stride and a "press play" cue — fitting for a
-conversational coaching product — while the single letterform stays legible from a 16px
-favicon to a 1024px app icon. Rendered in the Boreal Editorial palette (deep forest green
-with a sage accent). All assets are derived from one canonical path so they cannot drift.
+The mark is three upward **momentum ribbons** rising left-to-right to a single bright
+node, on the Boreal forest badge. The ribbons read as speed / progress / a training
+trajectory — fitting for a coaching product — and carry the three pillar hues (sage,
+slate, bronze) fading in from the left into the brand greens. The badge is self-contained
+(forest-green rounded square) so it stays legible on light, dark, and green surfaces.
 
 ### Framing variants
 | Variant | Files | Composition |
 |---------|-------|-------------|
-| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, mobile `icon`/`favicon` | Forest-green rounded square + off-white D + sage chevron. Mobile `icon` is full-bleed (the OS masks corners). |
-| **Mark, light** | mobile `dravr-logo.svg`, `adaptive-icon.svg`, template `*-dark.svg` | Off-white D + sage chevron on a transparent background. For dark surfaces or atop the green badge layer. |
-| **Mark, dark** | web `dravr-logo.svg`, server `dravr-logo.svg` / `-small.svg`, splash | Deep-forest D + sage chevron on a transparent background. For light surfaces. |
+| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, web/server `dravr-logo*.svg`, mobile `icon`/`favicon`/`dravr-logo`, splash | Forest-green rounded square + Momentum ribbons + node. Mobile `icon` is full-bleed (the OS masks corners). |
+| **Foreground** | mobile `adaptive-icon.svg` | Transparent Momentum ribbons inside the Android ~66% safe zone, atop the green background layer. |
 
 ### Logo Don'ts
 - Don't bake the "Dravr" wordmark into the icon — it is a mark-only symbol (the wordmark is set in HTML using Plus Jakarta Sans).
-- Don't recolor the mark outside the Boreal palette.
+- Don't recolor the ribbons outside the Boreal pillar hues (sage / slate / bronze).
 - Don't stretch or distort proportions.
-- Don't place the light mark on a light surface (or the dark mark on a dark surface) — pick the variant that matches the background.
-- Don't use the transparent mark below 32px — use the badge (icon/favicon) instead.
+- Prefer the badge for any placement under ~48px — the bare ribbons get muddy small.
 
 ## Typography
 
