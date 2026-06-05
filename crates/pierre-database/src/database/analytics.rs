@@ -286,113 +286,6 @@ impl Database {
         Ok(())
     }
 
-    /// Store an insight for a user (full 4-parameter version)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or if JSON serialization fails.
-    pub async fn store_insight_full(
-        &self,
-        user_id: Uuid,
-        activity_id: Option<String>,
-        insight_type: &str,
-        insight_data: serde_json::Value,
-    ) -> AppResult<String> {
-        let insight_id = Uuid::new_v4().to_string();
-        let insight_json = serde_json::to_string(&insight_data)?;
-        let now = chrono::Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO insights (id, user_id, activity_id, insight_type, insight_data, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ",
-        )
-        .bind(&insight_id)
-        .bind(user_id.to_string())
-        .bind(activity_id)
-        .bind(insight_type)
-        .bind(insight_json)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store insight: {e}")))?;
-
-        Ok(insight_id)
-    }
-
-    /// Store an insight for a user (simplified 2-parameter version for trait compatibility)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or if JSON serialization fails.
-    pub async fn store_insight_impl(
-        &self,
-        user_id: Uuid,
-        insight_data: serde_json::Value,
-    ) -> AppResult<String> {
-        // Extract insight type from the JSON data or use a default
-        let insight_type = insight_data
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("general");
-
-        // Call the full 4-parameter version with defaults
-        self.store_insight_full(user_id, None, insight_type, insight_data.clone()) // Safe: JSON value ownership for insight storage
-            .await
-    }
-
-    /// Get recent insights for a user (trait-compatible 3-parameter version)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or if JSON deserialization fails.
-    pub async fn get_user_insights(
-        &self,
-        user_id: Uuid,
-        _insight_type: Option<&str>,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<serde_json::Value>> {
-        // Safe: limit represents small positive query limit (1-1000)
-        #[allow(clippy::cast_possible_wrap)]
-        let actual_limit = limit.unwrap_or(10) as i32;
-        self.get_user_insights_simple(user_id, actual_limit).await
-    }
-
-    /// Get recent insights for a user (simple 2-parameter version)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or if JSON deserialization fails.
-    pub async fn get_user_insights_simple(
-        &self,
-        user_id: Uuid,
-        limit: i32,
-    ) -> AppResult<Vec<serde_json::Value>> {
-        let rows = sqlx::query(
-            r"
-            SELECT insight_data FROM insights
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2
-            ",
-        )
-        .bind(user_id.to_string())
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user insights: {e}")))?;
-
-        let mut insights = Vec::new();
-        for row in rows {
-            let insight_json: String = row.get("insight_data");
-            let insight: serde_json::Value = serde_json::from_str(&insight_json)?;
-            insights.push(insight);
-        }
-
-        Ok(insights)
-    }
-
     /// Get request logs with filtering
     ///
     /// # Errors
@@ -604,18 +497,6 @@ impl Database {
     ) -> AppResult<()> {
         self.update_goal_progress_impl(goal_id, user_id, current_value)
             .await
-    }
-
-    /// Store user insight (public API)
-    ///
-    /// # Errors
-    /// Returns error if database operation fails
-    pub async fn store_insight(
-        &self,
-        user_id: Uuid,
-        insight_data: serde_json::Value,
-    ) -> AppResult<String> {
-        self.store_insight_impl(user_id, insight_data).await
     }
 
     /// Get system statistics (public API)

@@ -1327,6 +1327,15 @@ if [ "$APPLY_SKILLS" = true ]; then
     fi
 fi
 
+# Migration idempotency — new migrations must use idempotent DDL (ADD COLUMN IF
+# NOT EXISTS, DROP ... IF EXISTS) so they survive live-DB drift (the shared_insights
+# deploy-crash class). Historical migrations are grandfathered (diff vs origin/main).
+if [ -f "$SCRIPT_DIR/check-migration-idempotency.sh" ]; then
+    bash "$SCRIPT_DIR/check-migration-idempotency.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-migration-idempotency.sh not found${NC}"
+fi
+
 echo ""
 echo -e "${BLUE}==== Architectural Validation Summary ====${NC}"
 
