@@ -59,12 +59,25 @@ export function DravrLogo({ size = 48, className }: DravrLogoProps) {
       <g clipPath={`url(#${clip})`}>
         <rect width="1024" height="1024" fill={`url(#${bg})`} />
         <circle cx="720" cy="300" r="520" fill="#ffffff" opacity="0.05" />
-        <g fill="none" strokeLinecap="round">
-          <path stroke={`url(#${r1})`} strokeWidth="70" d="M230 660 C420 660 520 600 720 380" />
-          <path stroke={`url(#${r2})`} strokeWidth="84" d="M250 540 C460 540 600 470 800 250" />
-          <path stroke={`url(#${r3})`} strokeWidth="58" d="M300 780 C460 780 540 730 700 560" />
-        </g>
-        <circle cx="800" cy="250" r="46" fill="#f4f1e8" />
+        {size <= 48 ? (
+          // Compact: two bold ribbons + a larger node — stays crisp at favicon size.
+          <>
+            <g fill="none" strokeLinecap="round">
+              <path stroke="#9fd4ba" strokeWidth="122" d="M250 650 C470 630 580 540 770 330" />
+              <path stroke="#e3c489" strokeWidth="96" d="M300 800 C500 788 585 705 715 540" />
+            </g>
+            <circle cx="792" cy="300" r="86" fill="#f4f1e8" />
+          </>
+        ) : (
+          <>
+            <g fill="none" strokeLinecap="round">
+              <path stroke={`url(#${r1})`} strokeWidth="70" d="M230 660 C420 660 520 600 720 380" />
+              <path stroke={`url(#${r2})`} strokeWidth="84" d="M250 540 C460 540 600 470 800 250" />
+              <path stroke={`url(#${r3})`} strokeWidth="58" d="M300 780 C460 780 540 730 700 560" />
+            </g>
+            <circle cx="800" cy="250" r="46" fill="#f4f1e8" />
+          </>
+        )}
       </g>
     </svg>
   );
