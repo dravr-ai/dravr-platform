@@ -120,14 +120,14 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-function renderUserSettings() {
+function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <UserSettings />
+      <UserSettings {...props} />
     </QueryClientProvider>
   );
 }
@@ -144,7 +144,8 @@ describe('UserSettings Component', () => {
       });
 
       expect(screen.getByText('Profile')).toBeInTheDocument();
-      expect(screen.getByText('Data Providers')).toBeInTheDocument();
+      // Data Providers moved out of Settings into a top-level sidebar tab.
+      expect(screen.queryByText('Data Providers')).not.toBeInTheDocument();
       expect(screen.getByText('API Tokens')).toBeInTheDocument();
       expect(screen.getByText('AI Settings')).toBeInTheDocument();
       expect(screen.getByText('Messaging')).toBeInTheDocument();
@@ -395,15 +396,11 @@ describe('UserSettings Component', () => {
     });
   });
 
-  describe('Data Providers Tab', () => {
-    it('should switch to data providers tab', async () => {
-      const user = userEvent.setup();
-
+  describe('Data Providers (standalone top-level view)', () => {
+    it('renders the providers panel via initialTab=connections + hideTabNav', async () => {
       await act(async () => {
-        renderUserSettings();
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
       });
-
-      await user.click(screen.getByText('Data Providers'));
 
       await waitFor(() => {
         // Should show fitness providers and custom API credentials sections

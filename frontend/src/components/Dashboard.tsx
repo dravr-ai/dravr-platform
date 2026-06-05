@@ -823,7 +823,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {activeTab === 'data-providers' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UserSettings initialTab="connections" />
+            <UserSettings initialTab="connections" hideTabNav />
           </Suspense>
         )}
         {activeTab === 'notifications' && (

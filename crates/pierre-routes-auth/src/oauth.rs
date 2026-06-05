@@ -322,6 +322,12 @@ pub async fn handle_providers_status(
     let mut provider_statuses = Vec::new();
 
     for provider_name in supported_providers {
+        // Garmin's OAuth API is uncredentialed/unsupported — never advertise it so
+        // the UI can't offer a "Garmin Connect" card that 500s on connect (the
+        // `sciotte_garmin` scrape card is the supported Garmin path).
+        if provider_name == oauth_providers::GARMIN {
+            continue;
+        }
         // Get provider descriptor from registry
         if let Some(descriptor) = registry.get_descriptor(provider_name) {
             let caps = descriptor.capabilities();

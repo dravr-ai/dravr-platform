@@ -99,15 +99,9 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
       </svg>
     ),
   },
-  {
-    id: 'connections',
-    name: 'Data Providers',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-      </svg>
-    ),
-  },
+  // Data Providers ('connections') is intentionally absent here — it is a
+  // top-level sidebar tab now, rendered via <UserSettings initialTab="connections"
+  // hideTabNav /> so it is no longer buried under Profile/Settings.
   {
     id: 'tokens',
     name: 'API Tokens',
@@ -185,7 +179,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
 
 const ADMIN_HIDDEN_TABS: Set<SettingsTab> = new Set(['connections', 'about', 'messaging']);
 
-export default function UserSettings({ initialTab = 'profile' }: { initialTab?: SettingsTab }) {
+export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
   const { user, logout, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
@@ -210,10 +204,10 @@ export default function UserSettings({ initialTab = 'profile' }: { initialTab?: 
   // Snap activeTab back to a visible tab when the API Tokens flag flips off
   // while the user is sitting on that tab.
   useEffect(() => {
-    if (!visibleTabs.some(tab => tab.id === activeTab)) {
+    if (!hideTabNav && !visibleTabs.some(tab => tab.id === activeTab)) {
       setActiveTab('profile');
     }
-  }, [visibleTabs, activeTab]);
+  }, [hideTabNav, visibleTabs, activeTab]);
 
   // Profile state
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -576,6 +570,7 @@ export default function UserSettings({ initialTab = 'profile' }: { initialTab?: 
           horizontally with scroll-snap so the active tab always lands at
           a clean offset; a right-edge gradient fade hints that more tabs
           live off-screen. */}
+      {!hideTabNav && (
       <div className="relative border-b ghost-border">
         <nav
           className="flex gap-1 -mb-px overflow-x-auto scroll-smooth snap-x snap-mandatory"
@@ -604,6 +599,7 @@ export default function UserSettings({ initialTab = 'profile' }: { initialTab?: 
           className="md:hidden pointer-events-none absolute top-0 bottom-0 right-0 w-6 bg-gradient-to-l from-surface to-transparent"
         />
       </div>
+      )}
 
       {/* Settings Content */}
       <div className="space-y-6">
