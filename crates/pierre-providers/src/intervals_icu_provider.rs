@@ -1,5 +1,5 @@
-// ABOUTME: Intervals.icu pull-only provider — implements FitnessProvider for athlete profile + activities + streams + wellness
-// ABOUTME: Uses HTTP Basic auth (athlete_id : api_key) over reqwest; push surface lands in Phase 5 alongside the workout library
+// ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + wellness + planned-workout push
+// ABOUTME: Uses HTTP Basic auth (athlete_id : api_key) over reqwest; push writes planned workouts to the athlete's calendar
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,29 +16,20 @@
 
 //! # Intervals.icu Provider Module
 //!
-//! Pull-only [`FitnessProvider`] scaffold for Intervals.icu (athlete profile,
-//! activities, streams, wellness) authenticated via HTTP Basic auth
+//! [`FitnessProvider`] for Intervals.icu (athlete profile, activities, streams,
+//! wellness, and planned-workout push) authenticated via HTTP Basic auth
 //! (`athlete_id : api_key`).
 //!
-//! ## Production Status — feature-gated, unregistered, not production-wired
+//! ## Authentication
 //!
-//! This module is **feature-gated scaffolding** behind the
-//! `provider-intervals-icu` cargo feature, which is **not** part of the
-//! `server-full` / default production build (only the `all-providers` /
-//! `production-providers` aggregates enable it). Even when the feature is on:
-//!
-//! - **No factory, never registered.** [`IntervalsIcuProvider`] has no
-//!   [`ProviderFactory`](crate::core::ProviderFactory) and is never added to the
-//!   [`ProviderRegistry`](crate::registry::ProviderRegistry), so the running
-//!   server cannot instantiate it through the normal provider lookup path.
-//! - **No real-API soak time.** As the `FIRST_INSTANTIATION` breadcrumb notes,
-//!   this is an Endurance Phase 4 beta with zero production soak time; the push
-//!   surface and registry wiring are deferred to Phase 5.
-//!
-//! It is deliberately retained as scaffolding — do not treat it as a live
-//! integration.
+//! Intervals.icu does not use OAuth. An athlete generates a personal API key in
+//! their account settings; the platform stores the athlete id (the HTTP Basic
+//! username) in `user_oauth_tokens.provider_user_id` and the API key (the
+//! password) in the encrypted access-token column. At request time the registry
+//! builds the provider via [`IntervalsIcuProviderFactory`] and the serving path
+//! feeds those two values in as [`OAuth2Credentials`] `client_id` / `access_token`.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -47,13 +38,17 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use serde_json::json;
+
 use super::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+    TokenRefreshCallback,
 };
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::models::{
     Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats, TimeSeriesData,
+    WorkoutTemplate,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 
@@ -62,14 +57,6 @@ pub const DEFAULT_API_BASE_URL: &str = "https://intervals.icu";
 
 const DEFAULT_PAGE_LIMIT: usize = 30;
 const MAX_PAGE_LIMIT: usize = 200;
-
-/// One-shot guard that fires `warn!` the first time an
-/// [`IntervalsIcuProvider`] is constructed in this process. Endurance
-/// Phase 4 risk #4: this provider has zero real-API soak time, so the
-/// log gives operators a Cloud-Run-visible breadcrumb that someone has
-/// linked an Intervals.icu account for the first time and we should
-/// watch for unexpected response shapes / rate-limit headers.
-static FIRST_INSTANTIATION: OnceLock<()> = OnceLock::new();
 
 /// Wrap a `reqwest` request with structured before/after tracing so every
 /// Intervals.icu API call surfaces in Cloud Run logs with op + url +
@@ -187,14 +174,6 @@ impl IntervalsIcuProvider {
     /// Construct with a custom configuration (test override for the base URL).
     #[must_use]
     pub fn with_config(config: ProviderConfig) -> Self {
-        FIRST_INSTANTIATION.get_or_init(|| {
-            warn!(
-                provider = "intervals_icu",
-                "Intervals.icu provider instantiated for the first time in this process — \
-                 beta integration with no real-API soak time; watch logs for unexpected \
-                 response shapes and rate-limit headers"
-            );
-        });
         Self {
             config,
             credentials: Arc::new(RwLock::new(None)),
@@ -580,6 +559,47 @@ fn sport_for(label: Option<&str>) -> SportType {
     }
 }
 
+/// Map a [`SportType`] to the Intervals.icu calendar event `type` string.
+/// Catch-all maps unknown/strength sports to the generic `Workout` type.
+fn intervals_event_type(sport: &SportType) -> &'static str {
+    match sport {
+        SportType::Ride => "Ride",
+        SportType::Run => "Run",
+        SportType::Swim => "Swim",
+        SportType::Walk => "Walk",
+        SportType::Yoga => "Yoga",
+        _ => "Workout",
+    }
+}
+
+/// Render a [`WorkoutTemplate`] into a human-readable description for the
+/// Intervals.icu calendar event body — a header line plus one line per step.
+fn workout_description(workout: &WorkoutTemplate) -> String {
+    let mut lines = vec![format!(
+        "{} — {} min ({:?})",
+        workout.name, workout.duration_minutes, workout.intensity_distribution
+    )];
+    for step in &workout.structure {
+        let repeat = if step.repeat > 1 {
+            format!("{}× ", step.repeat)
+        } else {
+            String::new()
+        };
+        lines.push(format!(
+            "- {repeat}{} @ {} for {}s",
+            step.label, step.target_zone, step.duration_seconds
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Minimal shape of the Intervals.icu calendar event create response — we
+/// only need the generated event id to record against the prescription.
+#[derive(Debug, Deserialize)]
+struct CreatedEvent {
+    id: i64,
+}
+
 #[async_trait]
 impl FitnessProvider for IntervalsIcuProvider {
     fn name(&self) -> &'static str {
@@ -751,9 +771,60 @@ impl FitnessProvider for IntervalsIcuProvider {
         Ok(Vec::new())
     }
 
+    async fn push_planned_workout(
+        &self,
+        workout: &WorkoutTemplate,
+        date: NaiveDate,
+    ) -> AppResult<String> {
+        let (athlete_id, api_key) = self.require_credentials().await?;
+        let url = self.athlete_url(&athlete_id, "/events");
+        let body = json!({
+            "category": "WORKOUT",
+            "start_date_local": format!("{}T00:00:00", date.format("%Y-%m-%d")),
+            "type": intervals_event_type(&workout.sport),
+            "name": workout.name,
+            "description": workout_description(workout),
+        });
+        let req = self
+            .http
+            .post(&url)
+            .basic_auth(&athlete_id, Some(&api_key))
+            .header("Accept", "application/json")
+            .json(&body);
+        let response = send_traced(req, "push_planned_workout", &url)
+            .await
+            .map_err(|e| {
+                AppError::external_service("intervals_icu", format!("push_planned_workout: {e}"))
+            })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("push_planned_workout returned {}", response.status()),
+            ));
+        }
+        let created: CreatedEvent = response.json().await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("push_planned_workout decode: {e}"))
+        })?;
+        Ok(created.id.to_string())
+    }
+
     async fn disconnect(&self) -> AppResult<()> {
         let mut guard = self.credentials.write().await;
         *guard = None;
         Ok(())
+    }
+}
+
+/// Factory that builds [`IntervalsIcuProvider`] instances for the
+/// [`ProviderRegistry`](crate::registry::ProviderRegistry).
+pub struct IntervalsIcuProviderFactory;
+
+impl ProviderFactory for IntervalsIcuProviderFactory {
+    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
+        Box::new(IntervalsIcuProvider::with_config(config))
+    }
+
+    fn supported_providers(&self) -> &'static [&'static str] {
+        &["intervals_icu"]
     }
 }

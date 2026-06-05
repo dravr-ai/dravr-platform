@@ -105,6 +105,10 @@ export const ENDPOINTS = {
   PROVIDERS: {
     /** Get all providers with connection status (OAuth and non-OAuth) */
     STATUS: '/api/providers',
+    /** Link an Intervals.icu account with athlete id + API key (non-OAuth) */
+    INTERVALS_ICU_LINK: '/api/providers/intervals_icu/link-credentials',
+    /** Disconnect the linked Intervals.icu account */
+    INTERVALS_ICU_DISCONNECT: '/api/providers/intervals_icu/disconnect',
   },
 
   // ==================== SOCIAL ====================

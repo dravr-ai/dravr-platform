@@ -14,6 +14,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   sciotte: '🚴',
   sciotte_garmin: '⌚',
   whoop: '💪',
+  intervals_icu: '📈',
 };
 
 interface ProviderModalProps {
@@ -24,6 +25,7 @@ interface ProviderModalProps {
   onSelectConnected: (provider: string) => void;
   onConnectProvider: (provider: string) => void;
   onConnectSciotte: (target: 'strava' | 'garmin') => void;
+  onConnectIntervals: () => void;
 }
 
 export function ProviderModal({
@@ -34,6 +36,7 @@ export function ProviderModal({
   onSelectConnected,
   onConnectProvider,
   onConnectSciotte,
+  onConnectIntervals,
 }: ProviderModalProps) {
   const colors = useThemeColors();
   const providerModalContainerStyle: ViewStyle = useMemo(() => ({
@@ -74,7 +77,8 @@ export function ProviderModal({
             const isConnected = provider.connected;
             const requiresOAuth = provider.requires_oauth;
             const isSciotte = provider.provider.startsWith('sciotte');
-            const isConnectable = isConnected || requiresOAuth || isSciotte;
+            const isIntervals = provider.provider === 'intervals_icu';
+            const isConnectable = isConnected || requiresOAuth || isSciotte || isIntervals;
             const displayName = provider.display_name || provider.provider;
             const isConnecting = connectingProvider === provider.provider;
             const isOtherConnecting = connectingProvider !== null && !isConnecting;
@@ -90,6 +94,8 @@ export function ProviderModal({
                     onSelectConnected(provider.provider);
                   } else if (isSciotte) {
                     onConnectSciotte(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                  } else if (isIntervals) {
+                    onConnectIntervals();
                   } else if (requiresOAuth) {
                     onConnectProvider(provider.provider);
                   }

@@ -730,6 +730,7 @@ impl OAuthService {
             token_type: token.token_type.clone(),
             expires_at: Some(expires_at),
             scope: token.scope.clone(),
+            provider_user_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

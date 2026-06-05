@@ -653,6 +653,7 @@ async fn register_provider_connection(
         token_type: "bearer".to_owned(),
         expires_at: Some(now + Duration::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
+        provider_user_id: None,
         created_at: now,
         updated_at: now,
     };

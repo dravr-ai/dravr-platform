@@ -161,6 +161,29 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
     },
 
     /**
+     * Link an Intervals.icu account using the athlete id + personal API key.
+     * Intervals.icu is an API-key (HTTP Basic) provider, not OAuth — the
+     * server validates the pair against the live API before storing it.
+     */
+    async linkIntervalsIcu(params: {
+      athlete_id: string;
+      api_key: string;
+    }): Promise<IntervalsIcuLinkResponse> {
+      const response = await axios.post<IntervalsIcuLinkResponse>(
+        ENDPOINTS.PROVIDERS.INTERVALS_ICU_LINK,
+        params,
+      );
+      return response.data;
+    },
+
+    /**
+     * Disconnect the linked Intervals.icu account.
+     */
+    async disconnectIntervalsIcu(): Promise<void> {
+      await axios.delete(ENDPOINTS.PROVIDERS.INTERVALS_ICU_DISCONNECT);
+    },
+
+    /**
      * Get the OAuth authorization URL for a provider from the server.
      * Calls the mobile/init endpoint and returns just the URL string.
      * Used by web frontend for popup OAuth flow.
@@ -250,6 +273,15 @@ export interface SciotteLoginResponse {
 export interface SciotteConfigResponse {
   /** Overall credential-login budget in seconds (server-configured). */
   login_timeout_secs: number;
+}
+
+export interface IntervalsIcuLinkResponse {
+  /** `"connected"` on success. */
+  status: string;
+  /** Always `"intervals_icu"`. */
+  provider: string;
+  /** The athlete the API key resolved to, echoed back for confirmation. */
+  athlete: { id: string; name?: string | null };
 }
 
 export type OAuthApi = ReturnType<typeof createOAuthApi>;

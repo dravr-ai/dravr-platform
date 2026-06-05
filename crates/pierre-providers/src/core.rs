@@ -123,14 +123,15 @@
 //! maintaining a consistent interface for the rest of the application.
 
 use crate::errors::provider::ProviderError;
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 use crate::models::{
     Activity, Athlete, HealthMetrics, PersonalRecord, RecoveryMetrics, SleepSession, Stats,
+    WorkoutTemplate,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -513,6 +514,25 @@ pub trait FitnessProvider: Send + Sync {
             provider: self.name().to_owned(),
             feature: format!("health_metrics (requested: {date_range})"),
         })
+    }
+
+    /// Push a planned workout to the provider's training calendar.
+    ///
+    /// Returns the provider-side event id on success. Defaults to an
+    /// unsupported-capability error — only providers with a writable
+    /// calendar (e.g. Intervals.icu) override this. The generic read-side
+    /// providers (Strava/Garmin/Fitbit/Whoop) have no planned-workout
+    /// write surface and inherit the default.
+    async fn push_planned_workout(
+        &self,
+        workout: &WorkoutTemplate,
+        date: NaiveDate,
+    ) -> AppResult<String> {
+        let _ = (workout, date);
+        Err(AppError::invalid_input(format!(
+            "{} does not support pushing planned workouts",
+            self.name()
+        )))
     }
 
     /// Revoke access tokens (disconnect)

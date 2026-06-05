@@ -20,6 +20,7 @@ import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, glassCard, gradients, useThe
 import { Modal } from 'react-native';
 import { Card, DragIndicator } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
@@ -37,6 +38,7 @@ export function ConnectionsScreen() {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
   // Whoop is BYO-OAuth-app: users register their own developer app at
   // developer.whoop.com and paste client_id/secret before the OAuth dance can
@@ -161,7 +163,11 @@ export function ConnectionsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await oauthApi.disconnectProvider(providerId);
+              if (providerId === 'intervals_icu') {
+                await oauthApi.disconnectIntervalsIcu();
+              } else {
+                await oauthApi.disconnectProvider(providerId);
+              }
               await loadConnectionStatus();
               Alert.alert('Success', `${providerName} has been disconnected.`);
             } catch (error) {
@@ -183,6 +189,7 @@ export function ConnectionsScreen() {
       sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
       sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
       whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, and sleep metrics' },
+      intervals_icu: { color: '#1273DE', icon: 'I', description: 'Endurance analytics, activities, and wellness' },
     };
     return configs[providerId] || { color: '#607D8B', icon: '?', description: 'Fitness data provider' };
   };
@@ -193,7 +200,8 @@ export function ConnectionsScreen() {
     const isConnecting = connectingProvider === provider.provider;
     const requiresOAuth = provider.requires_oauth;
     const isSciotte = provider.provider.startsWith('sciotte');
-    const canConnect = requiresOAuth || isSciotte;
+    const isIntervals = provider.provider === 'intervals_icu';
+    const canConnect = requiresOAuth || isSciotte || isIntervals;
 
     return (
       <Card key={provider.provider} className="mb-3">
@@ -218,7 +226,7 @@ export function ConnectionsScreen() {
               <View className="flex-row items-center bg-success/15 px-3 py-1.5 rounded-full mr-1">
                 <Text className="text-xs text-success font-semibold">Connected</Text>
               </View>
-              {(requiresOAuth || isSciotte) && (
+              {(requiresOAuth || isSciotte || isIntervals) && (
                 <TouchableOpacity
                   className="p-2"
                   onPress={() => handleDisconnect(provider.provider, provider.display_name)}
@@ -235,6 +243,8 @@ export function ConnectionsScreen() {
               onPress={() => {
                 if (isSciotte) {
                   setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                } else if (isIntervals) {
+                  setIntervalsModalVisible(true);
                 } else if (provider.provider === 'whoop') {
                   // Whoop is BYO: open the setup modal first; OAuth fires once
                   // the user saves valid client_id/secret. Skipping the
@@ -355,6 +365,15 @@ export function ConnectionsScreen() {
           setSciotteTarget(null);
         }}
         target={sciotteTarget ?? 'strava'}
+      />
+
+      <IntervalsIcuLinkModal
+        visible={intervalsModalVisible}
+        onClose={() => setIntervalsModalVisible(false)}
+        onConnected={() => {
+          loadConnectionStatus();
+          setIntervalsModalVisible(false);
+        }}
       />
 
       <Modal visible={showCredentials} animationType="slide" transparent onRequestClose={() => setShowCredentials(false)}>

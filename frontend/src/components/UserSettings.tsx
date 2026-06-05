@@ -23,6 +23,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
+import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import type { LimitCheckResult } from '../services/api/usage';
 
 interface OAuthApp {
@@ -242,6 +243,7 @@ export default function UserSettings() {
   const [providerToDisconnect, setProviderToDisconnect] = useState<string | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
   // Change Password state
@@ -515,7 +517,12 @@ export default function UserSettings() {
   const handleDisconnectProvider = async (providerId: string) => {
     try {
       setProviderMessage(null);
-      await oauthApi.disconnectProvider(providerId);
+      // Intervals.icu has its own (non-OAuth) disconnect endpoint.
+      if (providerId === 'intervals_icu') {
+        await oauthApi.disconnectIntervalsIcu();
+      } else {
+        await oauthApi.disconnectProvider(providerId);
+      }
       setProviderToDisconnect(null);
       setProviderMessage({ type: 'success', text: `${providerId} disconnected` });
       refetchProviders();
@@ -541,6 +548,7 @@ export default function UserSettings() {
     synthetic_sleep: { color: '#673AB7', description: 'Synthetic sleep data for development' },
     sciotte: { color: '#F97316', description: 'Running, cycling, and swimming activities' },
     sciotte_garmin: { color: '#007CC3', description: 'Activities and health metrics from Garmin devices' },
+    intervals_icu: { color: '#1273DE', description: 'Endurance analytics, activities, and wellness' },
   };
 
   const copyToClipboard = async (text: string) => {
@@ -756,7 +764,7 @@ export default function UserSettings() {
                           </div>
                           <div className="flex-shrink-0">
                             {provider.connected ? (
-                              (provider.requires_oauth || provider.provider.startsWith('sciotte')) && (
+                              (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
                                 <Button
                                   variant="secondary"
                                   size="sm"
@@ -766,6 +774,14 @@ export default function UserSettings() {
                                   Disconnect
                                 </Button>
                               )
+                            ) : provider.provider === 'intervals_icu' ? (
+                              <Button
+                                variant="gradient"
+                                size="sm"
+                                onClick={() => setIntervalsModalOpen(true)}
+                              >
+                                Connect
+                              </Button>
                             ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
                               <Button
                                 variant="gradient"
@@ -1601,6 +1617,16 @@ Authorization: Bearer <your-token-here>`}
           setSciotteModalTarget(null);
         }}
         target={sciotteModalTarget ?? 'strava'}
+      />
+
+      {/* Intervals.icu API-key link modal */}
+      <IntervalsIcuLinkModal
+        isOpen={intervalsModalOpen}
+        onClose={() => setIntervalsModalOpen(false)}
+        onConnected={() => {
+          refetchProviders();
+          setIntervalsModalOpen(false);
+        }}
       />
     </div>
   );

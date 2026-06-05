@@ -671,3 +671,44 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
         &[]
     }
 }
+
+/// Intervals.icu endurance-analytics provider descriptor.
+///
+/// Intervals.icu authenticates with an athlete-generated API key over HTTP
+/// Basic auth (`athlete_id:api_key`) rather than OAuth, so `oauth_endpoints`
+/// and `oauth_params` are `None` and the capability set omits `OAUTH`. Users
+/// link it by pasting their athlete id + API key, not via a redirect flow.
+#[cfg(feature = "provider-intervals-icu")]
+pub struct IntervalsIcuDescriptor;
+
+#[cfg(feature = "provider-intervals-icu")]
+impl ProviderDescriptor for IntervalsIcuDescriptor {
+    fn name(&self) -> &'static str {
+        "intervals_icu"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Intervals.icu"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        // Activities + wellness (HRV / resting HR / weight). API-key auth, not OAuth.
+        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::HEALTH_METRICS)
+    }
+
+    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+        None // API-key (HTTP Basic), not OAuth.
+    }
+
+    fn oauth_params(&self) -> Option<OAuthParams> {
+        None // API-key (HTTP Basic), not OAuth.
+    }
+
+    fn api_base_url(&self) -> &'static str {
+        "https://intervals.icu"
+    }
+
+    fn default_scopes(&self) -> &'static [&'static str] {
+        &[] // No OAuth scopes — the API key grants full athlete access.
+    }
+}

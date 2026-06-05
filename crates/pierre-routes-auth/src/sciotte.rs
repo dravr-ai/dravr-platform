@@ -229,6 +229,7 @@ async fn store_sciotte_session(
         token_type: "session".to_owned(),
         expires_at: session.expires_at,
         scope: None,
+        provider_user_id: None,
         created_at: now,
         updated_at: now,
     };
@@ -868,6 +869,7 @@ pub async fn handle_sciotte_connect(
         token_type: "session".to_owned(),
         expires_at: None,
         scope: None,
+        provider_user_id: None,
         created_at: now,
         updated_at: now,
     };

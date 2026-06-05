@@ -40,6 +40,12 @@ pub const WHOOP: &str = "whoop";
 /// the provider implementation is gated behind `provider-coros` feature.
 pub const COROS: &str = "coros";
 
+/// Intervals.icu endurance analytics provider identifier.
+///
+/// API-key (HTTP Basic `athlete_id:api_key`) provider rather than OAuth,
+/// gated behind `provider-intervals-icu` feature.
+pub const INTERVALS_ICU: &str = "intervals_icu";
+
 /// Sciotte web scraping provider identifier.
 ///
 /// Browser-based data extraction, gated behind `provider-sciotte` feature.
