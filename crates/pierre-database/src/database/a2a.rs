@@ -18,6 +18,7 @@ pub use pierre_core::models::a2a::{
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -179,7 +180,7 @@ impl Database {
         }
     }
 
-    /// Build an `A2AClient` from a SQLite row using canonical column names.
+    /// Build an `A2AClient` from a `SQLite` row using canonical column names.
     ///
     /// The canonical schema renamed `public_key` to `api_key_hash`, dropped the
     /// `permissions` column (defaulted here), and renamed the rate-limit columns
@@ -188,7 +189,7 @@ impl Database {
     ///
     /// # Errors
     /// Returns an error if required columns are missing or type conversion fails.
-    fn a2a_client_from_row(row: &sqlx::sqlite::SqliteRow, operation: &str) -> AppResult<A2AClient> {
+    fn a2a_client_from_row(row: &SqliteRow, operation: &str) -> AppResult<A2AClient> {
         let capabilities_json: String = row.get("capabilities");
         let capabilities = serde_json::from_str(&capabilities_json).unwrap_or_else(|e| {
             warn!(
@@ -223,7 +224,7 @@ impl Database {
             created_at: row.get("created_at"),
             // permissions column dropped from the canonical schema; default it like
             // the Postgres backend does (it has no permissions column either).
-            permissions: vec!["read_activities".to_string()],
+            permissions: vec!["read_activities".to_owned()],
             rate_limit_requests: safe_i32_to_u32(row.get::<i32, _>("rate_limit_per_minute"))?,
             rate_limit_window_seconds: safe_i32_to_u32(row.get::<i32, _>("rate_limit_per_day"))?,
             updated_at: row.get("updated_at"),
