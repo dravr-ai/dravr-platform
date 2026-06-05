@@ -32,7 +32,7 @@ const defaultImpersonationState: ImpersonationState = {
  * straight back to login. Timezone only matters for chat (active users), so
  * skip it for everyone else.
  */
-async function captureUserTimezone(userStatus: string): Promise<void> {
+async function captureUserTimezone(userStatus: string | undefined): Promise<void> {
   if (userStatus !== 'active') {
     return;
   }
