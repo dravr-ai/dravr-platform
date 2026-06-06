@@ -104,6 +104,41 @@ fi
 echo ""
 
 # ============================================================================
+# TIER 3: Accessibility E2E (Playwright) — fast (~10s) and catches the a11y
+# regressions unit tests can't see (icon labeling, <44px touch targets) that
+# otherwise only surface in CI's full E2E suite.
+#
+# Skipped (not failed) when it can't run a clean check:
+#   - port 5173 already in use → could test another worktree's stale server
+#   - Playwright browsers not installed → `bunx playwright install chromium`
+# CI always runs the full E2E suite as the backstop.
+# ============================================================================
+echo "♿ Tier 3: Accessibility E2E"
+echo "---------------------------"
+if lsof -ti:5173 >/dev/null 2>&1; then
+    echo "⏭️  Skipped — port 5173 in use (can't guarantee a fresh server). CI runs the full E2E suite."
+elif [ ! -d "$HOME/Library/Caches/ms-playwright" ] && [ ! -d "$HOME/.cache/ms-playwright" ]; then
+    echo "⏭️  Skipped — Playwright browsers not installed (run 'bunx playwright install chromium'). CI runs the full E2E suite."
+else
+    echo -n "Running a11y specs... "
+    if bunx playwright test e2e/accessibility/ --reporter=dot > /tmp/pierre-a11y-prepush.log 2>&1; then
+        echo "✅"
+        PASSED=$((PASSED + 1))
+    else
+        echo "❌"
+        FAILED=$((FAILED + 1))
+        echo ""
+        echo "Accessibility failures:"
+        tail -30 /tmp/pierre-a11y-prepush.log
+        echo ""
+        echo "Run 'cd frontend && bunx playwright test e2e/accessibility/' to debug."
+        exit 1
+    fi
+fi
+
+echo ""
+
+# ============================================================================
 # Summary
 # ============================================================================
 END_TIME=$(date +%s)
@@ -112,7 +147,7 @@ DURATION=$((END_TIME - START_TIME))
 echo "========================================="
 echo "Frontend Pre-Push Validation Complete"
 echo "========================================="
-echo "Checks passed: $PASSED/3"
+echo "Checks passed: $PASSED"
 echo "Duration:      ${DURATION}s"
 echo ""
 
@@ -122,6 +157,6 @@ if [ $FAILED -gt 0 ]; then
 else
     echo "✅ All frontend checks passed!"
     echo ""
-    echo "⚠️  Note: E2E tests run in CI (require browser)"
-    echo "   To run locally: cd frontend && bun run test:e2e"
+    echo "ℹ️  a11y E2E ran here when possible; the FULL E2E suite runs in CI."
+    echo "   Run all E2E locally: cd frontend && bun run test:e2e"
 fi
