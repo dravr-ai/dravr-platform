@@ -12,6 +12,9 @@ pub mod tenant;
 /// Google Cloud Logging structured-JSON formatter
 pub mod gcp;
 
+/// Span-field storage layer feeding ancestor-span context to formatters
+pub mod span_fields;
+
 /// OpenTelemetry OTLP pipeline (traces + metrics), compiled only with the
 /// `telemetry` feature and dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 #[cfg(feature = "telemetry")]
@@ -24,6 +27,7 @@ pub use tenant::{
 };
 
 use gcp::GcpFormatter;
+use span_fields::SpanFieldStorage;
 
 use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient, SlackConfig,
@@ -431,8 +435,12 @@ impl LoggingConfig {
                     .unwrap_or_else(|_| tracing::Level::INFO.into()),
             );
 
-        // Create base registry
-        let registry = tracing_subscriber::registry().with(env_filter);
+        // Create base registry. The span-field storage layer captures each
+        // span's field values so formatters can propagate turn-scoped context
+        // (user_id, tenant_id, conversation_id, …) onto every child event.
+        let registry = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(SpanFieldStorage);
 
         // Build optional error notification layer (active when SLACK_ERROR_CHANNEL is set)
         let error_layer =

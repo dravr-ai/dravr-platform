@@ -180,19 +180,24 @@ async fn rewrite_to_satisfy_contract(
 /// to `error!` so tronc forwards them to Slack alongside infra incidents.
 fn log_violations(persona: CoachingPersona, strict: bool, violations: &[ContractViolation]) {
     for v in violations {
+        let persona_name = persona.as_str();
         if strict {
             error!(
-                persona = persona.as_str(),
+                persona = persona_name,
                 rule = v.rule,
                 detail = %v.detail,
-                "persona conformance violation (strict mode)"
+                "{persona_name} persona reply broke output-style rule '{}' (strict mode): {}",
+                v.rule,
+                v.detail,
             );
         } else {
             warn!(
-                persona = persona.as_str(),
+                persona = persona_name,
                 rule = v.rule,
                 detail = %v.detail,
-                "persona conformance violation"
+                "{persona_name} persona reply broke output-style rule '{}': {}",
+                v.rule,
+                v.detail,
             );
         }
     }

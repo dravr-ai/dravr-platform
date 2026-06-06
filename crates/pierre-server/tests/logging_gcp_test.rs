@@ -14,9 +14,11 @@ use std::sync::{Arc, Mutex};
 
 use chrono::DateTime;
 use pierre_logging::gcp::GcpFormatter;
+use pierre_logging::span_fields::SpanFieldStorage;
 use serde_json::Value;
+use tracing::field::Empty;
 use tracing::subscriber::with_default;
-use tracing::{error, info, warn, Subscriber};
+use tracing::{error, info, info_span, warn, Subscriber};
 use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
@@ -63,7 +65,9 @@ fn make_subscriber(buffer: Buffer, include_source_location: bool) -> impl Subscr
             include_source_location,
         ));
 
-    Registry::default().with(layer)
+    // Mirror the production layer stack: SpanFieldStorage captures span field
+    // values so the formatter can propagate them onto child events.
+    Registry::default().with(SpanFieldStorage).with(layer)
 }
 
 #[test]
@@ -170,4 +174,83 @@ fn multiple_events_emit_one_line_each() {
     });
 
     assert_eq!(buf.lines().len(), 5);
+}
+
+#[test]
+fn span_fields_propagate_onto_child_events() {
+    let buf = Buffer::default();
+    let subscriber = make_subscriber(buf.clone(), false);
+
+    with_default(subscriber, || {
+        let span = info_span!(
+            "turn",
+            user_id = "user-1",
+            tenant_id = "tenant-9",
+            conversation_id = "conv-7"
+        );
+        let _guard = span.enter();
+        // An event with no identifiers of its own — exactly the case that
+        // produced context-free "persona conformance violation" lines.
+        warn!("persona conformance violation");
+    });
+
+    let entry = &buf.lines()[0];
+    assert_eq!(entry["message"], "persona conformance violation");
+    assert_eq!(entry["user_id"], "user-1");
+    assert_eq!(entry["tenant_id"], "tenant-9");
+    assert_eq!(entry["conversation_id"], "conv-7");
+}
+
+#[test]
+fn event_fields_win_over_span_fields() {
+    let buf = Buffer::default();
+    let subscriber = make_subscriber(buf.clone(), false);
+
+    with_default(subscriber, || {
+        let span = info_span!("turn", tenant_id = "from-span");
+        let _guard = span.enter();
+        info!(tenant_id = "from-event", "override");
+    });
+
+    // The event's own field takes precedence over the inherited span field.
+    assert_eq!(buf.lines()[0]["tenant_id"], "from-event");
+}
+
+#[test]
+fn nearest_span_wins_for_nested_spans() {
+    let buf = Buffer::default();
+    let subscriber = make_subscriber(buf.clone(), false);
+
+    with_default(subscriber, || {
+        let outer = info_span!("outer", scope = "root", tenant_id = "outer-tenant");
+        let _o = outer.enter();
+        let inner = info_span!("inner", scope = "leaf");
+        let _i = inner.enter();
+        info!("nested");
+    });
+
+    let entry = &buf.lines()[0];
+    // Leaf span overrides the ancestor's `scope`; the ancestor still
+    // contributes `tenant_id`, which the leaf does not set.
+    assert_eq!(entry["scope"], "leaf");
+    assert_eq!(entry["tenant_id"], "outer-tenant");
+}
+
+#[test]
+fn deferred_span_field_recorded_later_propagates() {
+    let buf = Buffer::default();
+    let subscriber = make_subscriber(buf.clone(), false);
+
+    with_default(subscriber, || {
+        // coach_id/group_id are declared Empty at span creation and recorded
+        // mid-turn once the conversation record resolves.
+        let span = info_span!("turn", user_id = "user-2", coach_id = Empty);
+        span.record("coach_id", "marathon-coach");
+        let _guard = span.enter();
+        warn!("something happened mid-turn");
+    });
+
+    let entry = &buf.lines()[0];
+    assert_eq!(entry["user_id"], "user-2");
+    assert_eq!(entry["coach_id"], "marathon-coach");
 }

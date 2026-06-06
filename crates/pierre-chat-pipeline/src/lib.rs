@@ -80,6 +80,7 @@ use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
+use tracing::field::Empty;
 use tracing::{debug, info, warn};
 
 use stages::followups::{ensure_coach_session_attached, finalize_session_state};
@@ -488,6 +489,20 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
     }
 }
 
+/// Record the turn span's deferred `coach_id`/`group_id` fields (declared
+/// `Empty` on the `run` span) once the conversation record resolves them, so
+/// every log line emitted for the rest of the turn carries the coach and
+/// group-chat context. A no-op for fields the conversation leaves unset.
+fn record_turn_span_context(conv: &ConversationRecord) {
+    let span = tracing::Span::current();
+    if let Some(coach_id) = conv.coach_id.as_deref() {
+        span.record("coach_id", coach_id);
+    }
+    if let Some(group_id) = conv.group_id.as_deref() {
+        span.record("group_id", group_id);
+    }
+}
+
 /// Run a single turn through the unified chat pipeline.
 ///
 /// # Errors
@@ -501,6 +516,9 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
         conversation_id = %input.conversation_id,
         tenant_id = %input.conversation_tenant_id,
         user_id = %input.user_id,
+        // Resolved mid-turn once the conversation record loads; recorded below.
+        coach_id = Empty,
+        group_id = Empty,
     )
 )]
 pub async fn run(
@@ -610,6 +628,11 @@ async fn run_turn(
 
     // Stage 4: Ensure a long-lived coach session exists and is attached.
     let conv = ensure_coach_session_attached(&ctx.data, conv, input.conversation_tenant_id).await;
+
+    // Fill the turn span's deferred context now that the conversation record is
+    // resolved, so every downstream log line carries the coach and group-chat
+    // identifiers alongside user/tenant/conversation/turn.
+    record_turn_span_context(&conv);
 
     // Stage 5: Load conversation history for LLM context.
     let history = get_conversation_history(

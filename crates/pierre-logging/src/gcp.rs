@@ -23,6 +23,8 @@ use tracing::{field::Field, field::Visit, Event, Level, Subscriber};
 use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
+use crate::span_fields::SpanFields;
+
 /// Key used by tracing for the primary message field.
 const MESSAGE_FIELD: &str = "message";
 
@@ -126,6 +128,26 @@ where
             // Avoid clobbering canonical keys if a user event uses a reserved name.
             if !entry.contains_key(&k) {
                 entry.insert(k, v);
+            }
+        }
+
+        // Inherit turn-scoped context (user_id, tenant_id, conversation_id,
+        // turn_id, coach_id, group_id, …) from the enclosing span stack so
+        // every event emitted within a request carries the identifiers needed
+        // to triage it — without each call site re-passing them. Walk leaf ->
+        // root so the nearest span wins; the event's own fields and the
+        // canonical Cloud Logging keys (inserted above) always take
+        // precedence via the `contains_key` guard.
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope {
+                let extensions = span.extensions();
+                if let Some(fields) = extensions.get::<SpanFields>() {
+                    for (k, v) in &fields.0 {
+                        if !entry.contains_key(k) {
+                            entry.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
             }
         }
 
