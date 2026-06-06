@@ -128,7 +128,11 @@ impl McpTool for GetWeatherForecastTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::READS_DATA
+        // Auth-gated like the sibling discover_routes tool: keeps it out of the
+        // unauthenticated public-discovery set (PUBLIC_DISCOVERY_TOOLS), which
+        // is an explicit allowlist. It's a coach feature used in authenticated
+        // chat, so requiring auth is correct and avoids public-discovery drift.
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     fn annotations(&self) -> Option<ToolAnnotations> {

@@ -228,9 +228,10 @@ async fn test_configuration_tools_count_in_total() {
     // Section 11 endurance compute surface — latest/dossier/history/intervals
     // /routes JSON tools and the workout-template/prescribed-workout pair —
     // bringing the non-config count from 81 to 90 and total to 96.
+    // 2026-06-06: get_weather_forecast tool added (90→91, total 96→97).
     assert_eq!(
-        fitness_tools, 90,
-        "Expected exactly 90 non-configuration tools"
+        fitness_tools, 91,
+        "Expected exactly 91 non-configuration tools"
     );
-    assert_eq!(tools.len(), 96, "Expected total of 96 tools"); // 90 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 97, "Expected total of 97 tools"); // 91 non-configuration + 6 configuration
 }
