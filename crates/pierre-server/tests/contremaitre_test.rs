@@ -672,6 +672,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "get_stretching_exercise",
     "get_training_history",
     "get_user_configuration",
+    "get_weather_forecast",
     "get_yoga_pose",
     "hide_coach",
     "list_coaches",
