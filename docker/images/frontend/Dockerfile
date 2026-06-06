@@ -42,17 +42,25 @@ RUN cd frontend && bun run build
 # ---------------------------------------------------------------------------
 # Runtime stage: serve static files with nginx
 # ---------------------------------------------------------------------------
-FROM nginx:1.28-alpine3.23
+# Use the plain Alpine base + Alpine's own nginx package, NOT the official
+# nginx:alpine image. The official image installs nginx from nginx.org's apk repo,
+# which still ships 1.28.3-r1 (CVE-2026-9256, ngx_http_rewrite_module RCE/DoS);
+# `apk upgrade` cannot move it because alpine main is a different repo source.
+# Alpine 3.23 main ships the patched nginx (>= 1.28.3-r2), so installing from
+# there fixes the CVE at the source instead of allowlisting it.
+FROM alpine:3.23
 
-# Upgrade system packages to patch CVEs:
-# - nginx >= 1.28.3-r2 (CVE-2026-9256)
-# - zlib >= 1.3.2-r0 (CVE-2026-22184 critical, CVE-2026-27171 medium)
-# - libpng >= 1.6.55-r0 (CVE-2026-25646 high)
-# `apk update` is needed because the base image ships a stale APK index that
-# does not see nginx 1.28.3-r2 even with `apk upgrade --no-cache` alone.
-RUN apk update && \
-    apk upgrade --no-cache && \
-    apk add --no-cache nginx>=1.28.3-r2 zlib>=1.3.2-r0 libpng>=1.6.55-r0
+# nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
+# image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
+# the base (zlib/libpng/etc.) to current 3.23 versions.
+RUN apk upgrade --no-cache && \
+    apk add --no-cache nginx gettext && \
+    rm -rf /var/cache/apk/* && \
+    # Stream nginx logs to the container stdout/stderr (Cloud Run captures them) —
+    # mirrors what the official nginx image did via symlinks.
+    mkdir -p /var/log/nginx && \
+    ln -sf /dev/stdout /var/log/nginx/access.log && \
+    ln -sf /dev/stderr /var/log/nginx/error.log
 
 # Copy built assets from the builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
