@@ -116,7 +116,13 @@ pub enum EvidenceStrength {
     /// A single observational study or correlational data.
     Weak,
     /// Multiple studies with some disagreement, or a single RCT.
+    ///
+    /// `moderate` is accepted as a deserialization synonym because the
+    /// dravr-contremaitre `evidence/*.md` authors use the natural-English
+    /// term in frontmatter; the canonical form serialized back out is still
+    /// `mixed`. This mirrors the alias in [`EvidenceStrength::parse`].
     #[default]
+    #[serde(alias = "moderate")]
     Mixed,
     /// Peer-reviewed meta-analysis, position stand, or RCT + guideline.
     Strong,
@@ -259,6 +265,21 @@ mod tests {
         assert!(EvidenceStrength::Strong > EvidenceStrength::Mixed);
         assert!(EvidenceStrength::Mixed > EvidenceStrength::Weak);
         assert!(EvidenceStrength::Weak > EvidenceStrength::None);
+    }
+
+    #[test]
+    fn evidence_strength_deserializes_moderate_as_mixed() {
+        // dravr-contremaitre evidence frontmatter uses `moderate`; the serde
+        // path must accept it as a synonym for `mixed`, matching `parse`.
+        let from_serde: EvidenceStrength =
+            serde_json::from_str("\"moderate\"").expect("moderate must deserialize");
+        assert_eq!(from_serde, EvidenceStrength::Mixed);
+        assert_eq!(
+            EvidenceStrength::parse("moderate"),
+            Some(EvidenceStrength::Mixed)
+        );
+        // Canonical form serializes back to `mixed`, not `moderate`.
+        assert_eq!(serde_json::to_string(&from_serde).unwrap(), "\"mixed\"");
     }
 
     #[test]
