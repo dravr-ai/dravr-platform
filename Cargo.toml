@@ -134,4 +134,3 @@ absolute_paths = "deny"
 # Disallow anyhow::Context methods - use structured ProviderError types instead
 # Configuration in clippy.toml specifies which methods are banned
 disallowed_methods = "deny"
-

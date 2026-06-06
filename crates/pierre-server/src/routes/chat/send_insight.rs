@@ -130,6 +130,9 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         // Insight generation is a one-shot JSON response — no progressive
         // UX, so the streaming sink stays absent.
         stream_sink: None,
+        // Insight generation uses text-based tool calling; the ACP MCP bridge
+        // is a chat-turn concern only.
+        mcp_servers: Vec::new(),
     };
     let result = tool_execution::run_tool_loop(&tool_params, &mut llm_messages).await?;
 

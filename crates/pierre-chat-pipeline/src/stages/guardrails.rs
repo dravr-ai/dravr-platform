@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC,
 };
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 
@@ -45,12 +45,17 @@ pub fn apply_text_guardrails(
     match rules.apply(reply, locale) {
         GuardrailOutcome::Allowed(text) => text,
         GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
+            // Surface the full content the model produced (everything received)
+            // so over-cap responses are inspectable, then return the first chunk
+            // (the leading `cap` characters) rather than discarding it to a
+            // canned placeholder — the user always sees the real content prefix.
             tracing::warn!(
                 length,
                 cap,
-                "guardrails: trimming over-long response to safe fallback"
+                full_reply = %reply,
+                "guardrails: response over cap; returning first chunk"
             );
-            messaging_strings_registry.get(KEY_GUARDRAIL_TOO_LONG, locale)
+            reply.chars().take(cap).collect()
         }
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             tracing::warn!(topic, "guardrails: blocked topic in coach response");

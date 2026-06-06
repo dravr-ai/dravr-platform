@@ -15,6 +15,11 @@
 //! ~50 shared Arc handles into semantic groups: `common`, `auth`, `coach`,
 //! `fitness`, `sse`, `a2a`, `billing`, `mcp`.
 
+#[cfg(feature = "client-chat")]
+use std::env;
+
+#[cfg(feature = "client-chat")]
+use super::acp_mcp_bridge::AcpMcpBridge;
 use super::slices::{
     A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
@@ -25,6 +30,8 @@ use dravr_sciotte::config::{LoginMode, ScraperConfig};
 use embacle::types::LlmProvider as EmbacleLlmProvider;
 #[cfg(feature = "provider-sciotte")]
 use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner};
+#[cfg(feature = "client-chat")]
+use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::TenantId;
@@ -350,6 +357,17 @@ impl ServerContext {
             .admin_config
             .as_ref()
             .map(|c| Arc::clone(c) as Arc<dyn pierre_runtime_context::AdminConfigLookup>);
+        // Mirror the Copilot Headless `COPILOT_HEADLESS_MCP_TOOL_CALLING` toggle:
+        // when set, ACP turns expose Dravr tools natively via the MCP bridge.
+        let mcp_bridge_enabled = env::var("COPILOT_HEADLESS_MCP_TOOL_CALLING")
+            .is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"));
+        let mcp_bridge: Option<Arc<dyn McpBridgeProvider>> = Some(Arc::new(AcpMcpBridge::new(
+            self.auth.auth_manager.clone(),
+            self.auth.jwks_manager.clone(),
+            self.common.repos.clone(),
+            &self.common.config.base_url,
+            mcp_bridge_enabled,
+        )));
         pierre_chat_pipeline::ChatPipelineContext {
             repos: self.common.repos.clone(),
             data: self.data(),
@@ -377,6 +395,7 @@ impl ServerContext {
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
+            mcp_bridge,
         }
     }
 

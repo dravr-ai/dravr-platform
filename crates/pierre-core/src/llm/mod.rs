@@ -35,7 +35,8 @@ use crate::errors::{AppError, ErrorCode};
 // Re-exporting here preserves the `pierre_core::llm::*` import paths.
 
 pub use embacle::types::{
-    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
+    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, McpHeader, McpServerConfig,
+    McpTransport, MessageRole, StreamChunk, TokenUsage,
 };
 
 /// Text-based tool simulation for CLI LLM runners (re-exported from embacle)

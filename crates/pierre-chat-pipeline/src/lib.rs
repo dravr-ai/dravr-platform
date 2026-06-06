@@ -72,7 +72,7 @@ use pierre_database::repositories::ChatRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
-use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
+use pierre_llm::{ChatMessage, ChatProvider, LlmProvider, McpServerConfig};
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use pierre_services::prompt_leak;
@@ -89,6 +89,20 @@ use stages::persistence::{
 };
 #[cfg(feature = "tools-verification")]
 use stages::verification::persist_pending_verdicts;
+
+/// Mints the MCP servers an ACP-managed provider (Copilot Headless) exposes to
+/// the model for native tool calling on a turn.
+///
+/// Implemented in `pierre-server` (where auth + signing keys live) so the chat
+/// pipeline stays free of auth dependencies. The returned config points the
+/// agent at Dravr's own `/mcp` endpoint with a freshly-minted, short-TTL,
+/// `/mcp`-audience Bearer token scoped to `(user, tenant)`. Returns empty when
+/// the bridge is disabled or the token cannot be minted.
+#[async_trait::async_trait]
+pub trait McpBridgeProvider: Send + Sync {
+    /// Build the per-turn MCP server list for `(user_id, tenant_id)`.
+    async fn mcp_servers_for(&self, user_id: &str, tenant_id: TenantId) -> Vec<McpServerConfig>;
+}
 
 /// Shared state for every chat pipeline stage.
 ///
@@ -160,6 +174,10 @@ pub struct ChatPipelineContext {
     pub tool_discipline_messaging_prompt: String,
     /// Memory extraction system prompt (used by Tier 2 background extraction).
     pub memory_extraction_prompt: String,
+    /// Optional MCP bridge — mints the per-turn MCP servers an ACP provider
+    /// (Copilot Headless) exposes for native Dravr tool calling. `None`
+    /// disables the bridge (text-based tool calling is used instead).
+    pub mcp_bridge: Option<Arc<dyn McpBridgeProvider>>,
 }
 
 /// Emit an AG-UI `STEP_STARTED` event if a sink is wired.

@@ -326,8 +326,33 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
+        self.generate_token_with_tenant_and_ttl(
+            user,
+            jwks_manager,
+            active_tenant_id,
+            Duration::hours(self.token_expiry_hours),
+        )
+    }
+
+    /// Generate a `JWT` token for a user/tenant with an explicit time-to-live.
+    ///
+    /// Used for short-lived, audience-scoped tokens — e.g. the per-turn `/mcp`
+    /// callback token handed to the Copilot ACP subprocess, which should expire
+    /// shortly after the turn rather than living for the default session window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JWT encoding fails, system time is unavailable, or
+    /// the JWKS manager has no active key.
+    pub fn generate_token_with_tenant_and_ttl(
+        &self,
+        user: &User,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+        ttl: Duration,
+    ) -> AppResult<String> {
         let now = Utc::now();
-        let expiry = now + Duration::hours(self.token_expiry_hours);
+        let expiry = now + ttl;
 
         let claims = Claims {
             sub: user.id.to_string(),

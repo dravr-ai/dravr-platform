@@ -31,7 +31,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
-    FunctionDeclaration, FunctionResponse, MessageRole, TokenUsage, Tool,
+    FunctionDeclaration, FunctionResponse, McpServerConfig, MessageRole, TokenUsage, Tool,
 };
 use pierre_services::analytics::analytics;
 use pierre_services::chat_stream::{ChatStreamEvent, ChatStreamSink};
@@ -159,6 +159,12 @@ pub struct ToolLoopParams<'a> {
     /// The sink is a [`pierre_services::chat_stream::ChatStreamSink`]
     /// — see that type for the event shape.
     pub stream_sink: Option<ChatStreamSink>,
+    /// MCP servers exposed to an ACP-managed provider (Copilot Headless) so
+    /// the model can call Dravr tools natively over the Agent Client Protocol
+    /// instead of text-based `<tool_call>` simulation. Only the headless tool
+    /// loop forwards these into the ACP `session/new`; other loops ignore
+    /// them. Empty for providers without SDK tool calling.
+    pub mcp_servers: Vec<McpServerConfig>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -1250,14 +1256,17 @@ async fn run_headless_tool_loop(
     // consumed) by the converse/stream call, so the degenerate-turn retry
     // below reuses the same request.
     let request = {
-        let req = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
+        let req = ChatRequest::new(llm_messages.to_vec())
+            .with_model(params.model)
+            .with_mcp_servers(params.mcp_servers.clone());
         match params.temperature {
             Some(t) => req.with_temperature(t),
             None => req,
         }
     };
 
-    // Copilot Headless handles tool execution internally via ACP
+    // Copilot Headless handles tool execution internally via ACP — and, when
+    // mcp_servers are present, calls Dravr tools natively over those servers.
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
         run_headless_streaming(headless_runner, &request, sink).await

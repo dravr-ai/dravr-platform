@@ -147,6 +147,24 @@ pub(crate) async fn dispatch_llm_with_tools(
             input.user_id.clone(),
             input.conversation_tenant_id,
         )));
+    // For ACP-managed providers (Copilot Headless with SDK tool calling),
+    // expose Dravr tools natively via the MCP bridge so the model calls them
+    // over ACP instead of fragile text-based `<tool_call>` simulation. The
+    // same capability flag that routes the turn to the headless loop gates the
+    // bridge, so a single provider config controls both.
+    let mcp_servers = if provider.capabilities().supports_sdk_tool_calling() {
+        match ctx.mcp_bridge.as_ref() {
+            Some(bridge) => {
+                bridge
+                    .mcp_servers_for(&input.user_id, input.tool_tenant_id)
+                    .await
+            }
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+
     let tools = build_mcp_tools(&ctx.tool_registry);
     let tool_params = ToolLoopParams {
         provider,
@@ -160,6 +178,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         tool_message_recorder,
         stream_sink,
         temperature: coach_ctx.and_then(|c| c.temperature),
+        mcp_servers,
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
 

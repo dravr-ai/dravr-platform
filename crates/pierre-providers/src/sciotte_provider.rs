@@ -135,6 +135,7 @@ impl dravr_sciotte::VisionModel for EmbacleVisionAdapter {
             stop: None,
             response_format: None,
             turn_id: None,
+            mcp_servers: Vec::new(),
         };
         let response = self
             .0

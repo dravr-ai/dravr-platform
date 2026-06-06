@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#[cfg(feature = "client-chat")]
+mod acp_mcp_bridge;
 mod builder;
 mod context;
 mod contremaitre;
