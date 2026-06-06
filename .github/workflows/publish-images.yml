@@ -148,6 +148,12 @@ jobs:
 
       - name: Scan server image for vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # Apply the repo allowlist via Trivy's canonical env (absolute path):
+          # the action's `trivyignores` input did not translate to --ignorefile,
+          # so suppressed CVEs (e.g. base-image fixed-but-upstream-unshipped) still
+          # failed the build. TRIVY_IGNOREFILE is read directly by the trivy CLI.
+          TRIVY_IGNOREFILE: '${{ github.workspace }}/.trivyignore'
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -155,10 +161,6 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
-          # Explicitly apply the repo allowlist: with format=sarif the action's
-          # default .trivyignore detection does not gate exit-code, so suppressed
-          # CVEs (e.g. base-image fixed-but-upstream-unshipped) still fail the build.
-          trivyignores: '.trivyignore'
           skip-dirs: 'root/.cache/copilot'
 
       - name: Upload Trivy results
@@ -250,6 +252,11 @@ jobs:
 
       - name: Scan frontend image for vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # Apply the repo allowlist via Trivy's canonical env (see server step).
+          # Suppresses CVE-2026-9256 (nginx fixed-in-r2, not yet in the official
+          # nginx:alpine image) which otherwise fails the frontend image build.
+          TRIVY_IGNOREFILE: '${{ github.workspace }}/.trivyignore'
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -257,10 +264,6 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
-          # Explicitly apply the repo allowlist (.trivyignore) — see server step.
-          # Suppresses CVE-2026-9256 (nginx fixed-in-r2, not yet in the official
-          # nginx:alpine image) which otherwise fails the frontend image build.
-          trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
