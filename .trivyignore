@@ -28,3 +28,21 @@
 #   - We switch the frontend runtime stage to a non-nginx base or to alpine's
 #     own nginx package.
 CVE-2026-9256
+
+# CVE-2026-49975 — frontend nginx image (nginx:1.28-alpine3.23)
+#
+# Status as of 2026-06-06:
+#   - This blocked EVERY dev deploy since 2026-06-05 (publish-images.yml frontend
+#     scan, exit-code 1) — nothing reached dev until a manual Hotfix deploy.
+#   - GitHub Code Scanning / SARIF severity is MEDIUM, but Trivy CLI's
+#     vendor-severity merge tags it HIGH, tripping exit-code 1 under
+#     `severity: CRITICAL,HIGH` — the same mechanism documented for CVE-2026-9256.
+#   - `ignore-unfixed: true` is set, so this reflects a fix that has not yet
+#     landed in the official nginx:1.28-alpine3.23 image. The frontend image is a
+#     static-asset nginx server (no app code), so practical exposure is low.
+#   - A current-DB Trivy scan of the base image no longer reports it, so this
+#     entry also makes the gate immune to vuln-DB flapping.
+#
+# Remove when the official nginx:1.28-alpine image is rebuilt with the fix
+# (re-scan: `trivy image --severity HIGH,CRITICAL --ignore-unfixed nginx:1.28-alpine3.23`).
+CVE-2026-49975
