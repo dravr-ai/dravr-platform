@@ -147,7 +147,7 @@ jobs:
             "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.2.3
+        uses: aquasecurity/setup-trivy@v0.2.6
         with:
           version: v0.70.0
 
@@ -253,7 +253,7 @@ jobs:
           cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.2.3
+        uses: aquasecurity/setup-trivy@v0.2.6
         with:
           version: v0.70.0
 
