@@ -303,6 +303,19 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
+  // Mock admin tool-usage endpoint (Tool Usage panel in the Analytics tab)
+  await page.route('**/admin/tool-usage**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_invocations: 0, unique_tools: 0, turns_with_tools: 0 },
+        breakdown: [],
+        days: 30,
+      }),
+    });
+  });
+
   // Mock user LLM consumption endpoint
   await page.route('**/api/usage/llm-consumption**', async (route) => {
     await route.fulfill({

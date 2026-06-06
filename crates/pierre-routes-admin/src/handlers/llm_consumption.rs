@@ -11,7 +11,7 @@
 //! (`/admin/usage/llm-consumption`) with tenant override support.
 
 use std::cmp::Reverse;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::{
@@ -106,6 +106,43 @@ pub struct LlmConsumptionResponse {
     pub daily_series: Vec<DailyConsumptionPoint>,
 }
 
+/// Per-tool aggregate for the tool-usage admin view.
+#[derive(Debug, Serialize)]
+pub struct ToolUsageBreakdownItem {
+    /// MCP tool name (e.g. `discover_routes`, `get_weather_forecast`).
+    pub tool_name: String,
+    /// How many LLM calls invoked this tool over the window.
+    pub invocation_count: i64,
+    /// Distinct conversation turns that used this tool.
+    pub turn_count: i64,
+    /// Mean per-call latency (ms) for calls that included this tool. `None`
+    /// when no call recorded an execution time. Per-call (not per-tool) since
+    /// latency is measured at the LLM-call level.
+    pub avg_latency_ms: Option<i64>,
+}
+
+/// Whole-window summary for the tool-usage admin view.
+#[derive(Debug, Serialize)]
+pub struct ToolUsageSummary {
+    /// Total tool invocations across all tools and turns.
+    pub total_invocations: i64,
+    /// Number of distinct tools used.
+    pub unique_tools: usize,
+    /// Distinct conversation turns that invoked at least one tool.
+    pub turns_with_tools: i64,
+}
+
+/// Response for `GET /admin/tool-usage`.
+#[derive(Debug, Serialize)]
+pub struct ToolUsageResponse {
+    /// Window summary.
+    pub summary: ToolUsageSummary,
+    /// Per-tool breakdown, most-used first.
+    pub breakdown: Vec<ToolUsageBreakdownItem>,
+    /// Lookback window in days.
+    pub days: u16,
+}
+
 /// Resolve a user's primary tenant id via the canonical resolver. Errors
 /// if the user has no tenants (no user-id fallback) and verifies
 /// membership when `active_tenant_id` is claimed.
@@ -137,6 +174,7 @@ impl LlmConsumptionRoutes {
                 "/admin/usage/llm-consumption",
                 get(Self::get_admin_consumption::<C>),
             )
+            .route("/admin/tool-usage", get(Self::get_admin_tool_usage::<C>))
             .route(
                 "/internal/conversation-turn/{turn_id}",
                 get(Self::get_conversation_turn::<C>),
@@ -313,6 +351,130 @@ impl LlmConsumptionRoutes {
 
         let response = Self::build_response(&aggregates, daily, group_by);
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// `GET /admin/tool-usage` — per-tool invocation breakdown for the caller's
+    /// tenant over the last `days` (default 30). Aggregates the persisted
+    /// `llm_usage.tools_called` so operators see which coach tools actually run
+    /// and how often, complementing the per-turn structured logs.
+    async fn get_admin_tool_usage<C: MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Query(params): Query<LlmConsumptionQuery>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let user_tenant_id = primary_tenant_for_user(&auth, &resources).await?;
+
+        let role = resources
+            .repos()
+            .tenants
+            .get_user_role(auth.user_id, user_tenant_id)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
+        match role.as_deref() {
+            Some("admin" | "owner") => {}
+            _ => {
+                return Err(AppError::auth_invalid(
+                    "Admin role required for tool-usage analytics",
+                ))
+            }
+        }
+
+        // Tenant isolation: admins may only query their own tenant.
+        let target_tenant_id = if let Some(ref tid) = params.tenant_id {
+            let parsed = tid
+                .parse::<TenantId>()
+                .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
+            if parsed != user_tenant_id {
+                return Err(AppError::auth_invalid(
+                    "Cannot query tool-usage data for other tenants",
+                ));
+            }
+            parsed
+        } else {
+            user_tenant_id
+        };
+
+        let days = params
+            .days
+            .unwrap_or(DEFAULT_DAYS)
+            .clamp(MIN_DAYS, MAX_DAYS);
+        let since = Self::compute_since(days);
+
+        let rows = resources
+            .repos()
+            .llm_usage
+            .get_tenant_tool_calls_since(target_tenant_id, &since)
+            .await?;
+
+        let response = Self::build_tool_usage_response(&rows, days);
+        Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// Aggregate per-tool stats from raw `llm_usage` rows. Pure + testable.
+    ///
+    /// One row is one LLM call; its `tools_called` may name several tools, and
+    /// `execution_time_ms` is the call's latency (attributed to each tool it
+    /// invoked — latency is measured per call, not per tool).
+    fn build_tool_usage_response(rows: &[LlmUsageRecord], days: u16) -> ToolUsageResponse {
+        let mut invocations: HashMap<String, i64> = HashMap::new();
+        let mut latency_sum: HashMap<String, i64> = HashMap::new();
+        let mut latency_n: HashMap<String, i64> = HashMap::new();
+        let mut turns_per_tool: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut turns_with_tools: HashSet<String> = HashSet::new();
+
+        for row in rows {
+            let tools: Vec<String> = serde_json::from_str(&row.tools_called).unwrap_or_default();
+            if tools.is_empty() {
+                continue;
+            }
+            let turn_key = row.turn_id.as_uuid().to_string();
+            turns_with_tools.insert(turn_key.clone());
+            for tool in tools {
+                *invocations.entry(tool.clone()).or_insert(0) += 1;
+                turns_per_tool
+                    .entry(tool.clone())
+                    .or_default()
+                    .insert(turn_key.clone());
+                if let Some(ms) = row.execution_time_ms {
+                    *latency_sum.entry(tool.clone()).or_insert(0) += ms;
+                    *latency_n.entry(tool).or_insert(0) += 1;
+                }
+            }
+        }
+
+        let total_invocations: i64 = invocations.values().sum();
+        let unique_tools = invocations.len();
+
+        let mut breakdown: Vec<ToolUsageBreakdownItem> = invocations
+            .into_iter()
+            .map(|(tool_name, invocation_count)| {
+                let turn_count =
+                    i64::try_from(turns_per_tool.get(&tool_name).map_or(0, HashSet::len))
+                        .unwrap_or(i64::MAX);
+                let avg_latency_ms = match latency_n.get(&tool_name).copied().unwrap_or(0) {
+                    0 => None,
+                    n => latency_sum.get(&tool_name).map(|sum| sum / n),
+                };
+                ToolUsageBreakdownItem {
+                    tool_name,
+                    invocation_count,
+                    turn_count,
+                    avg_latency_ms,
+                }
+            })
+            .collect();
+        breakdown.sort_by_key(|item| Reverse(item.invocation_count));
+
+        ToolUsageResponse {
+            summary: ToolUsageSummary {
+                total_invocations,
+                unique_tools,
+                turns_with_tools: i64::try_from(turns_with_tools.len()).unwrap_or(i64::MAX),
+            },
+            breakdown,
+            days,
+        }
     }
 
     /// GET /internal/conversation-turn/{turn_id} — admin-only per-turn
@@ -567,4 +729,89 @@ fn estimate_daily_cost(
 /// Round a cost value to 2 decimal places
 fn round_cost(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tool_usage_tests {
+    use super::*;
+
+    fn rec(turn: u128, tools: &[&str], latency: Option<i64>) -> LlmUsageRecord {
+        LlmUsageRecord {
+            id: "id".to_owned(),
+            tenant_id: "t".to_owned(),
+            user_id: "u".to_owned(),
+            conversation_id: None,
+            turn_id: ConversationTurnId::from_uuid(Uuid::from_u128(turn)),
+            provider: "google".to_owned(),
+            model: "gemini".to_owned(),
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            cached_tokens: 0,
+            call_type: "chat".to_owned(),
+            tool_calls_count: i64::try_from(tools.len()).unwrap_or(0),
+            tools_called: serde_json::to_string(tools).unwrap_or_else(|_| "[]".to_owned()),
+            execution_time_ms: latency,
+            cost_usd: 0.0,
+            call_sequence: Some(1),
+            created_at: "2026-06-06T00:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn aggregates_per_tool_counts_turns_and_latency() {
+        // turn 1: two calls (discover_routes+weather @100, discover_routes @200)
+        // turn 2: one call (discover_routes @300)
+        let rows = vec![
+            rec(1, &["discover_routes", "get_weather_forecast"], Some(100)),
+            rec(1, &["discover_routes"], Some(200)),
+            rec(2, &["discover_routes"], Some(300)),
+        ];
+        let resp = LlmConsumptionRoutes::build_tool_usage_response(&rows, 30);
+
+        assert_eq!(resp.days, 30);
+        assert_eq!(resp.summary.turns_with_tools, 2);
+        assert_eq!(resp.summary.unique_tools, 2);
+        assert_eq!(resp.summary.total_invocations, 4);
+
+        let discover = resp
+            .breakdown
+            .iter()
+            .find(|i| i.tool_name == "discover_routes");
+        let weather = resp
+            .breakdown
+            .iter()
+            .find(|i| i.tool_name == "get_weather_forecast");
+
+        // discover_routes: 3 invocations across 2 turns, avg (100+200+300)/3.
+        assert!(
+            discover.is_some_and(|d| d.invocation_count == 3
+                && d.turn_count == 2
+                && d.avg_latency_ms == Some(200)),
+            "discover_routes breakdown wrong: {discover:?}"
+        );
+        // get_weather_forecast: 1 invocation, 1 turn, avg 100.
+        assert!(
+            weather.is_some_and(|w| w.invocation_count == 1
+                && w.turn_count == 1
+                && w.avg_latency_ms == Some(100)),
+            "get_weather_forecast breakdown wrong: {weather:?}"
+        );
+
+        // Most-used tool sorts first.
+        assert_eq!(
+            resp.breakdown.first().map(|i| i.tool_name.as_str()),
+            Some("discover_routes")
+        );
+    }
+
+    #[test]
+    fn empty_rows_yield_empty_breakdown() {
+        let resp = LlmConsumptionRoutes::build_tool_usage_response(&[], 7);
+        assert_eq!(resp.summary.total_invocations, 0);
+        assert_eq!(resp.summary.unique_tools, 0);
+        assert_eq!(resp.summary.turns_with_tools, 0);
+        assert!(resp.breakdown.is_empty());
+        assert_eq!(resp.days, 7);
+    }
 }

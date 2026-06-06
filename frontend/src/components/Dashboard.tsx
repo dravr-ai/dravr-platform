@@ -47,6 +47,7 @@ const StoreScreen = lazy(() => import('./StoreScreen'));
 const FriendsTab = lazy(() => import('./social/FriendsTab'));
 const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
 const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
+const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
 const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
@@ -691,6 +692,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             </Suspense>
             <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
               <LlmConsumptionPanel />
+            </Suspense>
+            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+              <ToolUsagePanel />
             </Suspense>
           </div>
         )}

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::CoachRuntimeContext;
@@ -180,7 +181,9 @@ pub(crate) async fn dispatch_llm_with_tools(
         temperature: coach_ctx.and_then(|c| c.temperature),
         mcp_servers,
     };
+    let loop_start = Instant::now();
     let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
+    let dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Copilot CLI sometimes surfaces auth/entitlement failures as streamed
     // assistant content instead of JSON-RPC errors, which bypasses embacle's
@@ -206,6 +209,12 @@ pub(crate) async fn dispatch_llm_with_tools(
         channel = profile.channel.as_str(),
         content_len = result.content.len(),
         tool_calls = result.tool_calls_count,
+        // Per-turn tool-usage observability: the exact tools the coach ran and
+        // how long the agentic loop took. One structured line per turn answers
+        // "which tools fired and was it slow" without grepping per-call logs.
+        tools_called = ?result.tools_called,
+        dispatch_ms,
+        tokens = result.usage.as_ref().map_or(0, |u| u.total_tokens),
         "Chat pipeline dispatch completed"
     );
 

@@ -392,6 +392,28 @@ impl LlmUsageRepository for Database {
         .await
     }
 
+    async fn get_tenant_tool_calls_since(
+        &self,
+        tenant_id: TenantId,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageRecord>> {
+        let tid = tenant_id.to_string();
+        let since = since.to_owned();
+        fetch_llm_usage_rows(
+            &self.pool,
+            r"
+            SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
+                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type,
+                   tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at
+            FROM llm_usage
+            WHERE tenant_id = $1 AND created_at >= $2 AND tools_called <> '[]'
+            ORDER BY created_at DESC
+            ",
+            move |q| q.bind(tid).bind(since),
+        )
+        .await
+    }
+
     async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
         let row = sqlx::query_as::<_, (i64,)>(
             r"

@@ -71,6 +71,25 @@ export interface LlmConsumptionResponse {
   daily_series: DailyConsumptionPoint[];
 }
 
+/** Per-tool aggregate from GET /admin/tool-usage */
+export interface ToolUsageBreakdownItem {
+  tool_name: string;
+  invocation_count: number;
+  turn_count: number;
+  avg_latency_ms: number | null;
+}
+
+/** Tool-usage analytics response from GET /admin/tool-usage */
+export interface ToolUsageResponse {
+  summary: {
+    total_invocations: number;
+    unique_tools: number;
+    turns_with_tools: number;
+  };
+  breakdown: ToolUsageBreakdownItem[];
+  days: number;
+}
+
 export const usageApi = {
   /** Fetch current usage status (quotas, counters, warnings) */
   async getStatus(): Promise<UsageStatusResponse> {
@@ -94,6 +113,15 @@ export const usageApi = {
     if (groupBy) params.append('group_by', groupBy);
     if (tenantId) params.append('tenant_id', tenantId);
     const response = await axios.get(`/admin/usage/llm-consumption?${params}`);
+    return response.data;
+  },
+
+  /** Fetch per-tool usage analytics (admin-scoped, optional tenant) */
+  async getAdminToolUsage(days: number = 30, tenantId?: string): Promise<ToolUsageResponse> {
+    const params = new URLSearchParams();
+    params.append('days', String(days));
+    if (tenantId) params.append('tenant_id', tenantId);
+    const response = await axios.get(`/admin/tool-usage?${params}`);
     return response.data;
   },
 };

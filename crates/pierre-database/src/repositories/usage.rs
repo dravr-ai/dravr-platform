@@ -145,6 +145,16 @@ pub trait LlmUsageRepository: Send + Sync {
     /// Count LLM calls created since a given timestamp (admin view, cross-tenant)
     async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64>;
 
+    /// Fetch a tenant's LLM usage rows since `since` (RFC3339) that invoked at
+    /// least one tool, for the tool-usage admin view. Per-tool aggregation is
+    /// done in the handler (in Rust) so this stays backend-agnostic — no JSON
+    /// SQL. Rows with no tools (`tools_called == "[]"`) are excluded.
+    async fn get_tenant_tool_calls_since(
+        &self,
+        tenant_id: TenantId,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageRecord>>;
+
     /// Sum LLM usage since a given timestamp (admin view, cross-tenant).
     ///
     /// Returns a tuple of (`total_calls`, `total_tokens`) for pricing calculations.
