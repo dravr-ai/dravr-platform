@@ -271,15 +271,21 @@ mod tests {
     fn evidence_strength_deserializes_moderate_as_mixed() {
         // dravr-contremaitre evidence frontmatter uses `moderate`; the serde
         // path must accept it as a synonym for `mixed`, matching `parse`.
-        let from_serde: EvidenceStrength =
-            serde_json::from_str("\"moderate\"").expect("moderate must deserialize");
-        assert_eq!(from_serde, EvidenceStrength::Mixed);
+        assert_eq!(
+            serde_json::from_str::<EvidenceStrength>("\"moderate\"").ok(),
+            Some(EvidenceStrength::Mixed)
+        );
         assert_eq!(
             EvidenceStrength::parse("moderate"),
             Some(EvidenceStrength::Mixed)
         );
         // Canonical form serializes back to `mixed`, not `moderate`.
-        assert_eq!(serde_json::to_string(&from_serde).unwrap(), "\"mixed\"");
+        assert_eq!(
+            serde_json::to_string(&EvidenceStrength::Mixed)
+                .ok()
+                .as_deref(),
+            Some("\"mixed\"")
+        );
     }
 
     #[test]
