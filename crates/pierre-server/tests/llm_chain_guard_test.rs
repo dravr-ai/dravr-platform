@@ -145,17 +145,25 @@ fn make_chain(primary: MockProvider, secondary: MockProvider) -> ChatProvider {
     }
 }
 
+/// Sentinel recorded by [`ModelCapturingProvider`] before it is invoked.
+const MODEL_NOT_CAPTURED: &str = "<not-called>";
+
+/// Sentinel recorded when the captured request carried `model: None`.
+const MODEL_CLEARED: &str = "<none>";
+
 /// Secondary mock that records the `model` field of the request it receives,
 /// so a test can assert the chain cleared the primary's per-request model
-/// override before delegating to the fallback tier.
+/// override before delegating to the fallback tier. The captured value is
+/// flattened to a `String` (using the sentinels above) to avoid a nested
+/// `Option<Option<String>>` that `clippy::option_option` rejects.
 struct ModelCapturingProvider {
     name: &'static str,
-    seen_model: Arc<Mutex<Option<Option<String>>>>,
+    seen_model: Arc<Mutex<String>>,
 }
 
 impl ModelCapturingProvider {
-    fn new(name: &'static str) -> (Self, Arc<Mutex<Option<Option<String>>>>) {
-        let seen_model = Arc::new(Mutex::new(None));
+    fn new(name: &'static str) -> (Self, Arc<Mutex<String>>) {
+        let seen_model = Arc::new(Mutex::new(MODEL_NOT_CAPTURED.to_owned()));
         (
             Self {
                 name,
@@ -163,6 +171,11 @@ impl ModelCapturingProvider {
             },
             seen_model,
         )
+    }
+
+    /// Flatten a request's `model` field to the recorded sentinel/value form.
+    fn capture(model: Option<&str>) -> String {
+        model.map_or_else(|| MODEL_CLEARED.to_owned(), ToOwned::to_owned)
     }
 }
 
@@ -190,7 +203,7 @@ impl LlmProvider for ModelCapturingProvider {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        *self.seen_model.lock().unwrap() = Some(request.model.clone());
+        *self.seen_model.lock().unwrap() = Self::capture(request.model.as_deref());
         Ok(ChatResponse {
             content: format!("hello from {}", self.name),
             usage: None,
@@ -202,7 +215,7 @@ impl LlmProvider for ModelCapturingProvider {
     }
 
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
-        *self.seen_model.lock().unwrap() = Some(request.model.clone());
+        *self.seen_model.lock().unwrap() = Self::capture(request.model.as_deref());
         let s = stream::iter(vec![Ok(StreamChunk {
             delta: "hi".to_owned(),
             is_final: true,
@@ -246,13 +259,13 @@ async fn test_fallback_clears_primary_model_override_for_secondary() {
         response.content
     );
 
-    let captured = seen_model
-        .lock()
-        .unwrap()
-        .clone()
-        .expect("secondary must have been invoked");
+    let captured = seen_model.lock().unwrap().clone();
+    assert_ne!(
+        captured, MODEL_NOT_CAPTURED,
+        "secondary must have been invoked"
+    );
     assert_eq!(
-        captured, None,
+        captured, MODEL_CLEARED,
         "secondary must receive model=None (its own default), not the primary's override"
     );
 
