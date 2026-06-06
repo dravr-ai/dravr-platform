@@ -146,22 +146,24 @@ jobs:
           secrets: |
             "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
-      - name: Scan server image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
-        env:
-          # Apply the repo allowlist via Trivy's canonical env (absolute path):
-          # the action's `trivyignores` input did not translate to --ignorefile,
-          # so suppressed CVEs (e.g. base-image fixed-but-upstream-unshipped) still
-          # failed the build. TRIVY_IGNOREFILE is read directly by the trivy CLI.
-          TRIVY_IGNOREFILE: '${{ github.workspace }}/.trivyignore'
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.3
         with:
-          image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
-          format: 'sarif'
-          output: 'trivy-server.sarif'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-          exit-code: '1'
-          skip-dirs: 'root/.cache/copilot'
+          version: v0.70.0
+
+      - name: Scan server image for vulnerabilities
+        # Run trivy directly (not via trivy-action): the action did not apply our
+        # .trivyignore allowlist — neither the trivyignores input nor TRIVY_IGNOREFILE
+        # env took effect — so an allowlisted base-image CVE failed the build. An
+        # explicit --ignorefile reliably applies the allowlist (verified locally).
+        run: |
+          trivy image \
+            --format sarif --output trivy-server.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/.trivyignore" \
+            --skip-dirs root/.cache/copilot \
+            --scanners vuln --exit-code 1 \
+            "${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}"
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
@@ -250,20 +252,22 @@ jobs:
           cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache
           cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
-      - name: Scan frontend image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
-        env:
-          # Apply the repo allowlist via Trivy's canonical env (see server step).
-          # Suppresses CVE-2026-9256 (nginx fixed-in-r2, not yet in the official
-          # nginx:alpine image) which otherwise fails the frontend image build.
-          TRIVY_IGNOREFILE: '${{ github.workspace }}/.trivyignore'
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.3
         with:
-          image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
-          format: 'sarif'
-          output: 'trivy-frontend.sarif'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-          exit-code: '1'
+          version: v0.70.0
+
+      - name: Scan frontend image for vulnerabilities
+        # Explicit trivy run with --ignorefile (see server step) — the trivy-action
+        # did not apply .trivyignore, so the allowlisted CVE-2026-9256 (nginx
+        # fixed-in-r2, not yet in the official nginx:alpine image) failed the build.
+        run: |
+          trivy image \
+            --format sarif --output trivy-frontend.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/.trivyignore" \
+            --scanners vuln --exit-code 1 \
+            "${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}"
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
