@@ -37,7 +37,7 @@ export function ConnectProviderBanner() {
         onClick={() => {
           window.location.hash = 'data-providers';
         }}
-        className="flex-shrink-0 rounded-lg bg-gradient-to-r from-pierre-violet to-pierre-cyan px-3 py-1.5 text-sm font-medium text-white transition-shadow hover:shadow-md"
+        className="flex-shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-lg bg-gradient-to-r from-pierre-violet to-pierre-cyan px-4 text-sm font-medium text-white transition-shadow hover:shadow-md"
       >
         Connect
       </button>
@@ -45,9 +45,9 @@ export function ConnectProviderBanner() {
         type="button"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss"
-        className="flex-shrink-0 p-1 text-on-surface-variant hover:text-on-surface"
+        className="flex-shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-on-surface-variant hover:text-on-surface"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
