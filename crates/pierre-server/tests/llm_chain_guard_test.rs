@@ -6,7 +6,7 @@
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -143,6 +143,120 @@ fn make_chain(primary: MockProvider, secondary: MockProvider) -> ChatProvider {
         primary: Box::new(ChatProvider::Custom(Arc::new(primary))),
         secondary: Box::new(ChatProvider::Custom(Arc::new(secondary))),
     }
+}
+
+/// Secondary mock that records the `model` field of the request it receives,
+/// so a test can assert the chain cleared the primary's per-request model
+/// override before delegating to the fallback tier.
+struct ModelCapturingProvider {
+    name: &'static str,
+    seen_model: Arc<Mutex<Option<Option<String>>>>,
+}
+
+impl ModelCapturingProvider {
+    fn new(name: &'static str) -> (Self, Arc<Mutex<Option<Option<String>>>>) {
+        let seen_model = Arc::new(Mutex::new(None));
+        (
+            Self {
+                name,
+                seen_model: seen_model.clone(),
+            },
+            seen_model,
+        )
+    }
+}
+
+#[async_trait]
+impl LlmProvider for ModelCapturingProvider {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn display_name(&self) -> &'static str {
+        self.name
+    }
+
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::STREAMING | LlmCapabilities::SYSTEM_MESSAGES
+    }
+
+    fn default_model(&self) -> &str {
+        const NAME: &str = "secondary-default-model";
+        NAME
+    }
+
+    fn available_models(&self) -> &[String] {
+        &[]
+    }
+
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        *self.seen_model.lock().unwrap() = Some(request.model.clone());
+        Ok(ChatResponse {
+            content: format!("hello from {}", self.name),
+            usage: None,
+            model: "secondary-default-model".to_owned(),
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+
+    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+        *self.seen_model.lock().unwrap() = Some(request.model.clone());
+        let s = stream::iter(vec![Ok(StreamChunk {
+            delta: "hi".to_owned(),
+            is_final: true,
+            finish_reason: Some("stop".to_owned()),
+        })]);
+        Ok(Pin::from(Box::new(s)))
+    }
+
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// Regression: when the primary fails and the chain falls back, the secondary
+/// must NOT receive the primary's per-request model override. The chat pipeline
+/// stamps the primary's model (e.g. Copilot's `claude-opus-4.8`) onto every
+/// request; forwarding it verbatim made Gemini 404 and Cohere return
+/// "model 'claude-opus-4.8' not found", collapsing the whole fallback chain.
+/// The secondary must see `model: None` so it uses its own configured model.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn test_fallback_clears_primary_model_override_for_secondary() {
+    reset_chain_guard();
+
+    let (primary, _primary_calls) = MockProvider::new_failing("mock-primary-fail");
+    let (secondary, seen_model) = ModelCapturingProvider::new("mock-secondary-capture");
+    let chain = ChatProvider::Chain {
+        primary: Box::new(ChatProvider::Custom(Arc::new(primary))),
+        secondary: Box::new(ChatProvider::Custom(Arc::new(secondary))),
+    };
+
+    // Stamp the primary's model onto the request, exactly as the chat pipeline
+    // does via `ChatRequest::with_model(active_model)`.
+    let req =
+        ChatRequest::new(vec![ChatMessage::user("trigger fallback")]).with_model("claude-opus-4.8");
+
+    let response = chain.complete(&req).await.expect("chain should fall back");
+    assert!(
+        response.content.contains("mock-secondary-capture"),
+        "response should come from the secondary, got: {}",
+        response.content
+    );
+
+    let captured = seen_model
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("secondary must have been invoked");
+    assert_eq!(
+        captured, None,
+        "secondary must receive model=None (its own default), not the primary's override"
+    );
+
+    reset_chain_guard();
 }
 
 #[tokio::test]

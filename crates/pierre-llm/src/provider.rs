@@ -695,8 +695,9 @@ impl ChatProvider {
                             error = %primary_err,
                             "Primary LLM complete_with_tools() failed with retryable error; falling back"
                         );
+                        let forwarded = request_for_secondary(request);
                         let secondary_call =
-                            Box::pin(secondary.complete_with_tools(request, tools));
+                            Box::pin(secondary.complete_with_tools(&forwarded, tools));
                         secondary_call.await
                     }
                     Err(primary_err) => Err(primary_err),
@@ -901,6 +902,24 @@ impl fmt::Debug for ChatProvider {
     }
 }
 
+/// Strip the per-request model override before handing a request to a chain's
+/// secondary provider.
+///
+/// The chat pipeline stamps the *primary's* model onto every `ChatRequest`
+/// (e.g. Copilot's `claude-opus-4.8`). Each provider resolves its model as
+/// `request.model.as_deref().unwrap_or(&self.default_model)`, so a non-`None`
+/// `request.model` overrides the secondary's own `with_model`-configured
+/// `default_model`. Without clearing it, the fallback chain ships the primary's
+/// model name to a different provider's API — Gemini 404s and Cohere returns
+/// "model 'claude-opus-4.8' not found", collapsing the entire chain. Clearing
+/// `model` lets each tier fall back to the model it was configured with via
+/// `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` / `PIERRE_LLM_TERTIARY_PROVIDER_MODEL`.
+fn request_for_secondary(request: &ChatRequest) -> ChatRequest {
+    let mut forwarded = request.clone();
+    forwarded.model = None;
+    forwarded
+}
+
 /// Decide whether a runtime error should trigger a fallback retry.
 ///
 /// We only fall back on errors that hint at primary-provider unavailability
@@ -1023,7 +1042,7 @@ impl LlmProvider for ChatProvider {
                         reason = "preemptive_guard",
                         "Runtime LLM fallback engaged preemptively (guard)"
                     );
-                    return secondary.complete(request).await;
+                    return secondary.complete(&request_for_secondary(request)).await;
                 }
                 match primary.complete(request).await {
                     Ok(response) => {
@@ -1067,7 +1086,7 @@ impl LlmProvider for ChatProvider {
                             reason = ?primary_err.code,
                             "Runtime LLM fallback engaged on complete()"
                         );
-                        secondary.complete(request).await
+                        secondary.complete(&request_for_secondary(request)).await
                     }
                     Err(primary_err) => Err(primary_err),
                 }
@@ -1105,7 +1124,9 @@ impl LlmProvider for ChatProvider {
                         reason = "preemptive_guard",
                         "Runtime LLM fallback engaged preemptively (guard, stream)"
                     );
-                    return secondary.complete_stream(request).await;
+                    return secondary
+                        .complete_stream(&request_for_secondary(request))
+                        .await;
                 }
                 match primary.complete_stream(request).await {
                     Ok(stream) => {
@@ -1153,7 +1174,9 @@ impl LlmProvider for ChatProvider {
                             reason = ?primary_err.code,
                             "Runtime LLM fallback engaged on complete_stream()"
                         );
-                        secondary.complete_stream(request).await
+                        secondary
+                            .complete_stream(&request_for_secondary(request))
+                            .await
                     }
                     Err(primary_err) => Err(primary_err),
                 }
