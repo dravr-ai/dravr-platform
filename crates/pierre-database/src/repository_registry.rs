@@ -10,9 +10,9 @@ use std::sync::Arc;
 use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
-    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
-    FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
+    A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
+    ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, DataSourceRepository,
+    DossierRepository, FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
@@ -141,6 +141,10 @@ pub struct RepositoryRegistry {
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
+    /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
+    /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
+    /// never blocks a turn.
+    pub activity_cache: Arc<dyn ActivityCacheRepository>,
 }
 
 impl RepositoryRegistry {
@@ -200,6 +204,7 @@ impl RepositoryRegistry {
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            activity_cache: db.clone(),
             feature_flags: db,
         }
     }
@@ -258,6 +263,7 @@ impl RepositoryRegistry {
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            activity_cache: db.clone(),
             feature_flags: db,
         }
     }

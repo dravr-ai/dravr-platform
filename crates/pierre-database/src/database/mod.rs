@@ -6,6 +6,8 @@
 
 /// Agent-to-Agent (A2A) authentication and usage tracking
 pub mod a2a;
+/// Provider-agnostic activity cache (stale-while-revalidate) persistence
+pub mod activity_cache_persistence;
 /// Admin token management and authorization
 pub mod admin;
 /// Analytics and usage statistics database operations

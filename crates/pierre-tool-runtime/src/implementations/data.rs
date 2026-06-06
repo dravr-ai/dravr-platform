@@ -477,6 +477,24 @@ impl McpTool for GetActivitiesTool {
             }
         };
 
+        // Write-through to the persistent activity cache so the snapshot
+        // (stale-while-revalidate) path and later turns can serve these without
+        // re-fetching. Best-effort: a cache failure never blocks the response.
+        if context.tenant_id.is_some() && !activities.is_empty() {
+            let cache_repo = context.resources.repos().activity_cache.clone();
+            if let Err(e) = cache_repo
+                .upsert_activities(context.user_id, &tenant_id, &provider_name, &activities)
+                .await
+            {
+                warn!(
+                    user_id = %context.user_id,
+                    provider = %provider_name,
+                    error = %e,
+                    "Activity cache: write-through from get_activities failed"
+                );
+            }
+        }
+
         // Apply sport_type filter server-side before any further work.
         let mut filtered_activities =
             filter_activities_by_sport_type(activities, sport_type_filter.as_deref());

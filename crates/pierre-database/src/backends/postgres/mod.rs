@@ -10,6 +10,8 @@
 
 /// A2A protocol repository implementations
 pub mod a2a;
+/// Provider-agnostic activity cache (stale-while-revalidate) repository implementation
+pub mod activity_cache_persistence;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
 /// API key repository implementation

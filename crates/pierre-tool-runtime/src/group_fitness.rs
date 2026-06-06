@@ -33,6 +33,15 @@ use crate::runtime::ToolRuntime;
 /// CTL uses a 42-day exponential moving average, so 60 days gives adequate data.
 const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
+/// Retention + read window for the provider-agnostic activity cache. Exceeds
+/// the training-load lookback so cached reads always cover CTL/ATL/TSB.
+const ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
+
+/// Age beyond which cached activities trigger a background revalidation
+/// (stale-while-revalidate). Cached data is served immediately regardless;
+/// this only decides whether to ALSO kick a background refresh.
+const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
+
 /// Default time window (minutes) for considering two activities as duplicates
 const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
 
@@ -392,6 +401,17 @@ impl ActivityMergeStrategy for AllProvidersMerge {
                     count = activities.len(),
                     "Snapshot: fetched from provider"
                 );
+                // Write-through: persist the freshly fetched activities keyed by
+                // the connection provider name so subsequent chat turns serve
+                // them from cache instead of re-fetching (stale-while-revalidate).
+                write_through_activity_cache(
+                    auth_service,
+                    user_id,
+                    tenant_id,
+                    &provider_name,
+                    &activities,
+                )
+                .await;
                 all_activities.extend(activities);
                 provider_count += 1;
             }
@@ -796,7 +816,8 @@ async fn fetch_member_activities(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<Activity> {
-    let providers = get_connected_providers(&runtime.data(), user_id, tenant_id).await;
+    let data = runtime.data();
+    let providers = get_connected_providers(&data, user_id, tenant_id).await;
     if providers.is_empty() {
         info!(
             user_id = %user_id,
@@ -806,11 +827,133 @@ async fn fetch_member_activities(
         return Vec::new();
     }
 
+    let now = Utc::now();
+    let window_start = now - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
+    let read_limit = i64::try_from(
+        runtime
+            .config()
+            .activity_fetch_limit
+            .saturating_mul(providers.len()),
+    )
+    .unwrap_or(i64::MAX);
+
+    // Stale-while-revalidate: serve cached activities immediately when present.
+    let cached = data
+        .repos()
+        .activity_cache
+        .get_cached_activities(user_id, &tenant_id, None, window_start, now, read_limit)
+        .await
+        .unwrap_or_else(|e| {
+            info!(user_id = %user_id, error = %e, "Activity cache: read failed; falling back to live fetch");
+            Vec::new()
+        });
+
+    if cached.is_empty() {
+        // Cold cache: fetch live now; write-through persists for next time.
+        return fetch_and_persist_live(runtime, &providers, user_id, tenant_id).await;
+    }
+
+    // Warm cache: revalidate in the background only when stale, then serve cached.
+    if activity_cache_is_stale(&data, user_id, tenant_id, &providers, now).await {
+        spawn_activity_revalidation(runtime, providers, user_id, tenant_id);
+    }
+    info!(
+        user_id = %user_id,
+        cached = cached.len(),
+        "Snapshot: served activities from cache (stale-while-revalidate)"
+    );
+    cached
+}
+
+/// Fetch activities live from all connected providers and persist them
+/// (write-through happens inside [`AllProvidersMerge::fetch_and_merge`]).
+///
+/// Used on a cold cache and by the background revalidation task.
+async fn fetch_and_persist_live(
+    runtime: &Arc<dyn ToolRuntime>,
+    providers: &[String],
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<Activity> {
     let auth_service = AuthService::new(Arc::clone(runtime));
     let strategy = AllProvidersMerge::new(runtime.config().activity_fetch_limit);
     strategy
-        .fetch_and_merge(&auth_service, &providers, user_id, tenant_id)
+        .fetch_and_merge(&auth_service, providers, user_id, tenant_id)
         .await
+}
+
+/// True when any connected provider's cached activities are missing or older
+/// than [`ACTIVITY_CACHE_FRESH_SECS`], signalling a background revalidation.
+async fn activity_cache_is_stale(
+    data: &DataContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    providers: &[String],
+    now: DateTime<Utc>,
+) -> bool {
+    let fresh_cutoff = now - Duration::seconds(ACTIVITY_CACHE_FRESH_SECS);
+    for provider in providers {
+        let last_sync = data
+            .repos()
+            .activity_cache
+            .latest_activity_sync(user_id, &tenant_id, provider)
+            .await
+            .unwrap_or(None);
+        // Stale when never cached or the newest cached activity predates the
+        // freshness window.
+        if last_sync.is_none_or(|ts| ts < fresh_cutoff) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Spawn a detached background task that re-fetches and persists activities so
+/// the next chat turn sees fresh data. Errors are logged, never surfaced.
+fn spawn_activity_revalidation(
+    runtime: &Arc<dyn ToolRuntime>,
+    providers: Vec<String>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
+    let runtime = Arc::clone(runtime);
+    tokio::spawn(async move {
+        info!(user_id = %user_id, "Activity cache: background revalidation started");
+        let activities = fetch_and_persist_live(&runtime, &providers, user_id, tenant_id).await;
+        info!(
+            user_id = %user_id,
+            refreshed = activities.len(),
+            "Activity cache: background revalidation complete"
+        );
+    });
+}
+
+/// Persist a provider's freshly fetched activities into the activity cache and
+/// prune rows outside the retention window. Failures are logged, not fatal —
+/// the live activities still flow to the caller.
+async fn write_through_activity_cache(
+    auth_service: &AuthService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    activities: &[Activity],
+) {
+    let data = auth_service.runtime().data();
+    let cache = data.repos().activity_cache.clone();
+    if let Err(e) = cache
+        .upsert_activities(user_id, &tenant_id, provider, activities)
+        .await
+    {
+        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
+        return;
+    }
+    let cutoff = Utc::now() - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
+    if let Err(e) = cache
+        .prune_activities_before(user_id, &tenant_id, cutoff)
+        .await
+    {
+        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
+    }
 }
 
 /// Compute all fitness metrics from activities and assemble the snapshot.

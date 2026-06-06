@@ -6,6 +6,8 @@
 
 /// Repository traits for agent-to-agent (`A2A`) protocol persistence.
 pub mod a2a;
+/// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
+pub mod activity_cache;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
 /// Repository traits for API keys and user-scoped `MCP` tokens.
@@ -58,6 +60,7 @@ pub mod weather;
 pub mod workouts;
 
 pub use a2a::*;
+pub use activity_cache::*;
 pub use admin::*;
 pub use api_keys::*;
 pub use chat::*;

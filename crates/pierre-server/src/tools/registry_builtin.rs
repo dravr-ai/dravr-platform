@@ -434,6 +434,7 @@ fn register_sync_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-analytics")]
 fn register_route_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::routes::create_route_tools;
+    use pierre_tool_runtime::implementations::weather_forecast::create_weather_forecast_tools;
 
     debug!(
         "Registering route tools (registry has {} tools)",
@@ -441,6 +442,10 @@ fn register_route_tools(registry: &mut ToolRegistry) {
     );
 
     for tool in create_route_tools() {
+        registry.register_with_category(Arc::from(tool), "analytics");
+    }
+
+    for tool in create_weather_forecast_tools() {
         registry.register_with_category(Arc::from(tool), "analytics");
     }
 

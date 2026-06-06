@@ -109,6 +109,11 @@ pub mod recipes;
 #[cfg(feature = "tools-analytics")]
 pub mod routes;
 
+/// Weather forecast tool: `get_weather_forecast` (Open-Meteo forecast API)
+/// (`tools-analytics` feature).
+#[cfg(feature = "tools-analytics")]
+pub mod weather_forecast;
+
 /// Sleep and recovery tools: `analyze_sleep_quality`, `calculate_recovery_score`,
 /// `suggest_rest_day`, etc. (`tools-sleep` feature).
 #[cfg(feature = "tools-sleep")]

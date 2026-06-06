@@ -69,6 +69,16 @@ impl AuthService {
         Self { resources }
     }
 
+    /// The runtime backing this service.
+    ///
+    /// Exposed for callers that need repository access alongside provider
+    /// authentication — notably activity-cache write-through, which persists
+    /// freshly fetched activities keyed by the connection provider name.
+    #[must_use]
+    pub const fn runtime(&self) -> &Arc<dyn ToolRuntime> {
+        &self.resources
+    }
+
     /// Get valid token for a provider, automatically refreshing if needed
     /// Returns None if no token exists or is expired, Error if token operations fail
     ///

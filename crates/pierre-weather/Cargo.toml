@@ -11,7 +11,7 @@ repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
 [dependencies]
-dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.1.0" }
+dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.1.1" }
 
 [lints]
 workspace = true
