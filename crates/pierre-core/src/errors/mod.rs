@@ -515,6 +515,14 @@ impl AppError {
         Self::new(ErrorCode::DatabaseError, message)
     }
 
+    /// Resource temporarily unavailable (e.g. a backpressure limiter shed the
+    /// request because the concurrency budget is saturated). The `message` is
+    /// for internal logging only; clients see the generic sanitized text.
+    #[must_use]
+    pub fn resource_unavailable(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ResourceUnavailable, message)
+    }
+
     /// Account pending admin approval
     #[must_use]
     pub fn account_pending(message: impl Into<String>) -> Self {

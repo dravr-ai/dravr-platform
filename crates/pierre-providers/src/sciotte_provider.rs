@@ -27,7 +27,7 @@ use embacle::types::LlmProvider;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -38,6 +38,7 @@ use crate::models::{
     Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::sciotte_limiter::{global_limiter, LimiterError, ScrapePermit};
 
 /// Target fitness platform for the sciotte scraper
 #[derive(Debug, Clone, Copy)]
@@ -186,6 +187,35 @@ impl SciotteProvider {
     fn auth_required_no_session(&self) -> AppError {
         AppError::provider_auth_required(self.provider_name)
     }
+}
+
+/// Acquire a permit from the process-global Sciotte limiter so every
+/// Chrome-backed scrape on the data-fetch path counts against the same pod
+/// concurrency budget the login routes use. Returns `None` when no limiter is
+/// registered — a unit test may construct the provider without the server
+/// bootstrap that calls `set_global_limiter` — in which case the scrape
+/// proceeds ungated rather than failing.
+async fn acquire_scrape_permit() -> AppResult<Option<ScrapePermit>> {
+    match global_limiter() {
+        Some(limiter) => limiter
+            .acquire()
+            .await
+            .map(Some)
+            .map_err(|err| limiter_rejection(&err)),
+        None => Ok(None),
+    }
+}
+
+/// Map a backpressure rejection to a sanitized `ResourceUnavailable` error so
+/// the client sees a generic "temporarily unavailable" message, never the
+/// internal Chrome/queue details.
+fn limiter_rejection(err: &LimiterError) -> AppError {
+    warn!(
+        reason = %err,
+        retry_after_secs = err.retry_after_secs(),
+        "Sciotte scrape shed by backpressure limiter"
+    );
+    AppError::resource_unavailable(format!("Sciotte scrape shed by limiter: {err}"))
 }
 
 /// Direct sciotte → cageux `SportType` conversion. Both enums share variant
@@ -365,6 +395,7 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
+        let _permit = acquire_scrape_permit().await?;
         let profile = self
             .scraper
             .get_athlete(session)
@@ -413,6 +444,7 @@ impl FitnessProvider for SciotteProvider {
 
         debug!(limit, "Fetching activities from sciotte (in-process)");
 
+        let _permit = acquire_scrape_permit().await?;
         let sciotte_activities = self
             .scraper
             .get_activities(session, &sciotte_params)
@@ -448,6 +480,7 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
+        let _permit = acquire_scrape_permit().await?;
         let sciotte_activity = self
             .scraper
             .get_activity(session, id)

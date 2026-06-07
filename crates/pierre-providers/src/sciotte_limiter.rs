@@ -32,7 +32,7 @@ use std::env;
 use std::future::Future;
 use std::num::ParseIntError;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -430,4 +430,31 @@ impl SciotteLimiter {
             }
         })
     }
+}
+
+// ============================================================================
+// Process-global instance
+// ============================================================================
+
+/// Process-global limiter instance. Registered once during server startup by
+/// the bootstrap path (which also owns the watchdog over login-flow state),
+/// and read by every Chrome-backed scrape — both the login routes and the
+/// provider's activity fetches — so the whole pod shares a single Chrome
+/// budget. Living here, beside the limiter type, lets the `sciotte_provider`
+/// data-fetch path acquire permits without depending on the routes crate.
+static GLOBAL_LIMITER: OnceLock<Arc<SciotteLimiter>> = OnceLock::new();
+
+/// Register the process-global [`SciotteLimiter`]. Idempotent: a second call
+/// is ignored, which keeps test fixtures that initialise more than once in a
+/// single process from aborting.
+pub fn set_global_limiter(limiter: Arc<SciotteLimiter>) {
+    let _ = GLOBAL_LIMITER.set(limiter);
+}
+
+/// Borrow the process-global limiter, or `None` when it was never registered
+/// (e.g. a unit test constructs a provider directly without the server
+/// bootstrap that calls [`set_global_limiter`]).
+#[must_use]
+pub fn global_limiter() -> Option<&'static Arc<SciotteLimiter>> {
+    GLOBAL_LIMITER.get()
 }

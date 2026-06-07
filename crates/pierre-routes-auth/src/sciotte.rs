@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -20,7 +20,9 @@ use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
-use pierre_providers::sciotte_limiter::{LimiterError, SciotteLimiter, ScrapePermit};
+use pierre_providers::sciotte_limiter::{
+    global_limiter, set_global_limiter, LimiterError, SciotteLimiter, ScrapePermit,
+};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -52,14 +54,6 @@ struct PendingLogin {
 
 static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingLogin>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Process-global backpressure limiter. Initialised exactly once during
-/// server startup via [`init_sciotte_limiter`]; runtime access via
-/// [`sciotte_limiter`] panics if that init step was skipped, which is a
-/// programmer error in the bootstrap path — operator errors (missing /
-/// malformed env vars) surface from `init_sciotte_limiter` as an
-/// `AppError` propagated out of `bootstrap_server`.
-static SCIOTTE_LIMITER: OnceLock<Arc<SciotteLimiter>> = OnceLock::new();
 
 /// Initialise the Sciotte backpressure limiter.
 ///
@@ -93,9 +87,10 @@ pub fn init_sciotte_limiter() -> Result<(), AppError> {
     // it, which is the behaviour we want: the watchdog runs for the
     // lifetime of the process.
     drop(spawn_pending_watchdog(&limiter));
-    // OnceLock::set returns Err if called twice; swallow because tests may
-    // call this init from multiple fixtures in the same process.
-    let _ = SCIOTTE_LIMITER.set(limiter);
+    // Register the shared instance so both the login routes here and the
+    // provider's data-fetch scrapes draw permits from one Chrome budget.
+    // The setter is idempotent, so repeated test-fixture init is harmless.
+    set_global_limiter(limiter);
     Ok(())
 }
 
@@ -110,7 +105,7 @@ pub fn init_sciotte_limiter() -> Result<(), AppError> {
 /// Returns [`AppError::internal`] when the global limiter has not yet
 /// been initialised (i.e. server startup skipped `init_sciotte_limiter`).
 fn sciotte_limiter() -> Result<&'static Arc<SciotteLimiter>, AppError> {
-    SCIOTTE_LIMITER.get().ok_or_else(|| {
+    global_limiter().ok_or_else(|| {
         AppError::internal(
             "Sciotte backpressure limiter not initialised — \
              init_sciotte_limiter must be called during bootstrap_server",
