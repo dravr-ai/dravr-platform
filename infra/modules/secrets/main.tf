@@ -247,8 +247,8 @@ resource "google_secret_manager_secret_version" "gemini_api_key_placeholder" {
   }
 }
 
-# Cohere Command A / Command R family. Third-tier fallback in the
-# Copilot -> Gemini -> Cohere chain (PIERRE_LLM_TERTIARY_PROVIDER=cohere)
+# Cohere Command A / Command R family. Second-tier (first fallback) in the
+# Copilot -> Cohere -> Gemini chain (PIERRE_LLM_FALLBACK_PROVIDER=cohere)
 # wired in infra/environments/dev/main.tf. Real value lives in Secret
 # Manager; this Terraform only manages the container. The placeholder
 # is ignored by lifecycle so re-apply doesn't overwrite the gcloud-set

@@ -225,38 +225,38 @@ module "backend" {
       # Primary = claude-opus-4.8 (high-reasoning Opus variant, not the -fast SKU).
       # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
       # (intra-provider model fallback, same Copilot session).
-      # Runtime fallback chain = cross-provider failover to Gemini (Google free
-      # tier via GEMINI_API_KEY) when Copilot itself returns a retryable error
-      # (auth, 5xx, transient, throttle). Built by ChatProvider::Chain in
-      # crates/pierre-llm/src/provider.rs and gated on
+      # Runtime fallback chain = cross-provider failover to Cohere (Command A,
+      # paid, 10k rpm chat via COHERE_API_KEY) when Copilot itself returns a
+      # retryable error (auth, 5xx, transient, throttle). Built by
+      # ChatProvider::Chain in crates/pierre-llm/src/provider.rs and gated on
       # PIERRE_LLM_RUNTIME_FALLBACK=true. Without this, a Copilot session token
       # refresh failure (e.g. transient GitHub rate-limit during the
       # api.github.com/copilot_internal token exchange) would surface as a
       # user-facing "Dravr temporairement indisponible". Switched off claude_code
       # on 2026-05-13: the direct Anthropic subscription burned through Opus
-      # credits during every Copilot blip with no spend cap — Gemini's free tier
-      # gives bounded cost ($0 within quota) and is good enough for degraded
-      # service. Provider health transitions still fire `llm.provider_unhealthy`
+      # credits during every Copilot blip with no spend cap. Cohere's paid
+      # production rate limit keeps the first fallback tier answering under load.
+      # Provider health transitions still fire `llm.provider_unhealthy`
       # notify events for operator awareness, and the chat route returns 503
       # with retry-after when LlmHealthState reports Unhealthy.
       # Entitlement verified 2026-04-16 against the dev PAT (Copilot side).
       #
-      # Tertiary = Cohere Command A. Added 2026-05-25 to give the chain a
-      # paid third tier (Copilot -> Gemini -> Cohere). When Gemini itself
-      # hits a retryable error (quota exhaustion on the free tier is the
-      # common case), Cohere's production rate limit (10k rpm chat) keeps
-      # the service answering. PIERRE_LLM_TERTIARY_PROVIDER turns the
-      # secondary into a nested Chain{Gemini, Cohere}, so retry
-      # classification cascades the same way at each tier.
+      # Tertiary = Gemini (Google free tier via GEMINI_API_KEY). Last-resort
+      # tier (Copilot -> Cohere -> Gemini): the free tier 429s under sustained
+      # load, so it sits behind the paid Cohere fallback and only catches
+      # requests when both Copilot and Cohere return a retryable error.
+      # PIERRE_LLM_TERTIARY_PROVIDER turns the secondary into a nested
+      # Chain{Cohere, Gemini}, so retry classification cascades the same way
+      # at each tier.
       PIERRE_LLM_PROVIDER                = "copilot_headless"
       PIERRE_LLM_MODEL                   = "claude-opus-4.8"
       PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.8"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
-      PIERRE_LLM_TERTIARY_PROVIDER       = "cohere"
-      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "command-a-03-2025"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "cohere"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "command-a-03-2025"
+      PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
+      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # Route Copilot-headless tool turns through native MCP tool calling: the
       # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
