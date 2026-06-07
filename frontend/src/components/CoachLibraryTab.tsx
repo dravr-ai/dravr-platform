@@ -225,8 +225,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   // Toggle favorite mutation
   const favoriteMutation = useMutation({
     mutationFn: (id: string) => coachesApi.toggleFavorite(id),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      // The detail view renders from local selectedCoach state, which the list
+      // refetch does not touch — reflect the new favorite status immediately.
+      setSelectedCoach((prev) => (prev ? { ...prev, is_favorite: data.is_favorite } : prev));
     },
   });
 

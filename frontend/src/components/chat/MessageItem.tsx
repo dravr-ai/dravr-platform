@@ -27,6 +27,9 @@ interface MessageItemProps {
   actions?: MessageActionItem[];
   /** Tier 5.5 claim verdicts attached to this message, if any. */
   verdicts?: ChatVerdictRow[];
+  /** Label shown above assistant turns — the active coach's name, or
+   *  'Dravr' when the conversation has no coach attached. */
+  assistantLabel?: string;
   onCopy?: () => void;
   onShare?: () => void;
   onShareToFeed?: () => void;
@@ -113,6 +116,7 @@ const MessageItem = memo(function MessageItem({
   activityList,
   actions,
   verdicts,
+  assistantLabel,
   onCopy,
   onShare,
   onShareToFeed,
@@ -150,13 +154,13 @@ const MessageItem = memo(function MessageItem({
             </svg>
           </div>
         ) : (
-          <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
+          <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
         )}
       </div>
       {/* Message Content */}
       <div className="flex-1 min-w-0 pt-1">
         <div className="font-medium text-on-surface text-sm mb-1">
-          {isUser ? 'You' : 'Dravr'}
+          {isUser ? 'You' : (assistantLabel ?? 'Dravr')}
         </div>
         {/* Collapsible activity list (collapsed by default) */}
         {activityList && (

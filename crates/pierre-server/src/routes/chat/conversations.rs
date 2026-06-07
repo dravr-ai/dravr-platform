@@ -199,6 +199,7 @@ pub async fn list_conversations(
                 model: c.model,
                 message_count: c.message_count,
                 total_tokens: c.total_tokens,
+                coach_id: c.coach_id,
                 created_at: c.created_at,
                 updated_at: c.updated_at,
             })

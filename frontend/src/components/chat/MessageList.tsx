@@ -27,6 +27,9 @@ interface MessageListProps {
   insightMessageIds: Set<string>;
   /** Tier 5.5 claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ChatVerdictRow[];
+  /** Label shown above assistant turns — the active coach's name, or
+   *  'Dravr' when the conversation has no coach attached. */
+  assistantLabel?: string;
   isLoading: boolean;
   isStreaming: boolean;
   streamingContent: string;
@@ -62,6 +65,7 @@ export default function MessageList({
   messageActions,
   insightMessageIds,
   verdicts,
+  assistantLabel,
   isLoading,
   isStreaming,
   streamingContent,
@@ -134,6 +138,7 @@ export default function MessageList({
             activityList={resolvedActivityList}
             actions={actions}
             verdicts={verdicts}
+            assistantLabel={assistantLabel}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
             onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
             onCreateInsight={msg.role === 'assistant' ? () => onCreateInsight(msg.content) : undefined}
@@ -152,11 +157,11 @@ export default function MessageList({
       {oauthNotification && (
         <div className="flex gap-3 animate-fadeIn">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              Dravr
+              {assistantLabel ?? 'Dravr'}
               <button
                 onClick={onDismissOAuthNotification}
                 className="text-outline hover:text-on-surface transition-colors"
@@ -177,11 +182,11 @@ export default function MessageList({
       {isStreaming && streamingContent && (
         <div className="flex gap-3">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              Dravr
+              {assistantLabel ?? 'Dravr'}
               <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             </div>
             <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80">
@@ -215,11 +220,11 @@ export default function MessageList({
       {isStreaming && !streamingContent && (
         <div className="flex gap-3">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 pt-1">
             <div className="font-medium text-on-surface text-sm mb-2 flex items-center gap-2">
-              Dravr
+              {assistantLabel ?? 'Dravr'}
             </div>
             <div className="flex items-center gap-2 text-on-surface-variant text-sm">
               <div className="pierre-spinner w-4 h-4"></div>

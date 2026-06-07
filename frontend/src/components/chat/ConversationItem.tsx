@@ -12,6 +12,9 @@ import { formatDate } from './utils';
 
 interface ConversationItemProps {
   conversation: Conversation;
+  /** Title to display for the row. Defaults to the conversation's own title.
+   *  ConversationsPanel passes a coach-aware "<Coach> · <time>" form here. */
+  displayTitle?: string;
   isSelected: boolean;
   isEditing: boolean;
   editedTitleValue: string;
@@ -25,6 +28,7 @@ interface ConversationItemProps {
 
 const ConversationItem = memo(function ConversationItem({
   conversation,
+  displayTitle,
   isSelected,
   isEditing,
   editedTitleValue,
@@ -84,7 +88,7 @@ const ConversationItem = memo(function ConversationItem({
           />
         ) : (
           <p className="text-sm font-normal truncate group-hover:text-on-surface transition-colors">
-            {conversation.title ?? 'Untitled Chat'}
+            {displayTitle ?? conversation.title ?? 'Untitled Chat'}
           </p>
         )}
       </div>

@@ -122,7 +122,7 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Vec<ConversationSummary>> {
         let rows = sqlx::query(
             r"
-            SELECT c.id, c.title, c.model, c.total_tokens, c.created_at, c.updated_at,
+            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.created_at, c.updated_at,
                    COUNT(m.id) as message_count
             FROM chat_conversations c
             LEFT JOIN chat_messages m ON m.conversation_id = c.id
@@ -152,6 +152,7 @@ impl ChatRepository for PostgresDatabase {
                     model: r.get("model"),
                     message_count: r.get("message_count"),
                     total_tokens: r.get("total_tokens"),
+                    coach_id: r.get("coach_id"),
                     created_at: created_at.to_rfc3339(),
                     updated_at: updated_at.to_rfc3339(),
                 }

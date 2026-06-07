@@ -4,7 +4,7 @@
 // ABOUTME: AI Chat tab component for users to interact with fitness AI assistant
 // ABOUTME: Renders chat interface with collapsible conversations panel
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
 import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
@@ -193,6 +193,33 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     enabled: !!selectedConversation,
   });
   const verdicts: ChatVerdictRow[] = verdictsData?.verdicts ?? [];
+
+  // Conversations and coaches power the coach-aware chat header and the
+  // assistant author label. The conversation carries `coach_id`; the coach
+  // title is joined from the coaches list.
+  const { data: conversationsData } = useQuery({
+    queryKey: QUERY_KEYS.chat.conversations(),
+    queryFn: () => chatApi.getConversations(),
+  });
+  const { data: coachesListData } = useQuery<{ coaches: Coach[] }>({
+    queryKey: QUERY_KEYS.coaches.list(),
+    queryFn: () => coachesApi.list(),
+    // Coach titles change rarely; cache so the header doesn't refetch on
+    // every conversation switch.
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Title of the coach attached to the active conversation, or null when the
+  // chat has no coach. `pendingCoachId` covers a freshly created conversation
+  // whose `coach_id` has not yet been written back to the conversation list.
+  const activeCoachTitle = useMemo<string | null>(() => {
+    const conversation = conversationsData?.conversations?.find(
+      c => c.id === selectedConversation,
+    );
+    const coachId = conversation?.coach_id ?? pendingCoachId;
+    if (!coachId) return null;
+    return coachesListData?.coaches?.find(c => c.id === coachId)?.title ?? null;
+  }, [conversationsData, coachesListData, selectedConversation, pendingCoachId]);
 
   // Drawer state for the Tier 5.5 verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ChatVerdictRow | null>(null);
@@ -1065,18 +1092,30 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           {/* Usage warning banner */}
           <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 
-          {/* Conversation Header with Create Coach button */}
-          {(messagesData?.messages?.length ?? 0) >= 2 && (
-            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-end">
-              <button
-                onClick={() => setShowCreateCoachFromConversation(true)}
-                disabled={isStreaming}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-pierre-violet/10 hover:bg-pierre-violet/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Create a coach based on this conversation"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Create Coach
-              </button>
+          {/* Conversation Header: active coach name (left) + Create Coach (right) */}
+          {(activeCoachTitle || (messagesData?.messages?.length ?? 0) >= 2) && (
+            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-2">
+                {activeCoachTitle && (
+                  <>
+                    <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
+                    <span className="text-sm font-semibold text-on-surface truncate" title={activeCoachTitle}>
+                      {activeCoachTitle}
+                    </span>
+                  </>
+                )}
+              </div>
+              {(messagesData?.messages?.length ?? 0) >= 2 && (
+                <button
+                  onClick={() => setShowCreateCoachFromConversation(true)}
+                  disabled={isStreaming}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-pierre-violet/10 hover:bg-pierre-violet/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  title="Create a coach based on this conversation"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Create Coach
+                </button>
+              )}
             </div>
           )}
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -1089,6 +1128,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageActions={messageActions}
                 insightMessageIds={new Set<string>()}
                 verdicts={verdicts}
+                assistantLabel={activeCoachTitle ?? undefined}
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}
                 streamingContent={streamingContent}

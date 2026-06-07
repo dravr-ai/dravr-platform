@@ -218,6 +218,9 @@ pub struct ConversationSummary {
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
+    /// Coach attached to the conversation, if any. Lets the listing group
+    /// sessions by coach and label them with the coach's name.
+    pub coach_id: Option<String>,
     /// When the conversation was created
     pub created_at: String,
     /// When the conversation was last updated

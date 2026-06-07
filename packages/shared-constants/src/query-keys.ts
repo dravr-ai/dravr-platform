@@ -59,15 +59,15 @@ export const QUERY_KEYS = {
   // ==================== COACHES ====================
   coaches: {
     all: ['coaches'] as const,
-    lists: () => ['user-coaches'] as const,
+    lists: () => ['coaches', 'user-coaches'] as const,
     list: (category?: string, favoritesOnly?: boolean, personalize?: boolean) =>
-      ['user-coaches', category, favoritesOnly, personalize] as const,
-    listWithHidden: () => ['user-coaches', 'include-hidden'] as const,
-    hidden: () => ['hidden-coaches'] as const,
-    versions: (coachId: string) => ['coach-versions', coachId] as const,
+      ['coaches', 'user-coaches', category, favoritesOnly, personalize] as const,
+    listWithHidden: () => ['coaches', 'user-coaches', 'include-hidden'] as const,
+    hidden: () => ['coaches', 'hidden-coaches'] as const,
+    versions: (coachId: string) => ['coaches', 'coach-versions', coachId] as const,
     versionDiff: (coachId: string, fromVersion?: number, toVersion?: number) =>
-      ['coach-version-diff', coachId, fromVersion, toVersion] as const,
-    assignments: (coachId?: string) => ['coach-assignments', coachId] as const,
+      ['coaches', 'coach-version-diff', coachId, fromVersion, toVersion] as const,
+    assignments: (coachId?: string) => ['coaches', 'coach-assignments', coachId] as const,
   },
 
   // ==================== COACH STORE ====================

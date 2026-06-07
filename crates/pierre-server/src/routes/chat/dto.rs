@@ -70,6 +70,9 @@ pub struct ConversationSummaryResponse {
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
+    /// Coach attached to the conversation, if any. Lets the client group
+    /// sessions by coach and show the coach's name in the header/history.
+    pub coach_id: Option<String>,
     /// Creation timestamp
     pub created_at: String,
     /// Last update timestamp

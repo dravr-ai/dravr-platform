@@ -34,6 +34,31 @@ interface SessionGroup {
 
 const COLLAPSED_KEY = 'dravr.conversations-panel.collapsed';
 
+// The auto-generated default conversation title, e.g. "Chat Jun 7 11:15 AM".
+// Used to distinguish a system default (which we rewrite to "<Coach> · <time>")
+// from a title the user explicitly renamed (which we leave untouched).
+const DEFAULT_TITLE_PATTERN = /^Chat\s+[A-Z][a-z]{2}\s+\d{1,2}\b/;
+
+function formatSessionDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Build the title shown for a session row. User-renamed titles are kept as-is;
+ * the auto-generated default is rewritten to "<Coach name> · <date time>",
+ * falling back to "Chat · <date time>" for conversations without a coach.
+ */
+function buildSessionTitle(conv: Conversation, coachTitle: string | null): string {
+  const title = conv.title?.trim();
+  if (title && !DEFAULT_TITLE_PATTERN.test(title)) return title;
+  return `${coachTitle ?? 'Chat'} · ${formatSessionDateTime(conv.created_at)}`;
+}
+
 function loadCollapsedSet(): Set<string> {
   try {
     const raw = localStorage.getItem(COLLAPSED_KEY);
@@ -261,6 +286,7 @@ export default function ConversationsPanel({
                         <ConversationItem
                           key={conv.id}
                           conversation={conv}
+                          displayTitle={buildSessionTitle(conv, group.isNoCoach ? null : group.label)}
                           isSelected={selectedConversation === conv.id}
                           isEditing={editingConversationId === conv.id}
                           editedTitleValue={editedTitleValue}
