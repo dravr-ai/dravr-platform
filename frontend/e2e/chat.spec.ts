@@ -522,3 +522,59 @@ test.describe('Chat - Provider Connection', () => {
     await expect(page.getByText('Ready to analyze your fitness')).toBeVisible({ timeout: 10000 });
   });
 });
+
+test.describe('Chat - No provider connected', () => {
+  test('shows connect-provider banner with deep link instead of a raw 403 error', async ({ page }) => {
+    await setupChatMocks(page);
+
+    // Providerless users are gated server-side: the messaging POST returns a
+    // structured 403 NoProviderConnected. The chat must render the friendly
+    // connect-provider banner (deep-linking to Data Providers), not "HTTP error".
+    // Providerless: the status endpoint must report no connected provider so the
+    // banner renders (registered after setupChatMocks so LIFO matching wins).
+    await page.route('**/api/providers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ providers: [] }),
+      });
+    });
+
+    await page.route('**/api/chat/conversations/*/messages', async (route, request) => {
+      if (request.method() === 'POST') {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'NoProviderConnected',
+            message: 'Connect a fitness provider before using messaging features',
+            details: { action: 'connect_provider' },
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(mockMessages),
+        });
+      }
+    });
+
+    await loginToDashboard(page);
+
+    const input = page.getByPlaceholder('Message Dravr...');
+    await expect(input).toBeVisible({ timeout: 10000 });
+    await input.click();
+    // pressSequentially types real keystrokes so React's controlled-input
+    // onChange fires reliably (a plain fill() can be dropped on re-render).
+    await input.pressSequentially("Quelle température fera-t-il à Prévost aujourd'hui?", { delay: 10 });
+    const sendBtn = page.getByRole('button', { name: 'Send message' });
+    await expect(sendBtn).toBeEnabled({ timeout: 5000 });
+    await sendBtn.click();
+
+    // Friendly nudge appears; raw error banner does not.
+    await expect(page.getByText('Connect a fitness provider')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await expect(page.getByText(/HTTP error/i)).toHaveCount(0);
+  });
+});

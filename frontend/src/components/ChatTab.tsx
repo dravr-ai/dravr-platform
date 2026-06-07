@@ -23,6 +23,7 @@ import {
 } from './chat';
 import ChatVerdictDrawer from './chat/ChatVerdictDrawer';
 import UsageWarningBanner from './chat/UsageWarningBanner';
+import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import ShareChatMessageModal from './social/ShareChatMessageModal';
 import { useSuccessToast, useInfoToast } from './ui';
@@ -136,6 +137,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [aguiRunId, setAguiRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
+  // Set when the backend rejects messaging with NoProviderConnected. Instead of
+  // surfacing a raw 403, we show a friendly connect-provider prompt with a
+  // deep link to the Data Providers screen.
+  const [needsProvider, setNeedsProvider] = useState(false);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -482,6 +487,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
+    setNeedsProvider(false);
 
     const userMessageId = `user-${Date.now()}`;
     const tempUserMessage: Message = {
@@ -522,7 +528,19 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       if (!response.ok || !response.body) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        // Providerless users get a structured NoProviderConnected (403). Surface
+        // a friendly connect-provider prompt with a deep link instead of a raw
+        // "HTTP error" — messaging is gated until a provider is linked.
+        if (errorData?.code === 'NoProviderConnected' || errorData?.details?.action === 'connect_provider') {
+          setNeedsProvider(true);
+          setIsStreaming(false);
+          setStreamingContent('');
+          // The gate rejects before persisting, so drop the optimistic user
+          // bubble — it was never saved.
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+          return;
+        }
+        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
       }
 
       let assembled = '';
@@ -838,7 +856,19 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        // Providerless users get a structured NoProviderConnected (403). Surface
+        // a friendly connect-provider prompt with a deep link instead of a raw
+        // "HTTP error" — messaging is gated until a provider is linked.
+        if (errorData?.code === 'NoProviderConnected' || errorData?.details?.action === 'connect_provider') {
+          setNeedsProvider(true);
+          setIsStreaming(false);
+          setStreamingContent('');
+          // The gate rejects before persisting, so drop the optimistic user
+          // bubble — it was never saved.
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+          return;
+        }
+        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
       }
 
       // Refresh messages to show the generated insight
@@ -936,6 +966,16 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     <div className="h-full flex bg-surface relative">
       {/* Main Content Area - conversations are now in Dashboard sidebar */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Providerless users hit a NoProviderConnected 403 on send; show the
+            connect-provider nudge (deep-links to Data Providers) instead of a
+            raw error. Rendered above both the welcome and conversation views so
+            it appears regardless of conversation state. Self-hides once a
+            provider is connected. */}
+        {needsProvider && (
+          <div className="px-4 md:px-6 pt-3">
+            <ConnectProviderBanner />
+          </div>
+        )}
         {!selectedConversation ? (
           /* Welcome View */
           <div className="flex-1 flex flex-col overflow-hidden">
