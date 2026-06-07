@@ -38,21 +38,23 @@ pub struct AcpMcpBridge {
 }
 
 impl AcpMcpBridge {
-    /// Build a bridge. `enabled` should mirror the Copilot Headless
-    /// `COPILOT_HEADLESS_MCP_TOOL_CALLING` toggle.
+    /// Build a bridge. `self_origin` is this server's own loopback origin
+    /// (e.g. `http://localhost:8081`) — the Copilot subprocess reaches `/mcp`
+    /// over loopback, not via the public `base_url`. `enabled` should mirror
+    /// the Copilot Headless `COPILOT_HEADLESS_MCP_TOOL_CALLING` toggle.
     #[must_use]
     pub fn new(
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
         repos: Arc<RepositoryRegistry>,
-        base_url: &str,
+        self_origin: &str,
         enabled: bool,
     ) -> Self {
         Self {
             auth_manager,
             jwks_manager,
             repos,
-            mcp_url: format!("{}/mcp", base_url.trim_end_matches('/')),
+            mcp_url: format!("{}/mcp", self_origin.trim_end_matches('/')),
             enabled,
         }
     }

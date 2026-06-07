@@ -361,11 +361,16 @@ impl ServerContext {
         // when set, ACP turns expose Dravr tools natively via the MCP bridge.
         let mcp_bridge_enabled = env::var("COPILOT_HEADLESS_MCP_TOOL_CALLING")
             .is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"));
+        // The Copilot ACP subprocess runs inside this container, so it reaches
+        // our MCP endpoint over loopback on the server's own HTTP port — NOT
+        // `base_url`, which is the public/front-end origin (used for OAuth
+        // redirects) and does not serve `/mcp`.
+        let mcp_self_url = format!("http://localhost:{}", self.common.config.http_port);
         let mcp_bridge: Option<Arc<dyn McpBridgeProvider>> = Some(Arc::new(AcpMcpBridge::new(
             self.auth.auth_manager.clone(),
             self.auth.jwks_manager.clone(),
             self.common.repos.clone(),
-            &self.common.config.base_url,
+            &mcp_self_url,
             mcp_bridge_enabled,
         )));
         pierre_chat_pipeline::ChatPipelineContext {

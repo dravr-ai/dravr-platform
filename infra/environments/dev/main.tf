@@ -258,6 +258,14 @@ module "backend" {
       PIERRE_LLM_TERTIARY_PROVIDER       = "cohere"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "command-a-03-2025"
 
+      # Route Copilot-headless tool turns through native MCP tool calling: the
+      # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
+      # (per-turn, tenant-scoped token), so the model calls Dravr tools natively
+      # over ACP instead of fragile text-based <tool_call> simulation. This both
+      # makes the headless provider advertise SDK_TOOL_CALLING and enables the
+      # per-turn MCP-bridge token minting.
+      COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"
+
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
 
