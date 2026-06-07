@@ -591,11 +591,14 @@ pub async fn run(
                     .await;
             }
             Err(err) => {
+                // Never surface raw internal error detail to the client — use
+                // the sanitized, per-code message (generic for internal/auth/db
+                // errors, specific only for safe classes like validation).
                 agui.sink
                     .emit(&AgUiEvent::run_error(
                         agui.run_id.clone(),
                         format!("{:?}", err.code),
-                        err.to_string(),
+                        err.sanitized_message(),
                     ))
                     .await;
             }

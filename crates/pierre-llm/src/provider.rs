@@ -638,6 +638,11 @@ impl ChatProvider {
     pub fn as_cli_provider(&self) -> Option<&CliLlmProvider> {
         match self {
             Self::Cli(p) => Some(p),
+            // A runtime-fallback Chain delegates its capabilities to the
+            // primary, so when the primary is a CLI provider (e.g. Copilot
+            // Headless with SDK tool calling), the headless tool loop must
+            // reach that runner through the wrapper. Unwrap to the primary.
+            Self::Chain { primary, .. } => primary.as_cli_provider(),
             _ => None,
         }
     }

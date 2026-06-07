@@ -588,8 +588,11 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                             yield Ok(Event::default().event("done").data(payload));
                         }
                         Err(err) => {
+                            // Log full detail server-side; send only the sanitized,
+                            // per-code message to the client (never raw internals).
                             warn!(error = %err, "SSE chat pipeline failed");
-                            let payload = json!({ "error": err.to_string() }).to_string();
+                            let payload =
+                                json!({ "error": err.sanitized_message() }).to_string();
                             yield Ok(Event::default().event("error").data(payload));
                         }
                     }
