@@ -219,7 +219,7 @@ pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", op
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.6.0", features = ["vision"], optional = true }
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.18.0", features = ["copilot-headless"], optional = true }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.0", features = ["copilot-headless"], optional = true }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
 pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
@@ -311,7 +311,7 @@ cron = "0.15.0"
 # PostHog capture API is called directly via the existing reqwest 0.12 dependency.
 
 [dev-dependencies]
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.18.0" }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.0" }
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "3b9ed38f9cc5e4a5cfef524d7cdae3182ec9b650" }
 tempfile = "3.26"
 serial_test = "3.4"

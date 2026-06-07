@@ -1505,8 +1505,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.18.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.18.0#bdb140ce284ec7bdbea3b08153212e0d3fa2a31f"
+version = "0.19.0"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.19.0#56b5bd0ea70067e3947e1326b46ee202fa34dfad"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",

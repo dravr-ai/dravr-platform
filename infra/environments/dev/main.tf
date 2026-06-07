@@ -266,6 +266,12 @@ module "backend" {
       # per-turn MCP-bridge token minting.
       COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"
 
+      # Copilot runs the MCP tool loop in Autopilot mode (call -> results ->
+      # synthesize in one turn), which makes individual ACP messages run longer
+      # than the 90s embacle default. Raise the per-message read timeout so the
+      # turn isn't cut off mid-synthesis.
+      EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "300"
+
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
 
