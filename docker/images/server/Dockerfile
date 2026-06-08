@@ -43,11 +43,22 @@ RUN ls -la target/release/pierre-mcp-server target/release/pierre-cli
 
 FROM --platform=linux/amd64 debian:trixie-slim
 
+# Cache-bust token for the apt layer below. The build uses a registry-backed
+# buildx cache, so the `apt-get upgrade` layer is otherwise reused verbatim
+# across builds even after Debian ships a security update — leaving patched
+# packages (notably chromium, which renders untrusted web content during
+# sciotte scraping) stale in the image. Bump this date whenever Trivy flags a
+# fixed base-package CVE to force a fresh `apt-get update && upgrade` that pulls
+# the patched version (e.g. chromium 149.0.7827.53 closes CVE-2026-10988/10989/
+# 10995/11102).
+ARG APT_SECURITY_EPOCH=2026-06-08
+
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
 # chromium + libs: required by dravr-sciotte (headless Chrome scraping via chromiumoxide)
-RUN apt-get update && apt-get upgrade -y \
+RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
+    && apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
     sqlite3 \
