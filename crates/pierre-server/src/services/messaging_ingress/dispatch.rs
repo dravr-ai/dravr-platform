@@ -168,14 +168,14 @@ fn render_coach_proposal_text(
     locale: &str,
 ) -> String {
     let count = coaches.len().to_string();
-    let mut body = match profile
+    let mut body = profile
         .primary_sport
         .as_deref()
         .filter(|_| profile.has_profile)
-    {
-        Some(primary) => registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[primary, &count]),
-        None => registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
-    };
+        .map_or_else(
+            || registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
+            |primary| registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[primary, &count]),
+        );
     for (index, proposed) in coaches.iter().enumerate() {
         let reason = if proposed.reason.is_empty() {
             String::new()
