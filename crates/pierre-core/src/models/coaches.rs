@@ -441,6 +441,22 @@ impl CoachFieldOverlay {
 const CHARS_PER_TOKEN: usize = 4;
 
 impl Coach {
+    /// Tag marking a coach as a coach-facing builder persona.
+    ///
+    /// Coaches carrying this tag (e.g. "Taper Builder", "Polarized Workout
+    /// Builder") are authored for professional coaches to generate plans, not
+    /// for athletes to chat with. They are surfaced only to users operating in
+    /// the [`CoachingPersona::Coach`](crate::models::CoachingPersona::Coach)
+    /// mode; athletes never see or get recommended them.
+    pub const COACH_TOOL_TAG: &'static str = "coach-tool";
+
+    /// Whether this coach is a coach-facing builder persona (see
+    /// [`Self::COACH_TOOL_TAG`]).
+    #[must_use]
+    pub fn is_coach_facing(&self) -> bool {
+        self.tags.iter().any(|tag| tag == Self::COACH_TOOL_TAG)
+    }
+
     /// Calculate section-aware token count when structured fields are available.
     ///
     /// Counted sections: `purpose`, `instructions`, `example_inputs`, `example_outputs`, `success_criteria`.

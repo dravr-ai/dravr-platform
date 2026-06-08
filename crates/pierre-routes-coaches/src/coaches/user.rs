@@ -24,7 +24,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachListItem, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter,
     UpdateCoachRequest,
 };
-use pierre_core::models::{SportProfile, TenantId};
+use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
@@ -65,6 +65,25 @@ fn chat_provider_from_ctx<C: CoachesCtx>(ctx: &Arc<C>) -> Result<Arc<ChatProvide
     ))
 }
 
+/// Whether the user may see coach-facing builder personas (coaches tagged
+/// [`Coach::COACH_TOOL_TAG`](pierre_core::models::coaches::Coach::COACH_TOOL_TAG)).
+///
+/// Only users operating in the [`CoachingPersona::Coach`] mode — professional
+/// coaches building plans for their athletes — get them. Athletes never see or
+/// get recommended a coach-facing builder.
+///
+/// Fails closed: any user-lookup error resolves to `false`, so a transient
+/// failure hides coach tools rather than leaking them to an athlete.
+async fn user_sees_coach_tools<C: MiddlewareCtx>(ctx: &Arc<C>, user_id: Uuid) -> bool {
+    MiddlewareCtx::repos(ctx.as_ref())
+        .users
+        .get_global(user_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|user| user.coaching_persona == CoachingPersona::Coach)
+}
+
 /// Handle GET /api/coaches - List coaches for a user
 pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
@@ -86,7 +105,19 @@ pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     };
 
     let coaches = manager.list(auth.user_id, tenant_id, &filter).await?;
-    let total = manager.count(auth.user_id, tenant_id).await?;
+
+    // Coach-facing builder personas are surfaced only to users in Coach mode;
+    // athletes never see them in their library. Drop them before any scoring so
+    // they can neither be recommended nor browsed.
+    let coaches: Vec<CoachListItem> = if user_sees_coach_tools(&ctx, auth.user_id).await {
+        coaches
+    } else {
+        coaches
+            .into_iter()
+            .filter(|item| !item.coach.is_coach_facing())
+            .collect()
+    };
+    let total = u32::try_from(coaches.len()).unwrap_or(u32::MAX);
 
     let check_prereqs = query.check_prerequisites.unwrap_or(false);
     let personalize = query.personalize.unwrap_or(false);
@@ -311,9 +342,16 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     };
     let items = manager.list(user_id, tenant_id, &filter).await?;
 
+    // Coach-facing builder personas are proposed only to users in Coach mode;
+    // an athlete never gets a coach-facing builder recommended.
+    let sees_coach_tools = user_sees_coach_tools(ctx, user_id).await;
+
     let mut eligible: Vec<(CoachListItem, f32)> = items
         .into_iter()
         .filter_map(|item| {
+            if !sees_coach_tools && item.coach.is_coach_facing() {
+                return None;
+            }
             let recommendation = coaches_service::score_coach(
                 &item.coach.prerequisites,
                 sport_profile.as_ref(),

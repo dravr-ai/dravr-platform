@@ -114,7 +114,6 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedSource, setSelectedSource] = useState<CoachSource>('all');
   const [showHidden, setShowHidden] = useState(false);
-  const [browseAllExpanded, setBrowseAllExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionMenuCoach, setActionMenuCoach] = useState<Coach | null>(null);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
@@ -519,9 +518,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     return ((tokens / CONTEXT_WINDOW_SIZE) * 100).toFixed(1);
   };
 
-  // System view splits into a curated "Recommended for you" set (driven by the
-  // backend match_score) plus a collapsible "Browse all". Other views (My
-  // Coaches, All) stay flat — match_score only applies to system coaches.
+  // System view surfaces only the curated "Recommended for you" set (driven by
+  // the backend match_score). Other views (My Coaches, All) stay flat —
+  // match_score only applies to system coaches, and the full catalog is
+  // reachable via the "All Sources" view.
   const showRecommendations =
     selectedSource === 'system' && filteredCoaches.some(c => c.recommended);
   const recommendedCoaches = showRecommendations
@@ -529,10 +529,6 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         .filter(c => c.recommended)
         .sort((a, b) => (b.match_score ?? 0) - (a.match_score ?? 0))
     : [];
-  const recommendedIds = new Set(recommendedCoaches.map(c => c.id));
-  const browseCoaches = showRecommendations
-    ? filteredCoaches.filter(c => !recommendedIds.has(c.id))
-    : filteredCoaches;
 
   // Renders a single coach card. Shared between the "Recommended for you" and
   // "Browse all" sections so the markup lives in exactly one place.
@@ -951,48 +947,14 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </Card>
         ) : (
           showRecommendations ? (
-            <>
-              {recommendedCoaches.length > 0 && (
-                <section className="mb-6">
-                  <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-3">
-                    Recommended for you
-                  </h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {recommendedCoaches.map(renderCoachCard)}
-                  </div>
-                </section>
-              )}
-              <section>
-                {recommendedCoaches.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setBrowseAllExpanded(v => !v)}
-                    className="flex items-center gap-2 text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-3 hover:text-on-surface transition-colors"
-                    aria-expanded={browseAllExpanded}
-                  >
-                    <svg
-                      className={clsx('w-4 h-4 transition-transform', browseAllExpanded && 'rotate-90')}
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    Browse all ({browseCoaches.length})
-                  </button>
-                ) : (
-                  <p className="text-sm text-on-surface-variant mb-3">
-                    Connect a fitness provider to get personalized coach picks.
-                  </p>
-                )}
-                {(browseAllExpanded || recommendedCoaches.length === 0) && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {browseCoaches.map(renderCoachCard)}
-                  </div>
-                )}
-              </section>
-            </>
+            <section>
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-3">
+                Recommended for you
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {recommendedCoaches.map(renderCoachCard)}
+              </div>
+            </section>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {filteredCoaches.map(renderCoachCard)}

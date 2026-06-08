@@ -12,6 +12,7 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
 use pierre_routes_coaches::coaches::ListCoachesResponse;
@@ -99,4 +100,58 @@ async fn personalize_absent_omits_recommendation_fields() {
 
     assert!(coach.match_score.is_none(), "no score without personalize");
     assert!(coach.recommended.is_none(), "no flag without personalize");
+}
+
+/// A coach carrying the `coach-tool` tag is a coach-facing builder: it stays
+/// hidden from a default (athlete) user's library and only appears once the
+/// user switches to the Coach persona. Gates the library list for both the
+/// `/api/coaches` and `/api/coaches/proposal` paths, which share the same
+/// `user_sees_coach_tools` filter.
+#[tokio::test]
+async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let token = generate_test_token(&resources, &user).await;
+    let auth = format!("Bearer {token}");
+    let db = resources.coach.database.clone();
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
+
+    // A coach-facing builder (carries the coach-tool tag).
+    let response = AxumTestRequest::post("/api/coaches")
+        .header("authorization", &auth)
+        .json(&json!({
+            "title": "Taper Builder",
+            "system_prompt": "You are a taper builder.",
+            "tags": ["coach-tool", "taper"],
+        }))
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+
+    // Athlete (default Casual persona) must not see the coach-facing builder.
+    let list: ListCoachesResponse = AxumTestRequest::get("/api/coaches")
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await
+        .json();
+    assert!(
+        !list.coaches.iter().any(|c| c.title == "Taper Builder"),
+        "athlete must not see a coach-facing builder"
+    );
+
+    // Switching to the Coach persona surfaces the builder.
+    db.repositories()
+        .users
+        .set_coaching_persona(user_id, CoachingPersona::Coach)
+        .await
+        .unwrap();
+    let list: ListCoachesResponse = AxumTestRequest::get("/api/coaches")
+        .header("authorization", &auth)
+        .send(router)
+        .await
+        .json();
+    assert!(
+        list.coaches.iter().any(|c| c.title == "Taper Builder"),
+        "Coach-persona user should see the coach-facing builder"
+    );
 }

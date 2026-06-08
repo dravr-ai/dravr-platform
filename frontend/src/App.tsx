@@ -11,6 +11,7 @@ import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingConnectProvider from './components/OnboardingConnectProvider';
 import OnboardingCoachProposal from './components/OnboardingCoachProposal';
+import OnboardingProfileType from './components/OnboardingProfileType';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import ConnectionBanner from './components/ConnectionBanner';
 import OAuthCallback from './components/OAuthCallback';
@@ -107,6 +108,16 @@ function AppContent() {
   useEffect(() => {
     setCoachProposalDone(coachProposalKey ? localStorage.getItem(coachProposalKey) === '1' : true);
   }, [coachProposalKey]);
+
+  // Profile-type step: a fresh, not-yet-connected user picks athlete vs coach
+  // before the connect-provider screen. Gated on `needs_provider_connection`
+  // (below) so an already-onboarded user never sees it, plus a per-user
+  // localStorage flag so it shows once within the first-run connect flow.
+  const profileTypeKey = user?.user_id ? `dravr.profile_type_chosen.${user.user_id}` : null;
+  const [profileTypeChosen, setProfileTypeChosen] = useState(false);
+  useEffect(() => {
+    setProfileTypeChosen(profileTypeKey ? localStorage.getItem(profileTypeKey) === '1' : true);
+  }, [profileTypeKey]);
 
   const [justOnboarded, setJustOnboarded] = useState(false);
   const prevNeedsProvider = useRef<boolean | undefined>(undefined);
@@ -299,6 +310,31 @@ function AppContent() {
   // spinner first races E2E tests against UI elements that don't render
   // until the query resolves, and a one-frame flash of dashboard chrome
   // before a redirect is acceptable on the first-login edge case.
+  // Profile-type onboarding step: first run, before the connect-provider gate.
+  // Only a fresh account (needs a provider) that hasn't chosen yet sees this —
+  // already-onboarded users (provider connected) skip straight past it.
+  if (
+    onboardingActive &&
+    onboardingStatus?.needs_provider_connection === true &&
+    !skippedOnboarding &&
+    profileTypeKey &&
+    !profileTypeChosen
+  ) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <ConnectionBanner />
+        <ImpersonationBanner />
+        <OnboardingProfileType
+          userDisplayName={user?.display_name}
+          onComplete={() => {
+            localStorage.setItem(profileTypeKey, '1');
+            setProfileTypeChosen(true);
+          }}
+        />
+      </div>
+    );
+  }
+
   if (onboardingStatus?.needs_provider_connection === true && !skippedOnboarding) {
     return (
       <div className="min-h-screen bg-surface">
