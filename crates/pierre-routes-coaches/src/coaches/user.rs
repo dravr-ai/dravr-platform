@@ -117,7 +117,10 @@ pub(super) async fn handle_list<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
             .filter(|item| !item.coach.is_coach_facing())
             .collect()
     };
-    let total = u32::try_from(coaches.len()).unwrap_or(u32::MAX);
+    // `total` is the user's global coach count (drives pagination) and stays
+    // independent of the per-page `coaches` view, which other query filters
+    // (favorites_only / category) and the coach-facing filter narrow.
+    let total = manager.count(auth.user_id, tenant_id).await?;
 
     let check_prereqs = query.check_prerequisites.unwrap_or(false);
     let personalize = query.personalize.unwrap_or(false);
