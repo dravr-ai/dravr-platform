@@ -26,7 +26,7 @@ import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import ShareChatMessageModal from './social/ShareChatMessageModal';
-import { useSuccessToast, useInfoToast } from './ui';
+import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import type { ChatVerdictRow } from '@pierre/api-client';
 import type {
@@ -127,6 +127,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const { token } = useAuth();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
+  const showErrorToast = useErrorToast();
   const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
@@ -252,6 +253,28 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       onSelectConversation(data.id);
       setPendingCoachId(null);
+    },
+    onError: (error) => {
+      setPendingCoachId(null);
+      // The server caps active conversations (max_active_conversations) and
+      // returns 429 QuotaExceeded once a user is at the limit. Without this the
+      // coach click silently did nothing — surface a clear, actionable message.
+      const apiError = error as {
+        response?: { status?: number; data?: { code?: string; details?: { limit?: number } } };
+      };
+      const res = apiError.response;
+      if (res?.status === 429 || res?.data?.code === 'QuotaExceeded') {
+        const limit = res?.data?.details?.limit;
+        showErrorToast(
+          'Conversation limit reached',
+          `You've reached your limit${limit ? ` of ${limit}` : ''} active conversations. Delete or archive one from the sidebar to start a new chat.`
+        );
+        return;
+      }
+      showErrorToast(
+        'Could not start chat',
+        'Something went wrong creating the conversation. Please try again.'
+      );
     },
   });
 
