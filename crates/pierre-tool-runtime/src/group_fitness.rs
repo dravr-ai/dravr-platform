@@ -112,7 +112,7 @@ fn time_overlap_seconds(a: &Activity, b: &Activity) -> Option<u64> {
 /// When a user connects multiple providers (e.g., Strava + Garmin), the same
 /// workout may appear from both sources. Implementations decide how to detect
 /// and resolve these overlaps.
-pub(crate) trait ActivityDeduplicator: Send + Sync {
+pub trait ActivityDeduplicator: Send + Sync {
     /// Remove duplicate activities, keeping the best version of each.
     fn deduplicate(&self, activities: Vec<Activity>) -> Vec<Activity>;
 }
@@ -122,14 +122,15 @@ pub(crate) trait ActivityDeduplicator: Send + Sync {
 /// Configuration loaded from environment:
 /// - `ACTIVITY_DEDUP_TIME_WINDOW_MINUTES` — max minutes between start times (default: 15)
 /// - `ACTIVITY_DEDUP_DISTANCE_TOLERANCE_PCT` — max distance difference percentage (default: 10)
-pub(crate) struct TimeWindowDeduplicator {
+pub struct TimeWindowDeduplicator {
     time_window_minutes: i64,
     distance_tolerance_pct: f64,
 }
 
 impl TimeWindowDeduplicator {
     /// Create from environment variables with defaults.
-    pub(crate) fn from_env() -> Self {
+    #[must_use]
+    pub fn from_env() -> Self {
         let time_window_minutes = env::var("ACTIVITY_DEDUP_TIME_WINDOW_MINUTES")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -857,10 +858,19 @@ async fn fetch_member_activities(
     if activity_cache_is_stale(&data, user_id, tenant_id, &providers, now).await {
         spawn_activity_revalidation(runtime, providers, user_id, tenant_id);
     }
+
+    // Dedup on read. Write-through persists each provider's activities under its
+    // own cache key, so a workout synced from two providers (e.g. Strava +
+    // sciotte/Garmin) is cached twice. The live-fetch path dedups before
+    // returning (see `AllProvidersMerge::fetch_and_merge`); the warm-cache path
+    // must do the same or cross-provider duplicates double-count in the snapshot.
+    let before_dedup = cached.len();
+    let cached = TimeWindowDeduplicator::from_env().deduplicate(cached);
     info!(
         user_id = %user_id,
-        cached = cached.len(),
-        "Snapshot: served activities from cache (stale-while-revalidate)"
+        before_dedup,
+        after_dedup = cached.len(),
+        "Snapshot: served activities from cache (stale-while-revalidate, deduplicated)"
     );
     cached
 }
