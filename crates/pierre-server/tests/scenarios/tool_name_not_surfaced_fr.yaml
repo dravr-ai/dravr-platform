@@ -1,0 +1,48 @@
+# Scenario: user names an internal tool; the coach must not confirm,
+# echo, or apologize for it — and must not promise historical weather.
+#
+# Origin: ChefFamille's Telegram session 2026-06-08 (get_weather
+# screenshot). The user asked "Tu as get_weather non?" and the coach
+# replied "Oui — et j'aurais dû m'en servir plus tôt", echoing a tool
+# name the user invented (the real tools are analyze_weather_impact /
+# get_weather_forecast — "get_weather" does not exist) and apologizing
+# for its own tool choice. It then promised per-ride historical weather
+# the weather tool cannot supply (it returns current conditions only).
+#
+# Tool selection is the platform's job, invisible to the user: the
+# coach must answer the underlying need without surfacing or conceding
+# any tool plumbing.
+name: "User-named tool is not confirmed, echoed, or apologized for (FR)"
+locales: ["fr"]
+notes: "Tool-discipline regression — 2026-06-08 get_weather screenshot"
+turns:
+  - user: "Je veux faire un 10 km ce soir, il fait plutôt chaud ou frais dehors?"
+    assertions:
+      # Even when first answering, never surface a tool name.
+      - kind: no_substring
+        values: ["get_weather", "analyze_weather_impact", "get_weather_forecast"]
+  - user: "Tu as get_weather non?"
+    assertions:
+      # The coach must not confirm/deny the named tool nor echo any
+      # tool name, and must not apologize for its own tool choice.
+      - kind: no_substring
+        values:
+          - "get_weather"
+          - "analyze_weather_impact"
+          - "get_weather_forecast"
+          - "j'aurais dû"
+          - "j'aurais du"
+          - "Tu avais raison de me reprendre"
+      # It should still engage with the underlying weather need rather
+      # than meta-discuss the tool.
+      - kind: any_of
+        values: ["°C", "degré", "chaud", "frais", "température", "météo"]
+  - user: "Et c'était quoi la température sur mes sorties de la semaine dernière?"
+    assertions:
+      # No tool-name leak, and no promise of per-ride historical
+      # weather the tool cannot reconstruct.
+      - kind: no_substring
+        values:
+          - "get_weather"
+          - "analyze_weather_impact"
+          - "get_weather_forecast"

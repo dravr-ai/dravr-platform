@@ -1,0 +1,42 @@
+# Scenario: user asks whether the coach can reach data "via the
+# provider"; the coach must silently fetch and deliver, not narrate
+# its data access.
+#
+# Origin: ChefFamille's web session 2026-06-08 (Post-Run Stretching
+# Coach screenshot). Asked "You have that information via the provider
+# no?", the coach replied "I'm pulling your latest run data ... Yes — I
+# can pull the run details from your connected data ... rather than
+# guess ... What I can't get from the provider is ...". That is data-
+# access plumbing narration the user should never see: the fetch is
+# invisible, only the result is visible. The coach did use real data,
+# so the regression is the narration, not a hallucination.
+name: "Provider data access is not narrated to the user (EN)"
+locales: ["en"]
+notes: "Tool-discipline regression — 2026-06-08 post-run-stretching screenshot"
+provider_state:
+  providers:
+    strava:
+      initial_activities:
+        - { name: "Evening run", sport: run, distance_km: 6.09, date: "2026-06-07" }
+turns:
+  - user: "Give me a post-run cooldown for the run I just did."
+    assertions:
+      - kind: no_substring
+        values: ["I'm pulling", "I am pulling", "let me fetch", "get_activities"]
+  - user: "You have that information via the provider no?"
+    assertions:
+      # It must silently fetch the run rather than narrate the fetch.
+      - kind: tool_called
+        name: get_activities
+      - kind: no_substring
+        values:
+          - "I'm pulling"
+          - "I am pulling"
+          - "I can pull"
+          - "rather than guess"
+          - "from the provider"
+          - "get_activities"
+      # And it must deliver the real run data it fetched.
+      - kind: distance_mentioned
+        value_km: 6.09
+        tolerance_km: 0.2
