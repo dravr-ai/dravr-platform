@@ -96,7 +96,8 @@ async fn create_test_db() -> SqlitePool {
             finish_reason TEXT,
             created_at TEXT NOT NULL,
             prompt_tokens INTEGER,
-            model TEXT
+            model TEXT,
+            structured_content TEXT
         )
         ",
     )
