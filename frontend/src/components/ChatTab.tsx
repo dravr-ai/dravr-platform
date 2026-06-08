@@ -1151,7 +1151,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageActions={messageActions}
                 insightMessageIds={new Set<string>()}
                 verdicts={verdicts}
-                assistantLabel={activeCoachTitle ?? undefined}
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}
                 streamingContent={streamingContent}
