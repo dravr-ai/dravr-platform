@@ -380,6 +380,9 @@ pub struct SeedCoach {
     pub startup_query: Option<String>,
     /// JSON-serialized data requirements for deterministic pre-fetching
     pub data_requirements: Option<String>,
+    /// Structured-output schema identifier (e.g. `"structured-workout"`) the
+    /// coach emits, or `None` for free-text coaches
+    pub output_schema: Option<String>,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
     /// Record update timestamp

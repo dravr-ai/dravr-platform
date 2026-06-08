@@ -40,6 +40,8 @@ pub mod prefetch;
 pub mod prompt_assembly;
 pub mod prompt_builder;
 pub mod refresh;
+/// Structured-output extraction + schema validation for builder coaches.
+pub mod structured_output;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
 #[cfg(feature = "tools-verification")]

@@ -34,6 +34,7 @@ fn sample_coach() -> Coach {
         temperature: None,
         startup_query: None,
         data_requirements: None,
+        output_schema: None,
         purpose: Some("Build strength base for endurance athletes.".to_owned()),
         when_to_use: None,
         instructions: Some("When asked, explain periodization…".to_owned()),

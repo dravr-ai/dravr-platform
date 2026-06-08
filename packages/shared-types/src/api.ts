@@ -37,6 +37,12 @@ export interface Message {
   content: string;
   token_count?: number;
   created_at: string;
+  /**
+   * Schema-validated structured payload (JSON string) extracted from a
+   * builder-coach reply (e.g. a structured-workout plan). When present,
+   * clients render it as a rich card instead of the raw text.
+   */
+  structured_content?: string;
   /** Model used for assistant messages */
   model?: string;
   /** Execution time in milliseconds */

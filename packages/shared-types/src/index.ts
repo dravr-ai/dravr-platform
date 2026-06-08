@@ -121,6 +121,21 @@ export type {
   ListResponse,
 } from './api.js';
 
+// Structured-workout plan types (builder-coach plan cards)
+export type {
+  WorkoutRange,
+  WorkoutPlanWindow,
+  WorkoutCompliance,
+  WorkoutBlockType,
+  WorkoutBlock,
+  WorkoutSession,
+  WorkoutDayName,
+  WorkoutDay,
+  WorkoutWeek,
+  WorkoutPlan,
+} from './workout-plan.js';
+export { parseWorkoutPlan } from './workout-plan.js';
+
 // Notification types (push notifications, device tokens, preferences)
 export type {
   NotificationCategory,

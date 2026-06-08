@@ -49,6 +49,14 @@ pub struct CoachStartup {
     /// and injects it as context before the startup query runs.
     #[serde(default)]
     pub data_requirements: Option<DataRequirements>,
+
+    /// Identifier of the structured output schema this coach emits (e.g.
+    /// `"structured-workout"`). When present, the chat pipeline appends the
+    /// structured-output contract to the system prompt, extracts the JSON
+    /// object from the reply, validates it against the schema, and renders it
+    /// as a plan card instead of leaking raw JSON to the user.
+    #[serde(default)]
+    pub output_schema: Option<String>,
 }
 
 /// Type of relationship between coaches

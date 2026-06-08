@@ -9,9 +9,11 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
 import type { ChatVerdictRow } from '@pierre/api-client';
+import { parseWorkoutPlan } from '@pierre/shared-types';
 import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } from './types';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
+import WorkoutPlanCard from './WorkoutPlanCard';
 
 interface MessageItemProps {
   message: Message;
@@ -134,6 +136,13 @@ const MessageItem = memo(function MessageItem({
   // When an activity list is present, strip it from the displayed content (for old baked-in messages)
   const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;
 
+  // Builder-coach replies carry a schema-validated plan in structured_content;
+  // render it as a card instead of the raw JSON/text.
+  const workoutPlan = useMemo(
+    () => parseWorkoutPlan(message.structured_content),
+    [message.structured_content],
+  );
+
   const messageVerdicts = useMemo(
     () => (verdicts ?? []).filter((v) => v.message_id === message.id),
     [verdicts, message.id],
@@ -173,20 +182,23 @@ const MessageItem = memo(function MessageItem({
             </div>
           </details>
         )}
-        <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
-          <Markdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              a: ({ href, children }) => (
-                <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">
-                  {children}
-                </a>
-              ),
-            }}
-          >
-            {linkifyUrls(content)}
-          </Markdown>
-        </div>
+        {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
+        {(!workoutPlan || content.trim().length > 0) && (
+          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ href, children }) => (
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {linkifyUrls(content)}
+            </Markdown>
+          </div>
+        )}
         {/* Command action buttons (e.g. per-coach select on /coach).
             Rendered below the message body; clicking sends the button's
             postback value as the user's next turn, flowing through the

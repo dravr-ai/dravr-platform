@@ -90,6 +90,7 @@ impl CoachesManager {
             temperature: None,
             startup_query: None,
             data_requirements: None,
+            output_schema: None,
             purpose: None,
             when_to_use: None,
             instructions: None,

@@ -172,6 +172,14 @@ pub struct ChatPipelineContext {
     pub tool_discipline_prompt: String,
     /// Tool-discipline prompt for messaging channels.
     pub tool_discipline_messaging_prompt: String,
+    /// Output-contract directive appended to the system prompt for coaches
+    /// that declare an `output_schema` (JSON-only plan, prose refusal, no
+    /// process narration).
+    pub structured_output_prompt: String,
+    /// JSON Schema text for the structured-workout plan contract. Compiled
+    /// once and used to validate builder-coach replies before they are
+    /// persisted as `structured_content`.
+    pub structured_output_schema: String,
     /// Memory extraction system prompt (used by Tier 2 background extraction).
     pub memory_extraction_prompt: String,
     /// Optional MCP bridge — mints the per-turn MCP servers an ACP provider
@@ -318,6 +326,7 @@ async fn run_recovery_and_post_process(
             content: mem::take(&mut result.content),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
+            structured_content: None,
         };
     }
 
@@ -481,6 +490,7 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     finish_reason: None,
                     prompt_tokens: None,
                     model: None,
+                    structured_content: None,
                 };
                 if let Err(e) = chat.add_message(&params).await {
                     warn!("Failed to persist tool_call message: {e}");
@@ -498,6 +508,7 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     finish_reason: None,
                     prompt_tokens: None,
                     model: None,
+                    structured_content: None,
                 };
                 if let Err(e) = chat.add_message(&params).await {
                     warn!("Failed to persist tool_result message: {e}");
@@ -720,6 +731,7 @@ async fn run_turn(
     )
     .await;
     result.content = post_processed.content;
+    let structured_content = post_processed.structured_content;
 
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -734,6 +746,7 @@ async fn run_turn(
         finish_reason: result.finish_reason.as_deref(),
         prompt_tokens,
         model: Some(&active_model),
+        structured_content: structured_content.as_deref(),
     };
     let (assistant_message, updated_conversation) =
         persist_assistant_response(database, &assistant_params, input.conversation_tenant_id)

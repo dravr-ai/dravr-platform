@@ -315,6 +315,11 @@ pub struct Coach {
     /// Structured data requirements for deterministic activity pre-fetching
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_requirements: Option<DataRequirements>,
+    /// Structured-output schema identifier (e.g. `"structured-workout"`) the
+    /// coach emits. When set, replies are extracted, schema-validated, and
+    /// rendered as a structured card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<String>,
 
     // -- Structured sections (populated for system coaches and structured user coaches) --
     /// Coach purpose/description extracted from ## Purpose section

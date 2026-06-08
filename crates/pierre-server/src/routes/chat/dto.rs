@@ -118,6 +118,10 @@ pub struct MessageResponse {
     pub content: String,
     /// Token count
     pub token_count: Option<i64>,
+    /// Schema-validated structured payload (e.g. a workout plan) rendered as a
+    /// rich card by clients. Present only for builder-coach replies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<String>,
     /// Creation timestamp
     pub created_at: String,
 }

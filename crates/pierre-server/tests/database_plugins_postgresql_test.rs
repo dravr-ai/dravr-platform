@@ -603,6 +603,7 @@ async fn test_pg_chat_messages() {
         finish_reason: None,
         prompt_tokens: None,
         model: None,
+        structured_content: None,
     };
     let msg1 = repos
         .chat
@@ -623,6 +624,7 @@ async fn test_pg_chat_messages() {
         finish_reason: Some("stop"),
         prompt_tokens: None,
         model: None,
+        structured_content: None,
     };
     let msg2 = repos
         .chat

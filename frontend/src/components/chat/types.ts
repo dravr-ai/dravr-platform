@@ -12,6 +12,8 @@ export interface Message {
   content: string;
   token_count?: number;
   created_at: string;
+  /** Schema-validated structured payload (e.g. a workout plan) JSON string. */
+  structured_content?: string;
   isError?: boolean;
 }
 

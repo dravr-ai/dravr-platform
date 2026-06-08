@@ -171,6 +171,10 @@ pub struct CoachRuntimeContext {
     pub startup_query: Option<String>,
     /// Optional JSON-encoded data requirements for deterministic pre-fetch
     pub data_requirements: Option<String>,
+    /// Optional structured-output schema identifier (e.g. `"structured-workout"`).
+    /// When set, the pipeline appends the structured-output contract to the
+    /// system prompt and extracts/validates/renders the emitted plan JSON.
+    pub output_schema: Option<String>,
     /// Optional per-coach override for max tool-call iterations per turn
     pub max_tool_iterations: Option<i32>,
     /// Optional per-coach LLM sampling temperature override. `None` → use
@@ -201,6 +205,10 @@ pub struct MessageRecord {
     pub model: Option<String>,
     /// Finish reason for assistant messages
     pub finish_reason: Option<String>,
+    /// Validated structured payload extracted from an assistant reply (e.g. a
+    /// `structured-workout` plan JSON). When present, clients render it as a
+    /// rich card instead of the raw text. JSON-encoded string.
+    pub structured_content: Option<String>,
     /// When the message was created (ISO 8601)
     pub created_at: String,
 }
@@ -248,4 +256,7 @@ pub struct AddMessageParams<'a> {
     pub prompt_tokens: Option<u32>,
     /// LLM model identifier used for this message
     pub model: Option<&'a str>,
+    /// Validated structured payload (e.g. a `structured-workout` plan JSON)
+    /// extracted from the reply, persisted alongside the message text.
+    pub structured_content: Option<&'a str>,
 }

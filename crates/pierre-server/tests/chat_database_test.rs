@@ -412,6 +412,7 @@ async fn test_add_message() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -452,6 +453,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             finish_reason: Some("STOP"),
             prompt_tokens: Some(20),
             model: Some("gemini-1.5-flash"),
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -492,6 +494,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -506,6 +509,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -520,6 +524,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -567,6 +572,7 @@ async fn test_get_recent_messages() {
                 finish_reason: None,
                 prompt_tokens: None,
                 model: None,
+                structured_content: None,
             })
             .await
             .unwrap();
@@ -617,6 +623,7 @@ async fn test_message_updates_conversation_tokens() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -631,6 +638,7 @@ async fn test_message_updates_conversation_tokens() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -682,6 +690,7 @@ async fn test_get_message_count() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -696,6 +705,7 @@ async fn test_get_message_count() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -737,6 +747,7 @@ async fn test_cascade_delete_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -751,6 +762,7 @@ async fn test_cascade_delete_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -866,6 +878,7 @@ async fn test_persist_tool_round_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -884,6 +897,7 @@ async fn test_persist_tool_round_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -899,6 +913,7 @@ async fn test_persist_tool_round_messages() {
             finish_reason: Some("stop"),
             prompt_tokens: Some(150),
             model: Some("gemini-1.5-flash"),
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -946,6 +961,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -961,6 +977,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();
@@ -977,6 +994,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            structured_content: None,
         })
         .await
         .unwrap();

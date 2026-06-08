@@ -23,6 +23,7 @@ fn record(role: &str, content: &str) -> MessageRecord {
         prompt_tokens: None,
         model: None,
         finish_reason: None,
+        structured_content: None,
         created_at: "2026-05-15T15:10:00Z".to_owned(),
     }
 }

@@ -18,6 +18,7 @@ use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{check_reply_conformance, enforce_conformance};
 use super::prompt_assembly::resolve_user_persona;
+use super::structured_output;
 #[cfg(feature = "tools-verification")]
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
@@ -37,6 +38,10 @@ pub(crate) struct PostProcessedReply {
     /// when the verification feature is disabled.
     #[cfg(feature = "tools-verification")]
     pub pending_verdicts: Vec<(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)>,
+    /// Schema-validated structured payload (e.g. a workout plan) extracted
+    /// from a builder-coach reply. `Some` only when the coach declares an
+    /// `output_schema` and the reply validates against it.
+    pub structured_content: Option<String>,
 }
 
 /// Run post-LLM content processing over the raw assistant reply.
@@ -52,9 +57,7 @@ pub(crate) async fn post_process_assistant_reply(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
-    #[cfg_attr(not(feature = "tools-verification"), allow(unused_variables))] coach_ctx: Option<
-        &CoachRuntimeContext,
-    >,
+    coach_ctx: Option<&CoachRuntimeContext>,
     prompt_guard: &prompt_leak::PromptGuard,
     raw_content: String,
     hooks: &PipelineHooks<'_>,
@@ -66,6 +69,28 @@ pub(crate) async fn post_process_assistant_reply(
         input.conversation_tenant_id,
         conv.coach_id.as_deref(),
     );
+
+    // Stage 15.5: Structured-output extraction. Builder coaches emit a
+    // schema-validated JSON plan, not prose — extract and validate it from the
+    // RAW reply before the prose stages below (guardrails, acronym expansion,
+    // conformance) can truncate or rewrite the JSON. On a valid plan the prose
+    // stages are skipped: the payload is rendered as a card, not glossed text.
+    // A coach that refuses replies in prose, so extraction returns `None` and
+    // the normal path runs.
+    if let Some(schema_id) = coach_ctx.and_then(|c| c.output_schema.as_deref()) {
+        if let Some(extraction) = structured_output::extract_structured_plan(
+            Some(schema_id),
+            &ctx.structured_output_schema,
+            &raw_content,
+        ) {
+            return PostProcessedReply {
+                content: extraction.cleaned_text,
+                #[cfg(feature = "tools-verification")]
+                pending_verdicts: Vec::new(),
+                structured_content: Some(extraction.structured_content),
+            };
+        }
+    }
 
     // Stage 16: Tier 6 text guardrails.
     let locale_opt = input.locale.as_deref();
@@ -136,5 +161,6 @@ pub(crate) async fn post_process_assistant_reply(
         content,
         #[cfg(feature = "tools-verification")]
         pending_verdicts,
+        structured_content: None,
     }
 }

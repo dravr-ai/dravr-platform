@@ -19,6 +19,8 @@ import { Alert, Share } from 'react-native';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
+import { parseWorkoutPlan } from '@pierre/shared-types';
+import WorkoutPlanCard from './WorkoutPlanCard';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -353,6 +355,8 @@ export function MessageList({
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
+    // Builder-coach replies carry a schema-validated plan; render a card.
+    const workoutPlan = isUser ? null : parseWorkoutPlan(item.structured_content);
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
@@ -376,7 +380,15 @@ export function MessageList({
           <View
             className={`w-full ${isError ? 'bg-error/10 rounded-xl p-3 border border-error/30' : ''}`}
           >
-            {renderMessageContent(item.content, false, item.id)}
+            {workoutPlan ? (
+              <>
+                <WorkoutPlanCard plan={workoutPlan} />
+                {item.content.trim().length > 0 &&
+                  renderMessageContent(item.content, false, item.id)}
+              </>
+            ) : (
+              renderMessageContent(item.content, false, item.id)
+            )}
           </View>
         )}
         {/* Slash-command action buttons (e.g. per-coach select on /coach).

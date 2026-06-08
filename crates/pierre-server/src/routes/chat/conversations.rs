@@ -345,6 +345,7 @@ pub async fn get_messages(
             role: m.role,
             content: m.content,
             token_count: m.token_count,
+            structured_content: m.structured_content,
             created_at: m.created_at,
         })
         .collect();

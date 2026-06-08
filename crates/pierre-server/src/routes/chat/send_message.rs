@@ -371,6 +371,7 @@ pub async fn send_message(
             role: dispatch.user_message.role.clone(),
             content: dispatch.user_message.content.clone(),
             token_count: dispatch.user_message.token_count,
+            structured_content: None,
             created_at: dispatch.user_message.created_at,
         },
         assistant_message: MessageResponse {
@@ -378,6 +379,7 @@ pub async fn send_message(
             role: dispatch.assistant_message.role.clone(),
             content: dispatch.assistant_message.content.clone(),
             token_count: dispatch.assistant_message.token_count,
+            structured_content: dispatch.assistant_message.structured_content.clone(),
             created_at: dispatch.assistant_message.created_at,
         },
         conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -548,6 +550,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     role: dispatch.user_message.role.clone(),
                                     content: dispatch.user_message.content.clone(),
                                     token_count: dispatch.user_message.token_count,
+                                    structured_content: None,
                                     created_at: dispatch.user_message.created_at,
                                 },
                                 assistant_message: MessageResponse {
@@ -555,6 +558,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     role: dispatch.assistant_message.role.clone(),
                                     content: dispatch.assistant_message.content.clone(),
                                     token_count: dispatch.assistant_message.token_count,
+                                    structured_content: dispatch.assistant_message.structured_content.clone(),
                                     created_at: dispatch.assistant_message.created_at,
                                 },
                                 conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -767,6 +771,7 @@ async fn try_handle_chat_command(
             role: "user".to_owned(),
             content: request.content.clone(),
             token_count: None,
+            structured_content: None,
             created_at: now.clone(),
         },
         assistant_message: MessageResponse {
@@ -774,6 +779,7 @@ async fn try_handle_chat_command(
             role: "assistant".to_owned(),
             content: body_text,
             token_count: None,
+            structured_content: None,
             created_at: now,
         },
         conversation_updated_at: conversation.updated_at,

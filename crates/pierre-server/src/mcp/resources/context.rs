@@ -25,6 +25,8 @@ use super::slices::{
 };
 use super::ServerContextBuilder;
 #[cfg(feature = "provider-sciotte")]
+use dravr_contremaitre::schemas::STRUCTURED_WORKOUT_SCHEMA;
+use dravr_contremaitre::system::STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE;
 use dravr_sciotte::config::{LoginMode, ScraperConfig};
 #[cfg(feature = "provider-sciotte")]
 use embacle::types::LlmProvider as EmbacleLlmProvider;
@@ -399,6 +401,8 @@ impl ServerContext {
             pierre_system_prompt: self.pierre_system_prompt(),
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
+            structured_output_prompt: STRUCTURED_OUTPUT_DIRECTIVE.to_owned(),
+            structured_output_schema: STRUCTURED_WORKOUT_SCHEMA.to_owned(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
         }

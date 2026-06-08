@@ -101,6 +101,7 @@ pub async fn persist_user_message(
         finish_reason: None,
         prompt_tokens: None,
         model: None,
+        structured_content: None,
     };
     let message = database.add_message(&user_msg_params).await?;
 
