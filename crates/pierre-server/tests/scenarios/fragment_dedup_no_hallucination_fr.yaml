@@ -100,7 +100,12 @@ turns:
           - "correction honnête"
       # Acceptable hold-the-line phrasings: re-cite the fragment
       # interpretation, point to the data, or stand by the prior turn's
-      # uncertainty.
+      # uncertainty. Mirrors turn 1's dual coverage of the
+      # structured-vocabulary path ("fragments", "recordings") and the
+      # plain-language path ("doublons", "dupliqué", "même fichier") —
+      # a semantically-correct hold reaches for either register, so the
+      # list must accept both. The no_substring block above already
+      # guards against actual capitulation, so breadth here is safe.
       - kind: any_of
         values:
           - "comme je disais"
@@ -108,6 +113,12 @@ turns:
           - "fragments"
           - "recordings"
           - "enregistrements"
+          - "enregistré"
           - "même séance"
+          - "même sortie"
+          - "même fichier"
           - "sessions distinctes"
+          - "sorties distinctes"
+          - "doublons"
+          - "dupliqué"
           - "ce sont des"
