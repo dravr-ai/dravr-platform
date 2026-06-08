@@ -18,6 +18,7 @@ use pierre_database::repositories::CreateChannelLinkParams;
 use pierre_services::coaches::{
     build_rerank_user_prompt, parse_rerank_response, ProposalCandidate,
 };
+use sqlx::{Row, SqlitePool};
 
 mod common;
 
@@ -136,7 +137,8 @@ fn build_prompt_includes_profile_candidates_and_cap() {
         ),
     ];
 
-    let prompt = build_rerank_user_prompt("Trains primarily run; 40 activities.", &candidates, 3);
+    let prompt =
+        build_rerank_user_prompt("Trains primarily run; 40 activities.", &candidates, 3, "en");
 
     assert!(prompt.contains("Trains primarily run"));
     assert!(prompt.contains("coach-1"));
@@ -144,6 +146,29 @@ fn build_prompt_includes_profile_candidates_and_cap() {
     assert!(prompt.contains("Use for marathon build phases."));
     assert!(prompt.contains("coach-2"));
     assert!(prompt.contains("at most 3"));
+    // The locale drives the rationale language directive so reasons match the
+    // user's conversation language instead of defaulting to English.
+    assert!(prompt.contains("Write each \"reason\" in English."));
+}
+
+#[test]
+fn build_prompt_localizes_reason_directive() {
+    let candidates = vec![candidate(
+        "coach-1",
+        "Marathon Coach",
+        "Use for marathon builds.",
+    )];
+
+    let fr = build_rerank_user_prompt("Court surtout; 40 activités.", &candidates, 3, "fr");
+    assert!(fr.contains("Write each \"reason\" in French."));
+
+    // Unrecognized locales fall back to French, matching the messaging-strings
+    // registry's default-locale behavior.
+    let other = build_rerank_user_prompt("profile", &candidates, 3, "it");
+    assert!(other.contains("Write each \"reason\" in French."));
+
+    let es = build_rerank_user_prompt("perfil", &candidates, 3, "es-MX");
+    assert!(es.contains("Write each \"reason\" in Spanish."));
 }
 
 /// The messaging auto-send idempotency flag must round-trip on a real link:
@@ -219,5 +244,91 @@ async fn coach_proposal_flag_round_trips() {
             .await
             .unwrap(),
         "the flag must be scoped to the exact channel_user_id"
+    );
+}
+
+/// The exact backfill migration SQL, so the test exercises the shipped
+/// statement rather than a paraphrase that could drift from it.
+const BACKFILL_MIGRATION_SQL: &str =
+    include_str!("../../../migrations/20260608000003_backfill_coach_proposal_predating_links.sql");
+
+/// Read a single link's `coach_proposal_sent_at` (NULL ⇒ `None`).
+async fn proposal_sent_at(pool: &SqlitePool, id: &str) -> Option<String> {
+    sqlx::query("SELECT coach_proposal_sent_at FROM messaging_channel_links WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .get::<Option<String>, _>("coach_proposal_sent_at")
+}
+
+/// The backfill stamps only links that predate the proposal feature
+/// (`linked_at < 2026-06-05`) and were not already stamped. Links created on
+/// or after the cutoff stay NULL so they receive the proposal normally, and
+/// already-stamped links keep their original timestamp.
+#[tokio::test]
+async fn backfill_stamps_only_links_predating_the_feature() {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query(
+        "CREATE TABLE messaging_channel_links (
+            id                     TEXT NOT NULL PRIMARY KEY,
+            linked_at              TEXT NOT NULL,
+            coach_proposal_sent_at TEXT
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // (id, linked_at, coach_proposal_sent_at)
+    let rows = [
+        ("old-unstamped", "2026-06-01T10:00:00Z", None),
+        ("new-unstamped", "2026-06-07T10:00:00Z", None),
+        ("on-cutoff", "2026-06-05T00:00:00Z", None),
+        (
+            "old-already-stamped",
+            "2026-06-01T10:00:00Z",
+            Some("2026-06-06T09:00:00Z"),
+        ),
+    ];
+    for (id, linked_at, sent_at) in rows {
+        sqlx::query(
+            "INSERT INTO messaging_channel_links (id, linked_at, coach_proposal_sent_at) VALUES (?, ?, ?)",
+        )
+        .bind(id)
+        .bind(linked_at)
+        .bind(sent_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    sqlx::query(BACKFILL_MIGRATION_SQL)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A link that predates the feature and was unstamped is now stamped.
+    assert!(
+        proposal_sent_at(&pool, "old-unstamped").await.is_some(),
+        "a link linked before the feature must be backfilled as proposed"
+    );
+    // A link created after the feature is left NULL: it still gets the proposal.
+    assert!(
+        proposal_sent_at(&pool, "new-unstamped").await.is_none(),
+        "a link linked after the feature must keep receiving the proposal"
+    );
+    // The cutoff is exclusive — a link linked exactly on the feature date is new.
+    assert!(
+        proposal_sent_at(&pool, "on-cutoff").await.is_none(),
+        "the cutoff is exclusive; an on-date link must keep receiving the proposal"
+    );
+    // An already-stamped old link keeps its original timestamp (not re-stamped).
+    assert_eq!(
+        proposal_sent_at(&pool, "old-already-stamped")
+            .await
+            .as_deref(),
+        Some("2026-06-06T09:00:00Z"),
+        "an already-stamped link must keep its original timestamp"
     );
 }

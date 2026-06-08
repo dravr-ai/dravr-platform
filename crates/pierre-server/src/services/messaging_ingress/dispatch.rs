@@ -22,7 +22,11 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
-use pierre_contremaitre::messaging_strings::{format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC};
+use pierre_contremaitre::messaging_strings::{
+    format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
+    KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
+    KEY_ERROR_GENERIC,
+};
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
@@ -81,8 +85,9 @@ async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch) {
 /// Decide whether to auto-send and, if so, build the outbound proposal message.
 ///
 /// Returns `None` when the proposal was already sent (or the idempotency read
-/// errored — fail closed), when the build fails, or when no coaches are eligible
-/// yet (cold start). In the cold-start case the link is intentionally left
+/// errored — fail closed), when the user already has an active coach (they are
+/// past onboarding), when the build fails, or when no coaches are eligible yet
+/// (cold start). In the cold-start case the link is intentionally left
 /// un-stamped so a later turn can propose once activities sync.
 async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<OutgoingMessage> {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
@@ -99,10 +104,30 @@ async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<Outg
         return None;
     }
 
+    // Never onboard a user who already has an active coach. The idempotency
+    // flag alone is insufficient: a user can acquire a coach on the web before
+    // ever receiving a messaging proposal, leaving the flag NULL — and the
+    // "Welcome!" lead-in is jarring for someone mid-plan. Re-checked each turn
+    // (cheap, indexed); left un-stamped so a transient read error can't
+    // permanently suppress a genuinely new user's proposal.
+    let has_active_coach = dispatch
+        .resources
+        .common
+        .repos
+        .coaches
+        .get_active_coach(dispatch.auth_result.user_id, dispatch.user_tenant_id)
+        .await
+        .map(|coach| coach.is_some())
+        .unwrap_or(true); // fail closed: never onboard a possibly-coached user
+    if has_active_coach {
+        return None;
+    }
+
     let (profile, coaches) = build_coach_proposal(
         &dispatch.resources,
         dispatch.auth_result.user_id,
         dispatch.user_tenant_id,
+        &dispatch.locale,
     )
     .await
     .inspect_err(|e| warn!(error = %e, "coach proposal: build failed; skipping"))
@@ -112,12 +137,16 @@ async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<Outg
         return None;
     }
 
+    let body = render_coach_proposal_text(
+        &profile,
+        &coaches,
+        &dispatch.resources.mcp.messaging_strings_registry,
+        &dispatch.locale,
+    );
     Some(OutgoingMessage {
         channel_type: dispatch.channel_type,
         recipient_id: dispatch.sender_id.clone(),
-        content: MessageContent::Text {
-            body: render_coach_proposal_text(&profile, &coaches),
-        },
+        content: MessageContent::Text { body },
         // A fresh turn id: the proposal is a proactive message, not a reply to
         // the user's inbound turn.
         turn_id: CanotTurnId::new(),
@@ -128,17 +157,24 @@ async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<Outg
 
 /// Render the onboarding coach proposal as a channel text message: a short
 /// profile-aware lead-in, then a numbered list of `title — reason` lines.
-fn render_coach_proposal_text(profile: &SportProfileSummary, coaches: &[ProposedCoach]) -> String {
-    let plural = if coaches.len() == 1 { "" } else { "es" };
-    let mut body = if profile.has_profile {
-        let primary = profile.primary_sport.as_deref().unwrap_or("your training");
-        format!("Welcome! Based on your recent {primary} training, here are {n} coach{plural} for you:\n\n", n = coaches.len())
-    } else {
-        format!(
-            "Welcome! Here {verb} {n} coach{plural} to get you started:\n\n",
-            verb = if coaches.len() == 1 { "is" } else { "are" },
-            n = coaches.len(),
-        )
+///
+/// The lead-in and footer are resolved from the messaging-strings `registry`
+/// for `locale`; the numbered list is locale-neutral formatting and the
+/// per-coach reasons arrive already localized from [`build_coach_proposal`].
+fn render_coach_proposal_text(
+    profile: &SportProfileSummary,
+    coaches: &[ProposedCoach],
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> String {
+    let count = coaches.len().to_string();
+    let mut body = match profile
+        .primary_sport
+        .as_deref()
+        .filter(|_| profile.has_profile)
+    {
+        Some(primary) => registry.render(KEY_COACH_PROPOSAL_WELCOME, locale, &[primary, &count]),
+        None => registry.render(KEY_COACH_PROPOSAL_WELCOME_GENERIC, locale, &[&count]),
     };
     for (index, proposed) in coaches.iter().enumerate() {
         let reason = if proposed.reason.is_empty() {
@@ -153,7 +189,7 @@ fn render_coach_proposal_text(profile: &SportProfileSummary, coaches: &[Proposed
             title = proposed.coach.title,
         );
     }
-    body.push_str("\nReply with a number to start, or just ask me anything.");
+    body.push_str(&registry.get(KEY_COACH_PROPOSAL_FOOTER, locale));
     body
 }
 

@@ -16,6 +16,11 @@ use pierre_core::models::SportProfile;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+
+/// Platform default locale, re-exported from the messaging-strings registry so
+/// callers in crates that don't depend on `pierre-contremaitre` (e.g. the
+/// coach-proposal REST path) can default to it without a parallel constant.
+pub use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::database::repositories::TenantRepository;
 use uuid::Uuid;
@@ -205,17 +210,77 @@ first, each item an object {\"id\": \"<coach id from the list>\", \"reason\": \"
 second-person sentence explaining why this coach fits>\"}. Use only ids from the candidate \
 list and do not exceed the requested count.";
 
+/// Human-readable language name for a BCP-47 `locale` code.
+///
+/// Used to instruct the re-rank LLM which language to write each `reason` in,
+/// so the rationale matches the user's conversation language instead of
+/// defaulting to English. Falls back to French — the platform default locale —
+/// for unrecognized codes, keeping the reason consistent with the French
+/// default the messaging-strings registry serves for those locales.
+#[must_use]
+pub fn language_name(locale: &str) -> &'static str {
+    match base_locale(locale).as_str() {
+        "en" => "English",
+        "es" => "Spanish",
+        "de" => "German",
+        "pt" => "Portuguese",
+        _ => "French",
+    }
+}
+
+/// Lowercased primary subtag of a BCP-47 locale (`"fr-CA"` → `"fr"`).
+fn base_locale(locale: &str) -> String {
+    locale
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(locale)
+        .to_ascii_lowercase()
+}
+
+/// Deterministic rationale localized to `locale` for a sport-matched coach.
+///
+/// Mirrors the language the re-rank LLM would write in, so the fallback path
+/// (LLM unavailable or returned too few selections) does not leak English into
+/// a non-English proposal. `sport` is the athlete's primary sport display name.
+#[must_use]
+pub fn fallback_reason_for_sport(sport: &str, locale: &str) -> String {
+    match base_locale(locale).as_str() {
+        "en" => format!("Matches your {sport} training."),
+        "es" => format!("Coincide con tu entrenamiento de {sport}."),
+        "de" => format!("Passt zu deinem {sport}-Training."),
+        "pt" => format!("Combina com o teu treino de {sport}."),
+        _ => format!("Correspond à ton entraînement en {sport}."),
+    }
+}
+
+/// Deterministic rationale localized to `locale` for an all-round coach.
+///
+/// Counterpart to [`fallback_reason_for_sport`] used when no primary sport is
+/// known or the coach has no activity-type prerequisites to match against.
+#[must_use]
+pub fn fallback_reason_generic(locale: &str) -> &'static str {
+    match base_locale(locale).as_str() {
+        "en" => "A solid all-round coach to start with.",
+        "es" => "Un buen entrenador todoterreno para empezar.",
+        "de" => "Ein solider Allround-Coach für den Anfang.",
+        "pt" => "Um bom treinador completo para começar.",
+        _ => "Un bon coach polyvalent pour commencer.",
+    }
+}
+
 /// Build the user-message body for the coach re-ranking LLM call.
 ///
 /// Pairs the athlete `profile_summary` (a short human-readable description the
-/// caller derives from the [`SportProfile`]) with the candidate list, and asks
-/// for at most `max` selections. Pure and deterministic so it unit-tests
+/// caller derives from the [`SportProfile`]) with the candidate list, asks for
+/// at most `max` selections, and instructs the model to write each rationale in
+/// the user's `locale` language. Pure and deterministic so it unit-tests
 /// without an LLM.
 #[must_use]
 pub fn build_rerank_user_prompt(
     profile_summary: &str,
     candidates: &[ProposalCandidate],
     max: usize,
+    locale: &str,
 ) -> String {
     let mut list = String::new();
     for candidate in candidates {
@@ -235,7 +300,9 @@ pub fn build_rerank_user_prompt(
     }
     format!(
         "Athlete profile:\n{profile_summary}\n\nCandidate coaches:\n{list}\n\
-         Select at most {max} coaches that best fit this athlete right now."
+         Select at most {max} coaches that best fit this athlete right now. \
+         Write each \"reason\" in {language}.",
+        language = language_name(locale),
     )
 }
 

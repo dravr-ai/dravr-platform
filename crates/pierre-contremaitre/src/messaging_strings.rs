@@ -117,6 +117,21 @@ pub const KEY_STATUS_CALLING_TOOL: &str = "messaging.status.calling_tool";
 /// Key: progress status shown when the pipeline errors. `{0}` = error text.
 pub const KEY_STATUS_ERROR: &str = "messaging.status.error";
 
+// ── Coach onboarding proposal keys ────────────────────────────────────────
+// Rendered by the messaging auto-send when a user's first provider-connected
+// turn leads with inferred-profile coach suggestions. The per-coach reason
+// lines are localized upstream (LLM re-rank prompt / deterministic fallback);
+// these wrap them with a locale-aware lead-in and footer.
+
+/// Key: coach-proposal lead-in when a recent sport profile is known.
+/// `{0}` = primary sport display name, `{1}` = coach count.
+pub const KEY_COACH_PROPOSAL_WELCOME: &str = "messaging.coach_proposal.welcome";
+/// Key: coach-proposal lead-in for a cold-start user (no profile yet).
+/// `{0}` = coach count.
+pub const KEY_COACH_PROPOSAL_WELCOME_GENERIC: &str = "messaging.coach_proposal.welcome_generic";
+/// Key: coach-proposal closing line inviting the user to reply with a number.
+pub const KEY_COACH_PROPOSAL_FOOTER: &str = "messaging.coach_proposal.footer";
+
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
 // account, so locale resolution here cannot consult `users.locale`. Callers
@@ -389,6 +404,15 @@ pub const FR_STATUS_GENERATING_RESPONSE: &str = "génération de la réponse…"
 pub const FR_STATUS_CALLING_TOOL: &str = "appel de {0}…";
 /// French progress status for pipeline error. `{0}` = error text.
 pub const FR_STATUS_ERROR: &str = "erreur : {0}";
+/// French coach-proposal lead-in with profile. `{0}` = sport, `{1}` = count.
+pub const FR_COACH_PROPOSAL_WELCOME: &str =
+    "Bienvenue ! D'après ton entraînement récent en {0}, voici {1} coachs pour toi :\n\n";
+/// French coach-proposal cold-start lead-in. `{0}` = count.
+pub const FR_COACH_PROPOSAL_WELCOME_GENERIC: &str =
+    "Bienvenue ! Voici {0} coachs pour bien démarrer :\n\n";
+/// French coach-proposal footer.
+pub const FR_COACH_PROPOSAL_FOOTER: &str =
+    "\nRéponds avec un numéro pour commencer, ou pose-moi simplement ta question.";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -535,6 +559,15 @@ pub const EN_STATUS_GENERATING_RESPONSE: &str = "generating response…";
 pub const EN_STATUS_CALLING_TOOL: &str = "calling {0}…";
 /// English progress status for pipeline error. `{0}` = error text.
 pub const EN_STATUS_ERROR: &str = "error: {0}";
+/// English coach-proposal lead-in with profile. `{0}` = sport, `{1}` = count.
+pub const EN_COACH_PROPOSAL_WELCOME: &str =
+    "Welcome! Based on your recent {0} training, here are {1} coaches for you:\n\n";
+/// English coach-proposal cold-start lead-in. `{0}` = count.
+pub const EN_COACH_PROPOSAL_WELCOME_GENERIC: &str =
+    "Welcome! Here are {0} coaches to get you started:\n\n";
+/// English coach-proposal footer.
+pub const EN_COACH_PROPOSAL_FOOTER: &str =
+    "\nReply with a number to start, or just ask me anything.";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -677,6 +710,15 @@ pub(crate) const ES_STATUS_GENERATING_RESPONSE: &str = "generando respuesta…";
 pub(crate) const ES_STATUS_CALLING_TOOL: &str = "llamando a {0}…";
 /// Spanish progress status for pipeline error. `{0}` = error text.
 pub(crate) const ES_STATUS_ERROR: &str = "error: {0}";
+/// Spanish coach-proposal lead-in with profile. `{0}` = sport, `{1}` = count.
+pub(crate) const ES_COACH_PROPOSAL_WELCOME: &str =
+    "¡Bienvenido! Según tu entrenamiento reciente de {0}, aquí tienes {1} entrenadores para ti:\n\n";
+/// Spanish coach-proposal cold-start lead-in. `{0}` = count.
+pub(crate) const ES_COACH_PROPOSAL_WELCOME_GENERIC: &str =
+    "¡Bienvenido! Aquí tienes {0} entrenadores para empezar:\n\n";
+/// Spanish coach-proposal footer.
+pub(crate) const ES_COACH_PROPOSAL_FOOTER: &str =
+    "\nResponde con un número para empezar, o simplemente pregúntame lo que quieras.";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -814,6 +856,15 @@ pub(crate) const DE_STATUS_GENERATING_RESPONSE: &str = "erstelle Antwort…";
 pub(crate) const DE_STATUS_CALLING_TOOL: &str = "rufe {0} auf…";
 /// German progress status for pipeline error. `{0}` = error text.
 pub(crate) const DE_STATUS_ERROR: &str = "Fehler: {0}";
+/// German coach-proposal lead-in with profile. `{0}` = sport, `{1}` = count.
+pub(crate) const DE_COACH_PROPOSAL_WELCOME: &str =
+    "Willkommen! Basierend auf deinem letzten {0}-Training findest du hier {1} Coaches für dich:\n\n";
+/// German coach-proposal cold-start lead-in. `{0}` = count.
+pub(crate) const DE_COACH_PROPOSAL_WELCOME_GENERIC: &str =
+    "Willkommen! Hier sind {0} Coaches für den Einstieg:\n\n";
+/// German coach-proposal footer.
+pub(crate) const DE_COACH_PROPOSAL_FOOTER: &str =
+    "\nAntworte mit einer Zahl, um zu starten, oder frag mich einfach etwas.";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -954,6 +1005,15 @@ pub(crate) const PT_STATUS_GENERATING_RESPONSE: &str = "a gerar resposta…";
 pub(crate) const PT_STATUS_CALLING_TOOL: &str = "a chamar {0}…";
 /// Portuguese progress status for pipeline error. `{0}` = error text.
 pub(crate) const PT_STATUS_ERROR: &str = "erro: {0}";
+/// Portuguese coach-proposal lead-in with profile. `{0}` = sport, `{1}` = count.
+pub(crate) const PT_COACH_PROPOSAL_WELCOME: &str =
+    "Bem-vindo! Com base no teu treino recente de {0}, aqui estão {1} treinadores para ti:\n\n";
+/// Portuguese coach-proposal cold-start lead-in. `{0}` = count.
+pub(crate) const PT_COACH_PROPOSAL_WELCOME_GENERIC: &str =
+    "Bem-vindo! Aqui estão {0} treinadores para começar:\n\n";
+/// Portuguese coach-proposal footer.
+pub(crate) const PT_COACH_PROPOSAL_FOOTER: &str =
+    "\nResponde com um número para começar, ou pergunta-me o que quiseres.";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -1088,6 +1148,13 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_STATUS_GENERATING_RESPONSE, "fr", FR_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "fr", FR_STATUS_CALLING_TOOL),
     (KEY_STATUS_ERROR, "fr", FR_STATUS_ERROR),
+    (KEY_COACH_PROPOSAL_WELCOME, "fr", FR_COACH_PROPOSAL_WELCOME),
+    (
+        KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+        "fr",
+        FR_COACH_PROPOSAL_WELCOME_GENERIC,
+    ),
+    (KEY_COACH_PROPOSAL_FOOTER, "fr", FR_COACH_PROPOSAL_FOOTER),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -1188,6 +1255,13 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_STATUS_GENERATING_RESPONSE, "en", EN_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "en", EN_STATUS_CALLING_TOOL),
     (KEY_STATUS_ERROR, "en", EN_STATUS_ERROR),
+    (KEY_COACH_PROPOSAL_WELCOME, "en", EN_COACH_PROPOSAL_WELCOME),
+    (
+        KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+        "en",
+        EN_COACH_PROPOSAL_WELCOME_GENERIC,
+    ),
+    (KEY_COACH_PROPOSAL_FOOTER, "en", EN_COACH_PROPOSAL_FOOTER),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -1294,6 +1368,13 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_STATUS_GENERATING_RESPONSE, "es", ES_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "es", ES_STATUS_CALLING_TOOL),
     (KEY_STATUS_ERROR, "es", ES_STATUS_ERROR),
+    (KEY_COACH_PROPOSAL_WELCOME, "es", ES_COACH_PROPOSAL_WELCOME),
+    (
+        KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+        "es",
+        ES_COACH_PROPOSAL_WELCOME_GENERIC,
+    ),
+    (KEY_COACH_PROPOSAL_FOOTER, "es", ES_COACH_PROPOSAL_FOOTER),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -1400,6 +1481,13 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_STATUS_GENERATING_RESPONSE, "de", DE_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "de", DE_STATUS_CALLING_TOOL),
     (KEY_STATUS_ERROR, "de", DE_STATUS_ERROR),
+    (KEY_COACH_PROPOSAL_WELCOME, "de", DE_COACH_PROPOSAL_WELCOME),
+    (
+        KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+        "de",
+        DE_COACH_PROPOSAL_WELCOME_GENERIC,
+    ),
+    (KEY_COACH_PROPOSAL_FOOTER, "de", DE_COACH_PROPOSAL_FOOTER),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1506,6 +1594,13 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_STATUS_GENERATING_RESPONSE, "pt", PT_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "pt", PT_STATUS_CALLING_TOOL),
     (KEY_STATUS_ERROR, "pt", PT_STATUS_ERROR),
+    (KEY_COACH_PROPOSAL_WELCOME, "pt", PT_COACH_PROPOSAL_WELCOME),
+    (
+        KEY_COACH_PROPOSAL_WELCOME_GENERIC,
+        "pt",
+        PT_COACH_PROPOSAL_WELCOME_GENERIC,
+    ),
+    (KEY_COACH_PROPOSAL_FOOTER, "pt", PT_COACH_PROPOSAL_FOOTER),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),

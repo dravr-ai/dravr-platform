@@ -287,7 +287,8 @@ pub(super) async fn handle_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
-    let (profile, coaches) = build_coach_proposal(&ctx, auth.user_id, tenant_id).await?;
+    let locale = resolve_user_locale(&ctx, auth.user_id, tenant_id).await;
+    let (profile, coaches) = build_coach_proposal(&ctx, auth.user_id, tenant_id, &locale).await?;
     let response = CoachProposalResponse {
         profile,
         coaches,
@@ -304,6 +305,10 @@ pub(super) async fn handle_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>
 /// top [`max_recommended`](CoachRecommendationConfig::max_recommended) with a
 /// rationale each, and falls back to deterministic order on any LLM failure.
 ///
+/// `locale` is the user's BCP-47 language code; it drives the language of each
+/// coach's rationale (the LLM re-rank prompt and the deterministic fallback),
+/// so a francophone user's proposal reads in French rather than English.
+///
 /// # Errors
 ///
 /// Returns an error only if listing the coach catalog fails; profile inference
@@ -312,6 +317,7 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     ctx: &Arc<C>,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
+    locale: &str,
 ) -> Result<(SportProfileSummary, Vec<ProposedCoach>), AppError> {
     let manager = super::get_coaches_manager(ctx);
     let rec_config = CoachRecommendationConfig::from_env();
@@ -382,6 +388,7 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
         eligible,
         rec_config.max_recommended,
         sport_profile.is_some(),
+        locale,
     )
     .await;
 
@@ -525,6 +532,7 @@ async fn rerank_candidates<C: CoachesCtx>(
     eligible: Vec<(CoachListItem, f32)>,
     max: usize,
     use_llm: bool,
+    locale: &str,
 ) -> Vec<(CoachListItem, f32, String)> {
     if eligible.is_empty() {
         return Vec::new();
@@ -555,7 +563,15 @@ async fn rerank_candidates<C: CoachesCtx>(
     let valid_ids: HashSet<String> = candidates.iter().map(|c| c.id.clone()).collect();
 
     let selections = if use_llm {
-        llm_rerank_selections(ctx, &profile.prompt_text, &candidates, &valid_ids, max).await
+        llm_rerank_selections(
+            ctx,
+            &profile.prompt_text,
+            &candidates,
+            &valid_ids,
+            max,
+            locale,
+        )
+        .await
     } else {
         Vec::new()
     };
@@ -585,7 +601,7 @@ async fn rerank_candidates<C: CoachesCtx>(
             if out.len() >= max {
                 break;
             }
-            let reason = fallback_reason(&item, profile.primary_sport.as_deref());
+            let reason = fallback_reason(&item, profile.primary_sport.as_deref(), locale);
             out.push((item, score, reason));
         }
     }
@@ -601,6 +617,7 @@ async fn llm_rerank_selections<C: CoachesCtx>(
     candidates: &[coaches_service::ProposalCandidate],
     valid_ids: &HashSet<String>,
     max: usize,
+    locale: &str,
 ) -> Vec<coaches_service::RankedSelection> {
     let provider = match chat_provider_from_ctx(ctx) {
         Ok(provider) => provider,
@@ -610,7 +627,8 @@ async fn llm_rerank_selections<C: CoachesCtx>(
         }
     };
 
-    let user_prompt = coaches_service::build_rerank_user_prompt(profile_prompt, candidates, max);
+    let user_prompt =
+        coaches_service::build_rerank_user_prompt(profile_prompt, candidates, max, locale);
     let messages = vec![
         ChatMessage::system(coaches_service::COACH_RERANK_SYSTEM_PROMPT),
         ChatMessage::user(&user_prompt),
@@ -625,14 +643,37 @@ async fn llm_rerank_selections<C: CoachesCtx>(
     }
 }
 
-/// Deterministic rationale used when the LLM does not select a coach.
-fn fallback_reason(item: &CoachListItem, primary_sport: Option<&str>) -> String {
+/// Deterministic rationale used when the LLM does not select a coach,
+/// localized to `locale` so the fallback path matches the user's language.
+fn fallback_reason(item: &CoachListItem, primary_sport: Option<&str>, locale: &str) -> String {
     match primary_sport {
         Some(sport) if !item.coach.prerequisites.activity_types.is_empty() => {
-            format!("Matches your {sport} training.")
+            coaches_service::fallback_reason_for_sport(sport, locale)
         }
-        _ => "A solid all-round coach to start with.".to_owned(),
+        _ => coaches_service::fallback_reason_generic(locale).to_owned(),
     }
+}
+
+/// Resolve the user's stored locale for proposal localization.
+///
+/// Defaults to the platform [`DEFAULT_LOCALE`](coaches_service::DEFAULT_LOCALE)
+/// when the user has no stored preference or the lookup fails, keeping the REST
+/// onboarding proposal's coach rationales in the user's language and consistent
+/// with the messaging auto-send path.
+async fn resolve_user_locale<C: MiddlewareCtx>(
+    ctx: &Arc<C>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> String {
+    MiddlewareCtx::repos(ctx.as_ref())
+        .users
+        .get(user_id, tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.locale)
+        .filter(|locale| !locale.trim().is_empty())
+        .unwrap_or_else(|| coaches_service::DEFAULT_LOCALE.to_owned())
 }
 
 /// Check if prerequisites are met given user's connected providers
