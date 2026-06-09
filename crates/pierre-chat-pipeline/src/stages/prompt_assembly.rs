@@ -416,8 +416,13 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7g.2: Builder coaches that declare an `output_schema` get the
     // structured-output contract appended last (recency priority alongside
     // tool-discipline): emit JSON-only for a plan, prose for a refusal, never
-    // narrate the data-gathering process.
-    let raw_system_prompt = if coach_ctx.is_some_and(|c| c.output_schema.is_some()) {
+    // narrate the data-gathering process. Only on card-capable channels
+    // (web/mobile) — messaging channels have no plan-card renderer, so the
+    // JSON directive (and the matching extraction) is skipped there and the
+    // coach falls back to the channel's plain-prose mandate.
+    let raw_system_prompt = if coach_ctx.is_some_and(|c| c.output_schema.is_some())
+        && !profile.channel.is_messaging()
+    {
         format!("{raw_system_prompt}\n\n{}", ctx.structured_output_prompt)
     } else {
         raw_system_prompt

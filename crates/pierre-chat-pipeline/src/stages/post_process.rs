@@ -44,6 +44,20 @@ pub(crate) struct PostProcessedReply {
     pub structured_content: Option<String>,
 }
 
+/// Borrowed inputs to [`post_process_assistant_reply`], bundled to stay within
+/// the argument-count lint. `raw_content` (owned/consumed) and `hooks` stay
+/// separate arguments.
+pub(crate) struct PostProcessInputs<'a> {
+    pub ctx: &'a ChatPipelineContext,
+    pub input: &'a TurnInput,
+    pub conv: &'a ConversationRecord,
+    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    pub prompt_guard: &'a prompt_leak::PromptGuard,
+    /// Whether this turn is on a messaging channel (no plan-card renderer);
+    /// gates structured-output extraction.
+    pub is_messaging: bool,
+}
+
 /// Run post-LLM content processing over the raw assistant reply.
 ///
 /// Owns pipeline stages 15 through 18: canary scan, text guardrails,
@@ -54,14 +68,18 @@ pub(crate) struct PostProcessedReply {
 /// the message write succeeds — emitting verdicts before the message
 /// exists would leave orphan rows if the message write failed.
 pub(crate) async fn post_process_assistant_reply(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    conv: &ConversationRecord,
-    coach_ctx: Option<&CoachRuntimeContext>,
-    prompt_guard: &prompt_leak::PromptGuard,
+    inputs: PostProcessInputs<'_>,
     raw_content: String,
     hooks: &PipelineHooks<'_>,
 ) -> PostProcessedReply {
+    let PostProcessInputs {
+        ctx,
+        input,
+        conv,
+        coach_ctx,
+        prompt_guard,
+        is_messaging,
+    } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits.
     prompt_leak::scan_assistant_reply(
         prompt_guard,
@@ -76,10 +94,13 @@ pub(crate) async fn post_process_assistant_reply(
     // conformance) can truncate or rewrite the JSON. On a valid plan the prose
     // stages are skipped: the payload is rendered as a card, not glossed text.
     // A coach that refuses replies in prose, so extraction returns `None` and
-    // the normal path runs.
+    // the normal path runs. `extract_structured_plan` also returns `None` on
+    // messaging channels (no plan-card renderer; the matching prompt directive
+    // is withheld in prompt_assembly so the coach emits a plain-prose plan).
     if let Some(schema_id) = coach_ctx.and_then(|c| c.output_schema.as_deref()) {
         if let Some(extraction) = structured_output::extract_structured_plan(
             Some(schema_id),
+            is_messaging,
             &ctx.structured_output_schema,
             &raw_content,
         ) {

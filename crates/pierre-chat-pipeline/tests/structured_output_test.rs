@@ -17,9 +17,13 @@ const VALID_PLAN: &str = r#"{"plan_window":{"start":"2026-05-12","end":"2026-05-
 
 #[test]
 fn extracts_and_validates_a_clean_plan() {
-    let extraction =
-        extract_structured_plan(Some(SCHEMA_ID), STRUCTURED_WORKOUT_SCHEMA, VALID_PLAN)
-            .expect("a clean, schema-valid plan should be extracted");
+    let extraction = extract_structured_plan(
+        Some(SCHEMA_ID),
+        false,
+        STRUCTURED_WORKOUT_SCHEMA,
+        VALID_PLAN,
+    )
+    .expect("a clean, schema-valid plan should be extracted");
     assert!(extraction.structured_content.contains("\"plan_window\""));
     assert!(extraction.structured_content.contains("\"weeks\""));
     // Pure-JSON reply leaves no user-visible prose.
@@ -31,8 +35,9 @@ fn extracts_plan_despite_narration_prefix() {
     // The exact failure mode from the bug report: the model narrates first,
     // then emits the plan. We still recover the plan object.
     let reply = format!("Pulling the athlete state now, then I'll emit the plan.\n{VALID_PLAN}");
-    let extraction = extract_structured_plan(Some(SCHEMA_ID), STRUCTURED_WORKOUT_SCHEMA, &reply)
-        .expect("a plan preceded by narration should still be extracted");
+    let extraction =
+        extract_structured_plan(Some(SCHEMA_ID), false, STRUCTURED_WORKOUT_SCHEMA, &reply)
+            .expect("a plan preceded by narration should still be extracted");
     assert!(extraction.structured_content.contains("\"rationale\""));
 }
 
@@ -40,7 +45,8 @@ fn extracts_plan_despite_narration_prefix() {
 fn extracts_plan_wrapped_in_code_fence() {
     let reply = format!("```json\n{VALID_PLAN}\n```");
     assert!(
-        extract_structured_plan(Some(SCHEMA_ID), STRUCTURED_WORKOUT_SCHEMA, &reply).is_some(),
+        extract_structured_plan(Some(SCHEMA_ID), false, STRUCTURED_WORKOUT_SCHEMA, &reply)
+            .is_some(),
         "a fenced JSON plan should be extracted"
     );
 }
@@ -50,7 +56,7 @@ fn prose_refusal_is_left_as_text() {
     // Refusals are prose by contract; nothing to extract.
     let reply = "I can't draft this plan: weekly run frequency is below the 7 runs/week guard rail. Confirm a higher frequency and I'll re-emit.";
     assert!(
-        extract_structured_plan(Some(SCHEMA_ID), STRUCTURED_WORKOUT_SCHEMA, reply).is_none(),
+        extract_structured_plan(Some(SCHEMA_ID), false, STRUCTURED_WORKOUT_SCHEMA, reply).is_none(),
         "a prose refusal must not be treated as a plan"
     );
 }
@@ -60,7 +66,8 @@ fn schema_invalid_object_is_rejected() {
     // Missing the required `weeks` array -> fails schema validation -> raw fallback.
     let invalid = r#"{"plan_window":{"start":"2026-05-12","end":"2026-05-18"},"rationale":"x","compliance":{},"evidence_refs":["evidence/x.md"]}"#;
     assert!(
-        extract_structured_plan(Some(SCHEMA_ID), STRUCTURED_WORKOUT_SCHEMA, invalid).is_none(),
+        extract_structured_plan(Some(SCHEMA_ID), false, STRUCTURED_WORKOUT_SCHEMA, invalid)
+            .is_none(),
         "an object that violates the schema must be rejected"
     );
 }
@@ -69,8 +76,24 @@ fn schema_invalid_object_is_rejected() {
 fn non_builder_coach_never_extracts() {
     // No output_schema, or a different schema id -> the reply is untouched even
     // when it happens to be a valid plan.
-    assert!(extract_structured_plan(None, STRUCTURED_WORKOUT_SCHEMA, VALID_PLAN).is_none());
+    assert!(extract_structured_plan(None, false, STRUCTURED_WORKOUT_SCHEMA, VALID_PLAN).is_none());
+    assert!(extract_structured_plan(
+        Some("meal-plan"),
+        false,
+        STRUCTURED_WORKOUT_SCHEMA,
+        VALID_PLAN
+    )
+    .is_none());
+}
+
+#[test]
+fn messaging_channel_never_extracts() {
+    // Messaging channels (Telegram/WhatsApp/etc.) have no plan-card renderer, so
+    // even a builder coach's valid plan is left as-is (the coach is steered to
+    // plain prose by the withheld directive); extraction must skip it.
     assert!(
-        extract_structured_plan(Some("meal-plan"), STRUCTURED_WORKOUT_SCHEMA, VALID_PLAN).is_none()
+        extract_structured_plan(Some(SCHEMA_ID), true, STRUCTURED_WORKOUT_SCHEMA, VALID_PLAN)
+            .is_none(),
+        "messaging channels must not extract/strip a plan (no card renderer)"
     );
 }

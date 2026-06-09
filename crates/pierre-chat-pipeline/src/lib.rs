@@ -331,11 +331,14 @@ async fn run_recovery_and_post_process(
     }
 
     stages::post_process::post_process_assistant_reply(
-        ctx,
-        input,
-        conv,
-        coach_ctx,
-        prompt_guard,
+        stages::post_process::PostProcessInputs {
+            ctx,
+            input,
+            conv,
+            coach_ctx,
+            prompt_guard,
+            is_messaging: profile.channel.is_messaging(),
+        },
         mem::take(&mut result.content),
         hooks,
     )
