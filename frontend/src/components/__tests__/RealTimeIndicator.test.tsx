@@ -68,7 +68,7 @@ describe('RealTimeIndicator Component', () => {
   it('should show Live Updates when connected regardless of messages', () => {
     vi.mocked(useWebSocketContext).mockReturnValue({
       isConnected: true,
-      lastMessage: { type: 'usage_update', requests_today: 150 },
+      lastMessage: { type: 'system_stats', total_requests_today: 150 },
       sendMessage: vi.fn(),
       subscribe: vi.fn()
     })

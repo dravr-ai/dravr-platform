@@ -60,8 +60,8 @@ describe('useWebSocketContext hook', () => {
     const contextWithMessage: WebSocketContextType = {
       ...mockWebSocketContext,
       lastMessage: {
-        type: 'usage_update',
-        requests_today: 42,
+        type: 'system_stats',
+        total_requests_today: 42,
       },
     }
     const { result } = renderHook(() => useWebSocketContext(), {
@@ -69,7 +69,7 @@ describe('useWebSocketContext hook', () => {
     })
 
     expect(result.current.lastMessage).not.toBeNull()
-    expect(result.current.lastMessage?.type).toBe('usage_update')
-    expect(result.current.lastMessage?.requests_today).toBe(42)
+    expect(result.current.lastMessage?.type).toBe('system_stats')
+    expect(result.current.lastMessage?.total_requests_today).toBe(42)
   })
 })

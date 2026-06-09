@@ -247,29 +247,6 @@ async fn test_websocket_subscription_message() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_websocket_usage_update_message() -> Result<()> {
-    let usage_update = WebSocketMessage::UsageUpdate {
-        api_key_id: "key_123".to_owned(),
-        requests_today: 150,
-        requests_this_month: 4500,
-        rate_limit_status: json!({
-            "limit": 1000,
-            "remaining": 850,
-            "reset_at": "2024-01-20T00:00:00Z"
-        }),
-    };
-
-    // Test serialization
-    let json = serde_json::to_value(&usage_update)?;
-    assert_eq!(json["type"], "usage_update");
-    assert_eq!(json["requests_today"], 150);
-    assert_eq!(json["requests_this_month"], 4500);
-    assert_eq!(json["api_key_id"], "key_123");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_websocket_system_stats_message() -> Result<()> {
     let stats = WebSocketMessage::SystemStats {
         total_requests_today: 10000,
@@ -437,43 +414,6 @@ async fn test_websocket_concurrent_client_management() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_websocket_rate_limit_status_updates() -> Result<()> {
-    // Test rate limit status message format
-    let rate_limit_statuses = [
-        json!({
-            "limit": 1000,
-            "remaining": 1000,
-            "reset_at": "2024-01-20T00:00:00Z"
-        }),
-        json!({
-            "limit": 1000,
-            "remaining": 0,
-            "reset_at": "2024-01-20T01:00:00Z",
-            "retry_after": 3600
-        }),
-        json!({
-            "limit": 500,
-            "remaining": 250,
-            "reset_at": "2024-01-20T00:30:00Z"
-        }),
-    ];
-
-    for (i, status) in rate_limit_statuses.iter().enumerate() {
-        let usage_update = WebSocketMessage::UsageUpdate {
-            api_key_id: format!("key_{i}"),
-            requests_today: (i as u64 + 1) * 100,
-            requests_this_month: (i as u64 + 1) * 3000,
-            rate_limit_status: status.clone(),
-        };
-
-        let json = serde_json::to_value(&usage_update)?;
-        assert_eq!(json["rate_limit_status"], *status);
-    }
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_websocket_subscription_topics() -> Result<()> {
     let valid_topics = vec![
         vec!["usage_updates".to_owned()],
@@ -506,27 +446,6 @@ async fn test_websocket_message_size_limits() -> Result<()> {
     // Should serialize successfully
     let json = serde_json::to_string(&large_message)?;
     assert!(json.len() > 10000);
-
-    // Test very large rate limit status
-    let large_status = json!({
-        "limit": 1000000,
-        "remaining": 999999,
-        "reset_at": "2024-01-20T00:00:00Z",
-        "metadata": {
-            "tier": "enterprise",
-            "custom_limits": (0..100).map(|i| format!("limit_{i}")).collect::<Vec<_>>()
-        }
-    });
-
-    let usage_update = WebSocketMessage::UsageUpdate {
-        api_key_id: "enterprise_key".to_owned(),
-        requests_today: 50000,
-        requests_this_month: 1500000,
-        rate_limit_status: large_status,
-    };
-
-    // Should handle large nested objects
-    let _ = serde_json::to_string(&usage_update)?;
 
     Ok(())
 }

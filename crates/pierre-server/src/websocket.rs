@@ -26,7 +26,6 @@ use pierre_middleware::McpAuthMiddleware;
 use dashmap::DashMap;
 use pierre_database::{RepositoryRegistry, UsageRepos};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc::unbounded_channel, mpsc::UnboundedSender};
@@ -54,18 +53,6 @@ pub enum WebSocketMessage {
     Subscribe {
         /// List of topics to subscribe to
         topics: Vec<String>,
-    },
-    /// API key usage update notification
-    #[serde(rename = "usage_update")]
-    UsageUpdate {
-        /// API key identifier
-        api_key_id: String,
-        /// Number of requests made today
-        requests_today: u64,
-        /// Number of requests made this month
-        requests_this_month: u64,
-        /// Current rate limit status
-        rate_limit_status: Value,
     },
     /// System-wide statistics update
     #[serde(rename = "system_stats")]
@@ -109,7 +96,6 @@ pub struct WebSocketManager {
 
 #[derive(Debug)]
 struct ClientConnection {
-    user_id: Uuid,
     subscriptions: Vec<String>,
     tx: UnboundedSender<Message>,
 }
@@ -308,10 +294,9 @@ impl WebSocketManager {
     ) {
         match serde_json::from_str::<WebSocketMessage>(text) {
             Ok(WebSocketMessage::Authentication { token }) => {
-                if let Some(user_id) = self.handle_auth_message(&token, tx).await {
+                if self.handle_auth_message(&token, tx).await.is_some() {
                     // Register client immediately so broadcasts reach this connection
                     let client = ClientConnection {
-                        user_id,
                         subscriptions: Vec::new(),
                         tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
                     };
@@ -359,25 +344,6 @@ impl WebSocketManager {
             .map_err(|e| AppError::internal(format!("WebSocket authentication failed: {e}")))
     }
 
-    /// Broadcast usage update to subscribed clients
-    pub fn broadcast_usage_update(
-        &self,
-        api_key_id: &str,
-        user_id: &Uuid,
-        requests_today: u64,
-        requests_this_month: u64,
-        rate_limit_status: Value,
-    ) {
-        let message = WebSocketMessage::UsageUpdate {
-            api_key_id: api_key_id.to_owned(),
-            requests_today,
-            requests_this_month,
-            rate_limit_status,
-        };
-
-        self.send_to_user_subscribers(user_id, &message, "usage");
-    }
-
     /// Broadcast system statistics
     ///
     /// # Errors
@@ -396,25 +362,6 @@ impl WebSocketManager {
 
         self.broadcast_to_all(&message, "system");
         Ok(())
-    }
-
-    /// Send message to specific user's subscribers
-    fn send_to_user_subscribers(&self, user_id: &Uuid, message: &WebSocketMessage, topic: &str) {
-        for entry in self.clients.iter() {
-            let client = entry.value();
-            if client.user_id == *user_id && client.subscriptions.contains(&topic.to_owned()) {
-                if let Ok(msg_text) = serde_json::to_string(message) {
-                    if let Err(e) = client.tx.send(Message::Text(msg_text.into())) {
-                        warn!(
-                            user_id = %user_id,
-                            topic = %topic,
-                            error = ?e,
-                            "Failed to send message to user subscriber over WebSocket"
-                        );
-                    }
-                }
-            }
-        }
     }
 
     /// Broadcast message to all subscribers of a topic

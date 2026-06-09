@@ -54,12 +54,10 @@ export default function OverviewPanel({ onNavigate }: OverviewPanelProps) {
     retry: false,
   });
 
-  // Refresh data when WebSocket updates are received
+  // Refresh data when a system-stats broadcast is received
   useEffect(() => {
-    if (lastMessage) {
-      if (lastMessage.type === 'usage_update' || lastMessage.type === 'system_stats') {
-        refetchOverview();
-      }
+    if (lastMessage?.type === 'system_stats') {
+      refetchOverview();
     }
   }, [lastMessage, refetchOverview]);
 
