@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Root layout for Expo Router providing the app-wide provider stack
-// ABOUTME: Wraps all routes with Auth, Query, WebSocket providers and handles auth gating
+// ABOUTME: Wraps all routes with Auth and Query providers and handles auth gating
 
 import '../global.css';
 import React from 'react';
@@ -35,7 +35,6 @@ import { toastConfig } from '../src/config/toast';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
-import { WebSocketProvider } from '../src/contexts/WebSocketContext';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
 import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
@@ -231,9 +230,7 @@ export default function RootLayout() {
           <ThemeProvider>
             <AuthProvider>
               <QueryProvider>
-                <WebSocketProvider>
-                  <RootShell />
-                </WebSocketProvider>
+                <RootShell />
               </QueryProvider>
             </AuthProvider>
           </ThemeProvider>

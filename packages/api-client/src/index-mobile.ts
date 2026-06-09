@@ -184,7 +184,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
 
   return {
     auth: createAuthApi(axios, adapter.authStorage),
-    chat: createChatApi(axios, getBaseUrl),
+    chat: createChatApi(axios),
     coaches: createCoachesApi(axios),
     oauth: createOAuthApi(axios, getBaseUrl),
     social: createSocialApi(axios),

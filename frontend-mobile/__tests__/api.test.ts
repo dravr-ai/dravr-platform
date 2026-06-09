@@ -14,7 +14,6 @@ jest.mock('../src/services/api', () => ({
   chatApi: {
     getConversations: jest.fn(),
     sendMessage: jest.fn(),
-    getWebSocketUrl: jest.fn(),
   },
   coachesApi: {
     listCoaches: jest.fn(),

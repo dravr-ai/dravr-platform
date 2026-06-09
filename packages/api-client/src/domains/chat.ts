@@ -146,7 +146,7 @@ export interface CreateConversationOptions {
 /**
  * Creates the chat API methods bound to an axios instance.
  */
-export function createChatApi(axios: AxiosInstance, getBaseUrl: () => string) {
+export function createChatApi(axios: AxiosInstance) {
   return {
     /**
      * List all conversations for the current user.
@@ -248,21 +248,6 @@ export function createChatApi(axios: AxiosInstance, getBaseUrl: () => string) {
         body,
       );
       return response.data;
-    },
-
-    /**
-     * Get the WebSocket URL for real-time chat.
-     */
-    getWebSocketUrl(conversationId: string, token?: string): string {
-      const baseUrl = getBaseUrl();
-      const wsProtocol = baseUrl.startsWith('https') ? 'wss' : 'ws';
-      const wsBaseUrl = baseUrl.replace(/^https?/, wsProtocol);
-      const wsUrl = `${wsBaseUrl}/api/chat/conversations/${conversationId}/ws`;
-
-      if (token) {
-        return `${wsUrl}?token=${encodeURIComponent(token)}`;
-      }
-      return wsUrl;
     },
   };
 }

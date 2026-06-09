@@ -15,8 +15,8 @@
 
 use pierre_auth::admin::jwks::JwksManager;
 
-use crate::constants::rate_limits::WEBSOCKET_CHANNEL_CAPACITY;
-use axum::extract::ws::{Message, WebSocket};
+use crate::constants::rate_limits::{WEBSOCKET_CHANNEL_CAPACITY, WEBSOCKET_MAX_CONNECTION_SECS};
+use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_config::environment::RateLimitConfig;
@@ -29,9 +29,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc::unbounded_channel, mpsc::UnboundedSender};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, sleep, Duration};
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
+
+/// Upper bound on how long to wait for the forwarding task to flush queued frames
+/// (e.g. the max-lifetime close frame) before abandoning the connection on cleanup.
+const WS_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// WebSocket message types for real-time communication
 #[non_exhaustive]
@@ -96,6 +100,10 @@ pub struct WebSocketManager {
     auth_middleware: McpAuthMiddleware,
     clients: Arc<DashMap<Uuid, ClientConnection>>,
     broadcast_tx: broadcast::Sender<WebSocketMessage>,
+    /// Maximum lifetime of a single connection before the server closes it. Bounds
+    /// how long an idle/background client can pin a serverless instance open via
+    /// auto-reconnect. Sourced from `WEBSOCKET_MAX_CONNECTION_SECS`.
+    max_connection_duration: Duration,
 }
 
 #[derive(Debug)]
@@ -129,11 +137,18 @@ impl WebSocketManager {
             rate_limit_config,
         ); // Safe: Arc clones for middleware creation
 
+        let max_connection_secs = std::env::var("WEBSOCKET_MAX_CONNECTION_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .unwrap_or(WEBSOCKET_MAX_CONNECTION_SECS);
+
         Self {
             repos: repos.usage_repos(),
             auth_middleware,
             clients: Arc::new(DashMap::new()),
             broadcast_tx,
+            max_connection_duration: Duration::from_secs(max_connection_secs),
         }
     }
 
@@ -226,7 +241,7 @@ impl WebSocketManager {
         let clients = self.clients.clone(); // Safe: Arc clone for async access
 
         // Spawn task to forward messages to `WebSocket`
-        let ws_send_task = tokio::spawn(async move {
+        let mut ws_send_task = tokio::spawn(async move {
             while let Some(message) = rx.recv().await {
                 if ws_tx.send(message).await.is_err() {
                     break;
@@ -234,8 +249,30 @@ impl WebSocketManager {
             }
         });
 
+        // Bound the connection lifetime: once it elapses the server politely closes
+        // the socket so idle/background clients release this instance rather than
+        // pinning it open indefinitely through auto-reconnect.
+        let max_lifetime = sleep(self.max_connection_duration);
+        tokio::pin!(max_lifetime);
+
         // Handle incoming messages
-        while let Some(msg) = ws_rx.next().await {
+        loop {
+            let msg = tokio::select! {
+                () = &mut max_lifetime => {
+                    let close = Message::Close(Some(CloseFrame {
+                        code: 1000,
+                        reason: "max_lifetime".into(),
+                    }));
+                    if tx.send(close).is_err() {
+                        debug!(%connection_id, "WebSocket already closed before max-lifetime close frame");
+                    }
+                    break;
+                }
+                msg = ws_rx.next() => match msg {
+                    Some(msg) => msg,
+                    None => break,
+                },
+            };
             match msg {
                 Ok(Message::Text(text)) => {
                     match serde_json::from_str::<WebSocketMessage>(text.as_str()) {
@@ -281,9 +318,19 @@ impl WebSocketManager {
             }
         }
 
-        // Clean up on disconnect
-        ws_send_task.abort();
+        // Clean up on disconnect. Drop every sender (the local handle plus the clone
+        // stored in the clients map) so the forwarding task drains any queued frames
+        // — notably the max-lifetime close frame — then exits on its own. Awaiting it
+        // with a bound guarantees delivery without hanging on a half-dead socket.
         self.clients.remove(&connection_id);
+        drop(tx);
+        if tokio::time::timeout(WS_DRAIN_TIMEOUT, &mut ws_send_task)
+            .await
+            .is_err()
+        {
+            debug!(%connection_id, "WebSocket forwarder drain timed out on close; aborting");
+            ws_send_task.abort();
+        }
     }
 
     /// Authenticate `WebSocket` user with JWT

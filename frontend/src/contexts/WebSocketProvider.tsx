@@ -15,22 +15,15 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isConnectingRef = useRef(false);
   const [, setSubscriptions] = useState<string[]>([]);
 
   const disconnect = () => {
-    
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    
     if (wsRef.current) {
       wsRef.current.close(1000, 'Provider disconnected');
       wsRef.current = null;
     }
-    
+
     isConnectingRef.current = false;
     setIsConnected(false);
   };
@@ -91,22 +84,18 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         }
       };
 
-      ws.onclose = (event) => {
+      ws.onclose = () => {
         isConnectingRef.current = false;
         setIsConnected(false);
-        
+
         if (wsRef.current === ws) {
           wsRef.current = null;
         }
-        
-        // Only reconnect for unexpected closures
-        if (event.code !== 1000 && token) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (token && !wsRef.current) {
-              connect();
-            }
-          }, 5000);
-        }
+
+        // No auto-reconnect. The socket stays closed until the user explicitly
+        // reconnects (the ConnectionBanner retry button). Combined with the
+        // server-enforced max lifetime and the hidden-tab teardown below, this
+        // bounds how long an idle tab keeps a serverless instance warm.
       };
 
       ws.onerror = (error) => {
@@ -140,11 +129,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   };
 
   const reconnect = () => {
-    // Clear any pending reconnect timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
     // Close existing connection if any
     if (wsRef.current) {
       wsRef.current.close(1000, 'Manual reconnect');
@@ -169,6 +153,21 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]); // Only depend on token, connect is stable
+
+  // Tear down the socket when the tab is hidden so a backgrounded or forgotten
+  // tab stops pinning a serverless instance open. Reconnection is manual (the
+  // user clicks reconnect when they return), keeping cost bounded to active use.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        disconnect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []); // disconnect reads stable refs/setters; safe to bind once
 
   return (
     <WebSocketContext.Provider value={{
