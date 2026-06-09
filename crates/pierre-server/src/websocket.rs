@@ -27,9 +27,10 @@ use dashmap::DashMap;
 use pierre_database::{RepositoryRegistry, UsageRepos};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc::unbounded_channel, mpsc::UnboundedSender};
-use tokio::time::{interval, sleep, Duration};
+use tokio::time::{interval, sleep, timeout, Duration};
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
 
@@ -137,7 +138,7 @@ impl WebSocketManager {
             rate_limit_config,
         ); // Safe: Arc clones for middleware creation
 
-        let max_connection_secs = std::env::var("WEBSOCKET_MAX_CONNECTION_SECS")
+        let max_connection_secs = env::var("WEBSOCKET_MAX_CONNECTION_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .filter(|secs| *secs > 0)
@@ -275,43 +276,8 @@ impl WebSocketManager {
             };
             match msg {
                 Ok(Message::Text(text)) => {
-                    match serde_json::from_str::<WebSocketMessage>(text.as_str()) {
-                        Ok(WebSocketMessage::Authentication { token }) => {
-                            if let Some(user_id) = self.handle_auth_message(&token, &tx).await {
-                                // Register client immediately so broadcasts reach this connection
-                                let client = ClientConnection {
-                                    user_id,
-                                    subscriptions: Vec::new(),
-                                    tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
-                                };
-                                clients.insert(connection_id, client);
-                            }
-                        }
-                        Ok(WebSocketMessage::Subscribe { topics }) => {
-                            let is_authenticated = clients.contains_key(&connection_id);
-                            let new_subscriptions =
-                                Self::handle_subscribe_message(topics, is_authenticated, &tx);
-                            // Update subscriptions in the shared map
-                            if let Some(mut client) = clients.get_mut(&connection_id) {
-                                client.subscriptions = new_subscriptions;
-                            }
-                        }
-                        Err(e) => {
-                            let error_msg = WebSocketMessage::Error {
-                                message: format!("Invalid message format: {e}"),
-                            };
-                            if let Ok(json) = serde_json::to_string(&error_msg) {
-                                if let Err(send_err) = tx.send(Message::Text(json.into())) {
-                                    warn!(
-                                        parse_error = %e,
-                                        send_error = ?send_err,
-                                        "Failed to send invalid message format error over WebSocket"
-                                    );
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
+                    self.handle_text_frame(text.as_str(), &tx, connection_id, &clients)
+                        .await;
                 }
                 Ok(Message::Close(_)) | Err(_) => break,
                 _ => {}
@@ -324,12 +290,58 @@ impl WebSocketManager {
         // with a bound guarantees delivery without hanging on a half-dead socket.
         self.clients.remove(&connection_id);
         drop(tx);
-        if tokio::time::timeout(WS_DRAIN_TIMEOUT, &mut ws_send_task)
-            .await
-            .is_err()
-        {
+        if timeout(WS_DRAIN_TIMEOUT, &mut ws_send_task).await.is_err() {
             debug!(%connection_id, "WebSocket forwarder drain timed out on close; aborting");
             ws_send_task.abort();
+        }
+    }
+
+    /// Process a single inbound text frame: authenticate, update subscriptions, or
+    /// report a parse error back to the client. Extracted from `handle_connection`
+    /// to keep that connection loop's control flow within cognitive-complexity limits.
+    async fn handle_text_frame(
+        &self,
+        text: &str,
+        tx: &UnboundedSender<Message>,
+        connection_id: Uuid,
+        clients: &Arc<DashMap<Uuid, ClientConnection>>,
+    ) {
+        match serde_json::from_str::<WebSocketMessage>(text) {
+            Ok(WebSocketMessage::Authentication { token }) => {
+                if let Some(user_id) = self.handle_auth_message(&token, tx).await {
+                    // Register client immediately so broadcasts reach this connection
+                    let client = ClientConnection {
+                        user_id,
+                        subscriptions: Vec::new(),
+                        tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
+                    };
+                    clients.insert(connection_id, client);
+                }
+            }
+            Ok(WebSocketMessage::Subscribe { topics }) => {
+                let is_authenticated = clients.contains_key(&connection_id);
+                let new_subscriptions =
+                    Self::handle_subscribe_message(topics, is_authenticated, tx);
+                // Update subscriptions in the shared map
+                if let Some(mut client) = clients.get_mut(&connection_id) {
+                    client.subscriptions = new_subscriptions;
+                }
+            }
+            Err(e) => {
+                let error_msg = WebSocketMessage::Error {
+                    message: format!("Invalid message format: {e}"),
+                };
+                if let Ok(json) = serde_json::to_string(&error_msg) {
+                    if let Err(send_err) = tx.send(Message::Text(json.into())) {
+                        warn!(
+                            parse_error = %e,
+                            send_error = ?send_err,
+                            "Failed to send invalid message format error over WebSocket"
+                        );
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
