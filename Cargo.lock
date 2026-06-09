@@ -1327,11 +1327,6 @@ version = "0.1.0"
 source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=ae361474c4d258a45eb859831e8f66b49e146a82#ae361474c4d258a45eb859831e8f66b49e146a82"
 
 [[package]]
-name = "dravr-contremaitre"
-version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=af7615cc231319e46fde9a2c3400218ed648eae4#af7615cc231319e46fde9a2c3400218ed648eae4"
-
-[[package]]
 name = "dravr-enforme"
 version = "0.1.22"
 source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.22#57a6db730d5999e54a208a987f52088c5f083b11"
@@ -3320,7 +3315,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
- "dravr-contremaitre 0.1.0 (git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=af7615cc231319e46fde9a2c3400218ed648eae4)",
+ "dravr-contremaitre",
  "jsonschema",
  "pierre-agui",
  "pierre-config",
@@ -3641,7 +3636,7 @@ dependencies = [
  "bitflags 2.11.1",
  "bytes",
  "chrono",
- "dravr-contremaitre 0.1.0 (git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=ae361474c4d258a45eb859831e8f66b49e146a82)",
+ "dravr-contremaitre",
  "embacle",
  "futures-util",
  "pierre-core",
@@ -4197,7 +4192,7 @@ dependencies = [
  "cron",
  "dashmap",
  "dirs 5.0.1",
- "dravr-contremaitre 0.1.0 (git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=ae361474c4d258a45eb859831e8f66b49e146a82)",
+ "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-sciotte",
  "dravr-stripe",
