@@ -1193,11 +1193,19 @@ impl SocialRoutes {
         .await
         .map_err(|e| AppError::internal(format!("Failed to configure provider: {e}")))?;
 
-        // Fetch activities
-        provider
-            .get_activities(limit, None)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to fetch activities: {e}")))
+        // Fetch activities. Preserve a `ProviderAuthRequired` error verbatim so it
+        // keeps its code (and provider slug in `details`) across the `?` boundary:
+        // the tool executor short-circuits on it and the chat-pipeline
+        // `auth_recovery` stage mints a hosted-login link and renders the
+        // reconnect copy. Wrapping it in `internal` here erased the code and the
+        // user got a generic "internal error" instead of a reconnect prompt.
+        provider.get_activities(limit, None).await.map_err(|e| {
+            if e.code == ErrorCode::ProviderAuthRequired {
+                e
+            } else {
+                AppError::internal(format!("Failed to fetch activities: {e}"))
+            }
+        })
     }
 
     /// Build insight generation context from user's recent activities
