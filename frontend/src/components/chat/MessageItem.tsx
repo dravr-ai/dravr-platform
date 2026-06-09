@@ -136,6 +136,16 @@ const MessageItem = memo(function MessageItem({
   // When an activity list is present, strip it from the displayed content (for old baked-in messages)
   const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;
 
+  // Provider re-auth replies (from the auth_recovery stage) embed a one-time
+  // hosted-login URL on its own line. Surface it as a prominent "Reconnect"
+  // button and drop the raw token URL from the rendered text. The URL pattern
+  // is locale-independent, so this works for every language the reply ships in.
+  const reconnectUrl = useMemo(() => {
+    const match = content.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/);
+    return match ? match[0] : null;
+  }, [content]);
+  const displayContent = reconnectUrl ? content.replace(reconnectUrl, '').trim() : content;
+
   // Builder-coach replies carry a schema-validated plan in structured_content;
   // render it as a card instead of the raw JSON/text.
   const workoutPlan = useMemo(
@@ -195,8 +205,23 @@ const MessageItem = memo(function MessageItem({
                 ),
               }}
             >
-              {linkifyUrls(content)}
+              {linkifyUrls(displayContent)}
             </Markdown>
+          </div>
+        )}
+        {/* Provider re-auth CTA — render the hosted-login link as a prominent
+            button instead of a bare URL, opening the sciotte reconnect flow. */}
+        {!isUser && reconnectUrl && (
+          <div className="mt-3">
+            <a
+              href={reconnectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-on-primary hover:bg-primary/90 transition-colors no-underline"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reconnect
+            </a>
           </div>
         )}
         {/* Command action buttons (e.g. per-coach select on /coach).

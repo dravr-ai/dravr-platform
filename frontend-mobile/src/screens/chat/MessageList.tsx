@@ -357,6 +357,14 @@ export function MessageList({
     const isError = item.isError === true;
     // Builder-coach replies carry a schema-validated plan; render a card.
     const workoutPlan = isUser ? null : parseWorkoutPlan(item.structured_content);
+    // auth_recovery replies embed a one-time hosted-login URL; surface it as a
+    // prominent Reconnect button and drop the raw URL from the rendered text.
+    const reconnectUrl = isUser
+      ? null
+      : (item.content.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/)?.[0] ?? null);
+    const assistantContent = reconnectUrl
+      ? item.content.replace(reconnectUrl, '').trim()
+      : item.content;
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
@@ -383,13 +391,23 @@ export function MessageList({
             {workoutPlan ? (
               <>
                 <WorkoutPlanCard plan={workoutPlan} />
-                {item.content.trim().length > 0 &&
-                  renderMessageContent(item.content, false, item.id)}
+                {assistantContent.trim().length > 0 &&
+                  renderMessageContent(assistantContent, false, item.id)}
               </>
             ) : (
-              renderMessageContent(item.content, false, item.id)
+              renderMessageContent(assistantContent, false, item.id)
             )}
           </View>
+        )}
+        {/* Provider re-auth CTA — render the hosted-login link as a prominent
+            Reconnect button instead of a bare URL. */}
+        {!isUser && reconnectUrl && (
+          <TouchableOpacity
+            className="mt-3 self-start px-4 py-2 rounded-lg bg-primary"
+            onPress={() => onOpenUrl(reconnectUrl)}
+          >
+            <Text className="text-sm font-medium text-on-primary">Reconnect</Text>
+          </TouchableOpacity>
         )}
         {/* Slash-command action buttons (e.g. per-coach select on /coach).
             Rendered below the body; tap posts the button's value as the

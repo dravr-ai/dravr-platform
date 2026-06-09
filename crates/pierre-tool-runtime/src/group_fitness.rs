@@ -941,7 +941,10 @@ fn spawn_activity_revalidation(
 /// Persist a provider's freshly fetched activities into the activity cache and
 /// prune rows outside the retention window. Failures are logged, not fatal —
 /// the live activities still flow to the caller.
-async fn write_through_activity_cache(
+///
+/// Shared with [`crate::activity_fetch`] so the coach/recommendation fetch path
+/// warms the same stale-while-revalidate cache the group snapshot builder reads.
+pub(crate) async fn write_through_activity_cache(
     auth_service: &AuthService,
     user_id: Uuid,
     tenant_id: TenantId,
