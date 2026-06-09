@@ -16,32 +16,44 @@ Enforces Pierre's zero-tolerance code quality policy using Clippy with strict li
 - ✅ Enforces code quality standards
 
 ## Usage
-Run this skill:
-- Before every commit
-- Before creating pull requests
+Run the **scoped** check during development on the crate you touched:
+- After editing a crate, before committing it
 - After refactoring
 - During code reviews
 
+Do NOT run the full-workspace `--all-targets` clippy locally as a pre-push gate.
+Per CLAUDE.md, that ~25-minute run is CI's job (`preflight-clippy` + `clippy`
+jobs fire on every push). The local gate is `./scripts/ci/pre-push-validate.sh`.
+
 ## Prerequisites
-- Rust toolchain installed
+- Rust toolchain installed, including the **pinned 1.94.0** toolchain CI uses
+  (`rustup toolchain install 1.94.0`)
 - Clippy component (`rustup component add clippy`)
 
 ## Commands
 
-### Standard Strict Check
+### Scoped Per-Crate Check (the dev loop)
 ```bash
-# Run Clippy with strict lints (Cargo.toml configuration)
-cargo clippy --all-targets --all-features -- -D warnings
+# Validate ONLY the crate you changed, on the pinned toolchain CI uses.
+# Fast (seconds–1 min) and closes the feedback loop without the full-workspace ban.
+rustup run 1.94.0 cargo clippy -p <crate> --all-targets --all-features -- -D warnings
 ```
 
-### Explicit Strict Check (Legacy)
+CRITICAL: validate with `rustup run 1.94.0`, NOT ambient `stable` (currently 1.96).
+Stable flags lints absent in CI's 1.94 (e.g. `manual_duration`, `map_unwrap_or`
+under `-D warnings`), firing in untouched crates as false alarms. The reverse is
+safe: 1.96-clean implies 1.94-clean.
+
+NOTE on `nursery`: this workspace runs `clippy::nursery` at `deny` (hotter than
+the usual `warn`). Nursery lints are version-specific and may have false
+positives by design — the pinned 1.94 run above is the only reliable predictor
+of what CI will flag.
+
+### Pre-Push Gate (what actually gates the push)
 ```bash
-# Run with all lint groups enabled
-cargo clippy --all-targets --all-features -- \
-  -W clippy::all \
-  -W clippy::pedantic \
-  -W clippy::nursery \
-  -D warnings
+# The ONLY local validation command you need before pushing.
+# Tier-scoped, non-compiling; writes the .git/validation-passed marker.
+./scripts/ci/pre-push-validate.sh
 ```
 
 ### Specific Lint Categories
@@ -176,9 +188,10 @@ let args = Args::parse().expect("Failed to parse args");
 
 ## Integration with CI/CD
 
-Clippy runs in GitHub Actions:
+Clippy runs in GitHub Actions (`.github/workflows/ci-backend.yml`):
 ```yaml
-# .github/workflows/rust.yml
+# preflight-clippy: per-crate clippy on changed leaf crates (~3–5 min)
+# clippy:          full-workspace clippy (~10–12 min, gates release-binary)
 - name: Clippy
   run: cargo clippy --all-targets --all-features -- -D warnings
 ```
@@ -193,12 +206,15 @@ Clippy runs in GitHub Actions:
 
 ## Pre-Commit Integration
 
-Install git hooks:
+Set the canonical hooks path (from the `.build` submodule — ALWAYS `.build/hooks`,
+NEVER a local `.githooks/`):
 ```bash
-git config core.hooksPath .githooks
+git submodule update --init --recursive
+git config core.hooksPath .build/hooks
 ```
 
-This runs Clippy automatically before commits.
+The pre-push hook verifies the `.git/validation-passed` marker written by
+`./scripts/ci/pre-push-validate.sh`.
 
 ## Troubleshooting
 
@@ -219,14 +235,15 @@ cargo clippy --all-targets -- \
 
 **Issue:** Lint not recognized
 ```bash
-# Update Rust/Clippy
-rustup update
-rustup component add clippy
+# Ensure the pinned toolchain + clippy are installed. Do NOT `rustup update`
+# to a newer stable — that reintroduces 1.96-only false alarms (see Commands).
+rustup toolchain install 1.94.0
+rustup component add clippy --toolchain 1.94.0
 ```
 
 ## Related Files
-- `Cargo.toml` - Lint configuration (lines 141-213)
-- `scripts/ci/lint-and-test.sh` - Combined linting + testing
+- `Cargo.toml` - Workspace `[workspace.lints.clippy]` configuration
+- `scripts/ci/pre-push-validate.sh` - The local pre-push gate
 - `scripts/ci/architectural-validation.sh` - Pattern validation
 
 ## Related Skills
