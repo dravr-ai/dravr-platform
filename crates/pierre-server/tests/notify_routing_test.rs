@@ -41,7 +41,7 @@ events:
         assert_eq!(login.channel, "#dravr-pulse");
         let dedup = login.dedup.expect("login has dedup rule"); // Safe: test assertion
         assert_eq!(dedup.keys, vec!["user_id".to_owned()]);
-        assert_eq!(dedup.window, Duration::from_secs(60 * 60));
+        assert_eq!(dedup.window, Duration::from_hours(1));
     }
 
     #[test]
@@ -94,7 +94,7 @@ events:
             .route_for("provider.fetch_started")
             .expect("rule present"); // Safe: test assertion
         let batch = rule.batch.expect("batch rule set"); // Safe: test assertion
-        assert_eq!(batch.interval, Duration::from_secs(5 * 60));
+        assert_eq!(batch.interval, Duration::from_mins(5));
     }
 
     #[test]
@@ -128,9 +128,9 @@ events:
         // public RoutingRule the layer would see at runtime.
         for (suffix, expected) in [
             ("30s", Duration::from_secs(30)),
-            ("5m", Duration::from_secs(5 * 60)),
-            ("2h", Duration::from_secs(2 * 60 * 60)),
-            ("1d", Duration::from_secs(24 * 60 * 60)),
+            ("5m", Duration::from_mins(5)),
+            ("2h", Duration::from_hours(2)),
+            ("1d", Duration::from_hours(24)),
         ] {
             let yaml = format!(
                 "version: 1\nevents:\n  user.login:\n    dedup_per: [user_id]\n    dedup_window: {suffix}\n"

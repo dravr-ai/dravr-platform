@@ -324,20 +324,29 @@ pub async fn handle_validate_recipe(
                         let multiplier = grams / 100.0;
                         for nutrient in &details.food_nutrients {
                             match nutrient.nutrient_name.as_str() {
-                                "Energy" => total_calories += nutrient.amount * multiplier,
-                                "Protein" => total_protein += nutrient.amount * multiplier,
+                                "Energy" => {
+                                    total_calories =
+                                        nutrient.amount.mul_add(multiplier, total_calories);
+                                }
+                                "Protein" => {
+                                    total_protein =
+                                        nutrient.amount.mul_add(multiplier, total_protein);
+                                }
                                 "Carbohydrate, by difference" => {
-                                    total_carbs += nutrient.amount * multiplier;
+                                    total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
                                 }
                                 "Total lipid (fat)" => {
-                                    total_fat += nutrient.amount * multiplier;
+                                    total_fat = nutrient.amount.mul_add(multiplier, total_fat);
                                 }
                                 "Fiber, total dietary" => {
-                                    total_fiber += nutrient.amount * multiplier;
+                                    total_fiber = nutrient.amount.mul_add(multiplier, total_fiber);
                                 }
-                                "Sodium, Na" => total_sodium += nutrient.amount * multiplier,
+                                "Sodium, Na" => {
+                                    total_sodium =
+                                        nutrient.amount.mul_add(multiplier, total_sodium);
+                                }
                                 "Sugars, total including NLEA" => {
-                                    total_sugar += nutrient.amount * multiplier;
+                                    total_sugar = nutrient.amount.mul_add(multiplier, total_sugar);
                                 }
                                 _ => {}
                             }

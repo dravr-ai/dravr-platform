@@ -102,9 +102,8 @@ impl GitHubContentsClient {
         let status = response.status().as_u16();
         if status != 200 {
             let body = response.text().await.unwrap_or_default();
-            let message = serde_json::from_str::<GitHubErrorResponse>(&body)
-                .map(|e| e.message)
-                .unwrap_or(body);
+            let message =
+                serde_json::from_str::<GitHubErrorResponse>(&body).map_or(body, |e| e.message);
             return Err(ContremaitreError::GitHubApi { status, message });
         }
 
@@ -189,8 +188,7 @@ impl GitHubContentsClient {
         if status != 200 && status != 201 {
             let resp_body = response.text().await.unwrap_or_default();
             let message = serde_json::from_str::<GitHubErrorResponse>(&resp_body)
-                .map(|e| e.message)
-                .unwrap_or(resp_body);
+                .map_or(resp_body, |e| e.message);
             return Err(ContremaitreError::GitHubApi { status, message });
         }
 
@@ -245,8 +243,7 @@ impl GitHubContentsClient {
         if status != 200 {
             let resp_body = response.text().await.unwrap_or_default();
             let message = serde_json::from_str::<GitHubErrorResponse>(&resp_body)
-                .map(|e| e.message)
-                .unwrap_or(resp_body);
+                .map_or(resp_body, |e| e.message);
             return Err(ContremaitreError::GitHubApi { status, message });
         }
 

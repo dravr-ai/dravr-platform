@@ -81,7 +81,7 @@ jobs:
             url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
             "https://github.com/"
 
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: chat-eval-structural
@@ -132,7 +132,7 @@ jobs:
             url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
             "https://github.com/"
 
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: chat-eval-live

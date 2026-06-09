@@ -232,8 +232,7 @@ mod messaging_user_status_gate_tests {
         };
         db.get_session_messages(session_id, tenant_id, 100, 0)
             .await
-            .map(|m| m.len())
-            .unwrap_or(0)
+            .map_or(0, |m| m.len())
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -117,8 +117,7 @@ async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<Outg
         .coaches
         .get_active_coach(dispatch.auth_result.user_id, dispatch.user_tenant_id)
         .await
-        .map(|coach| coach.is_some())
-        .unwrap_or(true); // fail closed: never onboard a possibly-coached user
+        .map_or(true, |coach| coach.is_some()); // fail closed: never onboard a possibly-coached user
     if has_active_coach {
         return None;
     }

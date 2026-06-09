@@ -187,8 +187,7 @@ fn tss_for(activity: &Activity, inputs: AthleteInputs, algorithm_config: &Algori
         )
         .with_algorithm_config(algorithm_config.clone());
     calc.calculate_metrics(activity)
-        .map(|m| m.training_stress_score.unwrap_or(0.0))
-        .unwrap_or(0.0)
+        .map_or(0.0, |m| m.training_stress_score.unwrap_or(0.0))
 }
 
 #[allow(clippy::cast_precision_loss)]

@@ -804,12 +804,16 @@ impl McpTool for AnalyzeMealNutritionTool {
             let multiplier = grams / 100.0;
             for nutrient in &food.food_nutrients {
                 match nutrient.nutrient_name.as_str() {
-                    "Energy" => total_calories += nutrient.amount * multiplier,
-                    "Protein" => total_protein += nutrient.amount * multiplier,
-                    "Carbohydrate, by difference" => {
-                        total_carbs += nutrient.amount * multiplier;
+                    "Energy" => {
+                        total_calories = nutrient.amount.mul_add(multiplier, total_calories);
                     }
-                    "Total lipid (fat)" => total_fat += nutrient.amount * multiplier,
+                    "Protein" => total_protein = nutrient.amount.mul_add(multiplier, total_protein),
+                    "Carbohydrate, by difference" => {
+                        total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
+                    }
+                    "Total lipid (fat)" => {
+                        total_fat = nutrient.amount.mul_add(multiplier, total_fat);
+                    }
                     _ => {}
                 }
             }

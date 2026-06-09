@@ -70,7 +70,7 @@ const GCS_API_BASE: &str = "https://storage.googleapis.com/storage/v1";
 
 /// Refresh window: re-fetch a token this long before its declared expiry
 /// so the next read doesn't race a 401.
-const TOKEN_REFRESH_LEEWAY: Duration = Duration::from_secs(60);
+const TOKEN_REFRESH_LEEWAY: Duration = Duration::from_mins(1);
 
 /// Connection / read timeout for metadata + GCS calls. The metadata server
 /// is link-local (microseconds when present), and GCS reads are a single

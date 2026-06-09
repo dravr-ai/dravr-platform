@@ -56,7 +56,7 @@ use pierre_core::errors::AppResult;
 /// 60 seconds keeps latency under one minute past `due_at` while keeping
 /// DB load modest. Tunable via [`Self::with_interval`] for tests that
 /// want to drive ticks manually.
-pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_secs(60);
+pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_mins(1);
 
 /// How many overdue followups to fetch per tick.
 ///

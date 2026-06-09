@@ -53,7 +53,7 @@ use pierre_notifications::{
 };
 
 /// How often the digest tick fires. One week — the digest cadence.
-pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_secs(7 * 24 * 60 * 60);
+pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_hours(168);
 
 /// Outcome of a single scheduler tick — exposed for tests and metrics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

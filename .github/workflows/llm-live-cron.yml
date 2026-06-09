@@ -80,7 +80,7 @@ jobs:
           ollama pull qwen2.5:14b-instruct
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.94.0
+        uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2

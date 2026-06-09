@@ -74,7 +74,7 @@ async fn in_memory_cache_round_trips_a_value() {
     let payload = serde_json::json!({ "name": "Pierre" });
 
     cache
-        .set(&key, &payload, Duration::from_secs(60))
+        .set(&key, &payload, Duration::from_mins(1))
         .await
         .expect("cache set must succeed");
 

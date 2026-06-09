@@ -31,7 +31,7 @@ use crate::chat_provider_factory::chat_provider_from_credentials;
 
 /// How long a resolved (tenant, user) provider entry stays valid before the
 /// next turn re-resolves it. Bounds the staleness of a credential change.
-const CACHE_TTL: Duration = Duration::from_secs(60);
+const CACHE_TTL: Duration = Duration::from_mins(1);
 
 struct CachedProvider {
     /// `None` means "this tenant/user has no BYO credential — use the global
