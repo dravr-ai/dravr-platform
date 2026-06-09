@@ -127,3 +127,9 @@ infra/**/tfplan-*
 # Claude Code
 .claude/scheduled_tasks.lock
 verify-login-*.png
+.claude/*.png
+.claude/workflows/
+ONBOARDING.md
+
+# Judge bake-off generated reports (harness --out default)
+judge-bakeoff-results.json
