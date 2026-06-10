@@ -53,8 +53,15 @@ env:
 
 jobs:
   postgres-tests:
-    name: Database Tests (PostgreSQL)
+    name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+
+    strategy:
+      # One shard's failure must not cancel the others — we want every shard's
+      # verdict, and a real failure should not be masked by a sibling shard.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     services:
       postgres:
@@ -111,17 +118,46 @@ jobs:
           echo "Testing PostgreSQL connection..."
           PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -c "SELECT version();"
 
-      - name: Run PostgreSQL tests (scoped on branches, full on main)
-        # Main branch: full test suite validates complete PostgreSQL compatibility
-        # Feature branches: scoped tests for faster iteration
+      - name: Run PostgreSQL tests (sharded full on main, scoped on branches)
+        # Main/schedule: the full suite, partitioned round-robin across 4 shards
+        # and run one test file at a time. A monolithic `cargo test` linked all
+        # ~325 test binaries on one runner and was OOM-killed (~11min, no output);
+        # per-file runs keep only one binary resident, mirroring the SQLite shards.
+        # Feature branches: the scoped database_plugins suite runs once (shard 1).
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
+          SHARD=${{ matrix.shard }}
+          SHARDS=4
           if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Running FULL test suite on main branch..."
-            cargo test --features postgresql -- --test-threads=4
-          else
-            echo "Running SCOPED database tests on feature branch..."
+            mapfile -t ALL_TESTS < <(
+              find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
+                | sed 's/\.rs$//' \
+                | grep -v '^common$' \
+                | sort
+            )
+            SHARD_TESTS=()
+            for i in "${!ALL_TESTS[@]}"; do
+              if (( (i % SHARDS) + 1 == SHARD )); then
+                SHARD_TESTS+=("${ALL_TESTS[$i]}")
+              fi
+            done
+            echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
+            printf '  %s\n' "${SHARD_TESTS[@]}"
+            FAILED=0
+            for test_file in "${SHARD_TESTS[@]}"; do
+              echo "::group::$test_file"
+              if ! cargo test --features postgresql --test "$test_file" -- --test-threads=4; then
+                echo "::error::PostgreSQL test file $test_file failed"
+                FAILED=1
+              fi
+              echo "::endgroup::"
+            done
+            exit $FAILED
+          elif [ "$SHARD" = "1" ]; then
+            echo "Running SCOPED database tests on feature branch (shard 1 only)..."
             cargo test --features postgresql database_plugins -- --test-threads=4
+          else
+            echo "Scoped feature-branch run uses shard 1 only; shard $SHARD is a no-op."
           fi
         timeout-minutes: 75
         env:
