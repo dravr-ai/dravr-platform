@@ -143,17 +143,61 @@ struct CohereFunction {
 
 /// Message structure for Cohere v2 chat — roles match the canonical
 /// `system`/`user`/`assistant`/`tool` values produced by `MessageRole`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Assistant tool-call turns arrive with empty `content` and the payload in
+/// `tool_calls`; tool-result turns carry `tool_call_id`. Cohere v2 rejects any
+/// message that has neither non-empty content nor tool calls, so empty content
+/// is omitted from the wire and the tool fields are carried through verbatim.
+#[derive(Debug, Clone, Serialize)]
 struct CohereMessage {
     role: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<CohereOutboundToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+/// Assistant tool-call request serialized into a Cohere v2 chat message.
+/// Cohere accepts the OpenAI-compatible shape verbatim, mirroring [`CohereTool`].
+#[derive(Debug, Clone, Serialize)]
+struct CohereOutboundToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: CohereOutboundFunction,
+}
+
+/// Function name plus JSON-encoded arguments inside an outbound tool call.
+#[derive(Debug, Clone, Serialize)]
+struct CohereOutboundFunction {
+    name: String,
+    /// Cohere v2 expects arguments as a JSON-encoded string, not an object.
+    arguments: String,
 }
 
 impl From<&ChatMessage> for CohereMessage {
     fn from(msg: &ChatMessage) -> Self {
+        let tool_calls = msg.tool_calls.as_ref().map(|calls| {
+            calls
+                .iter()
+                .map(|call| CohereOutboundToolCall {
+                    id: call.id.clone(),
+                    call_type: "function".to_owned(),
+                    function: CohereOutboundFunction {
+                        name: call.function_name.clone(),
+                        arguments: call.arguments.to_string(),
+                    },
+                })
+                .collect()
+        });
+
         Self {
             role: msg.role.as_str().to_owned(),
             content: msg.content.clone(),
+            tool_calls,
+            tool_call_id: msg.tool_call_id.clone(),
         }
     }
 }
@@ -885,6 +929,7 @@ impl LlmProvider for CohereProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use embacle::types::ToolCallRequest;
     use pierre_core::errors::AppResult;
 
     #[test]
@@ -897,6 +942,64 @@ mod tests {
         let converted = CohereProvider::convert_messages(&messages);
         let roles: Vec<&str> = converted.iter().map(|m| m.role.as_str()).collect();
         assert_eq!(roles, vec!["system", "user", "assistant"]);
+    }
+
+    #[test]
+    fn assistant_tool_call_message_omits_empty_content_and_keeps_tool_calls() -> AppResult<()> {
+        // A prior assistant turn that was a pure tool call: empty text, payload
+        // in `tool_calls`. Cohere v2 rejects a message with neither content nor
+        // tool calls, so the wire form must omit `content` and carry the call.
+        let mut msg = ChatMessage::assistant("");
+        msg.tool_calls = Some(vec![ToolCallRequest {
+            id: "call_1".to_owned(),
+            function_name: "get_activities".to_owned(),
+            arguments: serde_json::json!({ "limit": 5 }),
+        }]);
+
+        let converted = CohereProvider::convert_messages(&[msg]);
+        let json = serde_json::to_value(&converted[0])
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        assert!(
+            json.get("content").is_none(),
+            "empty content must be omitted so Cohere does not reject the message"
+        );
+        let calls = json
+            .get("tool_calls")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AppError::internal("tool_calls should be present"))?;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["id"], "call_1");
+        assert_eq!(calls[0]["type"], "function");
+        assert_eq!(calls[0]["function"]["name"], "get_activities");
+        assert_eq!(calls[0]["function"]["arguments"], "{\"limit\":5}");
+        Ok(())
+    }
+
+    #[test]
+    fn tool_result_message_carries_tool_call_id_and_content() -> AppResult<()> {
+        let msg = ChatMessage::tool("get_activities", "call_1", "5 runs this week");
+        let converted = CohereProvider::convert_messages(&[msg]);
+        let json = serde_json::to_value(&converted[0])
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        assert_eq!(json["role"], "tool");
+        assert_eq!(json["tool_call_id"], "call_1");
+        assert_eq!(json["content"], "5 runs this week");
+        Ok(())
+    }
+
+    #[test]
+    fn plain_text_messages_serialize_without_tool_fields() -> AppResult<()> {
+        let msg = ChatMessage::user("hi");
+        let converted = CohereProvider::convert_messages(&[msg]);
+        let json = serde_json::to_value(&converted[0])
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        assert_eq!(json["content"], "hi");
+        assert!(json.get("tool_calls").is_none());
+        assert!(json.get("tool_call_id").is_none());
+        Ok(())
     }
 
     #[test]
