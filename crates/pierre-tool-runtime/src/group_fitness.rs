@@ -957,6 +957,7 @@ impl RevalidationRegistry {
     }
 
     /// The process-global registry shared across every chat turn.
+    #[must_use]
     pub fn global() -> &'static Self {
         static GLOBAL: LazyLock<RevalidationRegistry> = LazyLock::new(RevalidationRegistry::new);
         &GLOBAL
