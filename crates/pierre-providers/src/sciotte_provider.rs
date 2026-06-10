@@ -196,7 +196,7 @@ impl SciotteProvider {
 /// and `launch_browser` documents that the *caller* must serialize concurrent
 /// launches against the same id — Chrome holds a `SingletonLock` on its
 /// profile directory and a second launch aborts with "Failed to create
-/// SingletonLock: File exists". Each `SciotteProvider` instance launches its
+/// `SingletonLock`: File exists". Each `SciotteProvider` instance launches its
 /// own Chrome, so two overlapping scrapes for the same user (e.g. a background
 /// activity-cache revalidation racing an LLM `get_activities` call) crash
 /// instantly without this serialization.
@@ -218,6 +218,7 @@ impl ProfileLockRegistry {
     }
 
     /// The process-global registry shared by every `SciotteProvider` instance.
+    #[must_use]
     pub fn global() -> &'static Self {
         static GLOBAL: LazyLock<ProfileLockRegistry> = LazyLock::new(ProfileLockRegistry::new);
         &GLOBAL
