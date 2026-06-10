@@ -25,6 +25,17 @@ backend_memory = "2Gi"
 backend_min_instances = 0
 backend_max_instances = 15
 
+# Concurrency capped at 1 for the OOM-prone shape of a coaching turn: each turn
+# holds TWO heavyweight children for its full duration — a `copilot --acp` Node
+# subprocess (COPILOT_HEADLESS_MCP_TOOL_CALLING=true) AND a headless Chrome
+# (sciotte scrape on a cold cache). The 2Gi budget only sized Chrome (~250Mi ×4),
+# not the Node process, so 4 concurrent turns (≈4×Chrome + 4×Node + Rust heap)
+# blow past 2Gi and OOM-crash-loop. One turn per pod ≈ 1 Chrome + 1 Node ≈ 700Mi
+# + Rust, comfortably under 2Gi; backend_max_instances=15 spreads load. Raise
+# both back toward 4 once the activity cache + SWR removes the per-turn scrape.
+backend_max_instance_request_concurrency = 1
+backend_sciotte_max_concurrent           = 1
+
 # database_tier                = "db-f1-micro"
 # database_deletion_protection = false
 # database_backup_enabled      = false

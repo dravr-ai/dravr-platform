@@ -272,6 +272,15 @@ module "backend" {
       # turn isn't cut off mid-synthesis.
       EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "300"
 
+      # Whole-turn ACP timeout (embacle default 300s). A stalled Copilot CLI
+      # session — alive but emitting nothing — otherwise hangs the user for the
+      # full default before failing. Cap it at 150s: comfortably above the
+      # heaviest observed real coaching turn (~48s) yet half the default, so a
+      # stall fails fast and the tool-loop's retryable-error fallback hands the
+      # turn to the secondary provider (Cohere) instead of leaving the user
+      # waiting 5 minutes for a generic error.
+      EMBACLE_ACP_PROMPT_TIMEOUT_SECS = "150"
+
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
 
