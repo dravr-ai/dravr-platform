@@ -14,13 +14,11 @@
 
 use anyhow::Result;
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
-use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_mcp_server::{mcp::multitenant::MultiTenantMcpServer, websocket::WebSocketManager};
+use pierre_mcp_server::mcp::multitenant::MultiTenantMcpServer;
 use serde_json::json;
-use std::sync::Arc;
 use uuid::Uuid;
 
 mod common;
@@ -369,29 +367,6 @@ async fn test_production_rate_limiting() -> Result<()> {
     assert!(rate_limit_info.limit.is_some());
     assert_eq!(rate_limit_info.tier, "starter");
     assert!(!rate_limit_info.is_rate_limited); // Fresh user shouldn't be limited yet
-
-    Ok(())
-}
-
-/// Test WebSocket connection handling paths
-#[tokio::test]
-async fn test_websocket_connection_scenarios() -> Result<()> {
-    let database = create_test_database().await?;
-    let auth_manager = common::create_test_auth_manager();
-    let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
-    let websocket_manager = WebSocketManager::new(
-        &repos,
-        &auth_manager,
-        &jwks_manager,
-        RateLimitConfig::default(),
-    );
-
-    // Test system stats broadcast (this is one of the main WebSocket functions)
-    let result = websocket_manager.broadcast_system_stats().await;
-    assert!(result.is_ok());
-
-    // WebSocket manager was created successfully and methods work
 
     Ok(())
 }

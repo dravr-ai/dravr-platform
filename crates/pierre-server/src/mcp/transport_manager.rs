@@ -218,7 +218,6 @@ impl TransportManager {
             cfg!(feature = "transport-http"),
             Some(format!("port {port}")),
         );
-        log_transport_status("WebSocket", cfg!(feature = "transport-websocket"), None);
     }
 
     /// Prepare resources for transport initialization

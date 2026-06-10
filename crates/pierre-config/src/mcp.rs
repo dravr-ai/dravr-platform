@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::{limits, mcp_transport, network_config, rate_limits};
+use pierre_core::constants::{limits, mcp_transport, network_config};
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -24,8 +24,6 @@ pub struct McpConfig {
     pub max_response_size: usize,
     /// Notification broadcast channel size
     pub notification_channel_size: usize,
-    /// WebSocket channel capacity
-    pub websocket_channel_capacity: usize,
     /// TCP keep-alive timeout in seconds
     pub tcp_keep_alive_secs: u64,
 }
@@ -53,10 +51,6 @@ impl McpConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(mcp_transport::NOTIFICATION_CHANNEL_SIZE),
-            websocket_channel_capacity: env::var("MCP_WEBSOCKET_CHANNEL_CAPACITY")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(rate_limits::WEBSOCKET_CHANNEL_CAPACITY),
             tcp_keep_alive_secs: env::var("TCP_KEEP_ALIVE_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())

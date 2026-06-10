@@ -18,7 +18,7 @@ use pierre_core::errors::AppError;
 use pierre_runtime_context::{SseBufferOverflowStrategy, SseCtx};
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use pierre_middleware::redact_session_id;
@@ -35,10 +35,6 @@ impl SseRoutes {
                 get(Self::handle_notification_sse),
             )
             .route("/mcp/sse/{session_id}", get(Self::handle_protocol_sse))
-            .route(
-                "/a2a/tasks/{task_id}/stream",
-                get(Self::handle_a2a_task_sse),
-            )
             .with_state((manager, ctx))
     }
 
@@ -267,130 +263,6 @@ impl SseRoutes {
 
             // Clean up connection
             manager_clone.unregister_protocol_stream(&session_id_clone);
-        };
-
-        // Configure keepalive with 15-second interval
-        Ok(Sse::new(stream).keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("keepalive"),
-        ))
-    }
-
-    /// Handle A2A task SSE connection for task progress streaming
-    ///
-    /// REQUIRES: JWT authentication (Bearer token in Authorization header)
-    ///
-    /// Security: Only authenticated users can subscribe to A2A task streams
-    /// to prevent unauthorized monitoring of agent-to-agent task progress.
-    async fn handle_a2a_task_sse(
-        Path(task_id): Path<String>,
-        headers: HeaderMap,
-        State((manager, ctx)): State<(Arc<SseManager>, Arc<dyn SseCtx>)>,
-    ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
-        info!("New A2A task SSE connection for task: {}", task_id);
-
-        // Extract and validate JWT token
-        let auth_header = headers
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| {
-                warn!(task_id = %task_id, "Missing Authorization header for A2A task SSE");
-                AppError::auth_invalid(
-                    "Missing Authorization header - JWT token required for A2A task streams",
-                )
-            })?;
-
-        let token = extract_token(auth_header).map_err(|_| {
-            warn!(task_id = %task_id, "Invalid Authorization header format for A2A SSE");
-            AppError::auth_invalid("Invalid Authorization header format")
-        })?;
-
-        // Authenticate user
-        let auth_result = ctx
-            .authenticate_request(Some(&format!("Bearer {token}")))
-            .await
-            .map_err(|e| {
-                // DEBUG: same SSE reconnect-loop rationale as the
-                // user SSE handler above.
-                debug!(task_id = %task_id, error = %e, "Failed to authenticate JWT token for A2A SSE");
-                AppError::auth_invalid(format!("Authentication failed: {e}"))
-            })?;
-
-        info!(
-            task_id = %task_id,
-            user_id = %auth_result.user_id,
-            "Authenticated A2A task SSE connection"
-        );
-
-        // Verify task exists in database
-        let task = ctx
-            .repos()
-            .a2a
-            .get_task(&task_id)
-            .await
-            .map_err(|e| {
-                error!(task_id = %task_id, error = %e, "Failed to fetch task for SSE streaming");
-                AppError::internal(format!("Failed to fetch task: {e}"))
-            })?
-            .ok_or_else(|| {
-                warn!(task_id = %task_id, "Task not found for SSE streaming");
-                AppError::not_found(format!("Task {task_id} not found"))
-            })?;
-
-        let actual_client_id = task.client_id.clone();
-        let mut receiver = manager.register_a2a_task_stream(task_id.clone(), actual_client_id);
-        let manager_clone = manager.clone();
-        let task_id_clone = task_id.clone();
-
-        let stream = async_stream::stream! {
-            // Send initial connection event with current task status
-            let mut event_id: u64 = 0;
-            event_id += 1;
-
-            // Send initial task state
-            let initial_state = serde_json::json!({
-                "task_id": task_id,
-                "status": task.status,
-                "created_at": task.created_at,
-                "updated_at": task.updated_at,
-            });
-
-            yield Ok::<_, Infallible>(
-                Event::default()
-                    .id(event_id.to_string())
-                    .data(serde_json::to_string(&initial_state).unwrap_or_else(|_| "{}".to_owned()))
-                    .event("task_status")
-            );
-
-            // Listen for task updates
-            loop {
-                match receiver.recv().await {
-                    Ok(message) => {
-                        event_id += 1;
-                        yield Ok(
-                            Event::default()
-                                .id(event_id.to_string())
-                                .data(message)
-                                .event("task_update")
-                        );
-                    }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(
-                            "SSE buffer overflow for task {}: {} messages dropped",
-                            task_id_clone, skipped
-                        );
-                        // Continue operation
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!("SSE channel closed for task: {}", task_id_clone);
-                        break;
-                    }
-                }
-            }
-
-            // Clean up connection
-            manager_clone.unregister_a2a_task_stream(&task_id_clone);
         };
 
         // Configure keepalive with 15-second interval

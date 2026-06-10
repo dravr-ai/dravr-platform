@@ -122,10 +122,6 @@ pub mod types;
 /// re-exported here so `crate::utils::*` keeps resolving for in-crate callers and tests).
 pub use pierre_config::utils;
 
-/// WebSocket support for real-time updates
-#[cfg(feature = "transport-websocket")]
-pub mod websocket;
-
 /// Test utilities for creating consistent test data
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;

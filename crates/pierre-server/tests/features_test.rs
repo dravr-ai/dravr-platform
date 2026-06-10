@@ -46,7 +46,6 @@ fn test_protocol_checks_with_default_features() {
 fn test_transport_checks_with_default_features() {
     // With server-full, all transports should be enabled
     assert!(FeatureConfig::transport_http());
-    assert!(FeatureConfig::transport_websocket());
     assert!(FeatureConfig::transport_sse());
     assert!(FeatureConfig::transport_stdio());
     assert!(FeatureConfig::has_any_transport());

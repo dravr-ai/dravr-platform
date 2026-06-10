@@ -1,20 +1,10 @@
 // ABOUTME: Protocol configuration constants for various communication protocols
-// ABOUTME: Defines timeouts, limits, and configuration for HTTP, WebSocket, and other protocols
+// ABOUTME: Defines timeouts, limits, and configuration for HTTP and other protocols
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Protocol configuration constants
-
-/// WebSocket protocol constants
-pub mod websocket {
-    /// Default WebSocket timeout in seconds
-    pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
-    /// WebSocket ping interval in seconds
-    pub const PING_INTERVAL_SECS: u64 = 30;
-    /// Maximum WebSocket message size
-    pub const MAX_MESSAGE_SIZE: usize = 1_048_576; // 1MB
-}
 
 /// HTTP protocol constants
 pub mod http {

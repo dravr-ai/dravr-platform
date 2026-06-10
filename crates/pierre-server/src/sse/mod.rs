@@ -1,5 +1,5 @@
 // ABOUTME: Server-Sent Events (SSE) protocol stream that drives tools/call dispatch
-// ABOUTME: Sibling modules (manager, routes, notifications, a2a_task_stream) live in pierre-sse
+// ABOUTME: Sibling modules (manager, routes, notifications) live in pierre-sse
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

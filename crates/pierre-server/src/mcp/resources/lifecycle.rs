@@ -13,8 +13,6 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
-#[cfg(feature = "transport-websocket")]
-use crate::websocket::WebSocketManager;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -186,15 +184,6 @@ impl ServerContext {
         // Use provided JWKS manager or load/create new one for RS256 JWT signing
         let jwks_manager_arc =
             Self::resolve_jwks_manager(jwks_manager, &database_arc, rsa_key_size_bits).await;
-
-        // Create websocket manager after jwks_manager is initialized
-        #[cfg(feature = "transport-websocket")]
-        let websocket_manager = Arc::new(WebSocketManager::new(
-            &repos,
-            &auth_manager_arc,
-            &jwks_manager_arc,
-            config.rate_limiting.clone(),
-        ));
 
         // Create SSE manager with configured buffer size
         #[cfg(feature = "transport-sse")]
@@ -435,8 +424,6 @@ impl ServerContext {
         let sse = super::slices::SseSlice {
             #[cfg(feature = "transport-sse")]
             sse_manager,
-            #[cfg(feature = "transport-websocket")]
-            websocket_manager,
             agui_registry: Arc::new(AgUiRunRegistry::new()),
             sampling_peer: None,
             progress_notification_sender: None,

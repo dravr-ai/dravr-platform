@@ -1,5 +1,5 @@
 // ABOUTME: Core types and constants for Pierre fitness intelligence platform
-// ABOUTME: Foundation crate with error handling, pagination, formatters, and constants
+// ABOUTME: Foundation crate with error handling, pagination, and constants
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,6 @@
 //! - **errors**: Unified error handling with `AppError`, `ErrorCode`, and domain-specific errors
 //! - **constants**: Application-wide constants organized by domain
 //! - **pagination**: Cursor-based pagination for efficient data traversal
-//! - **formatters**: Output format abstraction (JSON, TOON) for LLM-optimized serialization
 
 /// Unified error handling system with standard error codes and HTTP responses
 pub mod errors;
@@ -27,9 +26,6 @@ pub mod constants;
 
 /// Cursor-based pagination for efficient data traversal
 pub mod pagination;
-
-/// Output format abstraction (JSON, TOON) for efficient LLM serialization
-pub mod formatters;
 
 /// Core data models (Activity, User, SportType, OAuth, etc.)
 pub mod models;

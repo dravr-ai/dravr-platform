@@ -65,12 +65,10 @@ impl ServerContext {
         )
     }
 
-    /// Extract notification context (WebSocket, SSE, OAuth notifications).
+    /// Extract notification context (SSE, OAuth notifications).
     #[must_use]
     pub fn notification(&self) -> NotificationContext {
         NotificationContext::new(
-            #[cfg(feature = "transport-websocket")]
-            self.sse.websocket_manager.clone(),
             #[cfg(feature = "transport-sse")]
             self.sse.sse_manager.clone(),
             self.auth.oauth_notification_sender.clone(),

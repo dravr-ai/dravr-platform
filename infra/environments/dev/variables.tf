@@ -119,6 +119,18 @@ variable "enable_cache" {
   default     = false
 }
 
+variable "enable_bigquery_usage" {
+  description = "Provision the BigQuery usage-analytics dataset + federated Cloud SQL rollup for pricing analysis (requires enable_database). Read by Looker Studio; never queries the live backend."
+  type        = bool
+  default     = false
+}
+
+variable "bigquery_usage_dataset_id" {
+  description = "BigQuery dataset ID for usage/pricing rollups."
+  type        = string
+  default     = "dravr_usage"
+}
+
 variable "redis_tier" {
   description = "Redis tier: BASIC (no replication) or STANDARD_HA (with replica)"
   type        = string

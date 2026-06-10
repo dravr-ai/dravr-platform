@@ -3485,7 +3485,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "toml",
- "toon-format",
  "tracing",
  "utoipa",
  "uuid",

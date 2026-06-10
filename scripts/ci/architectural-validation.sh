@@ -1336,6 +1336,39 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-migration-idempotency.sh not found${NC}"
 fi
 
+# Observability / dead-code prevention gates (added after the vestigial /ws +
+# unwired-a2a-SSE + cpu_idle cleanup). The first two are hard fails; the rest
+# are advisory (always exit 0) because their detection is heuristic.
+echo ""
+echo -e "${BLUE}==== Observability / Dead-Code Prevention Gates ====${NC}"
+
+# HARD FAIL: every crate src/ .rs must be reachable from a mod declaration.
+if [ -x "$SCRIPT_DIR/check-orphan-source.sh" ]; then
+    "$SCRIPT_DIR/check-orphan-source.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-orphan-source.sh not found or not executable${NC}"
+fi
+
+# HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
+if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
+    "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-cpu-idle-adr.sh not found or not executable${NC}"
+fi
+
+# ADVISORY (warning-only): SDK path vs mounted-route contract, ungated mobile
+# polls, and stream senders with no production caller. These surface candidates
+# without failing the build because their detection is heuristic.
+if [ -x "$SCRIPT_DIR/check-sdk-route-contract.sh" ]; then
+    "$SCRIPT_DIR/check-sdk-route-contract.sh" || true
+fi
+if [ -x "$SCRIPT_DIR/check-ungated-poll.sh" ]; then
+    "$SCRIPT_DIR/check-ungated-poll.sh" || true
+fi
+if [ -x "$SCRIPT_DIR/check-stream-sender-callers.sh" ]; then
+    "$SCRIPT_DIR/check-stream-sender-callers.sh" || true
+fi
+
 echo ""
 echo -e "${BLUE}==== Architectural Validation Summary ====${NC}"
 

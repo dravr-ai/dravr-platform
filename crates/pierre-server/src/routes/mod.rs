@@ -40,14 +40,6 @@ pub mod health;
 pub mod mcp;
 
 // ═══════════════════════════════════════════════════════════════
-// TRANSPORT FEATURES
-// ═══════════════════════════════════════════════════════════════
-
-/// WebSocket routes for real-time communication
-#[cfg(feature = "transport-websocket")]
-pub mod websocket;
-
-// ═══════════════════════════════════════════════════════════════
 // CLIENT-WEB FEATURES
 // ═══════════════════════════════════════════════════════════════
 

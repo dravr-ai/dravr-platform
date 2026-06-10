@@ -1064,8 +1064,6 @@ impl MultiTenantMcpServer {
         use crate::routes::usage::UsageRoutes;
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
-        #[cfg(feature = "transport-websocket")]
-        use crate::routes::websocket::WebSocketRoutes;
         #[cfg(feature = "protocol-a2a")]
         use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
         #[cfg(feature = "client-llm-settings")]
@@ -1259,11 +1257,6 @@ impl MultiTenantMcpServer {
             (*resources.sse.agui_registry).clone(),
             Arc::clone(&resources.auth.auth_middleware),
         ));
-
-        #[cfg(feature = "transport-websocket")]
-        let app = app.merge(WebSocketRoutes::routes(Arc::clone(
-            &resources.sse.websocket_manager,
-        )));
 
         // ═══════════════════════════════════════════════════════════════
         // CLIENT-WEB ROUTES

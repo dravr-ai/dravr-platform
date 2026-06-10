@@ -73,27 +73,6 @@ fn test_connection_type_protocol() {
 }
 
 #[test]
-fn test_connection_type_a2a_task() {
-    let task_id = "task-456".to_owned();
-    let client_id = "client-789".to_owned();
-    let conn_type = ConnectionType::A2ATask {
-        task_id: task_id.clone(),
-        client_id: client_id.clone(),
-    };
-
-    if let ConnectionType::A2ATask {
-        task_id: tid,
-        client_id: cid,
-    } = conn_type
-    {
-        assert_eq!(tid, task_id);
-        assert_eq!(cid, client_id);
-    } else {
-        panic!("Expected A2ATask type");
-    }
-}
-
-#[test]
 fn test_connection_type_debug() {
     let conn_type = ConnectionType::Notification {
         user_id: Uuid::new_v4(),
@@ -222,30 +201,6 @@ async fn test_unregister_nonexistent_notification_stream() {
 }
 
 #[tokio::test]
-async fn test_register_a2a_task_stream() {
-    let manager = SseManager::new(10);
-    let task_id = "task-123".to_owned();
-    let client_id = "client-456".to_owned();
-
-    let _receiver = manager.register_a2a_task_stream(task_id, client_id);
-
-    assert_eq!(manager.active_a2a_task_streams(), 1);
-}
-
-#[tokio::test]
-async fn test_unregister_a2a_task_stream() {
-    let manager = SseManager::new(10);
-    let task_id = "task-789".to_owned();
-    let client_id = "client-012".to_owned();
-
-    let _receiver = manager.register_a2a_task_stream(task_id.clone(), client_id);
-    assert_eq!(manager.active_a2a_task_streams(), 1);
-
-    manager.unregister_a2a_task_stream(&task_id);
-    assert_eq!(manager.active_a2a_task_streams(), 0);
-}
-
-#[tokio::test]
 async fn test_get_connection_metadata() {
     let manager = SseManager::new(10);
     let user_id = Uuid::new_v4();
@@ -260,25 +215,20 @@ async fn test_get_connection_metadata() {
 }
 
 #[tokio::test]
-async fn test_get_connection_metadata_multiple_types() {
+async fn test_get_connection_metadata_multiple_streams() {
     let manager = SseManager::new(10);
 
-    let user_id = Uuid::new_v4();
-    let _r1 = manager.register_notification_stream(user_id).await;
-
-    let task_id = "task-multi".to_owned();
-    let _r2 = manager.register_a2a_task_stream(task_id.clone(), "client".to_owned());
+    let user1 = Uuid::new_v4();
+    let user2 = Uuid::new_v4();
+    let _r1 = manager.register_notification_stream(user1).await;
+    let _r2 = manager.register_notification_stream(user2).await;
 
     let metadata = manager.get_connection_metadata();
     assert_eq!(metadata.len(), 2);
 
-    // Check notification connection exists
-    let notification_key = format!("notification_{user_id}");
-    assert!(metadata.contains_key(&notification_key));
-
-    // Check A2A task connection exists
-    let task_key = format!("a2a_task_{task_id}");
-    assert!(metadata.contains_key(&task_key));
+    // Both notification connections exist
+    assert!(metadata.contains_key(&format!("notification_{user1}")));
+    assert!(metadata.contains_key(&format!("notification_{user2}")));
 }
 
 #[tokio::test]
@@ -287,15 +237,10 @@ async fn test_active_streams_count() {
 
     assert_eq!(manager.active_notification_streams(), 0);
     assert_eq!(manager.active_protocol_streams(), 0);
-    assert_eq!(manager.active_a2a_task_streams(), 0);
 
     // Add notification stream
     let _r1 = manager.register_notification_stream(Uuid::new_v4()).await;
     assert_eq!(manager.active_notification_streams(), 1);
-
-    // Add A2A task stream
-    let _r2 = manager.register_a2a_task_stream("task".to_owned(), "client".to_owned());
-    assert_eq!(manager.active_a2a_task_streams(), 1);
 
     // Protocol streams stay at 0 (requires server resources)
     assert_eq!(manager.active_protocol_streams(), 0);
@@ -320,15 +265,6 @@ async fn test_send_notification_nonexistent_user() {
     };
 
     let result = manager.send_notification(user_id, &notification).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_send_a2a_task_update_nonexistent_task() {
-    let manager = SseManager::new(10);
-
-    let result = manager.send_a2a_task_update("nonexistent-task", "update data".to_owned());
-
     assert!(result.is_err());
 }
 
@@ -374,14 +310,13 @@ async fn test_cleanup_with_active_connections() {
     let manager = SseManager::new(10);
 
     let _r1 = manager.register_notification_stream(Uuid::new_v4()).await;
-    let _r2 = manager.register_a2a_task_stream("task".to_owned(), "client".to_owned());
+    let _r2 = manager.register_notification_stream(Uuid::new_v4()).await;
 
     // With a large timeout, no connections should be cleaned up
     manager.cleanup_inactive_connections(3600);
 
     // Connections should still exist (they were just created)
-    assert_eq!(manager.active_notification_streams(), 1);
-    assert_eq!(manager.active_a2a_task_streams(), 1);
+    assert_eq!(manager.active_notification_streams(), 2);
 }
 
 // =============================================================================
@@ -414,28 +349,6 @@ async fn test_concurrent_stream_registration() {
     assert_eq!(manager_clone.active_notification_streams(), 10);
 }
 
-#[tokio::test]
-async fn test_concurrent_a2a_task_registration() {
-    let manager = SseManager::new(100);
-
-    let handles: Vec<_> = (0..5)
-        .map(|i| {
-            let mgr = manager.clone();
-            tokio::spawn(async move {
-                let task_id = format!("task-{i}");
-                let client_id = format!("client-{i}");
-                let _receiver = mgr.register_a2a_task_stream(task_id, client_id);
-            })
-        })
-        .collect();
-
-    for handle in handles {
-        handle.await.unwrap();
-    }
-
-    assert_eq!(manager.active_a2a_task_streams(), 5);
-}
-
 // =============================================================================
 // Edge Cases
 // =============================================================================
@@ -451,18 +364,6 @@ async fn test_register_same_user_twice() {
     // Second registration should replace the first
     // So we should have 1 stream, not 2
     assert_eq!(manager.active_notification_streams(), 1);
-}
-
-#[tokio::test]
-async fn test_register_same_task_twice() {
-    let manager = SseManager::new(10);
-    let task_id = "same-task".to_owned();
-
-    let _r1 = manager.register_a2a_task_stream(task_id.clone(), "client1".to_owned());
-    let _r2 = manager.register_a2a_task_stream(task_id, "client2".to_owned());
-
-    // Second registration should replace the first
-    assert_eq!(manager.active_a2a_task_streams(), 1);
 }
 
 #[tokio::test]

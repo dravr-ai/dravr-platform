@@ -13,7 +13,6 @@
 //!
 //! ## Components
 //!
-//! - [`a2a_task_stream`]: A2A task progress streaming
 //! - [`manager`]: Central SSE connection manager (broadcast hub)
 //! - [`notifications`]: OAuth notification stream
 //! - [`routes`]: HTTP route handlers for SSE endpoints
@@ -25,9 +24,6 @@
 //! streams via the [`manager::ProtocolStreamFactory`] handle injected into
 //! the manager at startup.
 
-/// A2A task streaming for progress updates
-pub mod a2a_task_stream;
-
 /// Central SSE manager for connection lifecycle and message routing
 pub mod manager;
 
@@ -38,8 +34,6 @@ pub mod notifications;
 pub mod routes;
 
 // Re-exports
-pub use a2a_task_stream::A2ATaskStream;
-
 pub use manager::{
     ConnectionMetadata, ConnectionType, ProtocolStream, ProtocolStreamFactory, SseManager,
 };

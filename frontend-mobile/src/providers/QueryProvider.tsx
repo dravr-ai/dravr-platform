@@ -2,7 +2,8 @@
 // ABOUTME: Implements stale-while-revalidate pattern with 7-day activity cache
 
 import React, { useMemo } from 'react';
-import { MutationCache, QueryClient } from '@tanstack/react-query';
+import { AppState, type AppStateStatus, Platform } from 'react-native';
+import { MutationCache, QueryClient, focusManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import Toast from 'react-native-toast-message';
 import axios from 'axios';
@@ -13,6 +14,19 @@ import {
 } from '../utils/mmkvStorage';
 import { extractErrorMessage } from '../utils/errorMessages';
 import { useAuth } from '../contexts/AuthContext';
+
+// Bridge native AppState → React Query's focusManager. Without this, React Query
+// treats a native app as permanently focused, so any `refetchInterval` poll keeps
+// firing while the app is backgrounded — pinning the serverless backend warm and
+// defeating scale-to-zero (the same observer-effect class as an ungated /health
+// poll). With the bridge, backgrounding marks queries unfocused and (since
+// refetchIntervalInBackground defaults to false) pauses every interval poll until
+// the app returns to the foreground.
+function onAppStateChange(status: AppStateStatus): void {
+  if (Platform.OS !== 'web') {
+    focusManager.setFocused(status === 'active');
+  }
+}
 
 interface QueryProviderProps {
   children: React.ReactNode;
@@ -99,6 +113,12 @@ export function QueryProvider({ children }: QueryProviderProps) {
       clearQueryCache();
     }
   }, [isAuthenticated, user, queryClient]);
+
+  // Pause interval polling when the app is backgrounded (see onAppStateChange).
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', onAppStateChange);
+    return () => subscription.remove();
+  }, []);
 
   return (
     <PersistQueryClientProvider

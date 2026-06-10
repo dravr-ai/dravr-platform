@@ -305,7 +305,7 @@ impl McpRoutes {
             return;
         };
 
-        // SECURITY: Global lookup — WebSocket session setup, tenant resolved later
+        // SECURITY: Global lookup — MCP session setup, tenant resolved later
         let Ok(Some(..)) = state
             .resources
             .common

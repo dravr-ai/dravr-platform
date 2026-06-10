@@ -31,9 +31,9 @@
 //!   activity intelligence, sync orchestrator and its abort handle, cageux /
 //!   harness / persona contract config registries. Also carries a
 //!   `FitnessRepos` view-struct projection.
-//! - `SseSlice` — push-notification transports: SSE manager, WebSocket manager,
-//!   AG-UI run registry, sampling peer, progress notification sender,
-//!   cancellation registry.
+//! - `SseSlice` — push-notification transports: SSE manager, AG-UI run
+//!   registry, sampling peer, progress notification sender, cancellation
+//!   registry.
 //! - `A2ASlice` — agent-to-agent client manager and A2A system user service.
 //! - `BillingSlice` — billing provider. Also carries a `UsageRepos` view-struct
 //!   projection.
@@ -57,8 +57,6 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
-#[cfg(feature = "transport-websocket")]
-use crate::websocket::WebSocketManager;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -244,9 +242,6 @@ pub struct SseSlice {
     /// Server-Sent Events manager for streaming notifications and MCP protocol.
     #[cfg(feature = "transport-sse")]
     pub sse_manager: Arc<SseManager>,
-    /// WebSocket connection manager for real-time updates.
-    #[cfg(feature = "transport-websocket")]
-    pub websocket_manager: Arc<WebSocketManager>,
     /// AG-UI run registry — chat pipeline publishes per-run broadcast channels here.
     pub agui_registry: Arc<AgUiRunRegistry>,
     /// Optional sampling peer for server-initiated LLM requests (stdio transport only).

@@ -27,7 +27,6 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 // Trait methods dispatched through repos.a2a / repos.oauth_tokens Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Number, Value};
 use std::collections::HashMap;
-use std::env::var;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -93,7 +92,7 @@ impl A2AServer {
                 })
                 .await
             }
-            "message/stream" | "a2a/message/stream" => self.handle_message_stream(request),
+            "message/stream" | "a2a/message/stream" => Self::handle_message_stream(request),
             // Authenticated endpoints: require valid JWT and pass user_id to handler
             "tasks/create" | "a2a/tasks/create" => {
                 self.require_auth_then(request, |s, req, user_id| {
@@ -108,7 +107,7 @@ impl A2AServer {
                 .await
             }
             "tasks/cancel" => Self::handle_task_cancel(request),
-            "tasks/resubscribe" | "a2a/tasks/resubscribe" => self.handle_task_resubscribe(request),
+            "tasks/resubscribe" | "a2a/tasks/resubscribe" => Self::handle_task_resubscribe(request),
             "tasks/pushNotificationConfig/set" => Self::handle_push_notification_config(request),
             "a2a/tasks/list" => {
                 self.require_auth_then(request, |s, req, user_id| {
@@ -402,15 +401,6 @@ impl A2AServer {
         Ok(())
     }
 
-    /// Resolve the base URL from server config, falling back to `BASE_URL` env var,
-    /// then to the default `http://localhost:8081`.
-    fn resolve_base_url(&self) -> String {
-        self.resources.as_ref().map_or_else(
-            || var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned()),
-            |r| r.ctx.base_url().to_owned(),
-        )
-    }
-
     /// Handle A2A `message/send`: deliver a client message to the agent and
     /// return the agent's response.
     ///
@@ -600,43 +590,19 @@ impl A2AServer {
         }
     }
 
-    fn handle_message_stream(&self, request: A2ARequest) -> A2AResponse {
-        let base_url = self.resolve_base_url();
-
-        // Extract stream_id or task_id from params (support both for flexibility)
-        let params = request.params.as_ref().unwrap_or(&Value::Null);
-        let stream_id = params
-            .get("stream_id")
-            .or_else(|| params.get("task_id"))
-            .and_then(|v| v.as_str());
-
-        if let Some(id) = stream_id {
-            // Return SSE streaming endpoint for specific stream/task
-            A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(json!({
-                    "stream_url": format!("{}/a2a/tasks/{}/stream", base_url, id),
-                    "stream_type": "text/event-stream",
-                    "protocol": "SSE",
-                    "keep_alive_interval_seconds": 15,
-                    "status": "streaming_available"
-                })),
-                error: None,
-                id: request.id,
-            }
-        } else {
-            // Return generic streaming info if no specific ID provided
-            A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(json!({
-                    "streaming_supported": true,
-                    "stream_type": "text/event-stream",
-                    "protocol": "SSE",
-                    "status": "available"
-                })),
-                error: None,
-                id: request.id,
-            }
+    fn handle_message_stream(request: A2ARequest) -> A2AResponse {
+        // Advertise SSE streaming capability without a per-task endpoint;
+        // the transport-level stream is established by the A2A client.
+        A2AResponse {
+            jsonrpc: "2.0".into(),
+            result: Some(json!({
+                "streaming_supported": true,
+                "stream_type": "text/event-stream",
+                "protocol": "SSE",
+                "status": "available"
+            })),
+            error: None,
+            id: request.id,
         }
     }
 
@@ -926,19 +892,17 @@ impl A2AServer {
         }
     }
 
-    fn handle_task_resubscribe(&self, request: A2ARequest) -> A2AResponse {
-        let base_url = self.resolve_base_url();
-
+    fn handle_task_resubscribe(request: A2ARequest) -> A2AResponse {
         let params = request.params.as_ref().unwrap_or(&Value::Null);
         let task_id = params.get("task_id").and_then(|v| v.as_str());
 
         if let Some(task_id) = task_id {
-            // Return resubscription information with new stream endpoint
+            // Acknowledge resubscription; the SSE stream is re-established at
+            // the transport layer by the A2A client.
             A2AResponse {
                 jsonrpc: "2.0".into(),
                 result: Some(json!({
                     "task_id": task_id,
-                    "stream_url": format!("{}/a2a/tasks/{}/stream", base_url, task_id),
                     "stream_type": "text/event-stream",
                     "protocol": "SSE",
                     "reconnected": true,

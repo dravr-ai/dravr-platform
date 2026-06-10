@@ -92,6 +92,28 @@ module "cache" {
 }
 
 # -----------------------------------------------------------------------------
+# BigQuery usage analytics (optional; depends on database + secrets)
+# Pricing analysis reads BigQuery, never the live api service (no observer
+# effect — see ADR-019 and "BigQuery + Looker pricing analytics — Plan").
+# -----------------------------------------------------------------------------
+
+module "bigquery_usage" {
+  count  = var.enable_bigquery_usage ? 1 : 0
+  source = "../../modules/bigquery_usage"
+
+  project_id               = var.project_id
+  location                 = var.region
+  dataset_id               = var.bigquery_usage_dataset_id
+  cloudsql_connection_name = module.database[0].connection_name
+  cloudsql_database        = var.database_name
+  cloudsql_user            = var.database_user
+  cloudsql_password        = module.secrets.db_password
+  labels                   = var.labels
+
+  depends_on = [module.database, module.secrets]
+}
+
+# -----------------------------------------------------------------------------
 # Service Accounts (depends on APIs)
 # -----------------------------------------------------------------------------
 
@@ -175,6 +197,7 @@ module "backend" {
   # Discord Gateway. cpu=1 can't keep /health alive through the contremaitre boot
   # sync, so startup probes fail (rev 00465). Real cost fix = split the always-on
   # LLM/Discord subprocess into its own small service, then let api go request-based.
+  # See ADR-019 (instance-based billing rationale + planned split).
   cpu_idle                         = false
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances

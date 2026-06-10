@@ -108,12 +108,11 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # TRANSPORT FEATURES
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
-transport-websocket = []
 transport-sse = ["dep:pierre-sse", "pierre-agui/transport-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
 transport-stdio = []
 
-transport-all = ["transport-http", "transport-websocket", "transport-sse", "transport-stdio"]
-transport-web = ["transport-http", "transport-websocket", "transport-sse"]
+transport-all = ["transport-http", "transport-sse", "transport-stdio"]
+transport-web = ["transport-http", "transport-sse"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-WEB FEATURES
@@ -175,7 +174,7 @@ openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-cor
 
 [dependencies]
 # Workspace crates (sibling crates under crates/)
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon", "http-client", "billing", "billing-stripe"] }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
@@ -274,7 +273,7 @@ subtle = "2.6"
 zeroize = { version = "1.8", features = ["alloc"] }
 hex = "0.4"
 # HTTP framework: Axum (migrated from Warp)
-axum = { version = "0.8", features = ["ws", "json", "query", "macros", "tokio", "http2", "form"], default-features = false }
+axum = { version = "0.8", features = ["json", "query", "macros", "tokio", "http2", "form"], default-features = false }
 axum-extra = { version = "0.12", features = ["typed-header"] }
 http = "1.4"
 futures-util = "0.3"

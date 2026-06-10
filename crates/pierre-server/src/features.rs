@@ -36,7 +36,7 @@ use tracing::{info, warn};
 ///
 /// Features are organized into logical groups:
 /// - Protocols: REST, MCP, A2A protocol support
-/// - Transports: HTTP, WebSocket, SSE, stdio communication
+/// - Transports: HTTP, SSE, stdio communication
 /// - Clients: Dashboard, settings, chat, coaches, admin, etc.
 /// - Infrastructure: OAuth, `OpenAPI`
 #[derive(Debug, Clone, Copy, Default)]
@@ -110,12 +110,6 @@ impl FeatureConfig {
         cfg!(feature = "transport-http")
     }
 
-    /// Check if WebSocket transport is enabled
-    #[must_use]
-    pub const fn transport_websocket() -> bool {
-        cfg!(feature = "transport-websocket")
-    }
-
     /// Check if SSE transport is enabled
     #[must_use]
     pub const fn transport_sse() -> bool {
@@ -131,16 +125,13 @@ impl FeatureConfig {
     /// Check if any transport is enabled
     #[must_use]
     pub const fn has_any_transport() -> bool {
-        Self::transport_http()
-            || Self::transport_websocket()
-            || Self::transport_sse()
-            || Self::transport_stdio()
+        Self::transport_http() || Self::transport_sse() || Self::transport_stdio()
     }
 
-    /// Check if any web transport is enabled (HTTP, WebSocket, or SSE)
+    /// Check if any web transport is enabled (HTTP or SSE)
     #[must_use]
     pub const fn has_web_transport() -> bool {
-        Self::transport_http() || Self::transport_websocket() || Self::transport_sse()
+        Self::transport_http() || Self::transport_sse()
     }
 
     // ==========================================================================
@@ -290,7 +281,7 @@ impl FeatureConfig {
         if Self::protocol_mcp() && !Self::has_any_transport() {
             return Err(AppError::config(
                 "protocol-mcp requires at least one transport feature \
-                 (transport-http, transport-websocket, transport-sse, or transport-stdio)",
+                 (transport-http, transport-sse, or transport-stdio)",
             ));
         }
 
@@ -352,7 +343,6 @@ impl FeatureConfig {
     fn log_transports() {
         let transports = collect_enabled(&[
             (Self::transport_http(), "http"),
-            (Self::transport_websocket(), "websocket"),
             (Self::transport_sse(), "sse"),
             (Self::transport_stdio(), "stdio"),
         ]);

@@ -1,31 +1,26 @@
-// ABOUTME: Notification context for dependency injection of WebSocket and SSE services
-// ABOUTME: Contains WebSocket manager, SSE manager, and OAuth notification channels
+// ABOUTME: Notification context for dependency injection of SSE services
+// ABOUTME: Contains SSE manager and OAuth notification channels
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-#[cfg(feature = "transport-websocket")]
-use crate::websocket::WebSocketManager;
 use pierre_mcp_schema::OAuthCompletedNotification;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
-#[cfg(any(feature = "transport-sse", feature = "transport-websocket"))]
+#[cfg(feature = "transport-sse")]
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-/// Notification context containing `WebSocket` and SSE dependencies
+/// Notification context containing SSE dependencies
 ///
 /// This context provides all notification-related dependencies needed for
-/// real-time communication, `WebSocket` management, and Server-Sent Events.
+/// real-time communication and Server-Sent Events.
 ///
 /// # Dependencies
-/// - `websocket_manager`: `WebSocket` connection management (requires transport-websocket)
 /// - `sse_manager`: Server-Sent Events for streaming notifications (requires transport-sse)
 /// - `oauth_notification_sender`: Broadcast channel for OAuth completion notifications
 #[derive(Clone)]
 pub struct NotificationContext {
-    #[cfg(feature = "transport-websocket")]
-    websocket_manager: Arc<WebSocketManager>,
     #[cfg(feature = "transport-sse")]
     sse_manager: Arc<SseManager>,
     oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
@@ -35,24 +30,14 @@ impl NotificationContext {
     /// Create new notification context
     #[must_use]
     pub const fn new(
-        #[cfg(feature = "transport-websocket")] websocket_manager: Arc<WebSocketManager>,
         #[cfg(feature = "transport-sse")] sse_manager: Arc<SseManager>,
         oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
     ) -> Self {
         Self {
-            #[cfg(feature = "transport-websocket")]
-            websocket_manager,
             #[cfg(feature = "transport-sse")]
             sse_manager,
             oauth_notification_sender,
         }
-    }
-
-    /// Get `WebSocket` manager for connection management
-    #[cfg(feature = "transport-websocket")]
-    #[must_use]
-    pub const fn websocket_manager(&self) -> &Arc<WebSocketManager> {
-        &self.websocket_manager
     }
 
     /// Get SSE manager for Server-Sent Events

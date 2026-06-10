@@ -55,9 +55,6 @@ telemetry = ["http-client", "dep:reqwest-tracing"]
 # Cryptographic error conversions (ring::error::Unspecified)
 crypto-errors = ["dep:ring"]
 
-# TOON format support
-toon = ["dep:toon-format"]
-
 # Admin JWT utilities (AdminJwtManager with token generation, hashing)
 admin-jwt = ["dep:rand", "dep:bcrypt"]
 
@@ -98,9 +95,6 @@ reqwest-tracing = { version = "0.5", default-features = false, features = ["open
 
 # Optional: Cryptographic error types
 ring = { version = "0.17", optional = true }
-
-# Optional: TOON format
-toon-format = { version = "0.2", optional = true }
 
 # Optional: LLM provider trait
 async-trait = { version = "0.1", optional = true }

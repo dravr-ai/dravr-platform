@@ -465,14 +465,6 @@ pub mod rate_limits {
     pub const DEFAULT_BURST_LIMIT: u32 = 10;
     /// Default rate limit window
     pub const DEFAULT_RATE_LIMIT_WINDOW: u64 = 60;
-    /// WebSocket channel capacity
-    pub const WEBSOCKET_CHANNEL_CAPACITY: usize = 1000;
-    /// Maximum lifetime of a single WebSocket connection, in seconds.
-    ///
-    /// The server closes the socket once this elapses so idle/background clients
-    /// release the instance instead of pinning it open via auto-reconnect.
-    /// Overridable via the `WEBSOCKET_MAX_CONNECTION_SECS` environment variable.
-    pub const WEBSOCKET_MAX_CONNECTION_SECS: u64 = 300;
 }
 
 /// Provider athlete-seat capacities.

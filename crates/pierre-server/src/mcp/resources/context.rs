@@ -90,7 +90,7 @@ pub struct ServerContext {
     pub coach: CoachSlice,
     /// Fitness data and intelligence subsystem.
     pub fitness: FitnessSlice,
-    /// Push-notification transports (SSE, WebSocket, AG-UI, sampling, progress).
+    /// Push-notification transports (SSE, AG-UI, sampling, progress).
     pub sse: SseSlice,
     /// Agent-to-agent protocol subsystem.
     pub a2a: A2ASlice,

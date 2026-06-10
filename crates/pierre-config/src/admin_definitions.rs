@@ -1537,29 +1537,6 @@ pub fn register_mcp_network<S: BuildHasher>(defs: &mut HashMap<String, Parameter
     add_definition(
         defs,
         ParameterDefinition {
-            key: "mcp.websocket_channel_capacity".to_owned(),
-            display_name: "WebSocket Channel Capacity".to_owned(),
-            description: "Buffer capacity for WebSocket message channels".to_owned(),
-            category: "mcp_network".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(256),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(32),
-                max: serde_json::json!(2048),
-                step: Some(32.0),
-            }),
-            enum_options: None,
-            units: Some("messages".to_owned()),
-            scientific_basis: None,
-            env_variable: Some("MCP_WEBSOCKET_CHANNEL_CAPACITY".to_owned()),
-            is_runtime_configurable: false,
-            requires_restart: true,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
             key: "mcp.tcp_keep_alive_secs".to_owned(),
             display_name: "TCP Keep-Alive Interval".to_owned(),
             description: "TCP keep-alive interval for connections".to_owned(),

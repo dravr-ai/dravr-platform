@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::a2a_task_stream::A2ATaskStream;
 use crate::notifications::NotificationStream;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -84,13 +83,6 @@ pub enum ConnectionType {
         /// Session ID for the protocol stream
         session_id: String,
     },
-    /// A2A task stream for tracking task progress
-    A2ATask {
-        /// Task ID being streamed
-        task_id: String,
-        /// Client ID that owns the task
-        client_id: String,
-    },
 }
 
 /// SSE connection metadata
@@ -104,7 +96,7 @@ pub struct ConnectionMetadata {
     pub last_activity: chrono::DateTime<chrono::Utc>,
 }
 
-/// Unified SSE manager handling notification, protocol, and A2A task streams.
+/// Unified SSE manager handling notification and MCP protocol streams.
 ///
 /// Uses `DashMap` for shard-level concurrent access — operations on different
 /// keys never contend, eliminating the global `RwLock` bottleneck that
@@ -113,7 +105,6 @@ pub struct ConnectionMetadata {
 pub struct SseManager {
     notification_streams: Arc<DashMap<Uuid, NotificationStream>>,
     protocol_streams: Arc<DashMap<String, Arc<dyn ProtocolStream>>>,
-    a2a_task_streams: Arc<DashMap<String, A2ATaskStream>>,
     connection_metadata: Arc<DashMap<String, ConnectionMetadata>>,
     /// Maps `user_id` to their active `session_ids` for protocol streams
     user_sessions: Arc<DashMap<Uuid, Vec<String>>>,
@@ -141,7 +132,6 @@ impl SseManager {
         Self {
             notification_streams: Arc::new(DashMap::new()),
             protocol_streams: Arc::new(DashMap::new()),
-            a2a_task_streams: Arc::new(DashMap::new()),
             connection_metadata: Arc::new(DashMap::new()),
             user_sessions: Arc::new(DashMap::new()),
             buffer_size,
@@ -480,78 +470,9 @@ impl SseManager {
                 ConnectionType::Protocol { session_id } => {
                     self.unregister_protocol_stream(&session_id);
                 }
-                ConnectionType::A2ATask { task_id, .. } => {
-                    self.unregister_a2a_task_stream(&task_id);
-                }
             }
             info!("Cleaned up inactive connection: {}", connection_id);
         }
-    }
-
-    /// Register a new A2A task stream for a task
-    pub fn register_a2a_task_stream(
-        &self,
-        task_id: String,
-        client_id: String,
-    ) -> broadcast::Receiver<String> {
-        let stream = A2ATaskStream::new(self.buffer_size);
-        let receiver = stream.subscribe();
-
-        self.a2a_task_streams.insert(task_id.clone(), stream);
-
-        let connection_id = format!("a2a_task_{task_id}");
-        info!("Registered A2A task stream for task: {}", task_id);
-
-        let metadata = ConnectionMetadata {
-            connection_type: ConnectionType::A2ATask { task_id, client_id },
-            created_at: Utc::now(),
-            last_activity: Utc::now(),
-        };
-        self.connection_metadata.insert(connection_id, metadata);
-        receiver
-    }
-
-    /// Send task status update to A2A task stream
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No task stream is found for the specified `task_id`
-    /// - The underlying stream fails to send the update
-    pub fn send_a2a_task_update(&self, task_id: &str, event_data: String) -> Result<(), AppError> {
-        if let Some(stream) = self.a2a_task_streams.get(task_id) {
-            stream
-                .send_update(event_data)
-                .map_err(|e| AppError::internal(format!("Failed to send task update: {e}")))?;
-
-            // Update last activity
-            let connection_id = format!("a2a_task_{task_id}");
-            if let Some(mut metadata) = self.connection_metadata.get_mut(&connection_id) {
-                metadata.last_activity = Utc::now();
-            }
-
-            Ok(())
-        } else {
-            Err(AppError::not_found(format!(
-                "A2A task stream for task {task_id}"
-            )))
-        }
-    }
-
-    /// Unregister an A2A task stream
-    pub fn unregister_a2a_task_stream(&self, task_id: &str) {
-        self.a2a_task_streams.remove(task_id);
-
-        let connection_id = format!("a2a_task_{task_id}");
-        self.connection_metadata.remove(&connection_id);
-
-        info!("Unregistered A2A task stream for task: {}", task_id);
-    }
-
-    /// Get count of active A2A task streams
-    #[must_use]
-    pub fn active_a2a_task_streams(&self) -> usize {
-        self.a2a_task_streams.len()
     }
 }
 

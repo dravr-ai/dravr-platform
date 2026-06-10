@@ -22,7 +22,7 @@ pub mod auth;
 pub mod config;
 /// Extension context for plugins, sampling peer, and progress notifications
 pub mod extension;
-/// Notification context for WebSocket and SSE
+/// Notification context for SSE
 pub mod notification;
 /// Security context for CSRF, redaction, and rate limiting
 pub mod security;

@@ -445,11 +445,6 @@ export MCP_SESSION_CACHE_SIZE="100"
 export MCP_MAX_REQUEST_SIZE="1048576"         # 1MB
 export MCP_MAX_RESPONSE_SIZE="10485760"       # 10MB
 export MCP_NOTIFICATION_CHANNEL_SIZE="100"
-export MCP_WEBSOCKET_CHANNEL_CAPACITY="1000"
-# Max lifetime of a single WebSocket connection. The server closes the socket once
-# this elapses; clients reconnect manually (no auto-reconnect), so an idle/background
-# tab releases the serverless instance instead of pinning it warm 24/7. Default 300s.
-export WEBSOCKET_MAX_CONNECTION_SECS="300"
 export TCP_KEEP_ALIVE_SECS="60"
 
 # Activity Fetch Limits
