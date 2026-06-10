@@ -38,7 +38,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Do NOT cancel in-progress PG runs: the full-on-main suite takes ~11 min and
+  # rapid main pushes were cancelling it mid-run, so its verdict was never seen.
+  # Runs queue per ref and complete instead of being killed.
+  cancel-in-progress: false
 
 permissions:
   contents: read
