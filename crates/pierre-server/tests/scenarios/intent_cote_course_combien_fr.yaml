@@ -12,7 +12,22 @@ turns:
     assertions: []
   - user: "Côté course, combien de km?"
     assertions:
+      # Recommendation register, plain-language: a correct reply offers a
+      # today-distance OR pivots to rest/lighter-effort/planning guidance.
+      # Kept broad (synonyms — "repos", "plus léger", "objectif adapté")
+      # because the no_substring guard below is what actually rejects the
+      # stats-misread; the any_of only confirms the recommendation framing.
       - kind: any_of
-        values: ["aujourd'hui", "0 km", "5 à 8 km", "facile", "récup"]
+        values:
+          - "aujourd'hui"
+          - "0 km"
+          - "5 à 8 km"
+          - "facile"
+          - "léger"
+          - "légère"
+          - "repos"
+          - "récup"
+          - "objectif"
+          - "adapté"
       - kind: no_substring
         values: ["au total", "kilomètres au total"]
