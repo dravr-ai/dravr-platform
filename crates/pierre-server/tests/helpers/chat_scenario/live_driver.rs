@@ -32,6 +32,7 @@
 use std::collections::BTreeMap;
 use std::env;
 
+use chrono::Utc;
 use pierre_core::errors::AppError;
 use pierre_llm::prompts::PIERRE_SYSTEM_PROMPT;
 use pierre_llm::{
@@ -74,6 +75,14 @@ const MAX_DISPATCH_RETRIES: usize = 6;
 /// Exponential backoff gives a transient upstream error time to clear
 /// before the next attempt.
 const RETRY_BASE_BACKOFF_MS: u64 = 2_000;
+
+/// Same-day, same-sport row count at or above which the in-memory
+/// `get_activities` flags a `fragment_dedup` sidecar. Mirrors
+/// Anti-Hallucination Rule 8 ("five or more activities in a single sport
+/// on the same day is almost always GPS fragments"); production derives
+/// this from temporal overlap in `detect_fragments`, which the driver
+/// approximates by same-day/same-sport density since it carries no times.
+const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 
 /// Live driver — runs scenarios against a real LLM with an in-memory
 /// provider store.
@@ -381,7 +390,30 @@ impl LiveScenarioDriver {
             summary_parts.join("; ")
         };
 
-        let payload = json!({
+        // Production's provider-side `detect_fragments` collapses
+        // overlapping same-day recordings (Garmin auto-splits, dual-device
+        // captures) and hands the model a `retrieval_context.fragment_dedup`
+        // sidecar so it cites sessions, not raw rows (Anti-Hallucination
+        // Rule 5). The in-memory store has no timestamps to overlap-match,
+        // so approximate the signal by same-day/same-sport density (Rule 8)
+        // and surface the same cue the model would see in production.
+        let mut density: BTreeMap<(String, String), usize> = BTreeMap::new();
+        for activity in &rows {
+            let key = (
+                activity.date.clone(),
+                canonical_sport_bucket(&activity.sport),
+            );
+            *density.entry(key).or_insert(0) += 1;
+        }
+        let fragment_groups: Vec<Value> = density
+            .iter()
+            .filter(|(_, &n)| n >= FRAGMENT_DENSITY_THRESHOLD)
+            .map(|((date, sport), &raw_count)| {
+                json!({ "date": date, "sport": sport, "raw_count": raw_count })
+            })
+            .collect();
+
+        let mut payload = json!({
             "summary": summary,
             "activities": rows.iter().map(|a| json!({
                 "name": a.name,
@@ -393,6 +425,15 @@ impl LiveScenarioDriver {
             "sport_totals_km": sport_totals_rounded,
             "total_km": (total_km * 100.0).round() / 100.0,
         });
+        if !fragment_groups.is_empty() {
+            payload["retrieval_context"] = json!({
+                "fragment_dedup": {
+                    "detected": true,
+                    "fragment_groups": fragment_groups,
+                    "advice": "These rows are overlapping GPS recordings (auto-splits or dual-device captures) of a few real workouts, NOT that many distinct sessions. Surface the fragment uncertainty on this turn and do not report the raw row count as a session count.",
+                }
+            });
+        }
         payload.to_string()
     }
 }
@@ -471,12 +512,21 @@ impl ScenarioDriver for LiveScenarioDriver {
 /// freshness/no-fabrication contract from `pierre_system.md` and let the
 /// function-calling envelope do the invocation work.
 fn build_system_prompt(locale: &str) -> String {
-    // Strip `{{...}}` template placeholders from the canonical prompt.
-    // Production replaces them via `prompt_assembly::expand_placeholders`
-    // with persona/coach/scope blocks; this driver doesn't carry that
+    // Resolve `{{CURRENT_DATE}}` to a real date BEFORE stripping the rest.
+    // Production fills it via `prompt_assembly::format_current_date` (the
+    // user's local wall clock); without the anchor the model has no notion
+    // of "today" and labels the freshest activity in history as today —
+    // exactly the drift `today_anchor_no_stale_date_drift` pins. The eval
+    // carries no per-user tz, so anchor to UTC now; the calendar date is
+    // what the scenario turns on, not the zone.
+    let current_date = format!("{} (UTC)", Utc::now().format("%Y-%m-%d %H:%M"));
+    let dated_base = PIERRE_SYSTEM_PROMPT.replace("{{CURRENT_DATE}}", &current_date);
+    // Strip the remaining `{{...}}` template placeholders. Production
+    // replaces those via `prompt_assembly::expand_placeholders` with
+    // persona/coach/scope blocks; this driver doesn't carry that
     // machinery, and a model that sees a literal `{{CAPABILITY_REFUSAL}}`
     // token will helpfully echo it verbatim as the refusal text.
-    let cleaned_base = strip_template_placeholders(PIERRE_SYSTEM_PROMPT);
+    let cleaned_base = strip_template_placeholders(&dated_base);
     let locale_block = format!(
         "## LOCALE\n\nThe user is writing in `{locale}`. Reply in `{locale}` \
          unless the user explicitly switches language. Do not emit \
@@ -580,6 +630,10 @@ fn turn_needs_activity_prefetch(user_message: &str) -> bool {
         "how much",
         "yesterday",
         "today",
+        // Data-access questions ("you have that via the provider no?")
+        // are a silent-fetch trigger in production's DataRequirements —
+        // the coach re-pulls and delivers rather than narrating access.
+        "provider",
         // FR
         "combien",
         "course",
