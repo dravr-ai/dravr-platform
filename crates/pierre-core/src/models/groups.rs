@@ -320,6 +320,11 @@ pub struct RosterActivity {
     pub start_latitude: Option<f64>,
     /// Optional starting longitude. See [`Self::start_latitude`].
     pub start_longitude: Option<f64>,
+    /// Optional total ascent in meters when the source carries it (Strava,
+    /// sciotte, Coros all parse it). `None` for sources without elevation
+    /// (HR-only, treadmill). Surfaced so the LLM can answer "combien de
+    /// dénivelé pour vous deux" without claiming it lacks a shared total.
+    pub elevation_gain_m: Option<f64>,
 }
 
 /// Overtraining risk level for a member
