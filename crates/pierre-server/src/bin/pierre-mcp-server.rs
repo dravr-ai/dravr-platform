@@ -176,6 +176,15 @@ struct EnvValidation {
 /// Fails fast with clear error messages if critical variables are missing.
 /// This prevents cryptic errors later in the startup process.
 fn validate_required_environment() -> Result<()> {
+    // The env-backed master key (LocalKekProvider) is unnecessary once the GCP Cloud
+    // KMS KEK is compiled in and configured: the DEK is wrapped by KMS, so
+    // KeyManager::configured_kek_provider never reads PIERRE_MASTER_ENCRYPTION_KEY.
+    // Mirror that selection so KMS-only deployments don't demand the master key.
+    #[cfg(feature = "gcp-kms")]
+    let master_key_required = env::var("PIERRE_KMS_KEY_RESOURCE").is_err();
+    #[cfg(not(feature = "gcp-kms"))]
+    let master_key_required = true;
+
     let mut validations = vec![
         EnvValidation {
             name: "DATABASE_URL",
@@ -186,7 +195,7 @@ fn validate_required_environment() -> Result<()> {
         EnvValidation {
             name: "PIERRE_MASTER_ENCRYPTION_KEY",
             value: env::var("PIERRE_MASTER_ENCRYPTION_KEY").ok(),
-            required: true, // Required for multi-instance deployments - prevents data corruption
+            required: master_key_required, // Required unless the GCP Cloud KMS KEK is active
             description:
                 "Base64-encoded 32-byte master encryption key (generate: openssl rand -base64 32)",
         },
