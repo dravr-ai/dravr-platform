@@ -180,7 +180,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
 
     let hint = RefreshService::build_coach_hint(&status.details);
     assert!(
-        hint.as_deref().map_or(true, |h| !h.contains("sciotte")),
+        hint.as_deref().is_none_or(|h| !h.contains("sciotte")),
         "a fresh sciotte must not appear in the staleness hint; got {hint:?}"
     );
 }
