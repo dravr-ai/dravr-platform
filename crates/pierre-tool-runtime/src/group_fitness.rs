@@ -968,7 +968,10 @@ impl RevalidationRegistry {
     pub fn try_claim(&self, key: (Uuid, TenantId)) -> Option<RevalidationGuard> {
         // Recover from poisoning: the set stays consistent even if a holder
         // panicked, and refusing all future revalidations would be worse.
-        let mut set = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut set = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if set.insert(key) {
             Some(RevalidationGuard {
                 in_flight: Arc::clone(&self.in_flight),
@@ -995,7 +998,10 @@ pub struct RevalidationGuard {
 
 impl Drop for RevalidationGuard {
     fn drop(&mut self) {
-        let mut set = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut set = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         set.remove(&self.key);
     }
 }

@@ -153,7 +153,9 @@ impl RefreshService {
 
         let mut result = Vec::with_capacity(tokens.len());
         for token in &tokens {
-            let last_sync = self.last_sync_for(user_id, tenant_id, &token.provider).await;
+            let last_sync = self
+                .last_sync_for(user_id, tenant_id, &token.provider)
+                .await;
 
             let freshness = DataFreshness::from_last_sync(last_sync);
             result.push(ProviderFreshness {
