@@ -1,0 +1,8 @@
+{"id":"opener","category":"persona-data","turn":"Yo dravr! Tu proposes quoi aujourd'hui basé sur la dernière activité de Phil et la mienne?"}
+{"id":"phil-stats","category":"data-comparison","turn":"C'est rien comme sorties le vélo de Phil non? Il roulait à combien? Et c'était chaud ou froid?"}
+{"id":"phil-weather","category":"multi-data","turn":"Température / météo pour chaque sortie de mononcle de Phil le dernier weekend?"}
+{"id":"taper","category":"structured-output","turn":"[Context: I have connected Strava] Build a taper for my athlete. I'll give you the race date, distance, current peak weekly hours, and A/B priority."}
+{"id":"brag","category":"persona-banter","turn":"Mon activité de ce matin écrase la concurrence non? Avoue que depuis ce matin c'est moi le ché du vélo."}
+{"id":"race-judgment","category":"judgment","turn":"OK la sortie pour enfants de Phil hier était-elle trop longue pour une course ce soir de 10 km?"}
+{"id":"fueling-anchor","category":"on-persona-anchor","turn":"Pour ma course de 3h ce weekend, je vise combien de glucides par heure?"}
+{"id":"offtopic","category":"banter-offtopic","turn":"Fromage en grain? Wouach. C'est bon ça pour le vélo?"}
