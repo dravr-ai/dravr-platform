@@ -647,6 +647,22 @@ impl ChatProvider {
         }
     }
 
+    /// Get the runtime-fallback secondary provider, if this is a `Chain`.
+    ///
+    /// The headless tool loop reaches past a `Chain` to the primary runner
+    /// via [`Self::as_cli_provider`], so the chain's own retryable-error
+    /// fallback (wired into [`Self::complete`] / [`Self::complete_with_tools`])
+    /// never fires for SDK-tool-calling turns. Exposing the secondary lets the
+    /// tool loop re-run the turn against it when the primary fails with a
+    /// retryable error.
+    #[must_use]
+    pub fn fallback_secondary(&self) -> Option<&Self> {
+        match self {
+            Self::Chain { secondary, .. } => Some(secondary.as_ref()),
+            _ => None,
+        }
+    }
+
     /// Perform a chat completion with tool/function calling support
     ///
     /// Gemini, Groq, Local, and `OpenRouter` providers all support native function/tool calling
@@ -931,7 +947,15 @@ fn request_for_secondary(request: &ChatRequest) -> ChatRequest {
 /// (auth failures, upstream 5xx, transient network). Bad input or quota
 /// errors stay on the primary so the caller sees the right diagnostic
 /// instead of getting silently rerouted to a different provider.
-fn is_retryable_for_fallback(error: &AppError) -> bool {
+/// Whether a primary-provider error should trigger the runtime-fallback chain.
+///
+/// Transient/availability failures (auth, upstream unavailable, internal,
+/// resource-unavailable — which an ACP prompt timeout maps to) are retryable
+/// on the secondary; deterministic failures (bad input, quota) are not.
+/// Public so the tool-runtime headless loop, which bypasses the `Chain`
+/// wrapper, can classify primary failures with the same logic.
+#[must_use]
+pub fn is_retryable_for_fallback(error: &AppError) -> bool {
     use pierre_core::errors::ErrorCode;
     matches!(
         error.code,

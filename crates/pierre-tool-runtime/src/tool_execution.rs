@@ -1205,10 +1205,67 @@ pub async fn run_tool_loop(
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
-        run_headless_tool_loop(params, llm_messages).await
+        // The headless (Copilot ACP) loop extracts the primary CLI runner from
+        // a runtime-fallback `Chain` and calls it directly, so the chain's own
+        // retryable-error fallback never fires for SDK-tool-calling turns. Catch
+        // a retryable primary failure (e.g. an ACP prompt timeout) here and
+        // re-run the turn against the secondary, so a Copilot stall degrades to
+        // the configured fallback provider instead of erroring the whole turn.
+        match run_headless_tool_loop(params, llm_messages).await {
+            Ok(result) => Ok(result),
+            Err(err) if pierre_llm::is_retryable_for_fallback(&err) => {
+                run_headless_fallback(params, llm_messages, err).await
+            }
+            Err(err) => Err(err),
+        }
     } else {
         run_cli_tool_loop(params, llm_messages).await
     }
+}
+
+/// Re-run a failed headless (Copilot ACP) turn against the runtime-fallback
+/// secondary provider.
+///
+/// [`run_headless_tool_loop`] reaches past a fallback `Chain` to the primary
+/// runner, bypassing the chain's retryable-error fallback. When that primary
+/// call fails with a retryable error this re-runs the whole tool loop against
+/// the chain's secondary — routed by the secondary's own capabilities (native
+/// function calling for Cohere/Gemini), so the turn still produces a grounded
+/// answer. With no secondary configured the original error is returned
+/// unchanged, preserving behavior when runtime fallback is disabled.
+async fn run_headless_fallback(
+    params: &ToolLoopParams<'_>,
+    llm_messages: &mut Vec<ChatMessage>,
+    primary_err: AppError,
+) -> Result<ToolLoopResult, AppError> {
+    let Some(secondary) = params.provider.fallback_secondary() else {
+        return Err(primary_err);
+    };
+    warn!(
+        primary = params.provider.name(),
+        secondary = secondary.name(),
+        error = %primary_err,
+        "Headless tool loop failed with retryable error; falling back to secondary provider"
+    );
+    let fallback_params = ToolLoopParams {
+        provider: secondary,
+        executor: Arc::clone(&params.executor),
+        tools: params.tools,
+        // The secondary picks its own model: the primary's model (e.g.
+        // Copilot's `claude-opus-4.8`) is meaningless to Cohere/Gemini.
+        // Mirrors `request_for_secondary` nulling the model in the
+        // ChatProvider chain fallback.
+        model: secondary.default_model(),
+        user_id: params.user_id,
+        tenant_id: params.tenant_id,
+        max_iterations: params.max_iterations,
+        call_recorder: params.call_recorder.clone(),
+        tool_message_recorder: params.tool_message_recorder.clone(),
+        temperature: params.temperature,
+        stream_sink: params.stream_sink.clone(),
+        mcp_servers: params.mcp_servers.clone(),
+    };
+    Box::pin(run_tool_loop(&fallback_params, llm_messages)).await
 }
 
 // ============================================================================
