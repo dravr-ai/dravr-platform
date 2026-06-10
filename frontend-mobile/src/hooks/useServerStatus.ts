@@ -57,25 +57,43 @@ export function useServerStatus(): ServerStatus {
     checkHealth();
   }, [checkHealth]);
 
-  // Periodic polling
+  // Periodic polling, gated on app foreground state. The interval runs ONLY
+  // while the app is active; it is torn down when the app backgrounds and
+  // re-armed (with an immediate check) on return. An always-on poll would keep
+  // pinging the backend from a backgrounded/idle app, holding the serverless
+  // instance warm and defeating scale-to-zero — the cost it is meant to observe.
   useEffect(() => {
-    intervalRef.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS);
-    return () => {
+    const startPolling = () => {
+      if (intervalRef.current) {
+        return;
+      }
+      intervalRef.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS);
+    };
+    const stopPolling = () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
-  }, [checkHealth]);
 
-  // Check on app returning to foreground
-  useEffect(() => {
+    if (AppState.currentState === 'active') {
+      startPolling();
+    }
+
     const handleAppState = (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         checkHealth();
+        startPolling();
+      } else {
+        stopPolling();
       }
     };
     const subscription = AppState.addEventListener('change', handleAppState);
-    return () => subscription.remove();
+
+    return () => {
+      subscription.remove();
+      stopPolling();
+    };
   }, [checkHealth]);
 
   return { isServerReachable, isChecking, lastCheckedAt, checkNow: checkHealth };

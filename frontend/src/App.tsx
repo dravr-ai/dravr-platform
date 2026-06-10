@@ -13,11 +13,9 @@ import OnboardingConnectProvider from './components/OnboardingConnectProvider';
 import OnboardingCoachProposal from './components/OnboardingCoachProposal';
 import OnboardingProfileType from './components/OnboardingProfileType';
 import ImpersonationBanner from './components/ImpersonationBanner';
-import ConnectionBanner from './components/ConnectionBanner';
 import OAuthCallback from './components/OAuthCallback';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
-import { WebSocketProvider } from './contexts/WebSocketProvider';
 import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
@@ -322,7 +320,6 @@ function AppContent() {
   ) {
     return (
       <div className="min-h-screen bg-surface">
-        <ConnectionBanner />
         <ImpersonationBanner />
         <OnboardingProfileType
           userDisplayName={user?.display_name}
@@ -338,7 +335,6 @@ function AppContent() {
   if (onboardingStatus?.needs_provider_connection === true && !skippedOnboarding) {
     return (
       <div className="min-h-screen bg-surface">
-        <ConnectionBanner />
         <ImpersonationBanner />
         <OnboardingConnectProvider
           userDisplayName={user?.display_name}
@@ -359,7 +355,6 @@ function AppContent() {
   ) {
     return (
       <div className="min-h-screen bg-surface">
-        <ConnectionBanner />
         <ImpersonationBanner />
         <OnboardingCoachProposal
           userDisplayName={user?.display_name}
@@ -376,7 +371,6 @@ function AppContent() {
   // Authenticated and active - show dashboard
   return (
     <div className="min-h-screen bg-surface">
-      <ConnectionBanner />
       <ImpersonationBanner />
       <Dashboard pendingInviteCode={pendingInviteCode} onInviteCodeConsumed={() => setPendingInviteCode(null)} />
     </div>
@@ -396,11 +390,9 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <AuthProvider>
-            <WebSocketProvider>
-              <ToastProvider>
-                <AppContent />
-              </ToastProvider>
-            </WebSocketProvider>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>

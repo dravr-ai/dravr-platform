@@ -8,7 +8,6 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/api';
 import type { RecentActivityResponse, RecentLlmCall, RecentConversation } from '../services/api/dashboard';
-import RealTimeIndicator from './RealTimeIndicator';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Input } from './ui';
 
@@ -188,8 +187,6 @@ export default function ActivityTab() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-
-        <RealTimeIndicator />
       </div>
 
       {/* Activity Table */}

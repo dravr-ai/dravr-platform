@@ -10,7 +10,6 @@ import Dashboard from '../Dashboard';
 // Mock dashboard barrel via explicit /index path to avoid macOS case-insensitive
 // collision between ../dashboard (resolves to Dashboard.tsx) and dashboard/ directory
 vi.mock('../dashboard/index', () => ({
-  OverviewPanel: () => null,
   ConversationsPanel: () => null,
   usePendingUsersCount: () => 1,
   useStoreStatsPendingCount: () => 0,
@@ -67,15 +66,6 @@ vi.mock('../../hooks/useAuth', () => ({
     logout: vi.fn(),
     isAuthenticated: true,
     isLoading: false
-  })
-}));
-
-vi.mock('../../hooks/useWebSocketContext', () => ({
-  useWebSocketContext: () => ({
-    isConnected: true,
-    lastMessage: null,
-    sendMessage: vi.fn(),
-    subscribe: vi.fn()
   })
 }));
 
