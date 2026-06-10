@@ -89,7 +89,7 @@ pub use prompts::{
     get_insight_generation_prompt, get_insight_validation_prompt, get_messaging_context_prompt,
     get_pierre_system_prompt, get_recommendation_analysis_prompt, get_recommendation_system_prompt,
 };
-pub use provider::ChatProvider;
+pub use provider::{is_retryable_for_fallback, ChatProvider};
 
 use pierre_core::http_client::{llm_client, SharedHttpClient};
 
