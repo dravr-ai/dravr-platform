@@ -244,3 +244,38 @@ where
 {
     db.hash_token_for_storage(token)
 }
+
+/// DEK version assigned to ciphertext written before DEK versioning existed.
+///
+/// Such ciphertext carries no version prefix; on read it is treated as version 1
+/// so existing rows remain decryptable without a data migration.
+pub const LEGACY_DEK_VERSION: u32 = 1;
+
+/// Tag a base64 ciphertext payload with the DEK version that produced it.
+///
+/// The on-disk form is `"v{version}:{payload}"`. This is unambiguous against
+/// legacy (un-prefixed) ciphertext because standard base64 never contains `:`.
+#[must_use]
+pub fn tag_dek_version(version: u32, payload: &str) -> String {
+    format!("v{version}:{payload}")
+}
+
+/// Split stored ciphertext into its DEK version and base64 payload.
+///
+/// Recognizes the `"v{N}:{payload}"` form. Any string without a valid `v{N}:`
+/// prefix is treated as [`LEGACY_DEK_VERSION`] ciphertext (the whole string is
+/// the payload) — base64 cannot contain `:`, so this never misclassifies a real
+/// legacy payload.
+#[must_use]
+pub fn split_dek_version(stored: &str) -> (u32, &str) {
+    if let Some(rest) = stored.strip_prefix('v') {
+        if let Some((digits, payload)) = rest.split_once(':') {
+            if !digits.is_empty() {
+                if let Ok(version) = digits.parse::<u32>() {
+                    return (version, payload);
+                }
+            }
+        }
+    }
+    (LEGACY_DEK_VERSION, stored)
+}

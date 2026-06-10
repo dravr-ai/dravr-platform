@@ -17,6 +17,8 @@ path = "src/main.rs"
 [features]
 default = []
 postgresql = ["pierre-database/postgresql", "pierre-services?/postgresql"]
+# Enables the GCP Cloud KMS KEK target for `pierre-cli key rewrap-kek`.
+gcp-kms = ["pierre-auth/gcp-kms"]
 tools-verification = ["dep:pierre-evals", "dep:pierre-services", "pierre-services/tools-verification", "pierre-services/health-sync"]
 
 [dependencies]

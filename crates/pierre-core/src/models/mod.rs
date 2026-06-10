@@ -168,10 +168,6 @@ pub use conversation::{
 mod audit;
 pub use audit::{AuditEvent, AuditEventType, AuditSeverity};
 
-// Key rotation configuration and version types
-mod key_rotation;
-pub use key_rotation::{KeyRotationConfig, KeyVersion, RotationStatus};
-
 // API key types for authentication and rate limiting
 mod api_key;
 pub use api_key::{

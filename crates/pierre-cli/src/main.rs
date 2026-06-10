@@ -122,6 +122,12 @@ enum Command {
         action: commands::drift::DriftCommand,
     },
 
+    /// Encryption key operations (DEK rotation, KEK re-wrap) — ADR-017
+    Key {
+        #[command(subcommand)]
+        action: commands::key::KeyCommand,
+    },
+
     /// Coaching harness operator commands (Tier 5.5 backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
@@ -271,6 +277,12 @@ async fn main() -> Result<()> {
         return commands::drift::dispatch(action, &database_url).await;
     }
 
+    // Key operations bootstrap their own key management (the re-wrap path must
+    // initialize with the source KEK), so they dispatch before the standard init.
+    if let Command::Key { action } = cli.command {
+        return commands::key::dispatch(action, &database_url).await;
+    }
+
     // Initialize two-tier key management system
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
     info!("Two-tier key management system initialized for pierre-cli");
@@ -305,6 +317,7 @@ async fn main() -> Result<()> {
         Command::CheckDrift { .. } => {
             unreachable!("CheckDrift is handled in the early return above")
         }
+        Command::Key { .. } => unreachable!("Key is handled in the early return above"),
         Command::User { action } => match action {
             UserCommand::Create {
                 email,

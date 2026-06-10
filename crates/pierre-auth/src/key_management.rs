@@ -1,12 +1,14 @@
-// ABOUTME: Two-tier key management system for secure database encryption and secret storage
-// ABOUTME: Implements MEK (Master Encryption Key) from environment and DEK (Database Encryption Key) stored encrypted
+// ABOUTME: Two-tier key management — a KEK (via KekProvider) wraps the Database Encryption Key (DEK)
+// ABOUTME: LocalKekProvider uses the env Master Encryption Key; GCP Cloud KMS is a future KekProvider (ADR-017)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::env;
 
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as Base64Engine;
 use rand::RngCore;
@@ -17,14 +19,45 @@ use pierre_database::backends::factory::Database;
 use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
 
-/// Master Encryption Key (MEK) - Tier 1
-/// Loaded from environment variable or external key management system
+/// Key Encryption Key provider — the Tier-1 boundary that wraps/unwraps the DEK.
+///
+/// The KEK never encrypts application data directly; it only wraps the 32-byte
+/// Database Encryption Key (DEK) for storage. This is the seam where the backing
+/// key store is swapped: [`LocalKekProvider`] uses an env-supplied master key,
+/// while a future `GcpKmsKekProvider` delegates wrap/unwrap to Cloud KMS without
+/// the key material ever leaving KMS (see ADR-017).
+#[async_trait]
+pub trait KekProvider: Send + Sync {
+    /// Wrap (encrypt) DEK key material for at-rest storage.
+    ///
+    /// Async because a managed-KMS provider performs a network round-trip; the
+    /// local provider resolves immediately. Called only at startup and rotation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the wrap operation fails.
+    async fn wrap(&self, plaintext: &[u8]) -> AppResult<Vec<u8>>;
+
+    /// Unwrap (decrypt) previously wrapped DEK key material.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext is malformed or the unwrap fails.
+    async fn unwrap(&self, ciphertext: &[u8]) -> AppResult<Vec<u8>>;
+}
+
+/// Master Encryption Key (MEK) — Tier 1 key material loaded from the environment.
+///
+/// Used by [`LocalKekProvider`] to wrap the DEK. AES-256-GCM with a random nonce
+/// prepended to each ciphertext.
 pub struct MasterEncryptionKey {
     key: [u8; 32],
 }
 
-/// Database Encryption Key (DEK) - Tier 2
-/// Stored encrypted in database, used for actual data encryption
+/// Database Encryption Key (DEK) — Tier 2, used for actual data encryption.
+///
+/// Stored wrapped (KEK-encrypted) in the database; held in memory in plaintext
+/// only while the process runs.
 pub struct DatabaseEncryptionKey {
     key: [u8; 32],
 }
@@ -100,7 +133,7 @@ impl MasterEncryptionKey {
         &self.key
     }
 
-    /// Encrypt data with the MEK (used to encrypt DEK)
+    /// Encrypt data with the MEK (used to wrap the DEK)
     ///
     /// # Errors
     ///
@@ -127,7 +160,7 @@ impl MasterEncryptionKey {
         Ok(result)
     }
 
-    /// Decrypt data with the MEK (used to decrypt DEK)
+    /// Decrypt data with the MEK (used to unwrap the DEK)
     ///
     /// # Errors
     ///
@@ -155,6 +188,45 @@ impl MasterEncryptionKey {
     }
 }
 
+/// KEK provider backed by the env-supplied [`MasterEncryptionKey`].
+///
+/// This is the default provider for development, CI, tests, and any deployment
+/// not yet wired to a managed KMS. Behavior is identical to the historical
+/// MEK-wraps-DEK scheme.
+pub struct LocalKekProvider {
+    mek: MasterEncryptionKey,
+}
+
+impl LocalKekProvider {
+    /// Build a provider from the `PIERRE_MASTER_ENCRYPTION_KEY` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the MEK cannot be loaded from the environment.
+    pub fn from_env() -> AppResult<Self> {
+        Ok(Self {
+            mek: MasterEncryptionKey::load_or_generate()?,
+        })
+    }
+
+    /// Build a provider from an already-loaded MEK (used for tests and explicit wiring).
+    #[must_use]
+    pub const fn from_mek(mek: MasterEncryptionKey) -> Self {
+        Self { mek }
+    }
+}
+
+#[async_trait]
+impl KekProvider for LocalKekProvider {
+    async fn wrap(&self, plaintext: &[u8]) -> AppResult<Vec<u8>> {
+        self.mek.encrypt(plaintext)
+    }
+
+    async fn unwrap(&self, ciphertext: &[u8]) -> AppResult<Vec<u8>> {
+        self.mek.decrypt(ciphertext)
+    }
+}
+
 impl DatabaseEncryptionKey {
     /// Create a new random DEK
     #[must_use]
@@ -169,147 +241,332 @@ impl DatabaseEncryptionKey {
         Self { key: bytes }
     }
 
+    /// Reconstruct a DEK from unwrapped key material, validating its length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the material is not exactly 32 bytes.
+    pub fn from_unwrapped(bytes: &[u8]) -> AppResult<Self> {
+        if bytes.len() != 32 {
+            return Err(AppError::internal(format!(
+                "Decrypted DEK has invalid length: expected 32 bytes, got {}",
+                bytes.len()
+            )));
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(bytes);
+        Ok(Self { key })
+    }
+
     /// Get the raw key bytes for database encryption
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.key
     }
-
-    /// Encrypt DEK using MEK for storage in database
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if MEK encryption fails
-    pub fn encrypt_with_mek(&self, mek: &MasterEncryptionKey) -> AppResult<Vec<u8>> {
-        mek.encrypt(&self.key)
-    }
-
-    /// Decrypt DEK from database using MEK
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - MEK decryption fails
-    /// - Decrypted data is not exactly 32 bytes
-    pub fn decrypt_with_mek(encrypted_dek: &[u8], mek: &MasterEncryptionKey) -> AppResult<Self> {
-        let decrypted_bytes = mek.decrypt(encrypted_dek)?;
-
-        if decrypted_bytes.len() != 32 {
-            return Err(AppError::internal(format!(
-                "Decrypted DEK has invalid length: expected 32 bytes, got {}",
-                decrypted_bytes.len()
-            )));
-        }
-
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&decrypted_bytes);
-
-        Ok(Self { key })
-    }
 }
 
-/// Two-tier key management system
+/// Two-tier key management system: a [`KekProvider`] wrapping the [`DatabaseEncryptionKey`].
 pub struct KeyManager {
-    mek: MasterEncryptionKey,
+    kek: Box<dyn KekProvider>,
     dek: DatabaseEncryptionKey,
 }
 
 impl KeyManager {
-    /// Bootstrap initialization: Load MEK and generate temporary DEK for database initialization
+    /// Bootstrap initialization: load the KEK and generate a temporary DEK for database initialization
     ///
     /// # Errors
     ///
-    /// Returns an error if MEK loading fails
+    /// Returns an error if KEK loading fails
     pub fn bootstrap() -> AppResult<(Self, [u8; 32])> {
         info!("Bootstrapping two-tier key management system");
 
-        // Load MEK from environment
-        let mek = MasterEncryptionKey::load_or_generate()?;
+        // Select the KEK provider (GCP Cloud KMS when configured, else local).
+        let kek = Self::configured_kek_provider()?;
 
         // Generate temporary DEK for database initialization
         let temp_dek = DatabaseEncryptionKey::generate();
         let database_key = *temp_dek.as_bytes();
 
-        let manager = Self { mek, dek: temp_dek };
+        let manager = Self { kek, dek: temp_dek };
 
         info!("Bootstrap key management system initialized");
 
         Ok((manager, database_key))
     }
 
-    /// Decode base64-encoded encrypted DEK
+    /// Construct a manager from an explicit KEK provider and DEK.
+    ///
+    /// Used by KEK-migration tooling (to supply the old/source KEK) and tests.
+    #[must_use]
+    pub fn with_provider(kek: Box<dyn KekProvider>, dek: DatabaseEncryptionKey) -> Self {
+        Self { kek, dek }
+    }
+
+    /// Select the configured KEK provider.
+    ///
+    /// With the `gcp-kms` feature enabled and `PIERRE_KMS_KEY_RESOURCE` set, the
+    /// DEK is wrapped by GCP Cloud KMS. Otherwise the env-backed local provider is
+    /// used (the default for development, CI, and tests). Exposed so migration
+    /// tooling (`rewrap_deks`) can obtain the target provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the selected provider cannot be constructed.
+    pub fn configured_kek_provider() -> AppResult<Box<dyn KekProvider>> {
+        #[cfg(feature = "gcp-kms")]
+        {
+            use crate::gcp_kms::GcpKmsKekProvider;
+            if env::var("PIERRE_KMS_KEY_RESOURCE").is_ok() {
+                info!("Using GCP Cloud KMS KEK provider");
+                return Ok(Box::new(GcpKmsKekProvider::from_env()?));
+            }
+        }
+        info!("Using local env-backed KEK provider");
+        Ok(Box::new(LocalKekProvider::from_env()?))
+    }
+
+    /// Decode base64-encoded wrapped DEK
     fn decode_encrypted_dek(encrypted_dek_base64: &str) -> AppResult<Vec<u8>> {
         Base64Standard
             .decode(encrypted_dek_base64)
             .map_err(|e| AppError::internal(format!("Invalid base64 encoding for stored DEK: {e}")))
     }
 
-    /// Store encrypted DEK in database
-    async fn store_dek(security: &dyn SecurityRepository, encrypted_dek: &[u8]) -> AppResult<()> {
-        let encrypted_dek_base64 = Base64Standard.encode(encrypted_dek);
+    /// System-secret holding the active DEK version number.
+    const ACTIVE_VERSION_SECRET: &'static str = "database_encryption_key_active_version";
+    /// System-secret holding the version-1 (legacy) wrapped DEK.
+    const V1_SECRET: &'static str = "database_encryption_key";
+
+    /// Name of the system-secret that stores the wrapped DEK for `version`.
+    ///
+    /// Version 1 keeps its historical name so existing deployments need no migration.
+    fn version_secret_name(version: u32) -> String {
+        if version == 1 {
+            Self::V1_SECRET.to_owned()
+        } else {
+            format!("database_encryption_key_v{version}")
+        }
+    }
+
+    /// Read the active DEK version, defaulting to 1 for pre-versioning deployments.
+    async fn read_active_version(security: &dyn SecurityRepository) -> AppResult<u32> {
         security
-            .update_system_secret("database_encryption_key", &encrypted_dek_base64)
+            .get_system_secret(Self::ACTIVE_VERSION_SECRET)
+            .await
+            .map_or(Ok(1), |value| {
+                value.trim().parse::<u32>().map_err(|e| {
+                    AppError::internal(format!("Invalid stored active DEK version '{value}': {e}"))
+                })
+            })
+    }
+
+    /// Load and unwrap every DEK version in `1..=active_version` into a map.
+    async fn load_all_versions(
+        security: &dyn SecurityRepository,
+        kek: &dyn KekProvider,
+        active_version: u32,
+    ) -> AppResult<HashMap<u32, Vec<u8>>> {
+        let mut versions: HashMap<u32, Vec<u8>> = HashMap::new();
+        for version in 1..=active_version {
+            versions.insert(
+                version,
+                Self::load_version_key(security, kek, version).await?,
+            );
+        }
+        Ok(versions)
+    }
+
+    /// Persist the active DEK version number.
+    async fn store_active_version(
+        security: &dyn SecurityRepository,
+        version: u32,
+    ) -> AppResult<()> {
+        security
+            .update_system_secret(Self::ACTIVE_VERSION_SECRET, &version.to_string())
             .await
     }
 
-    /// Complete initialization after database is available
+    /// Load and unwrap the DEK key bytes for a specific version.
+    async fn load_version_key(
+        security: &dyn SecurityRepository,
+        kek: &dyn KekProvider,
+        version: u32,
+    ) -> AppResult<Vec<u8>> {
+        let wrapped_base64 = security
+            .get_system_secret(&Self::version_secret_name(version))
+            .await?;
+        let wrapped = Self::decode_encrypted_dek(&wrapped_base64)?;
+        let unwrapped = kek.unwrap(&wrapped).await.map_err(|e| {
+            if e.message.contains("Decryption failed") {
+                let database_url =
+                    env::var("DATABASE_URL").unwrap_or_else(|_| "unknown".to_owned());
+                AppError::encryption_key_mismatch(&database_url)
+            } else {
+                e
+            }
+        })?;
+        if unwrapped.len() != 32 {
+            return Err(AppError::internal(format!(
+                "Decrypted DEK v{version} has invalid length: expected 32 bytes, got {}",
+                unwrapped.len()
+            )));
+        }
+        Ok(unwrapped)
+    }
+
+    /// Persist a wrapped DEK for a specific version.
+    async fn store_version_key(
+        security: &dyn SecurityRepository,
+        version: u32,
+        wrapped_dek: &[u8],
+    ) -> AppResult<()> {
+        security
+            .update_system_secret(
+                &Self::version_secret_name(version),
+                &Base64Standard.encode(wrapped_dek),
+            )
+            .await
+    }
+
+    /// Complete initialization after the database is available.
     ///
-    /// This loads the existing DEK from the database (if any) and updates the database's
-    /// encryption key to use the correct DEK. This is necessary because during bootstrap,
-    /// a temporary DEK is used to initialize the database, but we need to use the actual
-    /// stored DEK for encrypted data operations.
+    /// For a fresh database, persists the bootstrap DEK as version 1. For an
+    /// existing database, loads every DEK version (1..=active) and installs them
+    /// so the active version encrypts new data while prior versions stay available
+    /// for decrypting older ciphertext.
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - Database operations fail
-    /// - DEK encryption/decryption fails
+    /// Returns an error if database operations or DEK wrap/unwrap fail.
     pub async fn complete_initialization(&mut self, database: &mut Database) -> AppResult<()> {
         info!("Completing two-tier key management initialization");
 
-        // Use Database as SecurityRepository for secret retrieval
-        let security = database.as_security_repository();
-        if let Ok(encrypted_dek_base64) =
-            security.get_system_secret("database_encryption_key").await
-        {
-            self.load_existing_dek(&encrypted_dek_base64)?;
-            // Update the database's encryption key to use the loaded DEK
-            // This is critical: the database was initialized with a temp key,
-            // now we update it with the real key loaded from the database
-            database.update_encryption_key(self.dek.as_bytes().to_vec());
-            info!("Database encryption key updated to use loaded DEK");
-        } else {
-            self.store_new_dek(database.as_security_repository())
-                .await?;
+        let is_fresh = {
+            let security = database.as_security_repository();
+            security.get_system_secret(Self::V1_SECRET).await.is_err()
+        };
+
+        if is_fresh {
+            // Fresh database: persist the bootstrap DEK as version 1.
+            let security = database.as_security_repository();
+            self.store_new_dek(security).await?;
+            info!("Two-tier key management initialized with a new DEK (version 1)");
+            return Ok(());
         }
 
-        info!("Two-tier key management system fully initialized");
-        Ok(())
+        self.load_and_install_existing(database).await
     }
 
-    fn load_existing_dek(&mut self, encrypted_dek_base64: &str) -> AppResult<()> {
-        info!("Loading existing Database Encryption Key from database");
-        let encrypted_dek = Self::decode_encrypted_dek(encrypted_dek_base64)?;
-        self.dek =
-            DatabaseEncryptionKey::decrypt_with_mek(&encrypted_dek, &self.mek).map_err(|e| {
-                // Check if this is a decryption failure (key mismatch)
-                if e.message.contains("Decryption failed") {
-                    let database_url =
-                        env::var("DATABASE_URL").unwrap_or_else(|_| "unknown".to_owned());
-                    AppError::encryption_key_mismatch(&database_url)
-                } else {
-                    e
-                }
-            })?;
-        info!("Existing Database Encryption Key loaded successfully");
+    /// Load every stored DEK version and install them, with the active version
+    /// encrypting new data and prior versions retained for decryption.
+    async fn load_and_install_existing(&mut self, database: &mut Database) -> AppResult<()> {
+        let (active_version, mut versions) = {
+            let security = database.as_security_repository();
+            let active_version = Self::read_active_version(security).await?;
+            let versions =
+                Self::load_all_versions(security, self.kek.as_ref(), active_version).await?;
+            (active_version, versions)
+        };
+
+        let active_key = versions.remove(&active_version).ok_or_else(|| {
+            AppError::internal(format!(
+                "Active DEK version {active_version} not found among loaded versions"
+            ))
+        })?;
+        self.dek = DatabaseEncryptionKey::from_unwrapped(&active_key)?;
+        database.install_dek_versions(active_version, active_key, versions);
+        info!("Two-tier key management initialized at active DEK version {active_version}");
         Ok(())
     }
 
     async fn store_new_dek(&self, security: &dyn SecurityRepository) -> AppResult<()> {
         info!("No existing DEK found, storing current Database Encryption Key");
-        let encrypted_dek = self.dek.encrypt_with_mek(&self.mek)?;
-        Self::store_dek(security, &encrypted_dek).await?;
+        let wrapped_dek = self.kek.wrap(self.dek.as_bytes()).await?;
+        Self::store_version_key(security, 1, &wrapped_dek).await?;
         info!("Database Encryption Key stored successfully");
+        Ok(())
+    }
+
+    /// Rotate the Database Encryption Key to a fresh active version.
+    ///
+    /// Generates a new DEK, wraps it with the KEK, persists it as the new active
+    /// version, and retains all prior versions for decrypting existing data. New
+    /// writes use the new version immediately; older ciphertext stays readable via
+    /// the retained versions (lazy rotation — no bulk re-encryption). The blind
+    /// index (refresh-token HMAC) stays pinned to version 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations or DEK wrap/unwrap fail.
+    pub async fn rotate_dek(&mut self, database: &mut Database) -> AppResult<u32> {
+        info!("Rotating Database Encryption Key");
+
+        // Load and retain every existing version (scoped immutable borrow).
+        let (new_version, prior) = {
+            let security = database.as_security_repository();
+            let current_active = Self::read_active_version(security).await?;
+            let prior =
+                Self::load_all_versions(security, self.kek.as_ref(), current_active).await?;
+            (current_active + 1, prior)
+        };
+
+        // Generate, wrap, and persist the new active DEK.
+        let new_dek = DatabaseEncryptionKey::generate();
+        let wrapped = self.kek.wrap(new_dek.as_bytes()).await?;
+        {
+            let security = database.as_security_repository();
+            Self::store_version_key(security, new_version, &wrapped).await?;
+            Self::store_active_version(security, new_version).await?;
+        }
+
+        let active_key = new_dek.as_bytes().to_vec();
+        self.dek = new_dek;
+        database.install_dek_versions(new_version, active_key, prior);
+        info!("Rotated Database Encryption Key to version {new_version}");
+        Ok(new_version)
+    }
+
+    /// Re-wrap every stored DEK version under a new KEK provider (KEK rotation /
+    /// provider migration, e.g. local MEK → GCP Cloud KMS).
+    ///
+    /// Each version is unwrapped with the current KEK, wrapped with `new_kek`, and
+    /// persisted. The DEK bytes are unchanged, so existing ciphertext stays valid —
+    /// only the at-rest wrapping changes. On success the manager adopts `new_kek`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database access or wrap/unwrap fails.
+    pub async fn rewrap_deks(
+        &mut self,
+        new_kek: Box<dyn KekProvider>,
+        database: &mut Database,
+    ) -> AppResult<()> {
+        info!("Re-wrapping all DEK versions under a new KEK");
+
+        let rewrapped: Vec<(u32, Vec<u8>)> = {
+            let security = database.as_security_repository();
+            let active_version = Self::read_active_version(security).await?;
+            let versions =
+                Self::load_all_versions(security, self.kek.as_ref(), active_version).await?;
+            let mut out = Vec::with_capacity(versions.len());
+            for (version, key) in versions {
+                out.push((version, new_kek.wrap(&key).await?));
+            }
+            out
+        };
+
+        {
+            let security = database.as_security_repository();
+            for (version, wrapped) in &rewrapped {
+                Self::store_version_key(security, *version, wrapped).await?;
+            }
+        }
+
+        self.kek = new_kek;
+        info!(
+            "Re-wrapped {} DEK version(s) under the new KEK",
+            rewrapped.len()
+        );
         Ok(())
     }
 
@@ -317,11 +574,5 @@ impl KeyManager {
     #[must_use]
     pub const fn database_key(&self) -> &[u8; 32] {
         self.dek.as_bytes()
-    }
-
-    /// Get the MEK for key encryption operations
-    #[must_use]
-    pub const fn master_key(&self) -> &MasterEncryptionKey {
-        &self.mek
     }
 }

@@ -1,5 +1,5 @@
-// ABOUTME: Security repository trait implementation for RSA keypairs, key rotation, and audit events
-// ABOUTME: Delegates to inherent Database methods for cryptographic key management and system secrets
+// ABOUTME: Security repository trait implementation for RSA keypairs, system secrets, and audit events
+// ABOUTME: Delegates to inherent Database methods for RSA keypair persistence and system secrets
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::AuditEvent;
-use pierre_core::models::KeyVersion;
 use pierre_core::models::TenantId;
 
 #[async_trait]
@@ -42,33 +41,6 @@ impl SecurityRepository for Database {
     }
     async fn update_rsa_keypair_active_status(&self, kid: &str, is_active: bool) -> AppResult<()> {
         Self::update_rsa_keypair_active_status_impl(self, kid, is_active).await
-    }
-    async fn store_key_version(&self, version: &KeyVersion) -> AppResult<()> {
-        Self::store_key_version(self, version).await
-    }
-    async fn get_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<Vec<KeyVersion>> {
-        Self::get_key_versions(self, tenant_id).await
-    }
-    async fn get_current_key_version(
-        &self,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<KeyVersion>> {
-        Self::get_current_key_version(self, tenant_id).await
-    }
-    async fn update_key_version_status(
-        &self,
-        tenant_id: Option<TenantId>,
-        version: u32,
-        is_active: bool,
-    ) -> AppResult<()> {
-        Self::update_key_version_status(self, tenant_id, version, is_active).await
-    }
-    async fn delete_old_key_versions(
-        &self,
-        tenant_id: Option<TenantId>,
-        keep_count: u32,
-    ) -> AppResult<u64> {
-        Self::delete_old_key_versions(self, tenant_id, keep_count).await
     }
     async fn store_audit_event(&self, event: &AuditEvent) -> AppResult<()> {
         Self::store_audit_event_impl(self, event).await

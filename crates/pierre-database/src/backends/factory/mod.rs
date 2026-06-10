@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -177,6 +178,34 @@ impl Database {
             Self::SQLite(db) => db.update_encryption_key(new_key),
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.update_encryption_key(new_key),
+        }
+    }
+
+    /// Install a full set of DEK versions (after load-all-versions or a rotation).
+    ///
+    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
+    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
+    /// version 1, falling back to the active key only when v1 is itself active.
+    ///
+    /// # Safety
+    /// Call during startup or rotation while holding `&mut self`, before serving
+    /// concurrent encrypted-data operations.
+    pub fn install_dek_versions(
+        &mut self,
+        active_version: u32,
+        active_key: Vec<u8>,
+        prior_versions: HashMap<u32, Vec<u8>>,
+    ) {
+        // Only one arm runs per call, so the owned `active_key`/`prior_versions`
+        // move into the active backend without a double-move.
+        match self {
+            Self::SQLite(db) => {
+                db.install_dek_versions(active_version, active_key, prior_versions);
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.install_dek_versions(active_version, active_key, prior_versions);
+            }
         }
     }
 

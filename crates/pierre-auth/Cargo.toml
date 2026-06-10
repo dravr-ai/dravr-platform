@@ -13,6 +13,9 @@ publish = false
 [features]
 default = []
 testing = []
+# Enables the GCP Cloud KMS KekProvider (selected at bootstrap when
+# PIERRE_KMS_KEY_RESOURCE is set). Off by default; dev/CI use the local KEK.
+gcp-kms = []
 
 [dependencies]
 # Workspace crates
@@ -78,6 +81,10 @@ bitflags = { version = "2.11", features = ["serde"] }
 
 # Number traits
 num-traits = "0.2"
+
+[dev-dependencies]
+# Async test harness for the KekProvider (wrap/unwrap are async)
+tokio = { version = "1.50", features = ["macros", "rt", "rt-multi-thread"] }
 
 [lints]
 workspace = true

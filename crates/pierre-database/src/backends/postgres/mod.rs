@@ -93,6 +93,7 @@ use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory, User, User
 use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Pool, Postgres, Row};
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -102,7 +103,17 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct PostgresDatabase {
     pool: Pool<Postgres>,
+    /// Active DEK used to encrypt new data; its version is `active_dek_version`.
     encryption_key: Vec<u8>,
+    /// Version of the active DEK held in `encryption_key`. New ciphertext is
+    /// tagged with this version; legacy un-prefixed ciphertext is version 1.
+    active_dek_version: u32,
+    /// Retired DEK versions retained for decrypting older ciphertext (version -> key).
+    prior_dek_versions: HashMap<u32, Vec<u8>>,
+    /// Stable key for the refresh-token blind index (HMAC). Pinned to DEK v1 so
+    /// deterministic lookups survive DEK rotation — stored hashes cannot be
+    /// recomputed (the plaintext token is never retained).
+    blind_index_key: Vec<u8>,
 }
 
 impl PostgresDatabase {
@@ -126,7 +137,54 @@ impl PostgresDatabase {
     /// # Safety
     /// Only call this once during startup, before any encrypted data operations.
     pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
+        // At bootstrap the loaded key is DEK v1, which also anchors the blind index.
+        self.blind_index_key.clone_from(&new_key);
         self.encryption_key = new_key;
+    }
+
+    /// Install a full set of DEK versions (after load-all-versions or a rotation).
+    ///
+    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
+    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
+    /// version 1, falling back to the active key only when v1 is itself active.
+    ///
+    /// # Safety
+    /// Call during startup or rotation while holding `&mut self`, before serving
+    /// concurrent encrypted-data operations.
+    pub fn install_dek_versions(
+        &mut self,
+        active_version: u32,
+        active_key: Vec<u8>,
+        prior_versions: HashMap<u32, Vec<u8>>,
+    ) {
+        self.blind_index_key = prior_versions
+            .get(&shared::encryption::LEGACY_DEK_VERSION)
+            .cloned()
+            .unwrap_or_else(|| active_key.clone());
+        self.active_dek_version = active_version;
+        self.prior_dek_versions = prior_versions;
+        self.encryption_key = active_key;
+    }
+
+    /// Resolve the DEK bytes for a given ciphertext version.
+    ///
+    /// Returns the active DEK for the active version, a retained prior DEK for an
+    /// older version, or an error if no key for that version is held.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no DEK is available for `version`.
+    fn dek_key_for_version(&self, version: u32) -> AppResult<&[u8]> {
+        if version == self.active_dek_version {
+            Ok(&self.encryption_key)
+        } else if let Some(key) = self.prior_dek_versions.get(&version) {
+            Ok(key)
+        } else {
+            Err(AppError::database(format!(
+                "No DEK available for ciphertext version {version} (active version is {})",
+                self.active_dek_version
+            )))
+        }
     }
 
     /// Helper function to parse User from database row
@@ -278,6 +336,9 @@ impl PostgresDatabase {
 
         let db = Self {
             pool,
+            blind_index_key: encryption_key.clone(),
+            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
+            prior_dek_versions: HashMap::new(),
             encryption_key,
         };
 
