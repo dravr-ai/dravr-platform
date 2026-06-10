@@ -929,12 +929,17 @@ impl SyncCursorRepository for PostgresDatabase {
         &self,
         provider: &str,
     ) -> AppResult<Vec<ConnectedUserRow>> {
-        // ConnectedUserRow.{user_id,tenant_id} are UserId/TenantId newtypes with
-        // native Postgres UUID Decode impls, so we SELECT the raw columns —
-        // no ::text cast, no String round-trip, no r.get() panic surface.
+        // `user_oauth_tokens.user_id` is a Postgres UUID, but `tenant_id` is a
+        // VARCHAR (the app models `UserOAuthToken.tenant_id` as String and binds
+        // `tenant.id.to_string()`). ConnectedUserRow.tenant_id is the TenantId
+        // newtype whose Decode is native UUID, so decoding the VARCHAR column
+        // directly fails ("mismatched types ... UUID is not compatible with
+        // VARCHAR") and silently kills the entire scheduled health sync. Cast
+        // tenant_id to uuid in SQL so the native decode works — keeps the
+        // no-String-round-trip design without the type mismatch.
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT user_id, tenant_id
+            SELECT DISTINCT user_id, tenant_id::uuid AS tenant_id
             FROM user_oauth_tokens
             WHERE provider = $1
             ",
