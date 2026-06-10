@@ -32,7 +32,10 @@ impl OAuthTokenRepository for PostgresDatabase {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<DateTime<Utc>>> {
-        let last_sync: Option<DateTime<Utc>> = sqlx::query_scalar(
+        // Outer Option: row may not exist. Inner Option: last_sync column is
+        // nullable (NULL until the first successful sync) — decoding it as a
+        // bare DateTime errors with "unexpected null" on never-synced rows.
+        let last_sync: Option<Option<DateTime<Utc>>> = sqlx::query_scalar(
             "SELECT last_sync FROM user_oauth_tokens WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
         )
         .bind(user_id)
@@ -42,7 +45,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get provider last sync: {e}")))?;
 
-        Ok(last_sync)
+        Ok(last_sync.flatten())
     }
 
     async fn update_provider_last_sync(

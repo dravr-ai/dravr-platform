@@ -535,7 +535,10 @@ impl Database {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
-        let last_sync: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        // Outer Option: row may not exist. Inner Option: last_sync column is
+        // nullable (NULL until the first successful sync) — decoding it as a
+        // bare DateTime errors with "unexpected null" on never-synced rows.
+        let last_sync: Option<Option<chrono::DateTime<chrono::Utc>>> = sqlx::query_scalar(
             "SELECT last_sync FROM user_oauth_tokens WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
         )
         .bind(user_id.to_string())
@@ -545,7 +548,7 @@ impl Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get provider last sync: {e}")))?;
 
-        Ok(last_sync)
+        Ok(last_sync.flatten())
     }
 
     /// Update last sync timestamp for a provider in `user_oauth_tokens`

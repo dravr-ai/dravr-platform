@@ -24,9 +24,10 @@ use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
 use embacle::types::LlmProvider;
+use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
+use tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::core::{
@@ -186,6 +187,62 @@ impl SciotteProvider {
     /// scrape lands on the SSO page, used for the "no session at all" branch.
     fn auth_required_no_session(&self) -> AppError {
         AppError::provider_auth_required(self.provider_name)
+    }
+}
+
+/// Serializes Chrome profile access, keyed by `AuthSession.session_id`.
+///
+/// sciotte derives the on-disk Chrome profile directory from the session id,
+/// and `launch_browser` documents that the *caller* must serialize concurrent
+/// launches against the same id — Chrome holds a `SingletonLock` on its
+/// profile directory and a second launch aborts with "Failed to create
+/// SingletonLock: File exists". Each `SciotteProvider` instance launches its
+/// own Chrome, so two overlapping scrapes for the same user (e.g. a background
+/// activity-cache revalidation racing an LLM `get_activities` call) crash
+/// instantly without this serialization.
+///
+/// Production code shares one registry via [`Self::global`]; tests construct
+/// isolated instances. Map entries are never evicted — the map is bounded by
+/// the number of distinct sciotte sessions seen by the process.
+pub struct ProfileLockRegistry {
+    locks: StdMutex<HashMap<String, Arc<TokioMutex<()>>>>,
+}
+
+impl ProfileLockRegistry {
+    /// Create an empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            locks: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    /// The process-global registry shared by every `SciotteProvider` instance.
+    pub fn global() -> &'static Self {
+        static GLOBAL: LazyLock<ProfileLockRegistry> = LazyLock::new(ProfileLockRegistry::new);
+        &GLOBAL
+    }
+
+    /// Await exclusive use of a session's Chrome profile directory.
+    ///
+    /// The returned guard must be held for the entire scrape (browser launch
+    /// through close) so a concurrent scrape for the same session waits for the
+    /// profile to free up instead of colliding on Chrome's `SingletonLock`.
+    /// Distinct session ids never block each other.
+    pub async fn acquire(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        let lock = {
+            // Recover from poisoning: the inner map stays consistent even if a
+            // holder panicked, and refusing all future scrapes would be worse.
+            let mut map = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
+            Arc::clone(map.entry(session_id.to_owned()).or_default())
+        };
+        lock.lock_owned().await
+    }
+}
+
+impl Default for ProfileLockRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -395,6 +452,11 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
+        // Profile lock before the global permit: waiting for the profile to
+        // free up must not pin a scarce Chrome-concurrency slot.
+        let _profile_lock = ProfileLockRegistry::global()
+            .acquire(&session.session_id)
+            .await;
         let _permit = acquire_scrape_permit().await?;
         let profile = self
             .scraper
@@ -444,6 +506,11 @@ impl FitnessProvider for SciotteProvider {
 
         debug!(limit, "Fetching activities from sciotte (in-process)");
 
+        // Profile lock before the global permit: waiting for the profile to
+        // free up must not pin a scarce Chrome-concurrency slot.
+        let _profile_lock = ProfileLockRegistry::global()
+            .acquire(&session.session_id)
+            .await;
         let _permit = acquire_scrape_permit().await?;
         let sciotte_activities = self
             .scraper
@@ -480,6 +547,11 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
+        // Profile lock before the global permit: waiting for the profile to
+        // free up must not pin a scarce Chrome-concurrency slot.
+        let _profile_lock = ProfileLockRegistry::global()
+            .acquire(&session.session_id)
+            .await;
         let _permit = acquire_scrape_permit().await?;
         let sciotte_activity = self
             .scraper

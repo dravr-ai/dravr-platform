@@ -535,6 +535,37 @@ async fn test_get_provider_last_sync_nonexistent() {
 }
 
 #[tokio::test]
+async fn test_get_provider_last_sync_never_synced_row_is_none() {
+    use pierre_core::models::UserOAuthToken;
+
+    let db = create_test_database().await;
+    let user = create_test_user("never_synced@example.com", Some("Never Synced".to_owned()));
+    UserRepository::create(&db, &user).await.unwrap();
+
+    // Token row exists but update_provider_last_sync was never called, so the
+    // last_sync column is NULL. The read must return Ok(None), not a decode
+    // error ("unexpected null") — on-demand providers like sciotte sit in this
+    // state until their first successful fetch.
+    let test_tenant_id = TenantId::new();
+    let token_data = UserOAuthToken::new(
+        user.id,
+        test_tenant_id.to_string(),
+        "sciotte".to_owned(),
+        "test_session_json".to_owned(),
+        None,
+        None,
+        None,
+    );
+    db.upsert_token(&token_data).await.unwrap();
+
+    let result = db
+        .get_provider_last_sync(user.id, test_tenant_id, "sciotte")
+        .await
+        .unwrap();
+    assert!(result.is_none(), "NULL last_sync must decode as None");
+}
+
+#[tokio::test]
 async fn test_database_migrations() {
     let db = create_test_database().await;
 

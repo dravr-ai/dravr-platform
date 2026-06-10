@@ -23,7 +23,7 @@ use pierre_core::models::{Activity, Tenant, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::protocol::AuthService;
@@ -689,7 +689,10 @@ async fn try_fetch_from_provider(
         .get_activities_with_params(params)
         .await
         .map_err(|e| {
-            info!(user_id = %user_id, provider = %provider_name, error = %e, "Snapshot: fetch failed");
+            // WARN, not INFO: a failed live fetch is why the stale-while-revalidate
+            // cache stops advancing. Logging it at INFO hid a Chrome profile-lock
+            // collision that froze a user's activity data for a full day.
+            warn!(user_id = %user_id, provider = %provider_name, error = %e, "Snapshot: fetch failed");
         })
         .ok()
         .filter(|a| !a.is_empty())?;
