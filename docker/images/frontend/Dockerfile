@@ -50,10 +50,18 @@ RUN cd frontend && bun run build
 # there fixes the CVE at the source instead of allowlisting it.
 FROM alpine:3.23
 
+# Cache-bust token for the apk layer below. buildx reuses the `apk upgrade` layer
+# verbatim across builds even after Alpine ships a security update, leaving patched
+# base packages (e.g. openssl libssl3/libcrypto3) stale. Bump this date whenever
+# Trivy flags a fixed Alpine CVE to force a fresh `apk upgrade` that pulls the
+# patched version (e.g. CVE-2026-45447 in libssl3/libcrypto3).
+ARG APK_SECURITY_EPOCH=2026-06-10
+
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
 # the base (zlib/libpng/etc.) to current 3.23 versions.
-RUN apk upgrade --no-cache && \
+RUN echo "apk security epoch: ${APK_SECURITY_EPOCH}" && \
+    apk upgrade --no-cache && \
     apk add --no-cache nginx gettext && \
     rm -rf /var/cache/apk/* && \
     # Stream nginx logs to the container stdout/stderr (Cloud Run captures them) —
