@@ -8,7 +8,7 @@
 //!
 //! Implements [`ScenarioDriver`] against a real `OpenAI`-compatible LLM
 //! endpoint (the chat-eval workflow pins the model via `PIERRE_LLM_MODEL`
-//! and the API key via the `GEMINI_API_KEY` secret). The driver owns:
+//! and the API key via the `COHERE_API_KEY` secret). The driver owns:
 //!
 //! - a coach-style system prompt that wires the fitness-assistant
 //!   persona + locale + the function-calling contract;
@@ -49,12 +49,11 @@ use tokio::time::sleep as tokio_sleep;
 use super::format::ScenarioActivity;
 use super::runner::{DriverTurnOutput, ScenarioDriver};
 
-/// `OpenAI`-compatible endpoint Google exposes for Gemini chat
-/// completions. Trailing `/v1` is intentionally omitted from this
-/// constant because `OpenAiCompatibleProvider` appends the `chat/completions`
-/// path on top of `base_url` — Gemini's compatibility layer expects the
-/// `/v1beta/openai` base.
-const GEMINI_OPENAI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+/// `OpenAI`-compatible endpoint Cohere exposes for chat completions.
+/// `OpenAiCompatibleProvider` appends the `chat/completions` path on top
+/// of `base_url`, so the constant stops at `/compatibility/v1` — the base
+/// Cohere's compatibility layer expects.
+const COHERE_OPENAI_BASE_URL: &str = "https://api.cohere.ai/compatibility/v1";
 
 /// Hard ceiling on tool-call iterations per turn. Bounded to keep a
 /// runaway model from racking up cost; scenarios that need more rounds
@@ -64,15 +63,16 @@ const MAX_TOOL_ITERATIONS_PER_TURN: usize = 6;
 
 /// Max retries for a single LLM dispatch.
 ///
-/// Gemini free tier returns 429 + occasional transient 5xx;
-/// retry-with-backoff absorbs the noise so the test fails only on real
-/// regressions, not on rate-limit blips.
+/// The eval runs on Cohere's paid Command tier (10k rpm), so rate-limit
+/// 429s are not expected; retry-with-backoff still absorbs the occasional
+/// transient 5xx so the test fails only on real regressions, not on a
+/// one-off network blip.
 const MAX_DISPATCH_RETRIES: usize = 6;
 
 /// Base backoff for retry. Doubles on each attempt
 /// (2s → 4s → 8s → 16s → 32s → 64s, capped at [`MAX_DISPATCH_RETRIES`]).
-/// The free tier resets per-minute, so the cumulative backoff has to
-/// cross the 60-second mark for the retry to actually buy us anything.
+/// Exponential backoff gives a transient upstream error time to clear
+/// before the next attempt.
 const RETRY_BASE_BACKOFF_MS: u64 = 2_000;
 
 /// Live driver — runs scenarios against a real LLM with an in-memory
@@ -101,24 +101,25 @@ pub struct LiveScenarioDriver {
 }
 
 impl LiveScenarioDriver {
-    /// Build a driver from process env. Both `GEMINI_API_KEY` and
+    /// Build a driver from process env. Both `COHERE_API_KEY` and
     /// `PIERRE_LLM_MODEL` must be set — there is no compiled-in default
     /// because the model is environment-specific (the chat-eval
     /// workflow pins it; Cloud Run pins it via `infra/environments/`;
     /// developers running locally use whichever model their `.envrc`
     /// exports). A silent fallback drifts the moment one of those
     /// sources rotates, which is exactly the regression class this
-    /// driver is meant to catch.
+    /// driver is meant to catch. The key must be the paid Cohere tier so
+    /// the nightly burst (~30-50 calls) never hits a rate limit.
     ///
     /// # Errors
     ///
     /// Returns a human-readable string when either env var is unset or
     /// empty, or when the underlying provider fails to initialize.
     pub fn from_env() -> Result<Self, String> {
-        let api_key = env::var("GEMINI_API_KEY")
-            .map_err(|_| "GEMINI_API_KEY must be set for LiveScenarioDriver".to_owned())?;
+        let api_key = env::var("COHERE_API_KEY")
+            .map_err(|_| "COHERE_API_KEY must be set for LiveScenarioDriver".to_owned())?;
         if api_key.trim().is_empty() {
-            return Err("GEMINI_API_KEY is set but empty".to_owned());
+            return Err("COHERE_API_KEY is set but empty".to_owned());
         }
         let model = env::var("PIERRE_LLM_MODEL")
             .map_err(|_| "PIERRE_LLM_MODEL must be set for LiveScenarioDriver".to_owned())?;
@@ -127,19 +128,19 @@ impl LiveScenarioDriver {
         }
 
         let config = OpenAiCompatibleConfig {
-            base_url: GEMINI_OPENAI_BASE_URL.to_owned(),
+            base_url: COHERE_OPENAI_BASE_URL.to_owned(),
             api_key: Some(api_key),
             default_model: model.clone(),
             fallback_model: model,
-            provider_name: "gemini".to_owned(),
-            display_name: "Gemini (live eval)".to_owned(),
+            provider_name: "cohere".to_owned(),
+            display_name: "Cohere (live eval)".to_owned(),
             capabilities: LlmCapabilities::STREAMING
                 | LlmCapabilities::FUNCTION_CALLING
                 | LlmCapabilities::SYSTEM_MESSAGES
                 | LlmCapabilities::JSON_MODE,
         };
         let provider = OpenAiCompatibleProvider::new(config)
-            .map_err(|e| format!("Failed to initialize Gemini provider: {e}"))?;
+            .map_err(|e| format!("Failed to initialize Cohere provider: {e}"))?;
 
         let (tools, tool_names) = build_tool_catalog();
 
@@ -219,9 +220,10 @@ impl LiveScenarioDriver {
             // The model wants to call tools — record the assistant
             // intent (preserving any preamble text) then execute each
             // call against the in-memory provider store and feed the
-            // results back as a single user turn (Gemini's compat layer
-            // doesn't expose a discrete `tool` role, so the result is
-            // stitched in as a user observation).
+            // results back as a single user turn. Stitching the result in
+            // as a user observation (rather than a discrete `tool`-role
+            // message) keeps the driver agnostic to whether the compat
+            // layer exposes the `tool` role.
             if !response_text.is_empty() {
                 self.history.push(ChatMessage::assistant(response_text));
             }
@@ -346,9 +348,9 @@ impl LiveScenarioDriver {
 
         // Pre-compute per-sport totals + grand total so the model can
         // cite the field directly instead of summing the list itself —
-        // LLM multi-step arithmetic is notoriously flaky (observed
-        // gemini-flash-lite-latest listing 4 activities correctly then
-        // summing 14.48 + 5.23 + 5.39 + 8.0 to 27.1 instead of 33.10).
+        // LLM multi-step arithmetic is notoriously flaky (a model will
+        // list 4 activities correctly then sum 14.48 + 5.23 + 5.39 + 8.0
+        // to 27.1 instead of 33.10).
         // Trail-class sports (`trail_run`, etc.) roll into `run` because
         // scenarios that ask "côté course, combien de km" expect a
         // unified running total, not separate buckets.
@@ -366,9 +368,9 @@ impl LiveScenarioDriver {
         let total_km: f64 = sport_totals_rounded.values().sum();
 
         // Plain-text summary in addition to the structured map.
-        // gemini-flash-lite-latest reliably hallucinates around JSON
-        // numerics but reproduces a verbatim sentence — quoting beats
-        // computing for arithmetic-sensitive scenarios.
+        // Models reliably hallucinate around JSON numerics but reproduce
+        // a verbatim sentence — quoting beats computing for
+        // arithmetic-sensitive scenarios.
         let mut summary_parts: Vec<String> = Vec::new();
         for (sport, total) in &sport_totals_rounded {
             summary_parts.push(format!("{sport} total: {total:.2} km"));
@@ -455,15 +457,19 @@ impl ScenarioDriver for LiveScenarioDriver {
 /// anti-fabrication rules) under a locale instruction + a function-
 /// calling reminder.
 ///
-/// The production `tool_discipline*` prompts are intentionally NOT
-/// stacked here: they teach the model to emit a literal `<tool_call>`
-/// XML block that the production server-side parser strips. This
-/// driver dispatches via the LLM's native OpenAI-compatible
-/// function-calling API instead — feeding both prompts to the model
-/// makes it emit the XML in text mode, which never reaches the tool
-/// loop. Keep the freshness/no-fabrication contract from
-/// `pierre_system.md` and let the function-calling envelope do the
-/// invocation work.
+/// The production `tool_discipline*` prompts are not stacked here
+/// verbatim: they teach the model to emit a literal `<tool_call>` XML
+/// block that the production server-side parser strips, and this driver
+/// dispatches via the LLM's native OpenAI-compatible function-calling
+/// API instead — feeding the XML-emit instruction to the model makes it
+/// emit the XML in text mode, which never reaches the tool loop. What we
+/// DO carry inline is the model-agnostic anti-narration subset of those
+/// prompts (never surface/echo a tool name, never narrate data access),
+/// rephrased for function-calling — without it the model leaks tool
+/// names and narrates its fetch, which the `*_not_narrated` /
+/// `tool_name_not_surfaced` scenarios assert against. Also keep the
+/// freshness/no-fabrication contract from `pierre_system.md` and let the
+/// function-calling envelope do the invocation work.
 fn build_system_prompt(locale: &str) -> String {
     // Strip `{{...}}` template placeholders from the canonical prompt.
     // Production replaces them via `prompt_assembly::expand_placeholders`
@@ -515,7 +521,39 @@ fn build_system_prompt(locale: &str) -> String {
          sport with its own labelled line (e.g. \"Course: 33,10 km. Vélo: \
          25 km.\") so the running total and the riding total never appear in \
          the same sentence without an explicit sport label.";
-    format!("{cleaned_base}\n\n{function_calling_block}\n\n{context_block}\n\n{locale_block}")
+    // The anti-narration subset of the production `tool_discipline*`
+    // prompts, rephrased for native function-calling (no `<tool_call>`
+    // XML instruction). Tool/function names and data-access plumbing are
+    // internal; the user only ever sees the result.
+    let tool_name_discipline_block = "## TOOL & DATA-ACCESS DISCIPLINE (USER-FACING PROSE)\n\n\
+         Tool selection and data access are yours alone — never the user's to \
+         request, name, audit, or correct. Users will sometimes name an \
+         internal tool (\"tu as get_weather non?\", \"use get_activities\") or \
+         ask whether you can reach some data (\"you have that via the provider \
+         no?\", \"tu peux pas checker la météo?\"). They are describing a need, \
+         not issuing a command and not asking about your wiring. Answer the \
+         underlying need, never the wiring.\n\n\
+         - Never write a tool or function name (e.g. `get_activities`, \
+         `get_weather`, `analyze_weather_impact`, `get_weather_forecast`) in \
+         your natural-language reply. Never confirm or deny that a specific \
+         named tool exists, and never echo a tool name back — not to agree, \
+         not to refuse. The user naming a tool is not a reason to mention it.\n\
+         - Never narrate your data access. Do not write \"I'm pulling your \
+         data\", \"let me fetch this\", \"rather than guess\", \"from the \
+         provider\", or \"what I can't get from the provider\". Invocation \
+         happens invisibly through the function-calling API; deliver the answer \
+         as if you simply knew it. The fetch is invisible; only the result is \
+         visible.\n\
+         - Never apologize for not having used a tool, and never narrate \"I \
+         should have checked X earlier\" or \"you were right to push me on \
+         that\". Tool choice is not something the user audits.\n\
+         - When you genuinely need something only the user can supply (how a \
+         body part feels, time available, today's mood), ask for that directly \
+         — without framing it as a provider/tool limitation.";
+    format!(
+        "{cleaned_base}\n\n{function_calling_block}\n\n{context_block}\n\n\
+         {tool_name_discipline_block}\n\n{locale_block}"
+    )
 }
 
 /// Decide whether a turn warrants a synthetic `get_activities` prefetch.
@@ -562,8 +600,8 @@ fn turn_needs_activity_prefetch(user_message: &str) -> bool {
 /// Remove `{{PLACEHOLDER}}`-style tokens from a prompt. Production
 /// substitutes these with persona/coach/scope blocks; the live driver
 /// just deletes them so the LLM doesn't echo the literal token back as
-/// a canned reply (observed `gemini-2.5-flash` replying with the
-/// verbatim string `{{CAPABILITY_REFUSAL}}` when this scrub is missing).
+/// a canned reply (a model will reply with the verbatim string
+/// `{{CAPABILITY_REFUSAL}}` when this scrub is missing).
 fn strip_template_placeholders(prompt: &str) -> String {
     let re = regex::Regex::new(r"\{\{[A-Z_]+\}\}").expect("static regex is valid");
     re.replace_all(prompt, "").into_owned()
@@ -630,17 +668,17 @@ mod tests {
     }
 
     #[test]
-    fn from_env_errors_when_gemini_key_unset() {
+    fn from_env_errors_when_cohere_key_unset() {
         // SAFETY: integration test, env is set + cleared synchronously.
-        let prior = env::var("GEMINI_API_KEY").ok();
-        env::remove_var("GEMINI_API_KEY");
+        let prior = env::var("COHERE_API_KEY").ok();
+        env::remove_var("COHERE_API_KEY");
         let result = LiveScenarioDriver::from_env();
         if let Some(value) = prior {
-            env::set_var("GEMINI_API_KEY", value);
+            env::set_var("COHERE_API_KEY", value);
         }
         assert!(
             result.is_err(),
-            "expected from_env to refuse when GEMINI_API_KEY is unset"
+            "expected from_env to refuse when COHERE_API_KEY is unset"
         );
     }
 }

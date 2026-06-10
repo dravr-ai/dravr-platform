@@ -209,15 +209,15 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
 /// Drive every YAML scenario through the live LLM-backed driver.
 ///
 /// Off by default — set `CHAT_SCENARIO_LIVE=1` (and supply a
-/// `GEMINI_API_KEY`) to opt in. The chat-eval workflow's nightly +
+/// `COHERE_API_KEY`) to opt in. The chat-eval workflow's nightly +
 /// on-demand `live-llm` job exports both env vars; on developer
 /// machines the test self-skips so a casual `cargo test` doesn't
-/// blow through someone's Gemini quota.
+/// blow through someone's Cohere quota.
 #[test]
 fn live_driver_executes_every_scenario() {
     if env::var("CHAT_SCENARIO_LIVE").ok().as_deref() != Some("1") {
         eprintln!(
-            "skipping live_driver_executes_every_scenario: set CHAT_SCENARIO_LIVE=1 + GEMINI_API_KEY to enable"
+            "skipping live_driver_executes_every_scenario: set CHAT_SCENARIO_LIVE=1 + COHERE_API_KEY to enable"
         );
         return;
     }
@@ -232,15 +232,7 @@ fn live_driver_executes_every_scenario() {
     let vocab = VocabularyContractRegistry::with_defaults();
     let mut failures: Vec<String> = Vec::new();
 
-    for (idx, path) in files.iter().enumerate() {
-        // Pace the run: Gemini free tier is ~10 RPM. Five scenarios with
-        // 2-3 turns + tool loop each easily bursts past that, and 429s
-        // bleed into retry storms that swallow real signal. A 6 s spacer
-        // between scenarios keeps us under the budget without the live
-        // driver itself having to track wall-clock state.
-        if idx > 0 {
-            thread_sleep(Duration::from_secs(6));
-        }
+    for path in &files {
         let scenario =
             load_scenario(path).unwrap_or_else(|e| panic!("load scenario {}: {e}", path.display()));
 

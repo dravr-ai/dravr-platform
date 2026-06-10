@@ -111,13 +111,15 @@ jobs:
       # The live driver (helpers/chat_scenario/live_driver.rs) consumes
       # these to pick its provider + model. Both must be set — the driver
       # refuses to run with an empty key, and PIERRE_LLM_MODEL is the
-      # single source of truth for which Gemini model the eval hits.
-      # `gemini-flash-lite-latest` is the stable lite alias — cheaper +
-      # noticeably higher free-tier RPM than `gemini-flash-latest`,
-      # which the chat-eval suite needs because it bursts ~30-50 calls
-      # per nightly run (5 scenarios × multi-turn × tool loop).
-      GEMINI_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_GEMINI_API_KEY }}
-      PIERRE_LLM_MODEL: "gemini-flash-lite-latest"
+      # single source of truth for which model the eval hits.
+      # `command-a-03-2025` is Cohere's flagship Command model and prod's
+      # first cross-provider fallback tier (dev/main.tf), so the eval
+      # grades a model production actually serves users with — not the
+      # last-resort Gemini tier. The key must be the paid Cohere tier
+      # (10k rpm): the suite bursts ~30-50 calls per nightly run
+      # (5 scenarios × multi-turn × tool loop), comfortably under budget.
+      COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
+      PIERRE_LLM_MODEL: "command-a-03-2025"
 
     steps:
       - name: Checkout
