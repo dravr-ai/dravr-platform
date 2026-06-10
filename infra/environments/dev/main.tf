@@ -414,10 +414,11 @@ module "backend" {
   )
 
   secret_env_vars = {
-    DB_PASSWORD                  = module.secrets.secret_ids["db_password"]
-    PIERRE_MASTER_ENCRYPTION_KEY = module.secrets.secret_ids["encryption_key"]
-    STRAVA_CLIENT_ID             = module.secrets.secret_ids["strava_client_id"]
-    STRAVA_CLIENT_SECRET         = module.secrets.secret_ids["strava_client_secret"]
+    DB_PASSWORD = module.secrets.secret_ids["db_password"]
+    # The database KEK is Cloud KMS (PIERRE_KMS_KEY_RESOURCE in env_vars); the DEK is
+    # wrapped by KMS, so the env-backed master key is no longer wired (ADR-017).
+    STRAVA_CLIENT_ID     = module.secrets.secret_ids["strava_client_id"]
+    STRAVA_CLIENT_SECRET = module.secrets.secret_ids["strava_client_secret"]
     # WHOOP central OAuth app credentials. Empty until secrets are populated
     # out-of-band (`gcloud secrets versions add ...`); Cloud Run sees the
     # placeholder string, the OAuth manager logs the "no credentials" warn,
