@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::PostgresDatabase;
-use crate::backends::shared::encryption::HasEncryption;
+use crate::backends::shared::encryption::{split_dek_version, tag_dek_version, HasEncryption};
 use pierre_core::errors::{AppError, AppResult};
 
 // Implement encryption support for PostgreSQL (harmonize with SQLite security)
@@ -44,11 +44,14 @@ impl HasEncryption for PostgresDatabase {
         key.seal_in_place_append_tag(nonce, aad, &mut data_bytes)
             .map_err(|e| AppError::database(format!("Encryption failed: {e:?}")))?;
 
-        // Combine nonce and encrypted data, then base64 encode
+        // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
         let mut combined = nonce_bytes.to_vec();
         combined.extend(data_bytes);
 
-        Ok(general_purpose::STANDARD.encode(combined))
+        Ok(tag_dek_version(
+            self.active_dek_version,
+            &general_purpose::STANDARD.encode(combined),
+        ))
     }
 
     /// Decrypt data using AES-256-GCM with Additional Authenticated Data
@@ -63,9 +66,11 @@ impl HasEncryption for PostgresDatabase {
         use base64::{engine::general_purpose, Engine as _};
         use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 
-        // Decode from base64
+        // Split the DEK version tag, then decode the base64 payload
+        let (dek_version, payload) = split_dek_version(encrypted_data);
+        let dek = self.dek_key_for_version(dek_version)?;
         let combined = general_purpose::STANDARD
-            .decode(encrypted_data)
+            .decode(payload)
             .map_err(|e| AppError::database(format!("Failed to decode base64 data: {e}")))?;
 
         if combined.len() < 12 {
@@ -82,8 +87,8 @@ impl HasEncryption for PostgresDatabase {
                 .map_err(|e| AppError::database(format!("Invalid nonce size: {e:?}")))?,
         );
 
-        // Create decryption key
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &self.encryption_key)
+        // Create decryption key for the resolved DEK version
+        let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
             .map_err(|e| AppError::database(format!("Failed to create decryption key: {e:?}")))?;
         let key = LessSafeKey::new(unbound_key);
 
@@ -111,7 +116,8 @@ impl HasEncryption for PostgresDatabase {
         use base64::{engine::general_purpose, Engine as _};
         use ring::hmac;
 
-        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.encryption_key);
+        // Pinned to the blind-index key (DEK v1) so lookups survive DEK rotation.
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.blind_index_key);
         let tag = hmac::sign(&key, token.as_bytes());
         Ok(general_purpose::STANDARD.encode(tag.as_ref()))
     }

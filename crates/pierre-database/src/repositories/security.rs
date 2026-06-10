@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the security/audit/key-version persistence domain
+// ABOUTME: Repository trait definitions for the security/audit/secret persistence domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::{AuditEvent, KeyVersion, TenantId};
+use pierre_core::models::{AuditEvent, TenantId};
 
-/// Security, key rotation, and audit repository
+/// Security, secret, and audit repository
 #[async_trait]
 pub trait SecurityRepository: Send + Sync {
     /// Save RSA keypair to database for persistence across restarts
@@ -29,28 +29,6 @@ pub trait SecurityRepository: Send + Sync {
     ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>>;
     /// Update active status of RSA keypair
     async fn update_rsa_keypair_active_status(&self, kid: &str, is_active: bool) -> AppResult<()>;
-    /// Store key version metadata
-    async fn store_key_version(&self, version: &KeyVersion) -> AppResult<()>;
-    /// Get all key versions for a tenant
-    async fn get_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<Vec<KeyVersion>>;
-    /// Get current active key version for a tenant
-    async fn get_current_key_version(
-        &self,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<KeyVersion>>;
-    /// Update key version status (activate/deactivate)
-    async fn update_key_version_status(
-        &self,
-        tenant_id: Option<TenantId>,
-        version: u32,
-        is_active: bool,
-    ) -> AppResult<()>;
-    /// Delete old key versions
-    async fn delete_old_key_versions(
-        &self,
-        tenant_id: Option<TenantId>,
-        keep_count: u32,
-    ) -> AppResult<u64>;
     /// Store audit event
     async fn store_audit_event(&self, event: &AuditEvent) -> AppResult<()>;
     /// Get audit events with filters

@@ -43,6 +43,10 @@ pub mod firebase;
 /// Two-tier key management system
 pub mod key_management;
 
+/// GCP Cloud KMS-backed `KekProvider` (enabled with the `gcp-kms` feature)
+#[cfg(feature = "gcp-kms")]
+pub mod gcp_kms;
+
 /// OAuth 2.0 client (Pierre as client to fitness providers)
 pub mod oauth2_client;
 

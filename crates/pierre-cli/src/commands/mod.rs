@@ -7,6 +7,7 @@
 pub mod drift;
 #[cfg(feature = "tools-verification")]
 pub mod harness;
+pub mod key;
 pub mod seed;
 pub mod token;
 pub mod user;

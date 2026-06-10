@@ -139,6 +139,7 @@ use ring::digest::{digest, SHA256};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use sqlx::{Pool, Row, Sqlite, SqlitePool};
+use std::collections::HashMap;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -146,7 +147,17 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Database {
     pool: Pool<Sqlite>,
+    /// Active DEK used to encrypt new data; its version is `active_dek_version`.
     encryption_key: Vec<u8>,
+    /// Version of the active DEK held in `encryption_key`. New ciphertext is
+    /// tagged with this version; legacy un-prefixed ciphertext is version 1.
+    active_dek_version: u32,
+    /// Retired DEK versions retained for decrypting older ciphertext (version -> key).
+    prior_dek_versions: HashMap<u32, Vec<u8>>,
+    /// Stable key for the refresh-token blind index (HMAC). Pinned to DEK v1 so
+    /// deterministic lookups survive DEK rotation — stored hashes cannot be
+    /// recomputed (the plaintext token is never retained).
+    blind_index_key: Vec<u8>,
 }
 
 impl Database {
@@ -174,6 +185,9 @@ impl Database {
 
         let db = Self {
             pool,
+            blind_index_key: encryption_key.clone(),
+            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
+            prior_dek_versions: HashMap::new(),
             encryption_key,
         };
 
@@ -214,7 +228,54 @@ impl Database {
     /// # Safety
     /// Only call this once during startup, before any encrypted data operations.
     pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
+        // At bootstrap the loaded key is DEK v1, which also anchors the blind index.
+        self.blind_index_key.clone_from(&new_key);
         self.encryption_key = new_key;
+    }
+
+    /// Install a full set of DEK versions (after load-all-versions or a rotation).
+    ///
+    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
+    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
+    /// version 1, falling back to the active key only when v1 is itself active.
+    ///
+    /// # Safety
+    /// Call during startup or rotation while holding `&mut self`, before serving
+    /// concurrent encrypted-data operations.
+    pub fn install_dek_versions(
+        &mut self,
+        active_version: u32,
+        active_key: Vec<u8>,
+        prior_versions: HashMap<u32, Vec<u8>>,
+    ) {
+        self.blind_index_key = prior_versions
+            .get(&shared::encryption::LEGACY_DEK_VERSION)
+            .cloned()
+            .unwrap_or_else(|| active_key.clone());
+        self.active_dek_version = active_version;
+        self.prior_dek_versions = prior_versions;
+        self.encryption_key = active_key;
+    }
+
+    /// Resolve the DEK bytes for a given ciphertext version.
+    ///
+    /// Returns the active DEK for the active version, a retained prior DEK for an
+    /// older version, or an error if no key for that version is held.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no DEK is available for `version`.
+    fn dek_key_for_version(&self, version: u32) -> AppResult<&[u8]> {
+        if version == self.active_dek_version {
+            Ok(&self.encryption_key)
+        } else if let Some(key) = self.prior_dek_versions.get(&version) {
+            Ok(key)
+        } else {
+            Err(AppError::internal(format!(
+                "No DEK available for ciphertext version {version} (active version is {})",
+                self.active_dek_version
+            )))
+        }
     }
 
     /// Run all database migrations (public API)
@@ -301,11 +362,14 @@ impl Database {
         key.seal_in_place_append_tag(nonce, Aad::empty(), &mut data_bytes)
             .map_err(|e| AppError::internal(format!("Failed to encrypt data: {e}")))?;
 
-        // Combine nonce and encrypted data, then base64 encode
+        // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
         let mut combined = nonce_bytes.to_vec();
         combined.extend(data_bytes);
 
-        Ok(general_purpose::STANDARD.encode(combined))
+        Ok(shared::encryption::tag_dek_version(
+            self.active_dek_version,
+            &general_purpose::STANDARD.encode(combined),
+        ))
     }
 
     /// Decrypt sensitive data
@@ -314,9 +378,11 @@ impl Database {
     ///
     /// Returns an error if decryption fails or data is malformed
     pub fn decrypt_data(&self, encrypted_data: &str) -> AppResult<String> {
-        // Decode from base64
+        // Split the DEK version tag, then decode the base64 payload
+        let (dek_version, payload) = shared::encryption::split_dek_version(encrypted_data);
+        let dek = self.dek_key_for_version(dek_version)?;
         let combined = general_purpose::STANDARD
-            .decode(encrypted_data)
+            .decode(payload)
             .map_err(|e| AppError::internal(format!("Failed to decode base64: {e}")))?;
 
         if combined.len() < 12 {
@@ -331,8 +397,8 @@ impl Database {
                 .map_err(|e| AppError::internal(format!("Invalid nonce size: {e}")))?,
         );
 
-        // Create decryption key
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &self.encryption_key)
+        // Create decryption key for the resolved DEK version
+        let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
             .map_err(|e| AppError::internal(format!("Failed to create decryption key: {e}")))?;
         let key = LessSafeKey::new(unbound_key);
 
@@ -375,11 +441,14 @@ impl Database {
         key.seal_in_place_append_tag(nonce, aad, &mut data_bytes)
             .map_err(|e| AppError::internal(format!("Failed to encrypt data: {e}")))?;
 
-        // Combine nonce and encrypted data, then base64 encode
+        // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
         let mut combined = nonce_bytes.to_vec();
         combined.extend(data_bytes);
 
-        Ok(general_purpose::STANDARD.encode(combined))
+        Ok(shared::encryption::tag_dek_version(
+            self.active_dek_version,
+            &general_purpose::STANDARD.encode(combined),
+        ))
     }
 
     /// Decrypt sensitive data using AES-256-GCM with Additional Authenticated Data (AAD)
@@ -398,9 +467,11 @@ impl Database {
         encrypted_data: &str,
         aad_context: &str,
     ) -> AppResult<String> {
-        // Decode from base64
+        // Split the DEK version tag, then decode the base64 payload
+        let (dek_version, payload) = shared::encryption::split_dek_version(encrypted_data);
+        let dek = self.dek_key_for_version(dek_version)?;
         let combined = general_purpose::STANDARD
-            .decode(encrypted_data)
+            .decode(payload)
             .map_err(|e| AppError::internal(format!("Failed to decode base64: {e}")))?;
 
         if combined.len() < 12 {
@@ -415,8 +486,8 @@ impl Database {
                 .map_err(|e| AppError::internal(format!("Invalid nonce size: {e}")))?,
         );
 
-        // Create decryption key
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &self.encryption_key)
+        // Create decryption key for the resolved DEK version
+        let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
             .map_err(|e| AppError::internal(format!("Failed to create decryption key: {e}")))?;
         let key = LessSafeKey::new(unbound_key);
 
@@ -441,7 +512,8 @@ impl Database {
     /// Used for refresh tokens where we need deterministic lookups but don't
     /// need to recover the original value.
     fn hash_token_for_storage_impl(&self, token: &str) -> String {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.encryption_key);
+        // Pinned to the blind-index key (DEK v1) so lookups survive DEK rotation.
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.blind_index_key);
         let tag = hmac::sign(&key, token.as_bytes());
         general_purpose::STANDARD.encode(tag.as_ref())
     }
