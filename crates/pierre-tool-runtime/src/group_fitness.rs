@@ -543,7 +543,7 @@ fn log_per_activity_tss(calculator: &TrainingLoadCalculator, sorted: &[Activity]
         if let Ok(v) = calculator.calculate_tss(a, None, None, None, None, None) {
             total_tss += v;
             tss_some += 1;
-            info!(
+            debug!(
                 activity_id = %a.id(),
                 name = %a.name(),
                 sport = ?a.sport_type(),
@@ -795,7 +795,7 @@ async fn fetch_single_member_snapshot(
     // isn't on the provider yet, or its TSS was skipped for missing
     // fields). debug! to keep the noise off INFO in normal operation.
     for a in &activities {
-        info!(
+        debug!(
             user_id = %user_id,
             activity_id = %a.id(),
             name = %a.name(),

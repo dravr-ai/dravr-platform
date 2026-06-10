@@ -27,6 +27,7 @@ use embacle::types::LlmProvider;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
+use std::time::Instant;
 use tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard, RwLock};
 use tracing::{debug, info, warn};
 
@@ -244,6 +245,55 @@ impl ProfileLockRegistry {
 impl Default for ProfileLockRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Logs the duration and outcome of a single Chrome scrape, INCLUDING when the
+/// scrape future is dropped before completing.
+///
+/// A scrape runs inside the LLM tool loop, whose caller (e.g. the Copilot ACP
+/// converse) bounds the whole turn with a timeout. When that timeout fires the
+/// scrape future is dropped mid-`get_activities`, so the success log never runs
+/// and the scrape vanishes from the logs — the exact 139-second blackout that
+/// made a timed-out scrape indistinguishable from a hung Copilot. Marking the
+/// outcome on success and logging from `Drop` makes the abandoned case visible:
+/// "scrape ran Xs, then the caller cancelled it" instead of silence.
+struct ScrapeProgress {
+    session_id: String,
+    started: Instant,
+    completed: bool,
+}
+
+impl ScrapeProgress {
+    fn start(session_id: &str) -> Self {
+        Self {
+            session_id: session_id.to_owned(),
+            started: Instant::now(),
+            completed: false,
+        }
+    }
+
+    /// Mark the scrape as finished (success or a returned error) so `Drop` does
+    /// not report it as cancelled.
+    fn finish(&mut self) {
+        self.completed = true;
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+}
+
+impl Drop for ScrapeProgress {
+    fn drop(&mut self) {
+        if !self.completed {
+            warn!(
+                session_id = %self.session_id,
+                elapsed_ms = self.elapsed_ms(),
+                "Sciotte scrape abandoned before completion — caller cancelled it \
+                 (e.g. the LLM tool-loop timeout fired while the scrape was still running)"
+            );
+        }
     }
 }
 
@@ -508,20 +558,43 @@ impl FitnessProvider for SciotteProvider {
         debug!(limit, "Fetching activities from sciotte (in-process)");
 
         // Profile lock before the global permit: waiting for the profile to
-        // free up must not pin a scarce Chrome-concurrency slot.
+        // free up must not pin a scarce Chrome-concurrency slot. Time the wait
+        // separately so a contended lock is distinguishable from a slow scrape.
+        let lock_wait = Instant::now();
         let _profile_lock = ProfileLockRegistry::global()
             .acquire(&session.session_id)
             .await;
+        let lock_wait_ms = u64::try_from(lock_wait.elapsed().as_millis()).unwrap_or(u64::MAX);
         let _permit = acquire_scrape_permit().await?;
+
+        info!(
+            session_id = %session.session_id,
+            limit,
+            enrich_details,
+            lock_wait_ms,
+            "Sciotte scrape starting (Chrome launch + login + extract)"
+        );
+        let mut progress = ScrapeProgress::start(&session.session_id);
+
         let sciotte_activities = self
             .scraper
             .get_activities(session, &sciotte_params)
             .await
-            .map_err(|e| self.map_scraper_error(&e, "Sciotte scraping failed"))?;
+            .map_err(|e| {
+                // A returned error is a completed (failed) scrape, not a
+                // cancellation — mark it so Drop stays quiet.
+                progress.finish();
+                self.map_scraper_error(&e, "Sciotte scraping failed")
+            })?;
+        progress.finish();
 
         let activities: Vec<Activity> = sciotte_activities.iter().map(convert_activity).collect();
 
-        info!(count = activities.len(), "Activities fetched from sciotte");
+        info!(
+            count = activities.len(),
+            elapsed_ms = progress.elapsed_ms(),
+            "Sciotte scrape completed"
+        );
         Ok(activities)
     }
 
