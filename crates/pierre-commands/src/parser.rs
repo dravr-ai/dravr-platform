@@ -9,7 +9,7 @@ use std::path::Path;
 
 use pierre_messaging::commands::{CommandDefinition, CommandRole};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// YAML frontmatter parsed from command markdown file
 #[derive(Debug, Clone, Deserialize)]
@@ -141,7 +141,7 @@ fn process_entry(path: &Path, definitions: &mut Vec<CommandDefinition>) {
     match fs::read_to_string(path) {
         Ok(content) => {
             if let Some(def) = parse_command_file(&content) {
-                info!(name = %def.name, command = %def.command, "Loaded command");
+                debug!(name = %def.name, command = %def.command, "Loaded command");
                 definitions.push(def);
             } else {
                 warn!(path = %path.display(), "Failed to parse command file");

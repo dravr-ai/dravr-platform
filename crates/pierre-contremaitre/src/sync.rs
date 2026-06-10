@@ -132,7 +132,7 @@ fn apply_coach_prompt(
         );
     }
     registry.update_coach_prompt(slug, locale, file.content, actual_sha);
-    info!(slug, locale, "synced coach prompt from contremaitre");
+    debug!(slug, locale, "synced coach prompt from contremaitre");
 }
 
 /// Fetch and apply a single system prompt if its hash changed.
@@ -754,7 +754,7 @@ async fn fetch_and_apply_tool_description(
             match parse_tool_yaml(&file.content) {
                 Ok(overlay) => {
                     registry.update(tool_name, overlay, actual_sha);
-                    info!(tool_name, "synced tool description");
+                    debug!(tool_name, "synced tool description");
                     SyncOutcome::Synced
                 }
                 Err(e) => {
@@ -848,7 +848,7 @@ async fn fetch_and_apply_evidence(
             match parse_evidence_markdown(&file.content) {
                 Ok(corpus) => {
                     registry.update(category, slug, corpus, actual_sha);
-                    info!(category, slug, "synced evidence proposition");
+                    debug!(category, slug, "synced evidence proposition");
                     SyncOutcome::Synced
                 }
                 Err(e) => {
@@ -1082,7 +1082,7 @@ async fn fetch_and_apply_messaging_string(
                 );
             }
             registry.update(key, locale, file.content, actual_sha);
-            info!(key, locale, "synced messaging string from contremaitre");
+            debug!(key, locale, "synced messaging string from contremaitre");
             SyncOutcome::Synced
         }
         Err(e) => {
