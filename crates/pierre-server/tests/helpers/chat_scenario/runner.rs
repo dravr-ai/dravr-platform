@@ -191,46 +191,166 @@ fn seed_provider_state<D: ScenarioDriver>(scenario: &ChatScenario, driver: &mut 
     }
 }
 
-/// Best-effort extraction of aggregate claims from a reply. Mirrors
-/// the asserter regex catalog — the regexes here are deliberately
-/// scoped narrow so a chatty reply with many numbers doesn't drown
-/// the timeline.
-fn record_aggregate_claims(timeline: &mut ClaimTimeline, turn_index: usize, reply: &str) {
-    let lower = reply.to_lowercase();
-    // Generic running distance — "X km" / "X kilometers" with optional
-    // "course" / "run" / "running" context word in the same sentence.
-    if let Ok(re) = regex::Regex::new(
-        r"(?u)(?:course|run(?:ning)?)[^.]*?(\d+[\.,]?\d*)\s*(?:km|kilom[eè]tres?|kilometers?)",
-    ) {
-        for caps in re.captures_iter(&lower) {
-            if let Some(num) = caps.get(1) {
-                let normalized = num.as_str().replace(',', ".");
-                if let Ok(value) = normalized.parse::<f64>() {
-                    timeline.record(
-                        AggregateClaim::Distance {
-                            sport: "run".to_owned(),
-                        },
-                        turn_index,
-                        value,
-                    );
+/// Sport keyword groups (lowercased). A kilometre figure binds to the
+/// sport whose keyword is physically nearest — "33,10 km de course et 25
+/// km de vélo" is 33 km of running and 25 km of cycling, even though
+/// "course" appears before both numbers.
+const SPORT_GROUPS: [(&str, &[&str]); 3] = [
+    (
+        "run",
+        &[
+            "course", "à pied", "running", "run", "jogging", "jog", "footing", "trail",
+        ],
+    ),
+    (
+        "ride",
+        &[
+            "vélo", "velo", "cyclisme", "cyclis", "gravel", "biking", "bike", "vtt", "ride",
+        ],
+    ),
+    ("swim", &["natation", "nage", "swim"]),
+];
+
+/// Negation cues that turn a count into a refutation — "improbable
+/// d'avoir 20 séances" rejects 20, it does not claim it. Space-padded
+/// where a bare form would match inside another word (e.g. "ne" in "une").
+const NEGATION_CUES: &[&str] = &[
+    "improbable",
+    "impossible",
+    " ne ",
+    " pas ",
+    " non ",
+    "aucun",
+    "n'est pas",
+    "n'ai pas",
+    "ne sont pas",
+    "plutôt que",
+    "au lieu de",
+];
+
+/// Singular-article + activity markers that flag a per-activity figure
+/// ("une course sur route de 8 km") rather than an aggregate total — an
+/// individual leg must never be compared against a weekly total.
+const INDIVIDUAL_CUES: &[&str] = &[
+    "une course",
+    "une sortie",
+    "une séance",
+    "une seance",
+    "une activité",
+    "une activite",
+    "une nage",
+    "une balade",
+    "un run",
+    "un ride",
+];
+
+/// Chars of context inspected before a figure (wide enough to catch
+/// "Côté course tu es à 25 km") and after it ("25 km de vélo").
+const CLAIM_BEFORE_CHARS: usize = 40;
+const CLAIM_AFTER_CHARS: usize = 14;
+
+/// Last `n` characters of `s`, on a char boundary.
+fn tail_chars(s: &str, n: usize) -> &str {
+    match s.char_indices().nth_back(n.saturating_sub(1)) {
+        Some((i, _)) => &s[i..],
+        None => s,
+    }
+}
+
+/// First `n` characters of `s`, on a char boundary.
+fn head_chars(s: &str, n: usize) -> &str {
+    match s.char_indices().nth(n) {
+        Some((i, _)) => &s[..i],
+        None => s,
+    }
+}
+
+/// Nearest sport keyword reading forward from the start of `after`.
+fn sport_after(after: &str) -> Option<&'static str> {
+    let mut best: Option<(usize, &'static str)> = None;
+    for (sport, words) in SPORT_GROUPS {
+        for w in words {
+            if let Some(pos) = after.find(w) {
+                if best.is_none_or(|(b, _)| pos < b) {
+                    best = Some((pos, sport));
                 }
             }
         }
     }
-    // Activity count — "X activités / activities / runs / sorties".
-    if let Ok(re) = regex::Regex::new(r"(?u)(\d+)\s*(activit[ée]s?|sorties?|runs?|s[ée]ances?)") {
-        for caps in re.captures_iter(&lower) {
-            if let Some(num) = caps.get(1) {
-                if let Ok(value) = num.as_str().parse::<u32>() {
-                    timeline.record(
-                        AggregateClaim::ActivityCount {
-                            scope: "recent".to_owned(),
-                        },
-                        turn_index,
-                        f64::from(value),
-                    );
+    best.map(|(_, s)| s)
+}
+
+/// Nearest sport keyword reading backward from the end of `before`.
+fn sport_before(before: &str) -> Option<&'static str> {
+    let mut best: Option<(usize, &'static str)> = None;
+    for (sport, words) in SPORT_GROUPS {
+        for w in words {
+            if let Some(pos) = before.rfind(w) {
+                let end = pos + w.len();
+                if best.is_none_or(|(b, _)| end > b) {
+                    best = Some((end, sport));
                 }
             }
+        }
+    }
+    best.map(|(_, s)| s)
+}
+
+/// Best-effort extraction of aggregate claims from a reply. Figures are
+/// sport-bound and filtered so an individual activity, a different
+/// sport's distance, or a negated hypothetical doesn't land in the
+/// timeline as a run total and trip a false drift.
+fn record_aggregate_claims(timeline: &mut ClaimTimeline, turn_index: usize, reply: &str) {
+    let lower = reply.to_lowercase();
+
+    // Running distance — bind each "<n> km" to the nearest sport (the
+    // trailing "de <sport>" wins, else the nearest preceding sport word),
+    // keep only run totals, and drop per-activity legs.
+    if let Ok(re) = regex::Regex::new(r"(?u)(\d+[\.,]?\d*)\s*(?:km|kilom[eè]tres?|kilometers?)") {
+        for caps in re.captures_iter(&lower) {
+            let (Some(num), Some(whole)) = (caps.get(1), caps.get(0)) else {
+                continue;
+            };
+            let Ok(value) = num.as_str().replace(',', ".").parse::<f64>() else {
+                continue;
+            };
+            let before = tail_chars(&lower[..num.start()], CLAIM_BEFORE_CHARS);
+            let after = head_chars(&lower[whole.end()..], CLAIM_AFTER_CHARS);
+            if INDIVIDUAL_CUES.iter().any(|cue| before.contains(cue)) {
+                continue;
+            }
+            if sport_after(after).or_else(|| sport_before(before)) == Some("run") {
+                timeline.record(
+                    AggregateClaim::Distance {
+                        sport: "run".to_owned(),
+                    },
+                    turn_index,
+                    value,
+                );
+            }
+        }
+    }
+
+    // Activity count — "<n> activités / sorties / runs / séances",
+    // skipping counts the model is refuting ("improbable d'avoir 20").
+    if let Ok(re) = regex::Regex::new(r"(?u)(\d+)\s*(?:activit[ée]s?|sorties?|runs?|s[ée]ances?)")
+    {
+        for caps in re.captures_iter(&lower) {
+            let Some(num) = caps.get(1) else { continue };
+            let Ok(value) = num.as_str().parse::<u32>() else {
+                continue;
+            };
+            let before = tail_chars(&lower[..num.start()], CLAIM_BEFORE_CHARS);
+            if NEGATION_CUES.iter().any(|cue| before.contains(cue)) {
+                continue;
+            }
+            timeline.record(
+                AggregateClaim::ActivityCount {
+                    scope: "recent".to_owned(),
+                },
+                turn_index,
+                f64::from(value),
+            );
         }
     }
 }
@@ -417,6 +537,77 @@ mod tests {
         let reports = run_scenario(&scenario, &mut driver, &vocab);
         assert_eq!(reports[0].drift_findings.len(), 1);
         assert!(!reports[0].passed());
+    }
+
+    /// Drift findings for a two-turn run with the given canned replies.
+    fn drift_findings_for(reply1: &str, reply2: &str) -> usize {
+        let scenario = ChatScenario {
+            name: "drift-fixture".to_owned(),
+            locales: vec!["fr".to_owned()],
+            notes: String::new(),
+            provider_state: ProviderState::default(),
+            turns: vec![
+                TurnSpec {
+                    user: "q1".to_owned(),
+                    trigger_sync_before_turn: false,
+                    assertions: vec![],
+                },
+                TurnSpec {
+                    user: "q2".to_owned(),
+                    trigger_sync_before_turn: false,
+                    assertions: vec![],
+                },
+            ],
+        };
+        let mut driver = MockScenarioDriver::new(
+            vec![reply1.to_owned(), reply2.to_owned()],
+            vec![vec![], vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        reports[0].drift_findings.len()
+    }
+
+    #[test]
+    fn velo_distance_does_not_bind_to_run() {
+        // The trailing "de vélo" binds 25 to cycling; it must not be read
+        // as a run distance just because "course" appears earlier.
+        assert_eq!(
+            drift_findings_for(
+                "Tu as couru 33 km de course et roulé 25 km de vélo",
+                "Tu as couru 33 km de course et roulé 8 km de vélo",
+            ),
+            0,
+            "vélo distances must not drift the run total"
+        );
+    }
+
+    #[test]
+    fn individual_activity_distance_is_not_a_total() {
+        // A single leg ("une course sur route de 8 km") is not the weekly
+        // run total and must not drift against it.
+        assert_eq!(
+            drift_findings_for(
+                "Côté course tu es à 33 km cette semaine",
+                "Hier : une course sur route de 8 km",
+            ),
+            0,
+            "an individual activity must not drift the weekly total"
+        );
+    }
+
+    #[test]
+    fn negated_count_is_not_recorded() {
+        // "improbable d'avoir 20 séances" refutes 20; only the real "4
+        // séances" should land in the timeline.
+        assert_eq!(
+            drift_findings_for(
+                "Tu as fait 4 séances cette semaine",
+                "C'est improbable d'avoir 20 séances distinctes, c'était 4 séances",
+            ),
+            0,
+            "a refuted count must not drift the real count"
+        );
     }
 
     #[test]
