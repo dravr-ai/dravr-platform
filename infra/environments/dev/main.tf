@@ -148,6 +148,24 @@ module "workload_identity" {
 }
 
 # -----------------------------------------------------------------------------
+# Cloud KMS Key Encryption Key (KEK) for envelope encryption of the database DEK
+# The KEK never leaves KMS; the runtime wraps/unwraps the DEK via KMS (ADR-017).
+# -----------------------------------------------------------------------------
+
+module "kms" {
+  source = "../../modules/kms"
+
+  project_id                    = var.project_id
+  service_name                  = var.service_name
+  location                      = var.region
+  runtime_service_account_email = module.service_accounts.app_service_account_email
+  labels                        = var.labels
+
+  # module.project gates on the cloudkms API being enabled + propagated (time_sleep).
+  depends_on = [module.project, module.service_accounts]
+}
+
+# -----------------------------------------------------------------------------
 # Sciotte Scripts Bucket (hot-swappable JS for headless Chrome scraping)
 # -----------------------------------------------------------------------------
 
@@ -388,6 +406,11 @@ module "backend" {
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
+    {
+      # Cloud KMS KEK resource id (not a secret — key material never leaves KMS).
+      # GcpKmsKekProvider wraps/unwraps the DEK against this key (ADR-017).
+      PIERRE_KMS_KEY_RESOURCE = module.kms.key_resource
+    },
   )
 
   secret_env_vars = {
@@ -572,12 +595,16 @@ module "seed_synthetic_activities" {
   command = ["/app/seed-entrypoint.sh"]
   args    = ["synthetic-activities", "--email", "alice@demo.pierre.dev", "--count", "100", "--days", "90"]
 
-  env_vars        = local.seed_env_vars
+  # seed-synthetic runs the full KeyManager to write encrypted oauth tokens, so it
+  # needs the KMS KEK resource and the gcp-kms binary to wrap/unwrap the DEK (ADR-017).
+  env_vars = merge(local.seed_env_vars, {
+    PIERRE_KMS_KEY_RESOURCE = module.kms.key_resource
+  })
   secret_env_vars = local.seed_secret_env_vars
 
   labels = merge(var.labels, { component = "seed-synthetic" })
 
-  depends_on = [module.networking, module.secrets, module.service_accounts]
+  depends_on = [module.networking, module.secrets, module.service_accounts, module.kms]
 }
 
 # -----------------------------------------------------------------------------

@@ -21,6 +21,7 @@ resource "google_project_service" "apis" {
     "monitoring.googleapis.com",     # google_logging_metric, google_monitoring_alert_policy
     "logging.googleapis.com",        # log-based metric reads from Cloud Logging
     "cloudscheduler.googleapis.com", # google_cloud_scheduler_job (daily drift trigger)
+    "cloudkms.googleapis.com",       # KEK for envelope encryption of the database DEK (ADR-017)
   ])
 
   project            = var.project_id
