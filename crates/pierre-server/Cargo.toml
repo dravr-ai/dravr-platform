@@ -42,6 +42,10 @@ telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-
 toon = ["dep:toon-format", "pierre-formatters/toon"]
 analytics-posthog = ["pierre-services/analytics-posthog"]
 
+# Key management feature flags
+# Compiles the GCP Cloud KMS KEK provider; selected at runtime when PIERRE_KMS_KEY_RESOURCE is set (ADR-017)
+gcp-kms = ["pierre-auth/gcp-kms"]
+
 # Provider feature flags - forwarded to pierre-providers crate
 provider-strava = ["pierre-providers/provider-strava"]
 provider-garmin = ["pierre-providers/provider-garmin"]
@@ -161,12 +165,12 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog"]
-server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
-server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
-server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
-server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all", "analytics-posthog"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
+server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all", "gcp-kms"]
+server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all", "gcp-kms"]
+server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all", "gcp-kms"]
+server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all", "analytics-posthog", "gcp-kms"]
 
 # OpenAPI documentation (SwaggerUI) - excluded from production by default
 # Enable with: cargo build --features openapi

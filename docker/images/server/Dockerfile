@@ -27,14 +27,14 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
-    && cargo chef cook --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry" --recipe-path recipe.json
+    && cargo chef cook --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --recipe-path recipe.json
 
 # Build the server binary and pierre-cli (which now hosts all seeder subcommands).
 # Reruns only when source code changes.
 COPY . .
 RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
-    && cargo build --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry" \
+    && cargo build --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
     --bin pierre-mcp-server \
     --bin pierre-cli
 
