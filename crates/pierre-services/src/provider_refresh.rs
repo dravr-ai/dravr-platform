@@ -17,6 +17,7 @@ use pierre_core::models::{
     DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus,
     SmartScheduleWeights, TenantId,
 };
+use pierre_database::repositories::ActivityCacheRepository;
 use pierre_database::AuthRepos;
 #[cfg(feature = "health-sync")]
 use tokio::time::timeout;
@@ -58,10 +59,17 @@ pub trait SyncNotifier: Send + Sync {
 /// SSE notifications inform the client when sync completes.
 /// Push notifications are sent when the notification service is available.
 pub struct RefreshService {
-    /// Narrow repository view: `RefreshService` only touches
-    /// `repos.oauth_tokens` (read tokens for last-sync timestamps, refresh
-    /// expired credentials). All other registry slots are irrelevant here.
+    /// Narrow repository view: `RefreshService` reads `repos.oauth_tokens`
+    /// (last-sync timestamps for orchestrator-managed providers, credential
+    /// refresh). On-demand providers' freshness comes from `activity_cache`.
     repos: AuthRepos,
+    /// Source of truth for on-demand providers' freshness. sciotte (and other
+    /// scrape-only providers) aren't background-synced, so their
+    /// `oauth_tokens.last_sync` is written once at login and never updated —
+    /// the cache's `synced_at` is the real timestamp of the last successful
+    /// scrape. Read for on-demand providers so the coach hint reflects honest
+    /// staleness instead of unconditionally reporting them Fresh.
+    activity_cache: Arc<dyn ActivityCacheRepository>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
@@ -83,6 +91,7 @@ impl RefreshService {
     #[must_use]
     pub fn new(
         repos: &AuthRepos,
+        activity_cache: Arc<dyn ActivityCacheRepository>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
             Arc<pierre_enforme::SyncOrchestrator>,
         >,
@@ -90,6 +99,7 @@ impl RefreshService {
     ) -> Self {
         Self {
             repos: repos.clone(),
+            activity_cache,
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
             #[cfg(feature = "health-sync")]
@@ -143,22 +153,7 @@ impl RefreshService {
 
         let mut result = Vec::with_capacity(tokens.len());
         for token in &tokens {
-            let last_sync = match self
-                .repos
-                .oauth_tokens
-                .get_provider_last_sync(user_id, tenant_id, &token.provider)
-                .await
-            {
-                Ok(ts) => ts,
-                Err(e) => {
-                    warn!(
-                        %user_id, %tenant_id, provider = %token.provider, error = %e,
-                        "Failed to read provider last_sync timestamp; \
-                         reporting freshness as never-synced for this provider"
-                    );
-                    None
-                }
-            };
+            let last_sync = self.last_sync_for(user_id, tenant_id, &token.provider).await;
 
             let freshness = DataFreshness::from_last_sync(last_sync);
             result.push(ProviderFreshness {
@@ -169,6 +164,71 @@ impl RefreshService {
         }
 
         result
+    }
+
+    /// The effective last-sync timestamp used to judge a provider's freshness.
+    ///
+    /// On-demand providers (sciotte) are scraped per chat request and never
+    /// background-synced, so their `oauth_tokens.last_sync` is stamped once at
+    /// login and never moves — reading it would report perpetual staleness (or,
+    /// with the old shortcut, perpetual freshness). Their real freshness is the
+    /// activity cache's `synced_at`, the timestamp of the last successful
+    /// scrape. Orchestrator-managed providers keep using `oauth_tokens.last_sync`,
+    /// which their background sync updates.
+    async fn last_sync_for(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> Option<chrono::DateTime<Utc>> {
+        // Without the `health-sync` feature there is no orchestrator at all, so
+        // every provider is on-demand and sources its freshness from the cache.
+        #[cfg(feature = "health-sync")]
+        let on_demand = self.is_on_demand_provider(provider);
+        #[cfg(not(feature = "health-sync"))]
+        let on_demand = true;
+
+        if on_demand {
+            return self
+                .activity_cache
+                .latest_activity_sync(user_id, &tenant_id, provider)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(
+                        %user_id, %tenant_id, %provider, error = %e,
+                        "Failed to read activity-cache sync time for on-demand provider; \
+                         reporting freshness as never-synced"
+                    );
+                    None
+                });
+        }
+
+        match self
+            .repos
+            .oauth_tokens
+            .get_provider_last_sync(user_id, tenant_id, provider)
+            .await
+        {
+            Ok(ts) => ts,
+            Err(e) => {
+                warn!(
+                    %user_id, %tenant_id, %provider, error = %e,
+                    "Failed to read provider last_sync timestamp; \
+                     reporting freshness as never-synced for this provider"
+                );
+                None
+            }
+        }
+    }
+
+    /// Whether a provider is scraped on demand (per chat request) rather than
+    /// synced in the background by the orchestrator. On-demand providers source
+    /// their freshness from the activity cache and have no sync to trigger.
+    #[cfg(feature = "health-sync")]
+    fn is_on_demand_provider(&self, provider: &str) -> bool {
+        self.sync_orchestrator
+            .as_ref()
+            .is_none_or(|o| !o.provider_names().contains(&provider))
     }
 
     /// Check freshness and refresh stale providers.
@@ -220,6 +280,18 @@ impl RefreshService {
 
             #[cfg(feature = "health-sync")]
             {
+                // On-demand providers (sciotte) reaching here are genuinely
+                // stale per the activity cache, and there is no background sync
+                // to trigger — they are re-scraped per chat request via
+                // get_activities (the coach hint instructs the model to do so).
+                // Report them honestly as stale instead of the previous
+                // unconditional Fresh shortcut, which made the coach claim
+                // sciotte data was current when it was hours old.
+                if self.is_on_demand_provider(&pf.provider) {
+                    refreshing.push(pf.provider.clone());
+                    continue;
+                }
+
                 if config.wait_for_refresh {
                     let budget = config.wait_for_refresh_timeout();
                     match timeout(
@@ -511,9 +583,11 @@ impl RefreshService {
         };
 
         // On-demand providers (e.g. sciotte) are not registered with the
-        // orchestrator — they are scraped fresh per chat request, never cached
-        // stale. Report them as already-fresh rather than a sync failure so the
-        // caller omits the stale-data warning.
+        // orchestrator — there is no background sync to run; they are scraped
+        // per chat request. The chat path already classifies their freshness
+        // from the activity cache (see `check_and_refresh`/`last_sync_for`), so
+        // this only handles the explicit `refresh_provider` endpoint: report a
+        // no-op success rather than a sync failure.
         if !orchestrator.provider_names().contains(&provider) {
             return RefreshResult {
                 provider: provider.to_owned(),

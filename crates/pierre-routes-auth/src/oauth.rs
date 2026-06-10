@@ -756,6 +756,7 @@ pub async fn handle_sync_provider(
     let auth_repos = resources.repos.auth_repos();
     let refresh_service = RefreshService::new(
         &auth_repos,
+        resources.repos.activity_cache.clone(),
         #[cfg(feature = "health-sync")]
         resources.sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]

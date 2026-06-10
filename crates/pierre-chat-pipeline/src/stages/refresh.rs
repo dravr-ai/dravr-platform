@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::repositories::ActivityCacheRepository;
 use pierre_database::AuthRepos;
 
 use pierre_core::models::TenantId;
@@ -38,6 +39,9 @@ pub struct RefreshDeps<'a> {
     /// (`oauth_tokens.last_sync`) — internally cloned into the
     /// `RefreshService`.
     pub auth_repos: &'a AuthRepos,
+    /// Activity cache, source of truth for on-demand providers' freshness
+    /// (sciotte's `synced_at`). Cloned into the `RefreshService`.
+    pub activity_cache: Arc<dyn ActivityCacheRepository>,
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: &'a Option<Arc<pierre_enforme::SyncOrchestrator>>,
@@ -62,6 +66,7 @@ pub async fn inject_refresh_context(
 ) -> String {
     let RefreshDeps {
         auth_repos,
+        activity_cache,
         #[cfg(feature = "health-sync")]
         sync_orchestrator,
         sse_manager,
@@ -79,6 +84,7 @@ pub async fn inject_refresh_context(
     let notifier: Arc<dyn SyncNotifier> = sse_manager.clone();
     let refresh_service = RefreshService::new(
         auth_repos,
+        activity_cache,
         #[cfg(feature = "health-sync")]
         sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]

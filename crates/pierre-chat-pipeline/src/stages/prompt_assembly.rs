@@ -350,6 +350,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         inject_refresh_context(
             super::refresh::RefreshDeps {
                 auth_repos: &auth_repos,
+                activity_cache: ctx.repos.activity_cache.clone(),
                 #[cfg(feature = "health-sync")]
                 sync_orchestrator: &ctx.sync_orchestrator,
                 sse_manager: &ctx.sse_manager,

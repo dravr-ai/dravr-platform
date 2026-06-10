@@ -267,6 +267,7 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
     let auth_repos = context.resources.repos().auth_repos();
     RefreshService::new(
         &auth_repos,
+        context.resources.repos().activity_cache.clone(),
         #[cfg(feature = "health-sync")]
         context.resources.sync_orchestrator().cloned(),
         #[cfg(feature = "health-sync")]
