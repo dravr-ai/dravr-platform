@@ -48,7 +48,7 @@ urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # Sciotte (provider-sciotte feature)
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.6.0", features = ["vision"], optional = true }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.7.0", features = ["vision"], optional = true }
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.0", features = ["copilot-headless"], optional = true }
 
 # Health backfill (health-sync feature)

@@ -1261,6 +1261,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "dravr-browser"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4a18c606b3bdadd555313b91f201a4cbfb5ed21d1bd244e3c9076d76ba82a78"
+dependencies = [
+ "async-trait",
+ "chromiumoxide",
+ "chrono",
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-cageux"
 version = "0.5.0"
 source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.5.0#a5d3ce57b0ebef1cdd82931ef29dd68473b4a630"
@@ -1328,8 +1345,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=ae361474c4d
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.22"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.22#57a6db730d5999e54a208a987f52088c5f083b11"
+version = "0.1.23"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.23#64df5c3be1f9fbc2c31a46ab243b0b841a6e1754"
 dependencies = [
  "async-trait",
  "axum",
@@ -1392,14 +1409,15 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.6.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.6.0#22c8448585993622d2bac059b777a52b078f3585"
+version = "0.7.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.7.0#c3c1f63da5637d98d770fdc07c4a7c170baa5c70"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chromiumoxide",
  "chrono",
  "dirs 6.0.0",
+ "dravr-browser",
  "futures",
  "moka",
  "reqwest 0.12.28",
@@ -6832,7 +6850,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
