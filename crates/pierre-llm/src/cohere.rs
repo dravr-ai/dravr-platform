@@ -957,8 +957,8 @@ mod tests {
         }]);
 
         let converted = CohereProvider::convert_messages(&[msg]);
-        let json = serde_json::to_value(&converted[0])
-            .map_err(|e| AppError::internal(e.to_string()))?;
+        let json =
+            serde_json::to_value(&converted[0]).map_err(|e| AppError::internal(e.to_string()))?;
 
         assert!(
             json.get("content").is_none(),
@@ -980,8 +980,8 @@ mod tests {
     fn tool_result_message_carries_tool_call_id_and_content() -> AppResult<()> {
         let msg = ChatMessage::tool("get_activities", "call_1", "5 runs this week");
         let converted = CohereProvider::convert_messages(&[msg]);
-        let json = serde_json::to_value(&converted[0])
-            .map_err(|e| AppError::internal(e.to_string()))?;
+        let json =
+            serde_json::to_value(&converted[0]).map_err(|e| AppError::internal(e.to_string()))?;
 
         assert_eq!(json["role"], "tool");
         assert_eq!(json["tool_call_id"], "call_1");
@@ -993,8 +993,8 @@ mod tests {
     fn plain_text_messages_serialize_without_tool_fields() -> AppResult<()> {
         let msg = ChatMessage::user("hi");
         let converted = CohereProvider::convert_messages(&[msg]);
-        let json = serde_json::to_value(&converted[0])
-            .map_err(|e| AppError::internal(e.to_string()))?;
+        let json =
+            serde_json::to_value(&converted[0]).map_err(|e| AppError::internal(e.to_string()))?;
 
         assert_eq!(json["content"], "hi");
         assert!(json.get("tool_calls").is_none());
