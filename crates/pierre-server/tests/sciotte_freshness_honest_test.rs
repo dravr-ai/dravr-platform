@@ -52,7 +52,11 @@ impl SyncNotifier for NoopNotifier {
 
 /// Seed a sciotte session token so `get_provider_freshness` iterates the
 /// provider, mirroring what `store_sciotte_session` writes after login.
-async fn seed_sciotte_token(repos: &pierre_database::RepositoryRegistry, user_id: Uuid, tenant: &str) {
+async fn seed_sciotte_token(
+    repos: &pierre_database::RepositoryRegistry,
+    user_id: Uuid,
+    tenant: &str,
+) {
     let now = Utc::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
