@@ -53,6 +53,7 @@ fn ride_with_location(city: Option<&str>, lat: Option<f64>, lng: Option<f64>) ->
         city: city.map(str::to_owned),
         start_latitude: lat,
         start_longitude: lng,
+        elevation_gain_m: None,
     }
 }
 
@@ -114,5 +115,41 @@ fn renderer_omits_location_for_hr_only_sources() {
     assert!(
         !rendered.contains(" @ "),
         "HR/duration-only activities must render WITHOUT a location segment. Got:\n{rendered}"
+    );
+}
+
+#[test]
+fn renderer_surfaces_elevation_when_provider_supplies_it() {
+    // Strava / sciotte / Coros carry total ascent. The Recent: block must
+    // surface it so the LLM can answer "combien de dénivelé pour vous deux"
+    // with a real shared total instead of abstaining.
+    let mut ride = ride_with_location(Some("Saint-Bruno-de-Montarville"), None, None);
+    ride.elevation_gain_m = Some(650.0);
+    let snapshot = snapshot_with_recent(vec![ride]);
+
+    let summarizer = WeeklyDigestSummarizer;
+    let card = summarizer.summarize_member(&snapshot);
+    let rendered = &card.summary_text;
+
+    assert!(
+        rendered.contains("↑650m"),
+        "Recent: block must include total ascent when present. Got:\n{rendered}"
+    );
+}
+
+#[test]
+fn renderer_omits_elevation_for_sources_without_ascent() {
+    // HR-only / treadmill sources carry no elevation. The renderer must
+    // stay ascent-less so the LLM can't claim a climb the provider never
+    // recorded.
+    let snapshot = snapshot_with_recent(vec![ride_with_location(None, None, None)]);
+
+    let summarizer = WeeklyDigestSummarizer;
+    let card = summarizer.summarize_member(&snapshot);
+    let rendered = &card.summary_text;
+
+    assert!(
+        !rendered.contains('↑'),
+        "Activities without elevation must render WITHOUT an ascent segment. Got:\n{rendered}"
     );
 }

@@ -230,6 +230,14 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                     Some(km) if km > 0.0 => format!(" {km:.1}km"),
                     _ => String::new(),
                 };
+                // Append total ascent when the source carries it (Strava /
+                // sciotte / Coros populate it; HR-only / treadmill stay
+                // elevation-less). Lets the LLM answer "combien de dénivelé"
+                // with a real shared total instead of abstaining.
+                let elev_seg = match act.elevation_gain_m {
+                    Some(m) if m > 0.0 => format!(" ↑{m:.0}m"),
+                    _ => String::new(),
+                };
                 let name_seg = if act.name.is_empty() {
                     String::new()
                 } else {
@@ -250,7 +258,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                 };
                 let _ = writeln!(
                     text,
-                    "    {date} {sport} {dur_h}h{dist}{name_seg}{loc_seg}",
+                    "    {date} {sport} {dur_h}h{dist}{elev_seg}{name_seg}{loc_seg}",
                     sport = act.sport,
                 );
             }

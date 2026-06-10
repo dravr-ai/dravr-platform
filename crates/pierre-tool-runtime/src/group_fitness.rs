@@ -1146,6 +1146,7 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
             city: a.city().map(str::to_owned),
             start_latitude: a.start_latitude(),
             start_longitude: a.start_longitude(),
+            elevation_gain_m: a.elevation_gain(),
         })
         .collect();
     info!(
