@@ -11,9 +11,10 @@
 //! system to give the AI coach data-driven group advice.
 
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
+use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
@@ -23,6 +24,7 @@ use pierre_core::models::{Activity, Tenant, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
+use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -41,6 +43,13 @@ const ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
 /// (stale-while-revalidate). Cached data is served immediately regardless;
 /// this only decides whether to ALSO kick a background refresh.
 const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
+
+/// Upper bound on a single background revalidation. A sciotte/Garmin scrape
+/// that hangs on a provider-side throttle must not hold the single-flight slot
+/// (nor the per-profile Chrome `SingletonLock`) open indefinitely, blocking
+/// every later revalidation for the same user. Generous relative to a healthy
+/// ~2-minute scrape so it only fires on a genuine stall.
+const REVALIDATION_TIMEOUT_SECS: u64 = 240;
 
 /// Default time window (minutes) for considering two activities as duplicates
 const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
@@ -921,23 +930,119 @@ async fn activity_cache_is_stale(
     false
 }
 
+/// Tracks which `(user, tenant)` background revalidations are in flight so
+/// concurrent stale-cache chat turns collapse onto a single refresh.
+///
+/// Without this, every stale-cache turn spawned its own revalidation. The
+/// per-profile Chrome `SingletonLock` (see [`pierre_providers`]) serializes
+/// those scrapes rather than crashing, so N rapid turns queue N ~2-minute
+/// scrapes behind one lock — the later ones redundant by the time they run.
+/// Stale-while-revalidate only needs one in-flight refresh per user; the rest
+/// are dropped. Entries are removed when the revalidation task finishes (or
+/// times out), so the slot frees for the next genuinely-stale turn.
+///
+/// Production code shares one registry via [`Self::global`]; tests construct
+/// isolated instances with [`Self::new`].
+pub struct RevalidationRegistry {
+    in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
+}
+
+impl RevalidationRegistry {
+    /// Create an empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            in_flight: Arc::new(StdMutex::new(HashSet::new())),
+        }
+    }
+
+    /// The process-global registry shared across every chat turn.
+    pub fn global() -> &'static Self {
+        static GLOBAL: LazyLock<RevalidationRegistry> = LazyLock::new(RevalidationRegistry::new);
+        &GLOBAL
+    }
+
+    /// Claim the revalidation slot for a user. Returns a guard that frees the
+    /// slot on drop, or `None` if a revalidation is already in flight (the
+    /// caller then skips spawning a duplicate).
+    pub fn try_claim(&self, key: (Uuid, TenantId)) -> Option<RevalidationGuard> {
+        // Recover from poisoning: the set stays consistent even if a holder
+        // panicked, and refusing all future revalidations would be worse.
+        let mut set = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        if set.insert(key) {
+            Some(RevalidationGuard {
+                in_flight: Arc::clone(&self.in_flight),
+                key,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for RevalidationRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Frees a claimed revalidation slot when dropped, including on panic or
+/// timeout, so a single failed refresh never wedges a user's slot shut.
+pub struct RevalidationGuard {
+    in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
+    key: (Uuid, TenantId),
+}
+
+impl Drop for RevalidationGuard {
+    fn drop(&mut self) {
+        let mut set = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        set.remove(&self.key);
+    }
+}
+
 /// Spawn a detached background task that re-fetches and persists activities so
 /// the next chat turn sees fresh data. Errors are logged, never surfaced.
+///
+/// Deduplicated and timeout-bound: only one revalidation runs per `(user,
+/// tenant)` at a time (concurrent stale-cache turns are dropped), and each is
+/// capped at [`REVALIDATION_TIMEOUT_SECS`] so a hung scrape releases the slot
+/// instead of blocking later refreshes behind the per-profile Chrome lock.
 fn spawn_activity_revalidation(
     runtime: &Arc<dyn ToolRuntime>,
     providers: Vec<String>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
+    let Some(guard) = RevalidationRegistry::global().try_claim((user_id, tenant_id)) else {
+        debug!(
+            user_id = %user_id,
+            "Activity cache: revalidation already in flight; skipping duplicate"
+        );
+        return;
+    };
+
     let runtime = Arc::clone(runtime);
     tokio::spawn(async move {
+        // Hold the slot for the whole refresh; dropping `guard` frees it.
+        let _guard = guard;
         info!(user_id = %user_id, "Activity cache: background revalidation started");
-        let activities = fetch_and_persist_live(&runtime, &providers, user_id, tenant_id).await;
-        info!(
-            user_id = %user_id,
-            refreshed = activities.len(),
-            "Activity cache: background revalidation complete"
-        );
+        match timeout(
+            StdDuration::from_secs(REVALIDATION_TIMEOUT_SECS),
+            fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),
+        )
+        .await
+        {
+            Ok(activities) => info!(
+                user_id = %user_id,
+                refreshed = activities.len(),
+                "Activity cache: background revalidation complete"
+            ),
+            Err(_elapsed) => warn!(
+                user_id = %user_id,
+                timeout_secs = REVALIDATION_TIMEOUT_SECS,
+                "Activity cache: background revalidation timed out; releasing slot"
+            ),
+        }
     });
 }
 
