@@ -19,7 +19,6 @@ BUILD_MODE="debug"
 TARGET_DIR="debug"
 NATIVE_BUILD=false
 STREAM_LOGS=false
-SKIP_SYNTHETIC=false
 START_TUNNEL=false
 for arg in "$@"; do
     case $arg in
@@ -34,10 +33,6 @@ for arg in "$@"; do
             ;;
         --stream-logs)
             STREAM_LOGS=true
-            shift
-            ;;
-        --no-synthetic)
-            SKIP_SYNTHETIC=true
             shift
             ;;
         --tunnel)
@@ -94,7 +89,6 @@ echo -e "${CYAN}=== Configuration ===${NC}"
 echo -e "  Build mode:      ${YELLOW}$BUILD_MODE${NC}"
 echo -e "  Native build:    $( [ "$NATIVE_BUILD" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Tunnel:          $( [ "$START_TUNNEL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
-echo -e "  Synthetic data:  $( [ "$SKIP_SYNTHETIC" = "true" ] && echo "${YELLOW}skipped${NC}" || echo "yes" )"
 echo -e "  Stream logs:     $( [ "$STREAM_LOGS" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo ""
 
@@ -239,21 +233,17 @@ echo "    Creating phil_test + jf_test users..."
 # work exactly as they would in prod. server-full compiles in both provider-strava
 # and provider-garmin (dev only — server-production keeps the prod provider set).
 # Mix providers so both paths are exercised: web/phil = Strava, mobile/jf = Garmin.
-if [ "$SKIP_SYNTHETIC" != "true" ]; then
-    echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
-    "$PIERRE_CLI" seed synthetic-activities --email "$WEB_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
-    # Canonical demo users (created by `seed demo-data` above) need a provider too,
-    # otherwise they hit the onboarding hard-gate and get zero coach recommendations.
-    # The synthetic provider they used to fall back on was removed, so seed them as
-    # real fixture-backed athletes: alice = Strava, bob = Garmin (exercises both paths).
-    "$PIERRE_CLI" seed synthetic-activities --email alice@acme.com --provider strava --count 30 --days 30 2>&1 | tail -1
-    "$PIERRE_CLI" seed synthetic-activities --email bob@startup.io --provider garmin --count 30 --days 30 2>&1 | tail -1
-else
-    echo "    Skipping dev provider activities (--no-synthetic)"
-fi
+echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
+"$PIERRE_CLI" seed synthetic-activities --email "$WEB_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
+"$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
+"$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --provider strava --count 30 --days 30 2>&1 | tail -1
+"$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --provider garmin --count 30 --days 30 2>&1 | tail -1
+# Canonical demo users (created by `seed demo-data` above) need a provider too,
+# otherwise they hit the onboarding hard-gate and get zero coach recommendations.
+# The synthetic provider they used to fall back on was removed, so seed them as
+# real fixture-backed athletes: alice = Strava, bob = Garmin (exercises both paths).
+"$PIERRE_CLI" seed synthetic-activities --email alice@acme.com --provider strava --count 30 --days 30 2>&1 | tail -1
+"$PIERRE_CLI" seed synthetic-activities --email bob@startup.io --provider garmin --count 30 --days 30 2>&1 | tail -1
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."
@@ -262,35 +252,32 @@ echo "    Seeding LLM usage data (30 days)..."
 echo "    All seeders complete"
 
 # Step 4b: Start the dev fixture API (serves seeded Strava/Garmin activities).
-# Skipped with --no-synthetic since there's no seeded data to serve.
 FIXTURE_LOG="$LOG_DIR/fixture.log"
-if [ "$SKIP_SYNTHETIC" != "true" ]; then
-    echo "    Starting dev fixture API (port $FIXTURE_PORT)..."
-    pkill -f "pierre-dev-fixture" 2>/dev/null || true
-    FIXTURE_PORT="$FIXTURE_PORT" ./target/$TARGET_DIR/pierre-dev-fixture > "$FIXTURE_LOG" 2>&1 &
-    FIXTURE_PID=$!
-    for i in {1..15}; do
-        if curl -s -f "http://127.0.0.1:$FIXTURE_PORT/health" > /dev/null 2>&1; then
-            echo "    Fixture ready (PID: $FIXTURE_PID)"
-            break
-        fi
-        if [ $i -eq 15 ]; then
-            echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
-        fi
-        sleep 1
-    done
-    # Point the real Strava/Garmin providers at the local fixture (dev only).
-    # Production never sets these, so it always hits the real provider APIs.
-    export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-    export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-    # Dummy Garmin OAuth creds (dev only). The provider requires client creds to
-    # be constructed and to register as "enabled" (it keys on GARMIN_CLIENT_ID);
-    # the seeded long-lived token means refresh never fires, and the fixture
-    # ignores credential validity — so placeholders are sufficient to exercise
-    # the real Garmin code path. Strava creds already come from .envrc.
-    export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
-    export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
-fi
+echo "    Starting dev fixture API (port $FIXTURE_PORT)..."
+pkill -f "pierre-dev-fixture" 2>/dev/null || true
+FIXTURE_PORT="$FIXTURE_PORT" ./target/$TARGET_DIR/pierre-dev-fixture > "$FIXTURE_LOG" 2>&1 &
+FIXTURE_PID=$!
+for i in {1..15}; do
+    if curl -s -f "http://127.0.0.1:$FIXTURE_PORT/health" > /dev/null 2>&1; then
+        echo "    Fixture ready (PID: $FIXTURE_PID)"
+        break
+    fi
+    if [ $i -eq 15 ]; then
+        echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
+    fi
+    sleep 1
+done
+# Point the real Strava/Garmin providers at the local fixture (dev only).
+# Production never sets these, so it always hits the real provider APIs.
+export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+# Dummy Garmin OAuth creds (dev only). The provider requires client creds to
+# be constructed and to register as "enabled" (it keys on GARMIN_CLIENT_ID);
+# the seeded long-lived token means refresh never fires, and the fixture
+# ignores credential validity — so placeholders are sufficient to exercise
+# the real Garmin code path. Strava creds already come from .envrc.
+export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
+export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
 
 # Step 5: Start Pierre server
 print_step 5 "Starting Pierre MCP Server (port $SERVER_PORT)..."
@@ -354,10 +341,8 @@ if [ "$START_TUNNEL" = "true" ]; then
             set +a
             # Re-assert the dev fixture overrides — re-sourcing .envrc must not
             # send the providers back to the real Strava/Garmin APIs.
-            if [ "$SKIP_SYNTHETIC" != "true" ]; then
-                export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-                export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-            fi
+            export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+            export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
             RUST_LOG=info ./target/$TARGET_DIR/pierre-mcp-server > "$SERVER_LOG" 2>&1 &
             SERVER_PID=$!
             for i in {1..15}; do
