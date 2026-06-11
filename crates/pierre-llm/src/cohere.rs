@@ -456,9 +456,36 @@ impl CohereProvider {
         format!("{API_BASE_URL}/{endpoint}")
     }
 
-    /// Convert internal messages to Cohere v2 format
+    /// Body substituted for a tool-result message whose tool produced no output,
+    /// so it satisfies Cohere v2's "non-empty content or tool calls" rule without
+    /// being dropped (dropping it would orphan its matching tool call).
+    const EMPTY_TOOL_RESULT_PLACEHOLDER: &str = "(no result)";
+
+    /// Convert internal messages to Cohere v2 format.
+    ///
+    /// Cohere v2 rejects any message with neither non-empty content nor
+    /// `tool_calls` (empty content is skipped on the wire, leaving a bare
+    /// `{"role": ...}` that 400s the WHOLE request — "invalid message provided
+    /// at index N: must have non-empty content or tool calls"). A content-less,
+    /// tool-call-less turn — e.g. an empty or failed assistant turn left in a
+    /// long history — conveys nothing to the fallback and is dropped; an empty
+    /// tool-result (carries `tool_call_id`) is kept with a placeholder body so
+    /// the call/result pairing Cohere requires stays intact.
     fn convert_messages(messages: &[ChatMessage]) -> Vec<CohereMessage> {
-        messages.iter().map(CohereMessage::from).collect()
+        messages
+            .iter()
+            .map(CohereMessage::from)
+            .filter_map(|mut m| {
+                if !m.content.is_empty() || m.tool_calls.is_some() {
+                    Some(m)
+                } else if m.tool_call_id.is_some() {
+                    Self::EMPTY_TOOL_RESULT_PLACEHOLDER.clone_into(&mut m.content);
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Concatenate all text content blocks in a response message
@@ -974,6 +1001,43 @@ mod tests {
         assert_eq!(calls[0]["function"]["name"], "get_activities");
         assert_eq!(calls[0]["function"]["arguments"], "{\"limit\":5}");
         Ok(())
+    }
+
+    #[test]
+    fn empty_content_no_tool_calls_message_is_dropped() {
+        // The "invalid message at index N" 400: a content-less assistant turn
+        // with no tool_calls serializes to a bare {"role": ...}, which Cohere
+        // rejects and sinks the WHOLE request. It must be dropped so a fallback
+        // turn still goes through.
+        let messages = vec![
+            ChatMessage::user("hi"),
+            ChatMessage::assistant(""),
+            ChatMessage::assistant("real answer"),
+        ];
+        let converted = CohereProvider::convert_messages(&messages);
+        let roles: Vec<&str> = converted.iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(roles, vec!["user", "assistant"]);
+        assert_eq!(converted[1].content, "real answer");
+    }
+
+    #[test]
+    fn empty_tool_result_kept_with_placeholder_not_dropped() {
+        // A tool that returned nothing yields an empty tool-result. Dropping it
+        // would orphan its matching tool call (Cohere requires call/result
+        // pairing), so it is kept with a placeholder body to satisfy the
+        // non-empty rule.
+        let converted =
+            CohereProvider::convert_messages(&[ChatMessage::tool("get_activities", "call_1", "")]);
+        assert_eq!(
+            converted.len(),
+            1,
+            "empty tool-result must be kept, not dropped"
+        );
+        assert!(
+            !converted[0].content.is_empty(),
+            "empty tool-result gets a placeholder body so Cohere accepts it"
+        );
+        assert_eq!(converted[0].tool_call_id.as_deref(), Some("call_1"));
     }
 
     #[test]
