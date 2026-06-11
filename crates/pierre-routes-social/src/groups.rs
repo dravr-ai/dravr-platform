@@ -1112,9 +1112,12 @@ impl GroupRoutes {
                 let span = Span::current();
                 span.record("tenant_id", field::display(&group_tenant_id));
                 span.record("group_id", field::display(&invite.group_id));
+                // Reuses the catalogued `group.joined` event (a coach
+                // redeeming a coach-kind invite is still a join); the message
+                // distinguishes the coach case for operators.
                 info!(
                     target: "notify",
-                    event = "group.coach_joined",
+                    event = "group.joined",
                     group_id = %invite.group_id,
                     "coach joined coaching group"
                 );
