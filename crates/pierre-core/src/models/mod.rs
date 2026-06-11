@@ -161,7 +161,7 @@ pub use user_mcp_token::{
 mod conversation;
 pub use conversation::{
     AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary,
-    ConversationTurnId, MessageRecord,
+    ConversationTurnId, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
 };
 
 // Security audit event types

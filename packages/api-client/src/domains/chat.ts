@@ -5,11 +5,11 @@
 // ABOUTME: Handles CRUD for chat conversations and sending/receiving messages
 
 import type { AxiosInstance } from 'axios';
-import type { Conversation, Message } from '@pierre/shared-types';
+import type { Conversation, Message, MessageFeedbackEntry } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Conversation, Message };
+export type { Conversation, Message, MessageFeedbackEntry };
 
 export interface ConversationsResponse {
   conversations: Conversation[];
@@ -20,6 +20,12 @@ export interface ConversationsResponse {
 
 export interface MessagesResponse {
   messages: Message[];
+  /**
+   * The caller's own thumbs up/down feedback on the returned messages, keyed
+   * by `message_id`. Absent/empty when the caller has left no feedback in the
+   * conversation. Clients hydrate their per-message feedback state from this.
+   */
+  feedback?: MessageFeedbackEntry[];
 }
 
 /**
@@ -248,6 +254,35 @@ export function createChatApi(axios: AxiosInstance) {
         body,
       );
       return response.data;
+    },
+
+    /**
+     * Set (or update) the caller's thumbs up/down feedback on a message.
+     *
+     * Upsert keyed on (message, user): re-rating overwrites the prior value
+     * and refreshes the optional reason. Pass `comment` to capture a
+     * "what went wrong?" note (typically only on a thumbs-down). The server
+     * returns 404 if the message is not in a conversation the caller owns.
+     */
+    async submitMessageFeedback(
+      conversationId: string,
+      messageId: string,
+      rating: 'up' | 'down',
+      comment?: string,
+    ): Promise<MessageFeedbackEntry> {
+      const response = await axios.post<MessageFeedbackEntry>(
+        ENDPOINTS.CHAT.MESSAGE_FEEDBACK(conversationId, messageId),
+        { rating, comment },
+      );
+      return response.data;
+    },
+
+    /**
+     * Clear the caller's feedback on a message (thumbs toggle-off).
+     * Idempotent — succeeds even when no feedback was stored.
+     */
+    async deleteMessageFeedback(conversationId: string, messageId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.CHAT.MESSAGE_FEEDBACK(conversationId, messageId));
     },
   };
 }

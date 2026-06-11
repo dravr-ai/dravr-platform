@@ -260,3 +260,50 @@ pub struct AddMessageParams<'a> {
     /// extracted from the reply, persisted alongside the message text.
     pub structured_content: Option<&'a str>,
 }
+
+/// Database representation of a user's thumbs up/down feedback on a message.
+///
+/// One row per `(message_id, user_id)` — the rating toggles and the optional
+/// `comment` captures a "what went wrong?" reason.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageFeedbackRecord {
+    /// Unique feedback ID
+    pub id: String,
+    /// Message this feedback is attached to
+    pub message_id: String,
+    /// Conversation the message belongs to (denormalized for conversation-
+    /// scoped loads and future per-coach analytics without a re-join)
+    pub conversation_id: String,
+    /// User who left the feedback
+    pub user_id: String,
+    /// Tenant the feedback belongs to (multi-tenant isolation)
+    pub tenant_id: String,
+    /// Rating value: `"up"` or `"down"`
+    pub rating: String,
+    /// Optional free-text reason captured on a thumbs-down
+    pub comment: Option<String>,
+    /// When the feedback was first left (ISO 8601)
+    pub created_at: String,
+    /// When the feedback was last changed (ISO 8601)
+    pub updated_at: String,
+}
+
+/// Parameters for upserting a user's feedback on a message.
+///
+/// Upsert keyed on `(message_id, user_id)`: a repeat rating overwrites the
+/// previous one and refreshes `comment`/`updated_at`. The write is gated on
+/// the caller owning the conversation the message belongs to.
+pub struct UpsertMessageFeedbackParams<'a> {
+    /// Tenant that owns the conversation — every feedback write is tenant-scoped
+    pub tenant_id: TenantId,
+    /// Conversation the message belongs to (used in the ownership check)
+    pub conversation_id: &'a str,
+    /// Message being rated
+    pub message_id: &'a str,
+    /// User leaving the feedback (owner of the conversation)
+    pub user_id: &'a str,
+    /// Rating value: `"up"` or `"down"`
+    pub rating: &'a str,
+    /// Optional free-text reason (typically only set on a thumbs-down)
+    pub comment: Option<&'a str>,
+}

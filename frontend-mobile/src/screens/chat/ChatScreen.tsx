@@ -224,6 +224,23 @@ export function ChatScreen() {
     await messagesHook.retryMessage(messageId, conversations.currentConversation.id);
   }, [messagesHook, conversations.currentConversation?.id]);
 
+  // Feedback handlers inject the active conversation id (mirrors retry) so the
+  // hook can persist thumbs up/down + an optional reason against the server.
+  const handleThumbsUp = useCallback((messageId: string) => {
+    if (!conversations.currentConversation?.id) return;
+    void messagesHook.handleThumbsUp(messageId, conversations.currentConversation.id);
+  }, [messagesHook, conversations.currentConversation?.id]);
+
+  const handleThumbsDown = useCallback((messageId: string) => {
+    if (!conversations.currentConversation?.id) return;
+    void messagesHook.handleThumbsDown(messageId, conversations.currentConversation.id);
+  }, [messagesHook, conversations.currentConversation?.id]);
+
+  const handleSubmitFeedbackReason = useCallback((messageId: string, comment: string) => {
+    if (!conversations.currentConversation?.id) return;
+    void messagesHook.submitFeedbackReason(messageId, conversations.currentConversation.id, comment);
+  }, [messagesHook, conversations.currentConversation?.id]);
+
   // Coach selection handling
   const handleCoachSelect = useCallback(async (coach: Coach) => {
     await coachSelection.handleCoachSelect(coach, {
@@ -435,6 +452,7 @@ export function ChatScreen() {
           isSending={messagesHook.isSending}
           isCoachConversation={isCoachConversation}
           messageFeedback={messagesHook.messageFeedback}
+          messageFeedbackComment={messagesHook.messageFeedbackComment}
           insightMessages={messagesHook.insightMessages}
           activityLists={messagesHook.activityLists}
           messageActions={messagesHook.messageActions}
@@ -443,8 +461,9 @@ export function ChatScreen() {
           onCoachSelect={handleCoachSelect}
           onCreateInsight={handleCreateInsight}
           onShareToFeed={handleShareToFeed}
-          onThumbsUp={messagesHook.handleThumbsUp}
-          onThumbsDown={messagesHook.handleThumbsDown}
+          onThumbsUp={handleThumbsUp}
+          onThumbsDown={handleThumbsDown}
+          onSubmitFeedbackReason={handleSubmitFeedbackReason}
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
           onActionClick={handleActionClick}

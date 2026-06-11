@@ -1,10 +1,11 @@
 // ABOUTME: Message list component with FlatList rendering and empty states
 // ABOUTME: Handles message display, thinking indicator, and coach grid for new chats
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
@@ -23,6 +24,66 @@ import { parseWorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from './WorkoutPlanCard';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
+
+/**
+ * Optional "what went wrong?" reason captured after a thumbs-down. The down
+ * rating is already persisted; submitting only adds/updates the comment on the
+ * same feedback row. Pre-fills with any saved reason on reload.
+ */
+function FeedbackReasonInput({
+  initialComment,
+  onSubmit,
+  colors,
+}: {
+  initialComment?: string;
+  onSubmit: (comment: string) => void;
+  colors: ThemeColors;
+}) {
+  const [value, setValue] = useState(initialComment ?? '');
+  const [saved, setSaved] = useState(false);
+
+  // The saved reason can arrive after mount (conversation reload).
+  useEffect(() => {
+    setValue(initialComment ?? '');
+  }, [initialComment]);
+
+  const submit = () => {
+    onSubmit(value.trim());
+    setSaved(true);
+  };
+
+  return (
+    <View className="flex-row items-center gap-2 mt-2 ml-1">
+      <TextInput
+        value={value}
+        onChangeText={(text) => {
+          setValue(text);
+          setSaved(false);
+        }}
+        onSubmitEditing={submit}
+        placeholder="What went wrong? (optional)"
+        placeholderTextColor={colors.text.tertiary}
+        returnKeyType="done"
+        className="flex-1 px-3 py-1.5 rounded-lg text-xs"
+        style={{
+          color: colors.text.primary,
+          backgroundColor: colors.background.elevated,
+          borderWidth: 1,
+          borderColor: colors.border.strong,
+        }}
+      />
+      <TouchableOpacity
+        className="px-3 py-1.5 rounded-lg"
+        style={{ backgroundColor: colors.background.elevated }}
+        onPress={submit}
+      >
+        <Text className="text-xs" style={{ color: colors.pierre.violet }}>
+          {saved ? 'Saved' : 'Send'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 // Coach category emoji icons
 const COACH_CATEGORY_ICONS: Record<string, string> = {
@@ -215,6 +276,8 @@ interface MessageListProps {
   isSending: boolean;
   isCoachConversation: boolean;
   messageFeedback: Record<string, 'up' | 'down' | null>;
+  /** Saved thumbs-down reasons, keyed by message id. */
+  messageFeedbackComment: Record<string, string>;
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
@@ -227,6 +290,8 @@ interface MessageListProps {
   onShareToFeed: (content: string) => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
+  /** Persist an optional thumbs-down reason for a message. */
+  onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
   onOpenUrl: (url: string) => void;
   /** Click handler for a slash-command action button. */
@@ -240,6 +305,7 @@ export function MessageList({
   isSending,
   isCoachConversation,
   messageFeedback,
+  messageFeedbackComment,
   insightMessages,
   activityLists,
   messageActions,
@@ -250,6 +316,7 @@ export function MessageList({
   onShareToFeed,
   onThumbsUp,
   onThumbsDown,
+  onSubmitFeedbackReason,
   onRetryMessage,
   onOpenUrl,
   onActionClick,
@@ -480,6 +547,15 @@ export function MessageList({
               </>
             )}
           </View>
+        )}
+        {/* Optional thumbs-down reason — the down rating is already saved; this
+            adds/updates the free-text comment on the same feedback row. */}
+        {!isUser && !isError && messageFeedback[item.id] === 'down' && (
+          <FeedbackReasonInput
+            initialComment={messageFeedbackComment[item.id]}
+            onSubmit={(comment) => onSubmitFeedbackReason(item.id, comment)}
+            colors={colors}
+          />
         )}
       </View>
     );

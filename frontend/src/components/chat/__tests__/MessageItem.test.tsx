@@ -284,6 +284,72 @@ describe('MessageItem', () => {
     });
   });
 
+  describe('thumbs-down reason', () => {
+    it('shows the reason form when feedback is down', () => {
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          feedback="down"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={vi.fn()}
+        />
+      );
+
+      expect(screen.getByPlaceholderText('What went wrong? (optional)')).toBeInTheDocument();
+    });
+
+    it('does not show the reason form when feedback is up', () => {
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          feedback="up"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByPlaceholderText('What went wrong? (optional)')).not.toBeInTheDocument();
+    });
+
+    it('pre-fills the form with the saved reason', () => {
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          feedback="down"
+          feedbackComment="not enough detail"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={vi.fn()}
+        />
+      );
+
+      expect(screen.getByDisplayValue('not enough detail')).toBeInTheDocument();
+    });
+
+    it('submits the trimmed reason and shows a saved state', async () => {
+      const user = userEvent.setup();
+      const onSubmitReason = vi.fn();
+
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          feedback="down"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={onSubmitReason}
+        />
+      );
+
+      await user.type(screen.getByPlaceholderText('What went wrong? (optional)'), '  too generic  ');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      expect(onSubmitReason).toHaveBeenCalledWith('too generic');
+      expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument();
+    });
+  });
+
   describe('context prefix stripping', () => {
     it('should strip context prefix from message content', () => {
       const messageWithContext: Message = {
