@@ -289,9 +289,17 @@ module "backend" {
       # PIERRE_LLM_TERTIARY_PROVIDER turns the secondary into a nested
       # Chain{Cohere, Gemini}, so retry classification cascades the same way
       # at each tier.
-      PIERRE_LLM_PROVIDER                = "copilot_headless"
-      PIERRE_LLM_MODEL                   = "claude-opus-4.8"
-      PIERRE_LLM_DEFAULT_MODEL           = "claude-opus-4.8"
+      PIERRE_LLM_PROVIDER = "copilot_headless"
+      # Coaching model. Sonnet, not Opus: the coaching bench found raters could
+      # not distinguish Opus output and it tied last on quality, while Opus is
+      # the slowest model — slow enough that an Autopilot tool turn overruns the
+      # ACP prompt timeout below. Sonnet is faster (keeps turns under budget) at
+      # equal coaching quality. PIERRE_LLM_MODEL is the unified primary-model
+      # override for all providers; PIERRE_LLM_DEFAULT_MODEL must match it so the
+      # chain stamps the right primary model name. (COPILOT_HEADLESS_MODEL stays
+      # on Opus — it only drives the sciotte vision-login fallback, not chat.)
+      PIERRE_LLM_MODEL                   = "claude-sonnet-4.6"
+      PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-4.6"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
       PIERRE_LLM_FALLBACK_PROVIDER       = "cohere"
@@ -313,14 +321,17 @@ module "backend" {
       # turn isn't cut off mid-synthesis.
       EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "300"
 
-      # Whole-turn ACP timeout (embacle default 300s). A stalled Copilot CLI
-      # session — alive but emitting nothing — otherwise hangs the user for the
-      # full default before failing. Cap it at 150s: comfortably above the
-      # heaviest observed real coaching turn (~48s) yet half the default, so a
-      # stall fails fast and the tool-loop's retryable-error fallback hands the
-      # turn to the secondary provider (Cohere) instead of leaving the user
-      # waiting 5 minutes for a generic error.
-      EMBACLE_ACP_PROMPT_TIMEOUT_SECS = "150"
+      # Whole-turn ACP timeout. Must encompass a full Autopilot turn, which runs
+      # the entire tool loop AND synthesis inside ONE ACP prompt — so this caps
+      # total turn duration, not a single request/response. The old 150s cap was
+      # justified by a "heaviest real coaching turn ~48s" figure measured in the
+      # pre-Autopilot text-sim era (many short prompts); once Autopilot collapsed
+      # the turn into one long prompt, healthy multi-tool turns hit 150s+ and got
+      # guillotined mid-synthesis (then fell to a broken Cohere fallback -> generic
+      # error). Set to 300 to match EMBACLE_ACP_MESSAGE_TIMEOUT_SECS above: the
+      # message (idle) timeout already fails fast on a stalled "emitting nothing"
+      # session, so this only needs to be wide enough for a legitimately long turn.
+      EMBACLE_ACP_PROMPT_TIMEOUT_SECS = "300"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
@@ -385,7 +396,8 @@ module "backend" {
       # and only falls back to LLM screenshot reasoning when selectors fail
       # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
       # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
-      # provider. Both are pinned to claude-opus-4.8.
+      # provider. Kept on claude-opus-4.8 for the heavier vision-reasoning task;
+      # chat/coaching runs the cheaper, faster claude-sonnet-4.6 via PIERRE_LLM_MODEL.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
