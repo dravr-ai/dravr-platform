@@ -42,6 +42,12 @@ use crate::models::{
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_limiter::{global_limiter, LimiterError, ScrapePermit};
 
+/// Default cap on detail-page enrichment when `PIERRE_SCIOTTE_ENRICH_DETAILS` is
+/// on: enrich only the most recent N activities so the N+1 detail roundtrip stays
+/// bounded and can't stall an interactive coaching turn. Overridable per
+/// deployment via `PIERRE_SCIOTTE_ENRICH_LIMIT`.
+const DEFAULT_SCIOTTE_ENRICH_LIMIT: usize = 5;
+
 /// Target fitness platform for the sciotte scraper
 #[derive(Debug, Clone, Copy)]
 pub enum SciotteTarget {
@@ -549,9 +555,20 @@ impl FitnessProvider for SciotteProvider {
         // recent set this fetch returns.
         let enrich_details =
             env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
+        // Cap enrichment to the most recent N (the list is reverse-chronological)
+        // so the N+1 detail roundtrip can't run minutes and stall the coaching
+        // turn; the un-enriched tail keeps its list-page fields (type, distance,
+        // elevation). None when enrichment is off — no detail pages at all.
+        let enrich_limit = enrich_details.then(|| {
+            env::var("PIERRE_SCIOTTE_ENRICH_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(DEFAULT_SCIOTTE_ENRICH_LIMIT)
+        });
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
             enrich_details,
+            enrich_limit,
             ..Default::default()
         };
 
