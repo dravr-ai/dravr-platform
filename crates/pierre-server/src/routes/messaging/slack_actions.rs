@@ -39,7 +39,7 @@ const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
 /// 3. Slack user -> Pierre user mapping
-pub async fn handle_slack_action(
+pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
     body: &Bytes,
 ) -> AppResult<(StatusCode, Json<Value>)> {
@@ -65,37 +65,23 @@ pub async fn handle_slack_action(
 
     // --- Ops actions below (approve/reject users) ---
 
-    // Resolve the Slack user's email via Slack API
+    // Authorization: trust the ops channel. The approve/reject buttons are
+    // only ever posted to the configured ops users channel — a private
+    // channel whose membership IS the set of authorized operators. The HMAC
+    // signature (verified by the HTTP handler) proves the click is genuinely
+    // from Slack; we additionally require the action to originate from that
+    // channel so the buttons are honored nowhere else. No Pierre admin role
+    // is required: operators approve users without holding admin privileges.
+    verify_ops_channel(&action)?;
+
+    // Attribute the action to the Slack handle that clicked. The username
+    // rides in the interactive payload, so no `users.info` call or
+    // `users:read.email` scope is needed.
+    let approver = format!("@{}", action.slack_username);
+
+    // The bot token is still required to update the message in place.
     let bot_token = env::var("SLACK_BOT_TOKEN")
         .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
-    let slack_email = resolve_slack_user_email(&bot_token, &action.slack_user_id).await?;
-
-    // Verify the Slack user is a Pierre admin
-    let admin_user = resources
-        .common
-        .repos
-        .users
-        .get_by_email(&slack_email)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to look up admin user: {e}")))?
-        .ok_or_else(|| {
-            warn!(
-                slack_user = %action.slack_user_id,
-                email = %slack_email,
-                "Slack user is not a Pierre user"
-            );
-            AppError::auth_invalid("You are not registered as a Pierre user")
-        })?;
-
-    if !admin_user.is_admin {
-        warn!(
-            email = %slack_email,
-            "Non-admin user attempted Slack action"
-        );
-        return Err(AppError::auth_invalid(
-            "Only Pierre admins can approve or reject users",
-        ));
-    }
 
     // Parse the action to determine approve or reject
     let (action_type, user_id_str) = parse_action_id(&action.action_id)?;
@@ -104,15 +90,15 @@ pub async fn handle_slack_action(
 
     // Execute the action
     let result = match action_type {
-        ActionType::Approve => approve_user(resources, user_uuid, &slack_email).await,
-        ActionType::Reject => reject_user(resources, user_uuid, &slack_email).await,
+        ActionType::Approve => approve_user(resources, user_uuid, &approver).await,
+        ActionType::Reject => reject_user(resources, user_uuid, &approver).await,
     };
 
     // Update the Slack message to reflect the action result
     let update_text = match &result {
         Ok(email) => match action_type {
-            ActionType::Approve => format!("*{email}* approved by {slack_email}"),
-            ActionType::Reject => format!("*{email}* rejected (suspended) by {slack_email}"),
+            ActionType::Approve => format!("*{email}* approved by {approver}"),
+            ActionType::Reject => format!("*{email}* rejected (suspended) by {approver}"),
         },
         Err(e) => format!("Action failed: {e}"),
     };
@@ -139,7 +125,7 @@ pub async fn handle_slack_action(
 ///
 /// Extracts timestamp and signature headers, delegates HMAC verification
 /// to the shared implementation.
-pub fn verify_slack_signature(
+pub(crate) fn verify_slack_signature(
     signing_secret: &str,
     headers: &HeaderMap,
     body: &[u8],
@@ -315,7 +301,13 @@ fn build_slack_client(bot_token: &str) -> SlackClient {
 struct SlackAction {
     action_id: String,
     slack_user_id: String,
+    /// Slack display handle of the clicker, carried in the interactive
+    /// payload — used for attribution without a `users.info` lookup.
+    slack_username: String,
     channel_id: String,
+    /// Channel name (without leading `#`) the action originated from, used to
+    /// enforce the ops-channel trust boundary.
+    channel_name: String,
     message_ts: String,
 }
 
@@ -372,10 +364,25 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("Missing user ID in payload"))?;
 
+    // Slack handle for attribution; `username` is the preferred field, `name`
+    // an older fallback. Fall back to the user ID so attribution is never empty.
+    let slack_username = payload
+        .pointer("/user/username")
+        .and_then(Value::as_str)
+        .or_else(|| payload.pointer("/user/name").and_then(Value::as_str))
+        .unwrap_or(slack_user_id);
+
     let channel_id = payload
         .pointer("/channel/id")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("Missing channel ID in payload"))?;
+
+    // Channel name (without `#`) for the ops-channel trust check. Absent in
+    // some payload shapes; an empty name simply fails the channel match.
+    let channel_name = payload
+        .pointer("/channel/name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
 
     let message_ts = payload
         .pointer("/message/ts")
@@ -385,7 +392,9 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
     Ok(SlackAction {
         action_id: action_id.to_owned(),
         slack_user_id: slack_user_id.to_owned(),
+        slack_username: slack_username.to_owned(),
         channel_id: channel_id.to_owned(),
+        channel_name: channel_name.to_owned(),
         message_ts: message_ts.to_owned(),
     })
 }
@@ -401,6 +410,41 @@ fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
                 .map(|id| (ActionType::Reject, id))
         })
         .ok_or_else(|| AppError::invalid_input(format!("Unknown action: {action_id}")))
+}
+
+/// Authorize an ops action by trusting the configured ops channel.
+///
+/// Reads `SLACK_OPS_USERS_CHANNEL` — the channel the approve/reject buttons are
+/// posted to — and honors the action only when it originates there. Fails
+/// closed (rejects) when the channel is unset or does not match.
+fn verify_ops_channel(action: &SlackAction) -> AppResult<()> {
+    let configured = env::var("SLACK_OPS_USERS_CHANNEL")
+        .map_err(|_| AppError::internal("SLACK_OPS_USERS_CHANNEL not configured"))?;
+
+    if channel_matches(&action.channel_name, &action.channel_id, &configured) {
+        return Ok(());
+    }
+
+    warn!(
+        channel_id = %action.channel_id,
+        channel_name = %action.channel_name,
+        "Slack ops action rejected: not from the ops channel"
+    );
+    Err(AppError::auth_invalid(
+        "Approvals are only accepted from the ops channel",
+    ))
+}
+
+/// Does an action's channel match the configured ops channel?
+///
+/// Compares the configured channel (a name like `#dravr-dev-users` or a raw
+/// channel ID) against the action's channel name and ID. The leading `#` is
+/// optional. An empty configured value never matches, keeping the check
+/// fail-closed.
+#[must_use]
+pub fn channel_matches(channel_name: &str, channel_id: &str, configured: &str) -> bool {
+    let expected = configured.trim().trim_start_matches('#');
+    !expected.is_empty() && (channel_name == expected || channel_id == expected)
 }
 
 /// Resolve a Slack user ID to their email address via the Slack `users.info` API
