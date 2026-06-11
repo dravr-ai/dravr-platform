@@ -988,6 +988,148 @@ mod command_tests {
     }
 
     #[tokio::test]
+    async fn group_coach_command_sets_group_ai_coach() {
+        use pierre_commands::group::GroupCoachHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_core::models::coaches::{
+            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        };
+        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+        let now = chrono::Utc::now();
+
+        let mk_system = |title: &str| CreateSystemCoachRequest {
+            title: title.to_owned(),
+            description: None,
+            system_prompt: "Test prompt".to_owned(),
+            category: CoachCategory::Training,
+            tags: vec![],
+            sample_prompts: vec![],
+            visibility: CoachVisibility::Global,
+        };
+        let initial = resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(user_id, tenant_id, &mk_system("Starter Coach"))
+            .await
+            .unwrap();
+        let target = resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(user_id, tenant_id, &mk_system("5K Marathon"))
+            .await
+            .unwrap();
+
+        let group_id = Uuid::new_v4();
+        let group = CoachingGroup {
+            id: group_id,
+            tenant_id: tenant_id.to_string(),
+            name: "Run Club".to_owned(),
+            description: None,
+            coach_id: initial.id.to_string(),
+            owner_id: user_id,
+            coach_user_id: None,
+            peer_data_sharing: true,
+            max_members: 10,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(tenant_id, &group)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id,
+                user_id,
+                tenant_id: tenant_id.to_string(),
+                role: GroupRole::Owner,
+                peer_sharing_consent: false,
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+
+        // `/group coach 5k marathon` — args arrive split; match is case-insensitive.
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec!["5k".to_owned(), "marathon".to_owned()],
+            raw_text: "/group coach 5k marathon".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: false,
+            conversation_id: None,
+            sender_id: None,
+        };
+        let response = GroupCoachHandler.execute(&ctx).await.unwrap();
+        assert!(
+            response.text.contains("5K Marathon") && response.text.contains("Run Club"),
+            "confirmation should name the group and the new coach, got: {}",
+            response.text
+        );
+
+        let updated = resources
+            .common
+            .repos
+            .groups
+            .get_group(&group_id.to_string(), tenant_id)
+            .await
+            .unwrap()
+            .expect("group exists");
+        assert_eq!(
+            updated.coach_id,
+            target.id.to_string(),
+            "group coach_id should now point at the 5K Marathon coach"
+        );
+
+        // Unknown name leaves the coach unchanged.
+        let ctx_miss = PlatformCommandContext {
+            args: vec!["Nonexistent".to_owned()],
+            raw_text: "/group coach Nonexistent".to_owned(),
+            ..ctx
+        };
+        let miss = GroupCoachHandler.execute(&ctx_miss).await.unwrap();
+        assert!(
+            miss.text.to_lowercase().contains("no coach"),
+            "unknown coach name should report not found, got: {}",
+            miss.text
+        );
+        let after = resources
+            .common
+            .repos
+            .groups
+            .get_group(&group_id.to_string(), tenant_id)
+            .await
+            .unwrap()
+            .expect("group exists");
+        assert_eq!(
+            after.coach_id,
+            target.id.to_string(),
+            "coach_id must be unchanged after an unmatched name"
+        );
+    }
+
+    #[tokio::test]
     async fn test_privacy_status_handler_reads_current_state() {
         use pierre_commands::privacy::PrivacyStatusHandler;
         use pierre_commands::{CommandHandler, PlatformCommandContext};

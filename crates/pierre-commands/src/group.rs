@@ -20,9 +20,10 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
     KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
+use pierre_core::models::coaches::ListCoachesFilter;
 #[cfg(feature = "tools-groups")]
 use pierre_core::models::groups::GroupInviteKind;
-use pierre_core::models::groups::GroupRole;
+use pierre_core::models::groups::{GroupRole, UpdateGroupRequest};
 
 use crate::{CommandHandler, PlatformCommandContext};
 
@@ -243,6 +244,113 @@ impl CommandHandler for GroupInviteHandler {
                 &[],
             )))
         }
+    }
+}
+
+/// Handler for `/group coach <name>` — set the group's AI coach persona.
+///
+/// Owner/admin only. Resolves a Dravr coach by (case-insensitive) title from
+/// the coaches visible to the caller and points the group's `coach_id` at it,
+/// so that persona answers in the group thereafter. Distinct from
+/// `/group invite coach`, which attaches a *human* coach (`coach_user_id`).
+/// Replies in plain text so it does not depend on the `tools-groups`-gated
+/// messaging strings.
+pub struct GroupCoachHandler;
+
+#[async_trait]
+impl CommandHandler for GroupCoachHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = ctx.ctx.messaging_strings_registry();
+        let locale = ctx.locale.as_str();
+
+        // Coach name argument — joined so multi-word names like "5K Marathon"
+        // arrive intact.
+        let name = ctx.args.join(" ");
+        let name = name.trim();
+        if name.is_empty() {
+            return Ok(CommandResponse::text(
+                "Usage: /group coach <name> — set this group's Dravr coach (e.g. /group coach 5K Marathon)."
+                    .to_owned(),
+            ));
+        }
+
+        // Resolve the caller's group (mirrors /group invite).
+        let groups = ctx
+            .ctx
+            .repos()
+            .groups
+            .list_groups_for_user(ctx.user_id)
+            .await?;
+        let group = groups
+            .first()
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+        // Owner/admin only — changing the group's coach is a settings change.
+        let member = ctx
+            .ctx
+            .repos()
+            .groups
+            .get_member(&group.id.to_string(), ctx.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Membership not found"))?;
+        if !member.role.can_manage_members() {
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_INVITE_FORBIDDEN,
+                locale,
+                &[],
+            )));
+        }
+
+        // Find a visible coach whose title matches — exact (case-insensitive)
+        // first, otherwise the first whose title contains the text.
+        let filter = ListCoachesFilter::with_defaults();
+        let coaches = ctx
+            .ctx
+            .repos()
+            .coaches
+            .list(ctx.user_id, ctx.tenant_id, &filter)
+            .await?;
+        let needle = name.to_lowercase();
+        let matched = coaches
+            .iter()
+            .find(|c| c.coach.title.eq_ignore_ascii_case(name))
+            .or_else(|| {
+                coaches
+                    .iter()
+                    .find(|c| c.coach.title.to_lowercase().contains(&needle))
+            });
+        let Some(found) = matched else {
+            return Ok(CommandResponse::text(format!(
+                "No coach matching \"{name}\" found. Use /coach to see the coaches available to you."
+            )));
+        };
+
+        // Point the group at the chosen coach persona.
+        let request = UpdateGroupRequest {
+            name: None,
+            description: None,
+            coach_id: Some(found.coach.id.to_string()),
+            max_members: None,
+            peer_data_sharing: None,
+            is_active: None,
+        };
+        let updated = ctx
+            .ctx
+            .group_service()
+            .update_group(&group.id.to_string(), ctx.tenant_id, &request)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group not found"))?;
+
+        info!(
+            group_id = %updated.id,
+            coach_id = %found.coach.id,
+            "Group AI coach updated via /group coach"
+        );
+
+        Ok(CommandResponse::text(format!(
+            "{}'s coach is now {}.",
+            updated.name, found.coach.title
+        )))
     }
 }
 
