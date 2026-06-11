@@ -307,4 +307,9 @@ pub mod error_codes {
 
     /// Server error range end
     pub const SERVER_ERROR_END: i32 = -32099;
+
+    /// Authentication required or token invalid. Implementation-defined server
+    /// error (within the -32000..=-32099 range) paired with an HTTP 401 on the
+    /// transport layer for unauthenticated MCP requests.
+    pub const UNAUTHORIZED: i32 = -32001;
 }

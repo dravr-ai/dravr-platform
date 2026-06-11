@@ -26,12 +26,9 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_mcp_server::{
-    constants::tools::PUBLIC_DISCOVERY_TOOLS,
-    mcp::{
-        multitenant::MultiTenantMcpServer,
-        resources::{ServerContext, ServerContextOptions},
-    },
+use pierre_mcp_server::mcp::{
+    multitenant::MultiTenantMcpServer,
+    resources::{ServerContext, ServerContextOptions},
 };
 use rand::Rng;
 use reqwest::{redirect::Policy, Client};
@@ -781,34 +778,24 @@ async fn test_mcp_authentication_required() -> Result<()> {
     let client = MultiTenantMcpClient::new(server_port);
     // Note: No login, so no JWT token
 
-    // Try to list tools without authentication (should succeed - MCP discovery pattern)
+    // Try to list tools without authentication. Per the MCP authorization spec,
+    // a protected resource server rejects unauthenticated requests with a 401,
+    // which the test client surfaces as a JSON-RPC auth error.
     let tools_response = client.list_tools().await?;
 
-    // Tools list should succeed and return only public discovery tools (unauthenticated)
     println!(
         "Tools response: {}",
         serde_json::to_string_pretty(&tools_response)?
     );
     assert_eq!(tools_response["jsonrpc"], "2.0");
     assert_eq!(tools_response["id"], 2);
-    assert!(tools_response["error"].is_null());
-    assert!(!tools_response["result"]["tools"].is_null());
-    let tools = tools_response["result"]["tools"].as_array().unwrap();
-    // Unauthenticated clients receive only PUBLIC_DISCOVERY_TOOLS (safe read-only subset).
-    // Sensitive tools (connection management, admin, write operations) are hidden until auth.
-    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    for name in &tool_names {
-        assert!(
-            PUBLIC_DISCOVERY_TOOLS.contains(name),
-            "Unauthenticated tools/list returned non-public tool: {name}"
-        );
-    }
     assert!(
-        !tool_names.is_empty(),
-        "Public discovery tool list should not be empty"
+        !tools_response["error"].is_null(),
+        "Unauthenticated tools/list must be rejected"
     );
+    assert_eq!(tools_response["error"]["code"], -32603);
 
-    // Try to call a tool without authentication (this should fail)
+    // Try to call a tool without authentication (this should also fail)
     let tool_call_response = client
         .call_tool("get_activities", json!({"provider": "strava", "limit": 10}))
         .await?;
@@ -818,7 +805,9 @@ async fn test_mcp_authentication_required() -> Result<()> {
     assert!(!tool_call_response["error"].is_null());
     assert_eq!(tool_call_response["error"]["code"], -32603);
 
-    println!("Authentication requirement test passed - tools/list works without auth, but tool calls require auth!");
+    println!(
+        "Authentication requirement test passed - both tools/list and tools/call require auth!"
+    );
 
     // Clean up server
     server_handle.abort();
@@ -826,10 +815,10 @@ async fn test_mcp_authentication_required() -> Result<()> {
     Ok(())
 }
 
-/// Test MCP server initialization without authentication (should work)
+/// Test MCP server initialization without authentication (rejected with 401)
 #[tokio::test]
 #[serial]
-async fn test_mcp_initialization_no_auth() -> Result<()> {
+async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
     let (database, auth_manager, server_port, _temp_dir, stored_jwt_secret) =
         setup_test_environment().await?;
 
@@ -889,7 +878,9 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
 
     let client = MultiTenantMcpClient::new(server_port);
 
-    // Initialize requires authentication (per server security policy)
+    // The server is a protected resource: every request, including the initialize
+    // handshake, must carry a valid bearer token. An unauthenticated initialize is
+    // rejected (surfaced by the test client as a JSON-RPC auth error).
     let init_response = client.initialize_mcp().await?;
 
     println!(
@@ -898,20 +889,110 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
     );
     assert_eq!(init_response["jsonrpc"], "2.0");
     assert_eq!(init_response["id"], 1);
-    // Initialize should succeed without authentication (MCP discovery pattern)
-    assert!(init_response["error"].is_null());
-    assert!(!init_response["result"].is_null());
-    assert_eq!(init_response["result"]["protocolVersion"], "2025-11-25");
-    assert_eq!(
-        init_response["result"]["serverInfo"]["name"],
-        "pierre-mcp-server"
+    assert!(
+        !init_response["error"].is_null(),
+        "Unauthenticated initialize must be rejected"
     );
+    assert_eq!(init_response["error"]["code"], -32603);
 
-    println!("MCP initialization without authentication test passed!");
+    println!("MCP unauthenticated-initialize rejection test passed!");
 
     // Clean up server
     server_handle.abort();
 
+    Ok(())
+}
+
+/// Test that the server publishes RFC 9728 OAuth 2.0 Protected Resource Metadata.
+///
+/// MCP clients fetch `/.well-known/oauth-protected-resource` (pointed to by the
+/// `WWW-Authenticate` challenge on a 401) to discover the authorization server.
+#[tokio::test]
+#[serial]
+async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
+    let (database, auth_manager, server_port, _temp_dir, stored_jwt_secret) =
+        setup_test_environment().await?;
+
+    let cache = Cache::new(CacheConfig {
+        max_entries: 1000,
+        redis_url: None,
+        cleanup_interval: Duration::from_mins(1),
+        enable_background_cleanup: false,
+        ..Default::default()
+    })
+    .await?;
+
+    let resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            &stored_jwt_secret,
+            create_test_config(server_port),
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+            },
+        )
+        .await,
+    );
+    let server = MultiTenantMcpServer::new(resources);
+    let server_handle = tokio::spawn(async move {
+        tokio::select! {
+            result = server.run(server_port) => {
+                if let Err(e) = result {
+                    eprintln!("Server failed to start: {e}");
+                }
+            }
+            () = sleep(Duration::from_secs(30)) => {
+                eprintln!("Server startup timed out after 30 seconds");
+            }
+        }
+    });
+
+    sleep(Duration::from_secs(1)).await;
+    for _attempt in 0..10 {
+        if !is_port_available(server_port) {
+            break;
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{server_port}/.well-known/oauth-protected-resource");
+    let response = client.get(&url).send().await?;
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "protected resource metadata endpoint must return 200"
+    );
+    let body: Value = response.json().await?;
+
+    assert!(
+        body["resource"].as_str().is_some_and(|s| !s.is_empty()),
+        "metadata must include a non-empty resource: {body}"
+    );
+    let auth_servers = body["authorization_servers"]
+        .as_array()
+        .expect("metadata must include an authorization_servers array");
+    assert!(
+        !auth_servers.is_empty(),
+        "authorization_servers must list at least one server"
+    );
+    assert!(
+        body["jwks_uri"]
+            .as_str()
+            .is_some_and(|s| s.contains("jwks")),
+        "metadata must include a jwks_uri: {body}"
+    );
+
+    println!("OAuth protected resource metadata endpoint test passed!");
+
+    server_handle.abort();
     Ok(())
 }
 

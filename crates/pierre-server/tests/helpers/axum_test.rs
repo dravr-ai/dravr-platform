@@ -159,6 +159,7 @@ impl AxumTestRequest {
 /// Wrapper around Axum HTTP response for testing
 pub struct AxumTestResponse {
     status: StatusCode,
+    headers: HeaderMap,
     body: Vec<u8>,
 }
 
@@ -167,11 +168,16 @@ impl AxumTestResponse {
     async fn from_response(response: Response<Body>) -> Self {
         use axum::body::to_bytes;
         let status = response.status();
+        let headers = response.headers().clone();
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("Failed to read response body")
             .to_vec();
-        Self { status, body }
+        Self {
+            status,
+            headers,
+            body,
+        }
     }
 
     /// Create from SSE response - only extracts headers, doesn't read streaming body
@@ -183,6 +189,7 @@ impl AxumTestResponse {
         use axum::body::to_bytes;
 
         let status = response.status();
+        let headers = response.headers().clone();
 
         // For SSE endpoints, try to read first chunk with 1 second timeout
         // If timeout occurs, that's OK - it means the SSE stream is waiting for events
@@ -197,7 +204,11 @@ impl AxumTestResponse {
             Ok(Err(_)) | Err(_) => Vec::new(), // Body read error or timeout (OK for SSE)
         };
 
-        Self { status, body }
+        Self {
+            status,
+            headers,
+            body,
+        }
     }
 
     /// Get the response status code as u16 for easy assertion
@@ -208,6 +219,12 @@ impl AxumTestResponse {
     /// Get the response status code as `StatusCode`
     pub const fn status_code(&self) -> StatusCode {
         self.status
+    }
+
+    /// Get a response header value as a string slice, if present and valid UTF-8.
+    #[allow(dead_code)]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|v| v.to_str().ok())
     }
 
     /// Get the response body as bytes

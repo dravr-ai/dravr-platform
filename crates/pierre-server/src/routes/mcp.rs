@@ -9,7 +9,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode},
+    http::{header, HeaderMap, Method, Request, StatusCode},
     response::{IntoResponse, Response},
     Json, Router,
 };
@@ -23,6 +23,7 @@ use crate::{
     constants::mcp_transport::MAX_REQUEST_BODY_BYTES,
     mcp::{multitenant::MultiTenantMcpServer, resources::ServerContext},
 };
+use pierre_jsonrpc::error_codes::UNAUTHORIZED;
 use pierre_mcp_schema::McpRequest;
 use pierre_mcp_transport::tenant_isolation::validate_jwt_token_for_mcp;
 use pierre_middleware::{redact_session_id, RequestId};
@@ -361,6 +362,15 @@ impl McpRoutes {
             }
         }
 
+        // MCP authorization (RFC 9728): `/mcp` is a protected OAuth 2.1 resource
+        // server, so every request MUST carry a valid bearer token. A missing or
+        // invalid token receives a 401 with a `WWW-Authenticate` challenge that
+        // points at the protected resource metadata, letting clients discover the
+        // authorization server and run the OAuth flow.
+        if let Some(challenge) = Self::reject_unauthenticated(&mcp_request, state).await {
+            return Ok(challenge);
+        }
+
         // Process MCP request
         let response_opt =
             MultiTenantMcpServer::handle_request(mcp_request, &state.resources).await;
@@ -384,5 +394,89 @@ impl McpRoutes {
                 Ok(StatusCode::ACCEPTED.into_response())
             }
         }
+    }
+
+    /// Reject requests that do not carry a valid bearer token.
+    ///
+    /// Returns a 401 `WWW-Authenticate` challenge response when the bearer token
+    /// is missing or fails validation, or `None` when the caller is authenticated
+    /// and the request may proceed to dispatch.
+    async fn reject_unauthenticated(
+        mcp_request: &McpRequest,
+        state: &McpRoutesState,
+    ) -> Option<Response> {
+        let base_url = &state.resources.common.config.base_url;
+
+        // The bearer may arrive via the HTTP Authorization header (already
+        // injected into auth_token) or the JSON-RPC `params.token` field used by
+        // the SDK transport. Mirror the request processor's resolution so both
+        // paths are gated consistently.
+        let params_token = mcp_request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("token"))
+            .and_then(serde_json::Value::as_str)
+            .map(|mcp_token| format!("Bearer {mcp_token}"));
+        let resolved = mcp_request
+            .auth_token
+            .as_deref()
+            .or(params_token.as_deref());
+
+        let Some(token) = resolved else {
+            return Some(Self::unauthorized_challenge(
+                base_url,
+                None,
+                mcp_request.id.as_ref(),
+            ));
+        };
+
+        match state
+            .resources
+            .auth
+            .auth_middleware
+            .authenticate_request(Some(token))
+            .await
+        {
+            Ok(_) => None,
+            Err(e) => {
+                debug!(error = %e, "MCP request rejected: bearer token failed validation");
+                Some(Self::unauthorized_challenge(
+                    base_url,
+                    Some("invalid_token"),
+                    mcp_request.id.as_ref(),
+                ))
+            }
+        }
+    }
+
+    /// Build a 401 Unauthorized response with an RFC 9728 `WWW-Authenticate`
+    /// challenge pointing clients at the protected resource metadata document.
+    /// `error` carries an optional RFC 6750 error code (e.g. `invalid_token`).
+    fn unauthorized_challenge(
+        base_url: &str,
+        error: Option<&str>,
+        request_id: Option<&Value>,
+    ) -> Response {
+        let metadata_url = format!("{base_url}/.well-known/oauth-protected-resource");
+        let challenge = error.map_or_else(
+            || format!("Bearer resource_metadata=\"{metadata_url}\""),
+            |err| format!("Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\""),
+        );
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request_id.cloned(),
+            "error": {
+                "code": UNAUTHORIZED,
+                "message": "Authentication required"
+            }
+        });
+
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, challenge)],
+            Json(body),
+        )
+            .into_response()
     }
 }

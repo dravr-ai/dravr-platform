@@ -14,33 +14,30 @@ const path = require('path');
  */
 const SERVER_URL = process.env.PIERRE_SERVER_URL || 'http://localhost:8081';
 const SERVER_PORT = process.env.HTTP_PORT || '8081';
-// Output to shared mcp-types package (SDK re-exports from there)
-const OUTPUT_DIR = path.join(__dirname, '../packages/mcp-types/src');
+// Output to shared mcp-types package (SDK re-exports from there). The script
+// lives in scripts/sdk/, so the package is two levels up at <repo>/packages/.
+const OUTPUT_DIR = path.join(__dirname, '../../packages/mcp-types/src');
 const OUTPUT_TOOLS_FILE = path.join(OUTPUT_DIR, 'tools.ts');
 const OUTPUT_COMMON_FILE = path.join(OUTPUT_DIR, 'common.ts');
-const JWT_TOKEN = process.env.PIERRE_JWT_TOKEN || null;
 
 /**
- * Fetch tool schemas from Pierre server
+ * Fetch tool schemas from the Pierre server's discovery endpoint.
+ *
+ * Uses the unauthenticated `GET /mcp/tools` discovery endpoint, which returns
+ * the full tool registry (every tool's schema). The MCP protocol `POST /mcp`
+ * `tools/list` method is an authenticated, per-session call; type generation
+ * needs the complete catalog with no credentials, which is exactly what this
+ * discovery endpoint provides.
  */
 async function fetchToolSchemas() {
   return new Promise((resolve, reject) => {
-    const requestData = JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'tools/list',
-      params: {}
-    });
-
     const options = {
       hostname: 'localhost',
       port: SERVER_PORT,
-      path: '/mcp',
-      method: 'POST',
+      path: '/mcp/tools',
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(requestData),
-        ...(JWT_TOKEN ? { 'Authorization': `Bearer ${JWT_TOKEN}` } : {})
+        'Content-Type': 'application/json'
       }
     };
 
@@ -59,11 +56,7 @@ async function fetchToolSchemas() {
 
         try {
           const parsed = JSON.parse(data);
-          if (parsed.error) {
-            reject(new Error(`MCP error: ${JSON.stringify(parsed.error)}`));
-            return;
-          }
-          resolve(parsed.result.tools || []);
+          resolve(parsed.tools || []);
         } catch (err) {
           reject(new Error(`Failed to parse response: ${err.message}`));
         }
@@ -74,7 +67,6 @@ async function fetchToolSchemas() {
       reject(new Error(`Failed to connect to server: ${err.message}`));
     });
 
-    req.write(requestData);
     req.end();
   });
 }
@@ -471,7 +463,7 @@ async function main() {
   console.log('🔧 Pierre MCP Types Generator');
   console.log('==============================\n');
 
-  console.log(`📡 Fetching tool schemas from ${SERVER_URL}:${SERVER_PORT}/mcp...`);
+  console.log(`📡 Fetching tool schemas from ${SERVER_URL}:${SERVER_PORT}/mcp/tools...`);
 
   try {
     const tools = await fetchToolSchemas();
@@ -507,8 +499,7 @@ async function main() {
     console.error('❌ Error generating types:', error.message);
     console.error('\n🔍 Troubleshooting:');
     console.error('   1. Ensure Pierre server is running on port', SERVER_PORT);
-    console.error('   2. Check if JWT token is valid (set PIERRE_JWT_TOKEN env var)');
-    console.error('   3. Verify server is accessible at', `${SERVER_URL}:${SERVER_PORT}/mcp`);
+    console.error('   2. Verify the discovery endpoint is reachable at', `${SERVER_URL}:${SERVER_PORT}/mcp/tools`);
     console.error('\n💡 Start server with: cargo run --bin pierre-mcp-server');
     process.exit(1);
   }

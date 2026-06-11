@@ -24,8 +24,7 @@ mod common;
 use anyhow::Result;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
-    constants::tools::PUBLIC_DISCOVERY_TOOLS, mcp::resources::ServerContext,
-    tools::registry_builtin::register_builtin_tools,
+    mcp::resources::ServerContext, tools::registry_builtin::register_builtin_tools,
 };
 use pierre_tool_runtime::registry::ToolRegistry;
 use reqwest::Client;
@@ -115,6 +114,36 @@ async fn post_tools_list(
     Ok(body)
 }
 
+/// POST a JSON-RPC `tools/list` and return `(status, www-authenticate, body)` without
+/// asserting the status — for tests that expect a 401 challenge.
+async fn post_tools_list_raw(
+    client: &Client,
+    base_url: &str,
+    auth_header: Option<&str>,
+) -> Result<(u16, Option<String>, Value)> {
+    let mut req = client
+        .post(format!("{base_url}/mcp"))
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {}
+        }));
+    if let Some(header) = auth_header {
+        req = req.header("authorization", header);
+    }
+    let response = req.send().await?;
+    let status = response.status().as_u16();
+    let www_authenticate = response
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .map(ToOwned::to_owned);
+    let body: Value = response.json().await?;
+    Ok((status, www_authenticate, body))
+}
+
 /// Extract the `result.tools` array as a set of tool names.
 fn extract_tool_names(body: &Value) -> HashSet<String> {
     body["result"]["tools"]
@@ -156,68 +185,57 @@ fn assert_every_tool_has_valid_schema(body: &Value) {
     }
 }
 
-/// Unauthenticated `tools/list` MUST return exactly the `PUBLIC_DISCOVERY_TOOLS` set.
+/// Unauthenticated `tools/list` MUST be rejected with a 401 + WWW-Authenticate (RFC 9728).
 ///
-/// Regression: an empty/partial catalog silently collapsed the public set. This test
-/// pins the exact names so any drop (or accidental addition) is detected immediately.
+/// A protected MCP resource server does not disclose any tools to anonymous callers;
+/// it returns a challenge pointing at the protected resource metadata instead.
 #[tokio::test]
-async fn test_tools_list_unauthenticated_exact_public_set() -> Result<()> {
+async fn test_tools_list_unauthenticated_returns_401() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 
-    let body = post_tools_list(&client, &server.base_url(), None).await?;
-    let returned: HashSet<String> = extract_tool_names(&body);
-    let expected: HashSet<String> = PUBLIC_DISCOVERY_TOOLS
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
+    let (status, www_authenticate, body) =
+        post_tools_list_raw(&client, &server.base_url(), None).await?;
 
-    let missing: Vec<&String> = expected.difference(&returned).collect();
-    let extra: Vec<&String> = returned.difference(&expected).collect();
-
+    assert_eq!(status, 401, "unauthenticated tools/list must be 401");
+    let challenge = www_authenticate.expect("401 must carry a WWW-Authenticate header");
     assert!(
-        missing.is_empty() && extra.is_empty(),
-        "Unauthenticated tools/list drifted from PUBLIC_DISCOVERY_TOOLS.\n\
-         Expected: {} tools, returned: {} tools.\n\
-         Missing from response: {missing:?}\n\
-         Extra in response (leak): {extra:?}",
-        expected.len(),
-        returned.len()
+        challenge.contains("resource_metadata=") && challenge.contains("oauth-protected-resource"),
+        "WWW-Authenticate must point at the protected resource metadata: {challenge}"
+    );
+    assert!(
+        body["result"].get("tools").is_none(),
+        "Unauthenticated tools/list must not disclose any tools"
     );
 
-    assert_every_tool_has_valid_schema(&body);
-
-    println!(
-        "✓ Unauthenticated tools/list: exact match, {} tools",
-        returned.len()
-    );
+    println!("✓ Unauthenticated tools/list: 401 + WWW-Authenticate");
     Ok(())
 }
 
-/// Invalid bearer token MUST fall back to the public discovery set (same as unauth).
+/// A present-but-invalid bearer token MUST be rejected with a 401, not downgraded to
+/// a public tool subset (MCP authorization spec / RFC 6750 `invalid_token`).
 #[tokio::test]
-async fn test_tools_list_invalid_token_falls_back_to_exact_public_set() -> Result<()> {
+async fn test_tools_list_invalid_token_returns_401() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 
-    let body = post_tools_list(&client, &server.base_url(), Some("Bearer bogus_token_xyz")).await?;
-    let returned = extract_tool_names(&body);
-    let expected: HashSet<String> = PUBLIC_DISCOVERY_TOOLS
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
+    let (status, www_authenticate, body) =
+        post_tools_list_raw(&client, &server.base_url(), Some("Bearer bogus_token_xyz")).await?;
 
-    assert_eq!(
-        returned, expected,
-        "Invalid-token tools/list must match PUBLIC_DISCOVERY_TOOLS exactly"
+    assert_eq!(status, 401, "invalid-token tools/list must be 401");
+    let challenge = www_authenticate.expect("401 must carry a WWW-Authenticate header");
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "Invalid-token challenge must carry error=invalid_token: {challenge}"
+    );
+    assert!(
+        body["result"].get("tools").is_none(),
+        "Invalid-token tools/list must not disclose any tools"
     );
 
-    println!(
-        "✓ Invalid-token tools/list falls back cleanly: {} tools",
-        returned.len()
-    );
+    println!("✓ Invalid-token tools/list: 401 + WWW-Authenticate (invalid_token)");
     Ok(())
 }
 
@@ -226,7 +244,7 @@ async fn test_tools_list_invalid_token_falls_back_to_exact_public_set() -> Resul
 /// This covers the regression path: when the `tenant_filtered`/admin branch returned a
 /// depleted set (e.g. 15 tools from an empty catalog), this assertion would fail.
 #[tokio::test]
-async fn test_tools_list_authenticated_owner_exceeds_floor_and_superset_of_public() -> Result<()> {
+async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_user, token) =
         common::create_test_tenant(&resources, "owner-tools-list@example.com").await?;
@@ -260,16 +278,13 @@ async fn test_tools_list_authenticated_owner_exceeds_floor_and_superset_of_publi
         "Tenant owner must see admin_* tools in tools/list, got none"
     );
 
-    // Public discovery set must be a strict subset of the authenticated set.
-    let public: HashSet<String> = PUBLIC_DISCOVERY_TOOLS
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
-    let missing_public: Vec<&String> = public.difference(&returned).collect();
-    assert!(
-        missing_public.is_empty(),
-        "Authenticated set must contain every PUBLIC_DISCOVERY_TOOL, missing: {missing_public:?}"
-    );
+    // Core read tools must be present for an authenticated user.
+    for core in &["get_activities", "get_athlete", "get_stats"] {
+        assert!(
+            returned.contains(*core),
+            "Authenticated owner missing core read tool '{core}'"
+        );
+    }
 
     // Sensitive non-public tools that must only appear once authenticated.
     for expected_auth_only in &[
@@ -402,7 +417,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
 /// - Runs `get_effective_tools` on an empty `tool_catalog` (no seeding).
 /// - Routes through `is_admin()==false` by using a second user added as Member.
 /// - Validates that `admin_*` tools are NOT exposed (leak guard).
-/// - Validates that `PUBLIC_DISCOVERY_TOOLS` are all present (public floor).
+/// - Validates that uncatalogued feature-flag tools are present (no collapse).
 #[tokio::test]
 async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
@@ -470,17 +485,6 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
     assert!(
         admin_leaks.is_empty(),
         "admin_* tools leaked to non-admin tenant member: {admin_leaks:?}"
-    );
-
-    // Public discovery set must be a subset of the member's view.
-    let public: HashSet<String> = PUBLIC_DISCOVERY_TOOLS
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
-    let missing_public: Vec<&String> = public.difference(&returned).collect();
-    assert!(
-        missing_public.is_empty(),
-        "Tenant member missing PUBLIC_DISCOVERY_TOOLS: {missing_public:?}"
     );
 
     // Uncatalogued-merge sanity check: specific feature-flag tool categories

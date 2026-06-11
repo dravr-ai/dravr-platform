@@ -1,5 +1,5 @@
 // ABOUTME: Regression tests for unified tool registry architecture.
-// ABOUTME: Ensures PUBLIC_DISCOVERY_TOOLS are registered and tool count stays above threshold.
+// ABOUTME: Ensures core tools stay registered and tool count stays above threshold.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,6 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::panic)]
 
-use pierre_mcp_server::constants::tools::PUBLIC_DISCOVERY_TOOLS;
 use pierre_mcp_server::tools::registry_builtin::{get_tools, register_builtin_tools};
 use pierre_tool_runtime::registry::ToolRegistry;
 use std::collections::HashSet;
@@ -16,35 +15,6 @@ use std::collections::HashSet;
 /// Minimum number of user-visible tools. This threshold prevents silent regressions
 /// where tools disappear from the registry without anyone noticing.
 const MIN_USER_VISIBLE_TOOLS: usize = 55;
-
-#[test]
-fn test_public_discovery_tools_are_all_registered() {
-    let mut registry = ToolRegistry::new();
-    register_builtin_tools(&mut registry);
-
-    let registered_names: HashSet<&str> = registry.tool_names().into_iter().collect();
-
-    let mut missing = Vec::new();
-    for tool_name in PUBLIC_DISCOVERY_TOOLS {
-        if !registered_names.contains(tool_name) {
-            missing.push(*tool_name);
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "PUBLIC_DISCOVERY_TOOLS contains {} tools not registered in ToolRegistry: {:?}\n\
-         This means unauthenticated clients will see tools they cannot execute.\n\
-         Fix: Add McpTool implementations for these tools.",
-        missing.len(),
-        missing
-    );
-
-    println!(
-        "All {} PUBLIC_DISCOVERY_TOOLS are registered in ToolRegistry",
-        PUBLIC_DISCOVERY_TOOLS.len()
-    );
-}
 
 #[test]
 fn test_user_visible_tool_count_above_threshold() {
