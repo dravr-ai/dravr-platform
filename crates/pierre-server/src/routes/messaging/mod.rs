@@ -12,7 +12,10 @@
 
 mod config;
 pub(crate) mod linking;
-pub(crate) mod slack_actions;
+/// Slack interactive action handlers: ops approve/reject postbacks and
+/// messaging command callbacks. Exposed for the ops-channel authorization
+/// unit tests.
+pub mod slack_actions;
 mod templates;
 pub(crate) mod webhooks;
 
