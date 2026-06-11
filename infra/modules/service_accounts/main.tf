@@ -169,6 +169,11 @@ locals {
     "roles/logging.configWriter",
     "roles/monitoring.editor",
     "roles/cloudscheduler.admin",
+    # Manage the KMS keyring/crypto key + its IAM added by the kms module
+    # (ADR-017 envelope encryption). Without cloudkms read/manage, the runner
+    # 403s on `cloudkms.keyRings.get` during refresh and EVERY apply aborts
+    # before reaching any other resource — silently stranding env-var changes.
+    "roles/cloudkms.admin",
   ]
 }
 
