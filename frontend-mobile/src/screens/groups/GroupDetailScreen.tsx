@@ -212,16 +212,57 @@ export function GroupDetailScreen() {
     [groupId, refetchMembers],
   );
 
-  const handleShareInvite = useCallback(async () => {
+  const createInviteOfKind = useCallback(
+    async (kind: 'member' | 'coach') => {
+      if (!groupId) return;
+      try {
+        const request =
+          kind === 'coach'
+            ? { expires_in_days: 7, kind: 'coach' as const }
+            : { expires_in_days: 7 };
+        const invite = await groupsApi.createInvite(groupId, request);
+        Alert.alert(
+          kind === 'coach' ? 'Coach Invite Code' : 'Invite Code',
+          kind === 'coach'
+            ? `${invite.code}\n\nShare with the coach who will oversee this group.`
+            : invite.code,
+          [{ text: 'OK' }],
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to create invite';
+        Alert.alert('Error', msg);
+      }
+    },
+    [groupId],
+  );
+
+  const handleShareInvite = useCallback(() => {
+    Alert.alert('Create Invite', 'Who is this invite for?', [
+      { text: 'Member (athlete)', onPress: () => void createInviteOfKind('member') },
+      { text: 'Coach', onPress: () => void createInviteOfKind('coach') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [createInviteOfKind]);
+
+  const handleRemoveCoach = useCallback(() => {
     if (!groupId) return;
-    try {
-      const invite = await groupsApi.createInvite(groupId, { expires_in_days: 7 });
-      Alert.alert('Invite Code', invite.code, [{ text: 'OK' }]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create invite';
-      Alert.alert('Error', msg);
-    }
-  }, [groupId]);
+    Alert.alert('Remove Coach', 'Detach the human coach from this group?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await groupsApi.removeCoach(groupId);
+            await refetchGroup();
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Failed to remove coach';
+            Alert.alert('Error', msg);
+          }
+        },
+      },
+    ]);
+  }, [groupId, refetchGroup]);
 
   if (isLoading && !group) {
     return (
@@ -308,6 +349,23 @@ export function GroupDetailScreen() {
             />
           </View>
         </View>
+
+        {/* Human coach */}
+        {group.coach_user_id && (
+          <View className="p-4 mb-4 flex-row items-center justify-between" style={sectionCardStyle}>
+            <View className="flex-row items-center gap-2 flex-1">
+              <Feather name="user-check" size={18} color={colors.pierre.violet} />
+              <Text className="text-text-primary text-sm font-semibold">Human coach attached</Text>
+            </View>
+            {isAdmin && (
+              <TouchableOpacity onPress={handleRemoveCoach} testID="remove-coach-button">
+                <Text className="text-sm font-semibold" style={{ color: colors.text.secondary }}>
+                  Remove
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Action Buttons */}
         <View className="flex-row gap-3 mb-4">

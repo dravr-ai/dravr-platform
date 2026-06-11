@@ -21,6 +21,7 @@ import type {
   GroupHealthFlag,
   MemberGroupComparison,
   ListGroupsResponse,
+  CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
@@ -42,6 +43,7 @@ export type {
   GroupHealthFlag,
   MemberGroupComparison,
   ListGroupsResponse,
+  CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
@@ -95,6 +97,23 @@ export function createGroupsApi(axios: AxiosInstance) {
     /** Leave a group */
     async leaveGroup(groupId: string): Promise<void> {
       await axios.post(ENDPOINTS.GROUPS.LEAVE(groupId));
+    },
+
+    // ==================== HUMAN COACH ====================
+
+    /**
+     * Detach the group's human coach (admin/owner only). The coach is invited
+     * by issuing a `kind: 'coach'` invite via {@link createInvite}; redemption
+     * goes through {@link joinGroup} like any other invite code.
+     */
+    async removeCoach(groupId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.GROUPS.COACH(groupId));
+    },
+
+    /** List the groups the current user is the human coach of */
+    async listCoachedGroups(): Promise<CoachedGroupsResponse> {
+      const response = await axios.get<CoachedGroupsResponse>(ENDPOINTS.GROUPS.COACHED);
+      return response.data;
     },
 
     /** List members of a group */

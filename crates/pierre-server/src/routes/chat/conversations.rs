@@ -39,6 +39,7 @@ async fn verify_group_membership(
     resources: &Arc<ServerContext>,
     group_id: &str,
     user_id: Uuid,
+    tenant_id: TenantId,
 ) -> Result<(), AppError> {
     let member = resources
         .common
@@ -46,13 +47,29 @@ async fn verify_group_membership(
         .groups
         .get_member(group_id, user_id)
         .await?;
-    match member {
-        Some(m) if m.left_at.is_none() => Ok(()),
-        _ => Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Cannot attach conversation to a group you don't belong to",
-        )),
+    if matches!(&member, Some(m) if m.left_at.is_none()) {
+        return Ok(());
     }
+
+    // The group's human coach can attach a conversation even though they are
+    // not a member — they oversee the group through its coach persona, with
+    // each member's data still gated by their own peer_sharing_consent.
+    if let Some(group) = resources
+        .common
+        .repos
+        .groups
+        .get_group(group_id, tenant_id)
+        .await?
+    {
+        if group.coach_user_id == Some(user_id) {
+            return Ok(());
+        }
+    }
+
+    Err(AppError::new(
+        ErrorCode::PermissionDenied,
+        "Cannot attach conversation to a group you don't belong to",
+    ))
 }
 
 /// Best-effort `coach_assignments.use_count++` for REST-created conversations.
@@ -129,9 +146,10 @@ pub async fn create_conversation(
     }
 
     // Verify group membership when caller asks to attach a group_id —
-    // a user can only create a conversation scoped to a group they belong to.
+    // a user can only create a conversation scoped to a group they belong to,
+    // or one they are the human coach of.
     if let Some(gid) = request.group_id.as_deref() {
-        verify_group_membership(&resources, gid, auth.user_id).await?;
+        verify_group_membership(&resources, gid, auth.user_id, tenant_id).await?;
     }
 
     let result = create_conversation_row(

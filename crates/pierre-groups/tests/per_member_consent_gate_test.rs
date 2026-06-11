@@ -23,6 +23,7 @@ fn group(peer_data_sharing: bool) -> CoachingGroup {
         description: None,
         coach_id: "coach-test".to_owned(),
         owner_id: Uuid::nil(),
+        coach_user_id: None,
         peer_data_sharing,
         max_members: 20,
         is_active: true,

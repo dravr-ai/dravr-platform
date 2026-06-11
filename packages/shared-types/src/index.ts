@@ -201,6 +201,7 @@ export type {
 // Group coaching types (groups, members, invites, analytics)
 export type {
   GroupRole,
+  GroupInviteKind,
   OvertrainingRiskLevel,
   GroupTrend,
   SummaryDetailLevel,
@@ -221,6 +222,7 @@ export type {
   GroupHealthFlag,
   GroupWeeklyReport,
   ListGroupsResponse,
+  CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,

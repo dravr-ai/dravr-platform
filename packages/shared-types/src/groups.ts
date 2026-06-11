@@ -6,6 +6,9 @@
 /** Role within a coaching group */
 export type GroupRole = 'owner' | 'admin' | 'member';
 
+/** What redeeming a group invite grants: athlete membership or coach attachment */
+export type GroupInviteKind = 'member' | 'coach';
+
 /** Overtraining risk level for a member */
 export type OvertrainingRiskLevel = 'low' | 'moderate' | 'high';
 
@@ -36,6 +39,8 @@ export interface CoachingGroup {
   description: string | null;
   coach_id: string;
   owner_id: string;
+  /** Human professional coach attached to oversee this group, if any */
+  coach_user_id: string | null;
   peer_data_sharing: boolean;
   max_members: number;
   is_active: boolean;
@@ -63,6 +68,8 @@ export interface GroupInvite {
   group_id: string;
   tenant_id: string;
   code: string;
+  /** Whether redeeming this invite grants membership or coach attachment */
+  kind: GroupInviteKind;
   created_by: string;
   expires_at: string | null;
   max_uses: number | null;
@@ -110,6 +117,8 @@ export interface UpdatePeerConsentRequest {
 export interface CreateInviteRequest {
   expires_in_days?: number;
   max_uses?: number;
+  /** Athlete membership (default) or coach attachment */
+  kind?: GroupInviteKind;
 }
 
 // ========== RESPONSE TYPES ==========
@@ -169,6 +178,12 @@ export interface GroupWeeklyReport {
 /** Response for listing groups */
 export interface ListGroupsResponse {
   groups: GroupSummary[];
+}
+
+/** Response for listing the groups a user is the human coach of */
+export interface CoachedGroupsResponse {
+  groups: CoachingGroup[];
+  total: number;
 }
 
 /** Response for listing group members */

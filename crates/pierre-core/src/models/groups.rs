@@ -71,6 +71,51 @@ impl fmt::Display for GroupRole {
     }
 }
 
+/// What redeeming a group invite grants the joining user.
+///
+/// Separate from [`GroupRole`]: a `Coach` invite does not create a
+/// membership row at all — it attaches the redeemer as the group's human
+/// coach via `coaching_groups.coach_user_id`. Keeping this distinct from
+/// the member role enum means a human coach never counts against
+/// `max_members` and never appears in the athlete roster.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GroupInviteKind {
+    /// Standard athlete membership (the default for every existing invite)
+    #[default]
+    Member,
+    /// Attaches the redeemer as the group's human coach (`coach_user_id`)
+    Coach,
+}
+
+impl GroupInviteKind {
+    /// String representation for database storage
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Member => "member",
+            Self::Coach => "coach",
+        }
+    }
+
+    /// Parse from a database string, falling back to `Member` for unknowns
+    #[must_use]
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "member" => Some(Self::Member),
+            "coach" => Some(Self::Coach),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for GroupInviteKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A coaching group binding a coach persona to multiple athletes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -87,6 +132,12 @@ pub struct CoachingGroup {
     pub coach_id: String,
     /// User who created and owns the group
     pub owner_id: Uuid,
+    /// Human professional coach (a Dravr user) attached to oversee this
+    /// group. `None` until a coach redeems a coach-kind invite. Distinct
+    /// from `coach_id`, which is the AI coach persona that answers chats:
+    /// the human coach reads the roster through that persona, gated by the
+    /// same per-member `peer_sharing_consent`.
+    pub coach_user_id: Option<Uuid>,
     /// Whether peer data sharing is enabled for this group
     pub peer_data_sharing: bool,
     /// Maximum allowed members
@@ -146,6 +197,9 @@ pub struct GroupInvite {
     pub tenant_id: String,
     /// The invite code (8-char alphanumeric)
     pub code: String,
+    /// What redeeming this invite grants — athlete membership (default)
+    /// or attachment as the group's human coach.
+    pub kind: GroupInviteKind,
     /// User who created the invite
     pub created_by: Uuid,
     /// When the invite expires (None = never)

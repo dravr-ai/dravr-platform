@@ -289,6 +289,11 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>>;
 
+    /// List active groups where the given user is the attached human coach
+    /// (`coach_user_id`). No tenant filter — groups span tenants and the
+    /// coach attachment is the access key.
+    async fn list_groups_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<CoachingGroup>>;
+
     /// List every active group owned by a tenant.
     ///
     /// Used by the weekly-digest scheduler to enumerate the groups eligible
@@ -309,6 +314,16 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Soft-delete a coaching group (sets `is_active` = false)
     async fn delete_group(&self, group_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+
+    /// Attach or clear the human coach (`coach_user_id`) for a group.
+    /// Pass `None` to detach. Tenant-scoped write — the coach must belong to
+    /// the group's tenant (enforced by the caller before attaching).
+    async fn set_group_coach_user(
+        &self,
+        group_id: &str,
+        coach_user_id: Option<Uuid>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
 
     // -- Membership --
 

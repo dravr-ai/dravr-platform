@@ -20,6 +20,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
     KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
+#[cfg(feature = "tools-groups")]
+use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::groups::GroupRole;
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -205,10 +207,23 @@ impl CommandHandler for GroupInviteHandler {
 
         #[cfg(feature = "tools-groups")]
         {
+            // `/group invite coach` issues a coach invite (attaches the
+            // redeemer as the group's human coach); any other arg defaults to
+            // a standard athlete-membership invite.
+            let kind = if ctx
+                .args
+                .first()
+                .is_some_and(|a| a.trim().eq_ignore_ascii_case("coach"))
+            {
+                GroupInviteKind::Coach
+            } else {
+                GroupInviteKind::Member
+            };
+
             let invite = ctx
                 .ctx
                 .group_service()
-                .create_invite(group.id, ctx.user_id, ctx.tenant_id, Some(7), None)
+                .create_invite(group.id, ctx.user_id, ctx.tenant_id, Some(7), None, kind)
                 .await?;
 
             let text = reg.render(
