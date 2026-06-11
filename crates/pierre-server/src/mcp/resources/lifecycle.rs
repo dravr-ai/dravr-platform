@@ -28,8 +28,8 @@ use pierre_commands::{
     account::LogoutHandler,
     coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
     group::{
-        GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler, GroupListHandler,
-        GroupMembersHandler, GroupStatusHandler,
+        GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
+        GroupListHandler, GroupMembersHandler, GroupStatusHandler,
     },
     help::HelpHandler,
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
@@ -284,6 +284,7 @@ impl ServerContext {
             handler_reg.register("group-status", Arc::new(GroupStatusHandler));
             handler_reg.register("group-members", Arc::new(GroupMembersHandler));
             handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
+            handler_reg.register("group-coach", Arc::new(GroupCoachHandler));
             handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
             handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
             handler_reg.register("coach", Arc::new(CoachListHandler));
