@@ -88,7 +88,8 @@ describe('Token Edge Cases - Refresh Race Conditions', () => {
   }, 30000);
 
   test('should handle token refresh during active tool call', async () => {
-    const tokenData = generateTestToken('user-during-call', 'during@example.com', 30);
+    // Use the real server-issued token so the /mcp request actually authenticates.
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
     const validateEndpoint = `${serverUrl}/oauth2/validate-and-refresh`;
 
@@ -128,7 +129,7 @@ describe('Token Edge Cases - Refresh Race Conditions', () => {
   }, 30000);
 
   test('should use latest token after refresh completes', async () => {
-    const tokenData = generateTestToken('user-latest', 'latest@example.com', 120);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // First request with initial token
@@ -319,7 +320,7 @@ describe('Token Edge Cases - Concurrent Token Refresh Requests', () => {
   }, 60000);
 
   test('should maintain token consistency across concurrent refreshes', async () => {
-    const tokenData = generateTestToken('user-consistent', 'consistent@example.com', 120);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Multiple concurrent tool calls with same token
@@ -419,7 +420,7 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
   });
 
   test('should handle token becoming invalid during tool execution', async () => {
-    const tokenData = generateTestToken('user-midinvalid', 'midinvalid@example.com', 5);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Start a request with token about to expire
@@ -447,7 +448,7 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
   }, 30000);
 
   test('should return proper error when token is revoked mid-session', async () => {
-    const tokenData = generateTestToken('user-revokemid', 'revokemid@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // First request should work
@@ -482,14 +483,11 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
       })
     });
 
-    // Should fail with auth error
-    expect(revokedResponse.status).toBe(200);
+    // An invalid/revoked token is now rejected at the transport with a 401
+    // (RFC 9728), carrying a JSON-RPC auth error body.
+    expect(revokedResponse.status).toBe(401);
     const body = await revokedResponse.json();
-
-    // JSON-RPC response with authentication error
-    if (body.error) {
-      expect(body.error.code).toBeDefined();
-    }
+    expect(body.error.code).toBeDefined();
   }, 30000);
 
   test('should not retry with invalidated token', async () => {
@@ -513,16 +511,16 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
       })
     });
 
-    // Should return error, not loop infinitely
-    expect(response.status).toBe(200);
+    // An invalidated/expired token is rejected with a 401 (no silent retry).
+    expect(response.status).toBe(401);
     const body = await response.json();
 
-    // Should have completed (with error is fine)
+    // The 401 carries a JSON-RPC auth error body.
     expect(body.jsonrpc).toBe('2.0');
   }, 30000);
 
   test('should gracefully handle session termination', async () => {
-    const tokenData = generateTestToken('user-terminate', 'terminate@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Make a request
@@ -567,7 +565,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   });
 
   test('should refresh provider token transparently during tool call', async () => {
-    const tokenData = generateTestToken('user-providerrefresh', 'providerrefresh@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {
@@ -593,7 +591,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should handle provider token refresh failure gracefully', async () => {
-    const tokenData = generateTestToken('user-providerfail', 'providerfail@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {
@@ -620,7 +618,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should isolate provider token refresh from Pierre token', async () => {
-    const tokenData = generateTestToken('user-isolate', 'isolate@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Request to one provider
@@ -664,7 +662,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should require provider re-auth when refresh token expires', async () => {
-    const tokenData = generateTestToken('user-reauth', 'reauth@example.com', 3600);
+    const tokenData = { access_token: serverHandle.testToken };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {

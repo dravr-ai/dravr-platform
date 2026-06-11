@@ -119,6 +119,11 @@ impl OAuth2Routes {
                 "/.well-known/oauth-authorization-server",
                 get(Self::handle_discovery),
             )
+            // RFC 9728: OAuth 2.0 Protected Resource Metadata (MCP resource server)
+            .route(
+                "/.well-known/oauth-protected-resource",
+                get(Self::handle_protected_resource_metadata),
+            )
             // RFC 7517: JWKS endpoint
             .route("/.well-known/jwks.json", get(Self::handle_jwks))
             // RFC 7591: Dynamic Client Registration
@@ -170,6 +175,40 @@ impl OAuth2Routes {
         });
 
         Json(discovery_json)
+    }
+
+    /// Handle OAuth 2.0 Protected Resource Metadata discovery (RFC 9728).
+    ///
+    /// The MCP authorization spec requires a protected MCP server to act as an
+    /// OAuth 2.1 resource server and publish this document so clients can locate
+    /// the authorization server after receiving a 401. The `WWW-Authenticate`
+    /// header on `/mcp` 401 responses points here via its `resource_metadata`
+    /// parameter. Pierre hosts its own authorization server, so `resource` and
+    /// `authorization_servers` both resolve to the issuer base URL.
+    async fn handle_protected_resource_metadata(
+        State(context): State<OAuth2Context>,
+    ) -> Json<serde_json::Value> {
+        let issuer_url = context.config.issuer_url.clone();
+
+        // Use spawn_blocking for JSON serialization (CPU-bound operation)
+        let metadata_json = spawn_blocking(move || {
+            serde_json::json!({
+                "resource": issuer_url,
+                "authorization_servers": [issuer_url],
+                "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
+                "scopes_supported": ["fitness:read", "activities:read", "profile:read"],
+                "bearer_methods_supported": ["header"]
+            })
+        })
+        .await
+        .unwrap_or_else(|_| {
+            serde_json::json!({
+                "error": "internal_error",
+                "error_description": "Failed to generate protected resource metadata"
+            })
+        });
+
+        Json(metadata_json)
     }
 
     /// Handle client registration (RFC 7591)

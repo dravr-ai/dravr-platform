@@ -18,7 +18,6 @@ use crate::constants::errors::{
 };
 use crate::constants::get_server_config;
 use crate::constants::protocol::{server_name_multitenant, JSONRPC_VERSION, SERVER_VERSION};
-use crate::constants::tools::PUBLIC_DISCOVERY_TOOLS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_mcp_schema::{
@@ -27,7 +26,7 @@ use pierre_mcp_schema::{
 };
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncWriteExt, Stdout};
@@ -313,8 +312,11 @@ impl McpRequestProcessor {
             .or(auth_token_string.as_deref());
 
         let Some(token) = auth_token else {
-            debug!("tools/list: no auth token, returning public discovery tools");
-            return self.public_discovery_tools();
+            // The /mcp HTTP transport rejects unauthenticated requests with a 401
+            // before dispatch (RFC 9728). Reaching here without a token means a
+            // non-HTTP caller; per the MCP authorization model, no token => no tools.
+            debug!("tools/list: no auth token, returning no tools");
+            return Vec::new();
         };
 
         match self
@@ -337,11 +339,11 @@ impl McpRequestProcessor {
                 .await
             }
             Err(e) => {
-                debug!(
-                    "tools/list: auth failed ({}), returning public discovery tools",
-                    e
-                );
-                self.public_discovery_tools()
+                // Invalid token: the /mcp HTTP transport returns 401 before
+                // dispatch, so any caller reaching here with a bad token gets
+                // no tools rather than a public subset.
+                debug!("tools/list: auth failed ({e}), returning no tools");
+                Vec::new()
             }
         }
     }
@@ -381,25 +383,11 @@ impl McpRequestProcessor {
         self.resources.mcp.tool_registry.user_visible_schemas()
     }
 
-    /// Return public discovery tools (safe subset for unauthenticated clients)
-    fn public_discovery_tools(&self) -> Vec<ToolSchema> {
-        self.resources
-            .mcp
-            .tool_registry
-            .list_schemas_by_names(PUBLIC_DISCOVERY_TOOLS)
-    }
-
     /// Get tenant-filtered tool schemas for non-admin users
     ///
-    /// Combines three sources to build the tool list:
+    /// Combines two sources to build the tool list:
     /// 1. Enabled tools from `ToolSelectionService` (catalog-based, tenant-aware)
     /// 2. Uncatalogued tools from the registry (feature-flag tools like coaches/mobility)
-    /// 3. `PUBLIC_DISCOVERY_TOOLS` as a floor — an authenticated user must never see
-    ///    fewer tools than an anonymous caller, regardless of plan restrictions. Tools
-    ///    in the public set whose catalog `min_plan` exceeds the tenant's plan would
-    ///    otherwise disappear from `tools/list` entirely for lower-tier tenants. They
-    ///    will still be rejected at `tools/call` time via plan enforcement, but they
-    ///    remain discoverable.
     ///
     /// Admin-only tools are excluded to prevent non-admin users from seeing them
     /// even if they appear in the catalog.
@@ -445,23 +433,6 @@ impl McpRequestProcessor {
                     .tool_registry
                     .uncatalogued_user_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
-
-                // Ensure the public-discovery floor is present even when plan
-                // restrictions disable some of those tools in the catalog.
-                let present: HashSet<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
-                let missing_public: Vec<&str> = PUBLIC_DISCOVERY_TOOLS
-                    .iter()
-                    .copied()
-                    .filter(|name| !present.contains(name))
-                    .collect();
-                if !missing_public.is_empty() {
-                    let floor = self
-                        .resources
-                        .mcp
-                        .tool_registry
-                        .list_schemas_by_names(&missing_public);
-                    schemas.extend(floor);
-                }
 
                 schemas
             }

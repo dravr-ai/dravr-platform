@@ -321,18 +321,15 @@ describe('Token Expiry During Tool Execution - REGRESSION TEST', () => {
       body: JSON.stringify(toolCallRequest)
     });
 
-    // Server behavior: HS256 test tokens don't match RS256 server expectations
-    // Server returns 200 with JSON-RPC error about authentication instead of HTTP 401
-    // This is acceptable MCP server behavior - authentication errors can be in JSON-RPC response
-    expect(response.status).toBe(200);
+    // The server is a protected OAuth 2.1 resource: an expired/invalid token is
+    // rejected at the transport with a 401 (RFC 9728), carrying a JSON-RPC auth
+    // error body. In real usage this 401 is the signal for the bridge to refresh.
+    expect(response.status).toBe(401);
 
     const body = await response.json();
-    // Check if response contains authentication-related error
-    if (body.error) {
-      expect(body.error.code).toBeDefined();
-      // MCP authentication errors typically use negative error codes
-      expect(body.error.code).toBeLessThan(0);
-    }
+    expect(body.error.code).toBeDefined();
+    // Authentication errors use negative JSON-RPC error codes.
+    expect(body.error.code).toBeLessThan(0);
   }, 30000);
 
   test('should preserve tool call arguments after token refresh', () => {
