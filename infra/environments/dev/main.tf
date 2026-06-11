@@ -401,16 +401,17 @@ module "backend" {
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
-      # Detail-page enrichment is OFF: it's an N+1 headless roundtrip (navigate to
-      # each activity's detail page) that ran ~4.5 min and timed out on a real
-      # coaching turn, blowing past the ACP turn timeout and handing the coach 0
-      # activities. The list page already carries type, date, distance, and
-      # elevation (dénivelé), and ambient temperature is filled by the weather
-      # backfill — so coaching has what it needs without the N+1. Enrichment only
-      # adds precise UTC start-time + HR/power/cadence. The durable fix is bounded
-      # enrichment (enrich only the most recent N) via a dravr-sciotte enrich_limit;
-      # until that ships, the synchronous all-activities enrich stays off.
+      # Detail-page enrichment. The all-activities N+1 (navigate to each detail
+      # page) ran ~4.5 min and timed out on a real coaching turn, handing the
+      # coach 0 activities — so it's OFF by default. The list page already carries
+      # type, date, distance, and elevation (dénivelé), and ambient temperature is
+      # filled by the weather backfill, so coaching has what it needs without it.
+      # Enrichment only adds precise UTC start-time + HR/power/cadence. With
+      # dravr-sciotte v0.7.1, flipping ENRICH_DETAILS to "true" now enriches only
+      # the most recent ENRICH_LIMIT activities (bounded), so it no longer runs
+      # minutes — opt in once the list-only path is confirmed.
       PIERRE_SCIOTTE_ENRICH_DETAILS = "false"
+      PIERRE_SCIOTTE_ENRICH_LIMIT   = "5"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
