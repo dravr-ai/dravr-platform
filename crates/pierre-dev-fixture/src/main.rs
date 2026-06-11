@@ -7,7 +7,8 @@
 //! Dev/test fixture HTTP API.
 //!
 //! Serves the small slice of the Strava API that the real Strava provider
-//! calls (`/athlete`, `/athlete/activities`), backed by rows seeded into the
+//! calls (`/athlete`, `/athlete/activities`, `/athletes/{id}/stats`), backed by
+//! rows seeded into the
 //! `synthetic_activities` table. In dev the Strava provider's base URL is
 //! pointed here (`PIERRE_STRAVA_API_BASE_URL`), so seeded test users fetch
 //! their activities through the exact same provider code path a real user
@@ -65,6 +66,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = Router::new()
         .route("/athlete", get(athlete))
         .route("/athlete/activities", get(athlete_activities))
+        .route("/athletes/{id}/stats", get(athlete_stats))
         .route(
             "/activitylist-service/activities/search/activities",
             get(garmin_activities),
@@ -130,6 +132,77 @@ async fn athlete_activities(
             Json(json!([]))
         }
     }
+}
+
+/// `GET /athletes/{id}/stats` — returns the bearer user's all-time ride and run
+/// totals in Strava's athlete-stats JSON shape. The path id is ignored; the user
+/// is resolved from the bearer like the other handlers. Only `all_ride_totals`
+/// and `all_run_totals` are emitted because those are the only fields the Strava
+/// provider's `get_stats` reads — matching how the real provider sums ride+run.
+async fn athlete_stats(State(pool): State<SqlitePool>, headers: HeaderMap) -> Json<Value> {
+    let Some(user_id) = user_from_bearer(&headers) else {
+        warn!("missing or malformed bearer; returning zeroed stats");
+        return Json(strava_stats_json(None));
+    };
+
+    // Aggregate ride-like and run-like activities separately. Substring matches
+    // (`%ride%`, `%run%`) catch the seeded variants — gravel_ride, virtual_ride,
+    // mountain_bike_ride, trail_run — the same way real Strava folds them into
+    // its ride/run buckets. SQLite SUM ignores NULL distance/elevation (e.g. yoga).
+    let row = sqlx::query(
+        "SELECT \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN 1 ELSE 0 END), 0) AS ride_count, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN distance_meters END), 0.0) AS ride_distance, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN duration_seconds END), 0) AS ride_time, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN elevation_gain END), 0.0) AS ride_elev, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN 1 ELSE 0 END), 0) AS run_count, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN distance_meters END), 0.0) AS run_distance, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN duration_seconds END), 0) AS run_time, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN elevation_gain END), 0.0) AS run_elev \
+         FROM synthetic_activities WHERE user_id = ?",
+    )
+    .bind(&user_id)
+    .fetch_one(&pool)
+    .await;
+
+    match row {
+        Ok(row) => {
+            info!(user_id = %user_id, "served seeded athlete stats");
+            Json(strava_stats_json(Some(&row)))
+        }
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "stats query failed");
+            Json(strava_stats_json(None))
+        }
+    }
+}
+
+/// Build Strava athlete-stats JSON from an aggregate row, or all-zero totals when
+/// the row is absent (missing bearer or query error). Column names follow the
+/// `<bucket>_<metric>` aliases the stats query emits.
+fn strava_stats_json(row: Option<&SqliteRow>) -> Value {
+    let totals = |count_col, dist_col, time_col, elev_col| {
+        let (count, distance, moving_time, elevation_gain) =
+            row.map_or((0_i64, 0.0_f64, 0_i64, 0.0_f64), |r| {
+                (
+                    r.try_get::<i64, _>(count_col).unwrap_or(0),
+                    r.try_get::<f64, _>(dist_col).unwrap_or(0.0),
+                    r.try_get::<i64, _>(time_col).unwrap_or(0),
+                    r.try_get::<f64, _>(elev_col).unwrap_or(0.0),
+                )
+            });
+        json!({
+            "count": count,
+            "distance": distance,
+            "moving_time": moving_time,
+            "elevation_gain": elevation_gain,
+        })
+    };
+
+    json!({
+        "all_ride_totals": totals("ride_count", "ride_distance", "ride_time", "ride_elev"),
+        "all_run_totals": totals("run_count", "run_distance", "run_time", "run_elev"),
+    })
 }
 
 /// `GET /activitylist-service/activities/search/activities` — returns the
