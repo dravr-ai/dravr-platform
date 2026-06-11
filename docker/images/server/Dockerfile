@@ -76,6 +76,14 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # requires Copilot CLI >=1.0.30; CLAUDE_CODE_OAUTH_TOKEN auth requires
 # claude-code >=2.x).
 #
+# COPILOT_CLI_VERSION must be >=1.0.59: that is the first release whose
+# `initialize` advertises `agentCapabilities.mcpCapabilities {http,sse}`, which
+# the native MCP tool-calling bridge (COPILOT_HEADLESS_MCP_TOOL_CALLING) relies
+# on. Running an older CLI (1.0.44) under native MCP + Autopilot crashed the
+# `copilot --acp` subprocess mid-synthesis ("connection closed unexpectedly")
+# after tool calls succeeded — the regression that started 2026-06-07 when the
+# bridge was enabled while the image still pinned 1.0.44.
+#
 # - copilot_headless LLM provider (primary): GitHub Copilot CLI in ACP mode
 # - claude_code LLM provider (runtime fallback): Anthropic Claude Code CLI
 #   authenticated via CLAUDE_CODE_OAUTH_TOKEN (one-year subscription token from
@@ -83,7 +91,7 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 #
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.
-ARG COPILOT_CLI_VERSION=1.0.44
+ARG COPILOT_CLI_VERSION=1.0.59
 ARG CLAUDE_CODE_CLI_VERSION=2.1.139
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
