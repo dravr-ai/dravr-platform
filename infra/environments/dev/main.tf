@@ -401,10 +401,16 @@ module "backend" {
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
-      # Fetch each activity's detail page so it carries the real UTC start_date
-      # (the training-log list page is date-only). N+1 headless roundtrip on the
-      # recent set — accepted in dev for correct timestamps + fragment-dedup.
-      PIERRE_SCIOTTE_ENRICH_DETAILS = "true"
+      # Detail-page enrichment is OFF: it's an N+1 headless roundtrip (navigate to
+      # each activity's detail page) that ran ~4.5 min and timed out on a real
+      # coaching turn, blowing past the ACP turn timeout and handing the coach 0
+      # activities. The list page already carries type, date, distance, and
+      # elevation (dénivelé), and ambient temperature is filled by the weather
+      # backfill — so coaching has what it needs without the N+1. Enrichment only
+      # adds precise UTC start-time + HR/power/cadence. The durable fix is bounded
+      # enrichment (enrich only the most recent N) via a dravr-sciotte enrich_limit;
+      # until that ships, the synchronous all-activities enrich stays off.
+      PIERRE_SCIOTTE_ENRICH_DETAILS = "false"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
