@@ -15,7 +15,8 @@ use pierre_core::models::TenantId;
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{
-    AddMessageParams, ConversationRecord, ConversationSummary, MessageRecord,
+    AddMessageParams, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
+    MessageRecord, UpsertMessageFeedbackParams,
 };
 
 // ============================================================================
@@ -461,6 +462,168 @@ impl ChatManager {
         Ok(row.get("count"))
     }
 
+    // ========================================================================
+    // Feedback Operations
+    // ========================================================================
+
+    /// Upsert the caller's thumbs up/down feedback on a message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails, or `NotFound` if the
+    /// message does not belong to a conversation the caller owns in this tenant.
+    pub async fn upsert_message_feedback(
+        &self,
+        params: &UpsertMessageFeedbackParams<'_>,
+    ) -> AppResult<MessageFeedbackRecord> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Insert keyed on (message_id, user_id); on a repeat rating, overwrite
+        // the rating + comment and bump updated_at. The WHERE EXISTS gate lands
+        // the row only when the message belongs to a conversation the caller
+        // owns in this tenant — a forged message_id never inserts.
+        sqlx::query(
+            r"
+            INSERT INTO chat_message_feedback
+                (id, message_id, conversation_id, user_id, tenant_id, rating, comment, created_at, updated_at)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $8
+            WHERE EXISTS (
+                SELECT 1 FROM chat_messages m
+                JOIN chat_conversations c ON m.conversation_id = c.id
+                WHERE m.id = $2 AND m.conversation_id = $3 AND c.user_id = $4 AND c.tenant_id = $5
+            )
+            ON CONFLICT(message_id, user_id) DO UPDATE SET
+                rating = excluded.rating,
+                comment = excluded.comment,
+                updated_at = excluded.updated_at
+            ",
+        )
+        .bind(&id)
+        .bind(params.message_id)
+        .bind(params.conversation_id)
+        .bind(params.user_id)
+        .bind(params.tenant_id)
+        .bind(params.rating)
+        .bind(params.comment)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert message feedback: {e}")))?;
+
+        // Read back the canonical row: on conflict the stored id/created_at stay
+        // the original values, not the ones generated above.
+        self.get_message_feedback(params.message_id, params.user_id, params.tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Message not found or access denied"))
+    }
+
+    /// Fetch the caller's feedback on a single message, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn get_message_feedback(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<MessageFeedbackRecord>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, message_id, conversation_id, user_id, tenant_id, rating, comment, created_at, updated_at
+            FROM chat_message_feedback
+            WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(message_id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get message feedback: {e}")))?;
+
+        Ok(row.map(|r| MessageFeedbackRecord {
+            id: r.get("id"),
+            message_id: r.get("message_id"),
+            conversation_id: r.get("conversation_id"),
+            user_id: r.get("user_id"),
+            tenant_id: r.get("tenant_id"),
+            rating: r.get("rating"),
+            comment: r.get("comment"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }))
+    }
+
+    /// Delete the caller's feedback on a message (thumbs toggle-off).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn delete_message_feedback(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM chat_message_feedback
+            WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(message_id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete message feedback: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Load all of the caller's feedback rows for a conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn get_conversation_feedback(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<MessageFeedbackRecord>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, message_id, conversation_id, user_id, tenant_id, rating, comment, created_at, updated_at
+            FROM chat_message_feedback
+            WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(conversation_id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get conversation feedback: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| MessageFeedbackRecord {
+                id: r.get("id"),
+                message_id: r.get("message_id"),
+                conversation_id: r.get("conversation_id"),
+                user_id: r.get("user_id"),
+                tenant_id: r.get("tenant_id"),
+                rating: r.get("rating"),
+                comment: r.get("comment"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+            .collect())
+    }
+
     /// Count total conversations for a user in a tenant
     ///
     /// # Errors
@@ -588,6 +751,28 @@ impl ChatRepository for Database {
         tenant_id: TenantId,
     ) -> AppResult<i64> {
         Self::chat_get_message_count_impl(self, conversation_id, user_id, tenant_id).await
+    }
+    async fn upsert_message_feedback(
+        &self,
+        params: &UpsertMessageFeedbackParams<'_>,
+    ) -> AppResult<MessageFeedbackRecord> {
+        Self::chat_upsert_message_feedback_impl(self, params).await
+    }
+    async fn delete_message_feedback(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        Self::chat_delete_message_feedback_impl(self, message_id, user_id, tenant_id).await
+    }
+    async fn get_conversation_feedback(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<MessageFeedbackRecord>> {
+        Self::chat_get_conversation_feedback_impl(self, conversation_id, user_id, tenant_id).await
     }
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
         Self::chat_count_conversations_impl(self, user_id, tenant_id).await

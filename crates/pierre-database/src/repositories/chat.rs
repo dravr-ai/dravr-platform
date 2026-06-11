@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::AddMessageParams;
+use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_core::models::{ConversationRecord, ConversationSummary};
-use pierre_core::models::{MessageRecord, TenantId};
+use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 
 /// Chat conversation and message management repository
 #[async_trait]
@@ -82,6 +83,35 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<i64>;
+
+    /// Upsert the caller's thumbs up/down feedback on a single message.
+    ///
+    /// Keyed on `(message_id, user_id)`: a repeat rating overwrites the prior
+    /// one and refreshes the comment + `updated_at`. The write only lands when
+    /// the message belongs to a conversation the caller owns in this tenant —
+    /// otherwise it returns `NotFound`.
+    async fn upsert_message_feedback(
+        &self,
+        params: &UpsertMessageFeedbackParams<'_>,
+    ) -> AppResult<MessageFeedbackRecord>;
+
+    /// Remove the caller's feedback on a message (thumbs toggle-off).
+    /// Tenant-scoped; returns `false` when no feedback row existed.
+    async fn delete_message_feedback(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Load all of the caller's feedback rows for a conversation, so the
+    /// client can re-render thumbs state after a reload. Tenant-scoped.
+    async fn get_conversation_feedback(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<MessageFeedbackRecord>>;
     /// Count total conversations for a user in a tenant
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
     /// Delete all conversations for a user

@@ -113,6 +113,7 @@ export type {
 export type {
   Conversation,
   Message,
+  MessageFeedbackEntry,
   ActivityPillar,
   PromptCategory,
   PromptSuggestionsResponse,

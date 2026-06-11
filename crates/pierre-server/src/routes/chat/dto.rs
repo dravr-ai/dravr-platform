@@ -190,6 +190,58 @@ pub struct ChatMessageAction {
 pub struct MessagesListResponse {
     /// List of messages
     pub messages: Vec<MessageResponse>,
+    /// The caller's own thumbs up/down feedback on these messages, keyed by
+    /// `message_id`; empty when none has been left.
+    ///
+    /// Kept parallel to `messages` (rather than nested on each
+    /// `MessageResponse`) so clients hydrate their feedback map directly and
+    /// the send/insight paths that build `MessageResponse` need no change.
+    pub feedback: Vec<MessageFeedbackEntry>,
+}
+
+/// A thumbs up/down rating value for a chat message.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedbackRating {
+    /// 👍 — the reply was helpful.
+    Up,
+    /// 👎 — the reply was poor.
+    Down,
+}
+
+impl FeedbackRating {
+    /// The persisted string form (`"up"` / `"down"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+        }
+    }
+}
+
+/// Request to set the caller's feedback on a message.
+#[derive(Debug, Deserialize)]
+pub struct UpsertFeedbackRequest {
+    /// Thumbs up or down.
+    pub rating: FeedbackRating,
+    /// Optional free-text "what went wrong?" reason — typically only sent
+    /// alongside a thumbs-down. Trimmed empty strings are treated as absent.
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// The caller's feedback on one message, returned inline with the messages
+/// list and echoed back from the upsert endpoint.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MessageFeedbackEntry {
+    /// Message the feedback is attached to.
+    pub message_id: String,
+    /// Rating value: `"up"` or `"down"`.
+    pub rating: String,
+    /// Optional free-text reason captured on a thumbs-down.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 /// Query parameters for listing conversations

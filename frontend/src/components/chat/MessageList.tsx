@@ -17,6 +17,8 @@ interface MessageListProps {
   messages: Message[];
   messageMetadata: Map<string, MessageMetadata>;
   messageFeedback: Map<string, MessageFeedback>;
+  /** Saved thumbs-down reasons, keyed by assistant message id. */
+  messageFeedbackComment: Map<string, string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Map<string, string>;
   /** Slash-command action buttons, keyed by assistant message id.
@@ -48,6 +50,8 @@ interface MessageListProps {
   onCreateInsight: (content: string) => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
+  /** Persist an optional thumbs-down reason for a message. */
+  onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
   /** Click handler for the verdict chip → open detail drawer. */
   onShowVerdict?: (verdict: ChatVerdictRow) => void;
@@ -61,6 +65,7 @@ export default function MessageList({
   messages,
   messageMetadata,
   messageFeedback,
+  messageFeedbackComment,
   activityLists,
   messageActions,
   insightMessageIds,
@@ -81,6 +86,7 @@ export default function MessageList({
   onCreateInsight,
   onThumbsUp,
   onThumbsDown,
+  onSubmitFeedbackReason,
   onRetryMessage,
   onShowVerdict,
   onAskAboutClaim,
@@ -133,6 +139,7 @@ export default function MessageList({
             message={msg}
             metadata={messageMetadata.get(msg.id)}
             feedback={messageFeedback.get(msg.id)}
+            feedbackComment={messageFeedbackComment.get(msg.id)}
             isError={msg.isError}
             hasInsight={isInsight}
             activityList={resolvedActivityList}
@@ -145,6 +152,9 @@ export default function MessageList({
             onShareToFeed={msg.role === 'assistant' ? () => onShareToFeed(msg.content) : undefined}
             onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
             onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
+            onSubmitReason={
+              msg.role === 'assistant' ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
+            }
             onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
             onShowVerdict={onShowVerdict}
             onAskAboutClaim={onAskAboutClaim}

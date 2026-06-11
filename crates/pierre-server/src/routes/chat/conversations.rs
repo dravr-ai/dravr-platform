@@ -27,8 +27,8 @@ use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use super::common::get_tenant_id;
 use super::dto::{
     ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
-    CreateConversationRequest, ListConversationsQuery, MessageResponse, MessagesListResponse,
-    UpdateConversationRequest,
+    CreateConversationRequest, ListConversationsQuery, MessageFeedbackEntry, MessageResponse,
+    MessagesListResponse, UpdateConversationRequest,
 };
 
 /// Reject conversation creation when the caller is not an active member of
@@ -331,11 +331,12 @@ pub async fn get_messages(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
+    let user_id_str = auth.user_id.to_string();
     let messages = resources
         .common
         .repos
         .chat
-        .get_messages(&conversation_id, &auth.user_id.to_string(), tenant_id)
+        .get_messages(&conversation_id, &user_id_str, tenant_id)
         .await?;
 
     let messages_list: Vec<MessageResponse> = messages
@@ -350,8 +351,25 @@ pub async fn get_messages(
         })
         .collect();
 
+    // The caller's own thumbs up/down feedback for this conversation, so the
+    // client re-renders the rating state (and any saved reason) after a reload.
+    let feedback: Vec<MessageFeedbackEntry> = resources
+        .common
+        .repos
+        .chat
+        .get_conversation_feedback(&conversation_id, &user_id_str, tenant_id)
+        .await?
+        .into_iter()
+        .map(|f| MessageFeedbackEntry {
+            message_id: f.message_id,
+            rating: f.rating,
+            comment: f.comment,
+        })
+        .collect();
+
     let response = MessagesListResponse {
         messages: messages_list,
+        feedback,
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())

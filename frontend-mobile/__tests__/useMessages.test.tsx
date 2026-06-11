@@ -6,11 +6,15 @@ import { renderHook, act } from '@testing-library/react-native';
 // Mock API service
 const mockGetConversationMessages = jest.fn();
 const mockSendMessage = jest.fn();
+const mockSubmitMessageFeedback = jest.fn();
+const mockDeleteMessageFeedback = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
     getConversationMessages: (...args: unknown[]) => mockGetConversationMessages(...args),
     sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    submitMessageFeedback: (...args: unknown[]) => mockSubmitMessageFeedback(...args),
+    deleteMessageFeedback: (...args: unknown[]) => mockDeleteMessageFeedback(...args),
   },
 }));
 
@@ -257,6 +261,81 @@ describe('useMessages', () => {
 
       // Should only have been called once
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('message feedback', () => {
+    it('thumbs up optimistically sets the rating and persists it', async () => {
+      mockSubmitMessageFeedback.mockResolvedValue({ message_id: 'asst-1', rating: 'up' });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.handleThumbsUp('asst-1', 'conv-1');
+      });
+
+      expect(result.current.messageFeedback['asst-1']).toBe('up');
+      expect(mockSubmitMessageFeedback).toHaveBeenCalledWith('conv-1', 'asst-1', 'up');
+    });
+
+    it('clicking the active rating again toggles it off via DELETE', async () => {
+      mockSubmitMessageFeedback.mockResolvedValue({ message_id: 'asst-1', rating: 'up' });
+      mockDeleteMessageFeedback.mockResolvedValue(undefined);
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.handleThumbsUp('asst-1', 'conv-1');
+      });
+      expect(result.current.messageFeedback['asst-1']).toBe('up');
+
+      await act(async () => {
+        await result.current.handleThumbsUp('asst-1', 'conv-1');
+      });
+
+      expect(result.current.messageFeedback['asst-1']).toBeNull();
+      expect(mockDeleteMessageFeedback).toHaveBeenCalledWith('conv-1', 'asst-1');
+    });
+
+    it('submitting a reason persists rating=down with the comment', async () => {
+      mockSubmitMessageFeedback.mockResolvedValue({
+        message_id: 'asst-1',
+        rating: 'down',
+        comment: 'too vague',
+      });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.submitFeedbackReason('asst-1', 'conv-1', '  too vague  ');
+      });
+
+      expect(result.current.messageFeedbackComment['asst-1']).toBe('too vague');
+      expect(mockSubmitMessageFeedback).toHaveBeenCalledWith('conv-1', 'asst-1', 'down', 'too vague');
+    });
+
+    it('reverts the optimistic rating when the API call fails', async () => {
+      mockSubmitMessageFeedback.mockRejectedValue(new Error('offline'));
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.handleThumbsUp('asst-1', 'conv-1');
+      });
+
+      expect(result.current.messageFeedback['asst-1']).toBeNull();
+      expect(result.current.error).toBe('offline');
+    });
+
+    it('hydrates feedback state from the messages-list response on load', async () => {
+      mockGetConversationMessages.mockResolvedValue({
+        messages: [createMockMessage({ id: 'asst-1' })],
+        feedback: [{ message_id: 'asst-1', rating: 'down', comment: 'missing detail' }],
+      });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+
+      expect(result.current.messageFeedback['asst-1']).toBe('down');
+      expect(result.current.messageFeedbackComment['asst-1']).toBe('missing detail');
     });
   });
 });

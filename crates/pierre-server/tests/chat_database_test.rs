@@ -8,7 +8,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use pierre_core::models::TenantId;
-use pierre_database::database::chat::AddMessageParams;
+use pierre_database::database::chat::{AddMessageParams, UpsertMessageFeedbackParams};
 use pierre_database::database::ChatManager;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -98,6 +98,27 @@ async fn create_test_db() -> SqlitePool {
             prompt_tokens INTEGER,
             model TEXT,
             structured_content TEXT
+        )
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Per-message thumbs up/down feedback (mirrors migration 20260610000001).
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS chat_message_feedback (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+            conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+            comment TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(message_id, user_id)
         )
         ",
     )
@@ -1008,4 +1029,205 @@ async fn test_persist_tool_round_with_assistant_preamble() {
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[1].role, "tool_call");
     assert_eq!(messages[2].role, "tool_result");
+}
+
+// ============================================================================
+// Message Feedback Tests
+// ============================================================================
+
+/// Create a conversation owned by `user-1` with one assistant message and
+/// return `(conversation_id, message_id)` for feedback assertions.
+async fn seed_conversation_with_message(
+    manager: &ChatManager,
+    tenant_id: TenantId,
+) -> (String, String) {
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Feedback Chat",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let msg = manager
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "Here is your plan.",
+            token_count: Some(10),
+            finish_reason: Some("stop"),
+            prompt_tokens: Some(5),
+            model: Some("gemini-1.5-flash"),
+            structured_content: None,
+        })
+        .await
+        .unwrap();
+    (conv.id, msg.id)
+}
+
+#[tokio::test]
+async fn test_upsert_message_feedback_creates_then_updates_same_row() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+    let (conversation_id, message_id) = seed_conversation_with_message(&manager, tenant_id).await;
+
+    // Create: thumbs up, no comment.
+    let up = manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            message_id: &message_id,
+            user_id: "user-1",
+            rating: "up",
+            comment: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(up.rating, "up");
+    assert!(up.comment.is_none());
+    assert_eq!(up.message_id, message_id);
+    assert_eq!(up.conversation_id, conversation_id);
+
+    // Switch to down with a reason — same row reused, rating + comment overwritten.
+    let down = manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            message_id: &message_id,
+            user_id: "user-1",
+            rating: "down",
+            comment: Some("too vague"),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        down.id, up.id,
+        "upsert must reuse the existing feedback row"
+    );
+    assert_eq!(down.rating, "down");
+    assert_eq!(down.comment.as_deref(), Some("too vague"));
+    assert_eq!(
+        down.created_at, up.created_at,
+        "created_at is preserved across the update"
+    );
+}
+
+#[tokio::test]
+async fn test_get_conversation_feedback_returns_callers_rows() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+    let (conversation_id, message_id) = seed_conversation_with_message(&manager, tenant_id).await;
+
+    manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            message_id: &message_id,
+            user_id: "user-1",
+            rating: "down",
+            comment: Some("missing detail"),
+        })
+        .await
+        .unwrap();
+
+    let rows = manager
+        .get_conversation_feedback(&conversation_id, "user-1", tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].message_id, message_id);
+    assert_eq!(rows[0].rating, "down");
+    assert_eq!(rows[0].comment.as_deref(), Some("missing detail"));
+}
+
+#[tokio::test]
+async fn test_delete_message_feedback_is_idempotent_toggle_off() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+    let (conversation_id, message_id) = seed_conversation_with_message(&manager, tenant_id).await;
+
+    manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            message_id: &message_id,
+            user_id: "user-1",
+            rating: "up",
+            comment: None,
+        })
+        .await
+        .unwrap();
+
+    let removed = manager
+        .delete_message_feedback(&message_id, "user-1", tenant_id)
+        .await
+        .unwrap();
+    assert!(removed);
+    assert!(manager
+        .get_conversation_feedback(&conversation_id, "user-1", tenant_id)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // Deleting again removes nothing but does not error.
+    let removed_again = manager
+        .delete_message_feedback(&message_id, "user-1", tenant_id)
+        .await
+        .unwrap();
+    assert!(!removed_again);
+}
+
+#[tokio::test]
+async fn test_upsert_message_feedback_rejects_unowned_message() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+    let (conversation_id, message_id) = seed_conversation_with_message(&manager, tenant_id).await;
+
+    // A different tenant cannot leave feedback on this conversation's message.
+    let cross_tenant = manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id: test_tenant_id_2(),
+            conversation_id: &conversation_id,
+            message_id: &message_id,
+            user_id: "user-1",
+            rating: "up",
+            comment: None,
+        })
+        .await;
+    assert!(
+        cross_tenant.is_err(),
+        "cross-tenant feedback must be rejected"
+    );
+
+    // A forged message id (not in this conversation) is rejected too.
+    let forged = manager
+        .upsert_message_feedback(&UpsertMessageFeedbackParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            message_id: "does-not-exist",
+            user_id: "user-1",
+            rating: "up",
+            comment: None,
+        })
+        .await;
+    assert!(
+        forged.is_err(),
+        "feedback on a non-existent message must be rejected"
+    );
+
+    // No stray rows were written by the rejected attempts.
+    assert!(manager
+        .get_conversation_feedback(&conversation_id, "user-1", tenant_id)
+        .await
+        .unwrap()
+        .is_empty());
 }

@@ -23,6 +23,8 @@ export interface MessagesState {
   isSending: boolean;
   error: string | null;
   messageFeedback: Record<string, 'up' | 'down' | null>;
+  /** Saved thumbs-down reasons, keyed by message id. */
+  messageFeedbackComment: Record<string, string>;
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
@@ -55,8 +57,13 @@ export interface MessagesActions {
     onConversationNeeded?: () => Promise<string | null>
   ) => Promise<void>;
   retryMessage: (messageId: string, conversationId: string) => Promise<void>;
-  handleThumbsUp: (messageId: string) => void;
-  handleThumbsDown: (messageId: string) => void;
+  handleThumbsUp: (messageId: string, conversationId: string) => Promise<void>;
+  handleThumbsDown: (messageId: string, conversationId: string) => Promise<void>;
+  submitFeedbackReason: (
+    messageId: string,
+    conversationId: string,
+    comment: string
+  ) => Promise<void>;
   clearMessages: () => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setActivityLists: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -70,6 +77,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
+  const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
   const [activityLists, setActivityLists] = useState<Record<string, string>>({});
   const [messageActions, setMessageActions] = useState<Record<string, MessageActionItem[]>>({});
@@ -122,6 +130,18 @@ export function useMessages(): MessagesState & MessagesActions {
         (msg: Message) => !(msg.role === 'user' && isInsightPrompt(msg.content))
       );
       setMessages(filteredMessages);
+
+      // Hydrate thumbs up/down state (and any saved reason) from the server so
+      // feedback survives reloads and conversation switches.
+      const ratings: Record<string, 'up' | 'down' | null> = {};
+      const comments: Record<string, string> = {};
+      for (const f of response.feedback ?? []) {
+        ratings[f.message_id] = f.rating;
+        if (f.comment) comments[f.message_id] = f.comment;
+      }
+      setMessageFeedback(ratings);
+      setMessageFeedbackComment(comments);
+
       deferredScrollToBottom(100);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load messages';
@@ -327,19 +347,68 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, [messages, deferredScrollToBottom]);
 
-  const handleThumbsUp = useCallback((messageId: string) => {
-    setMessageFeedback(prev => ({
-      ...prev,
-      [messageId]: prev[messageId] === 'up' ? null : 'up',
-    }));
-  }, []);
+  // Apply a rating change optimistically and persist it. Clicking the active
+  // rating again toggles it off (DELETE); otherwise the rating is upserted.
+  // On failure the optimistic change is reverted and an error surfaced.
+  const applyFeedback = useCallback(
+    async (messageId: string, conversationId: string, rating: 'up' | 'down') => {
+      const previous = messageFeedback[messageId] ?? null;
+      const next: 'up' | 'down' | null = previous === rating ? null : rating;
 
-  const handleThumbsDown = useCallback((messageId: string) => {
-    setMessageFeedback(prev => ({
-      ...prev,
-      [messageId]: prev[messageId] === 'down' ? null : 'down',
-    }));
-  }, []);
+      setMessageFeedback(prev => ({ ...prev, [messageId]: next }));
+      // Switching away from a down-rating drops its reason.
+      if (next !== 'down') {
+        setMessageFeedbackComment(prev => {
+          if (!(messageId in prev)) return prev;
+          const updated = { ...prev };
+          delete updated[messageId];
+          return updated;
+        });
+      }
+
+      try {
+        if (next === null) {
+          await chatApi.deleteMessageFeedback(conversationId, messageId);
+        } else {
+          await chatApi.submitMessageFeedback(conversationId, messageId, next);
+        }
+      } catch (err) {
+        setMessageFeedback(prev => ({ ...prev, [messageId]: previous }));
+        setError(err instanceof Error ? err.message : 'Failed to save feedback');
+      }
+    },
+    [messageFeedback]
+  );
+
+  const handleThumbsUp = useCallback(
+    (messageId: string, conversationId: string) => applyFeedback(messageId, conversationId, 'up'),
+    [applyFeedback]
+  );
+
+  const handleThumbsDown = useCallback(
+    (messageId: string, conversationId: string) => applyFeedback(messageId, conversationId, 'down'),
+    [applyFeedback]
+  );
+
+  // Persist an optional thumbs-down reason on the existing feedback row. The
+  // down rating is already saved; this only adds/updates the comment.
+  const submitFeedbackReason = useCallback(
+    async (messageId: string, conversationId: string, comment: string) => {
+      const trimmed = comment.trim();
+      setMessageFeedbackComment(prev => ({ ...prev, [messageId]: trimmed }));
+      try {
+        await chatApi.submitMessageFeedback(
+          conversationId,
+          messageId,
+          'down',
+          trimmed || undefined
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save feedback');
+      }
+    },
+    []
+  );
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -351,6 +420,7 @@ export function useMessages(): MessagesState & MessagesActions {
     isSending,
     error,
     messageFeedback,
+    messageFeedbackComment,
     insightMessages,
     activityLists,
     messageActions,
@@ -361,6 +431,7 @@ export function useMessages(): MessagesState & MessagesActions {
     retryMessage,
     handleThumbsUp,
     handleThumbsDown,
+    submitFeedbackReason,
     clearMessages,
     setMessages,
     setActivityLists,

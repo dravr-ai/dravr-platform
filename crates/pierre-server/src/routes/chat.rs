@@ -19,6 +19,7 @@
 mod common;
 mod conversations;
 mod dto;
+mod feedback;
 mod quotas;
 mod send_insight;
 mod send_message;
@@ -38,8 +39,9 @@ use pierre_tool_runtime::tool_execution::build_mcp_tools as services_build_mcp_t
 
 pub use dto::{
     ChatCompletionResponse, ConversationListResponse, ConversationResponse,
-    ConversationSummaryResponse, CreateConversationRequest, ListConversationsQuery,
-    MessageResponse, MessagesListResponse, SendMessageRequest, UpdateConversationRequest,
+    ConversationSummaryResponse, CreateConversationRequest, FeedbackRating, ListConversationsQuery,
+    MessageFeedbackEntry, MessageResponse, MessagesListResponse, SendMessageRequest,
+    UpdateConversationRequest, UpsertFeedbackRequest,
 };
 
 /// Default maximum number of tool call iterations before forcing a text response.
@@ -113,6 +115,11 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/verdicts",
                 get(chat_verdicts::get_verdicts_handler),
+            )
+            // Per-message thumbs up/down feedback (upsert + toggle-off)
+            .route(
+                "/api/chat/conversations/{conversation_id}/messages/{message_id}/feedback",
+                post(feedback::upsert_feedback).delete(feedback::delete_feedback),
             )
             .with_state(resources)
     }

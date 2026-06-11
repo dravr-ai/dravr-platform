@@ -41,7 +41,7 @@ import type {
   PendingCoachAction,
   CoachFormData,
 } from './chat';
-import type { CreateCoachRequest, UpdateCoachRequest } from '@pierre/shared-types';
+import type { CreateCoachRequest, UpdateCoachRequest, MessageFeedbackEntry } from '@pierre/shared-types';
 
 /** Convert UI form data to API request, building data_requirements from structured fields */
 function formDataToCreateRequest(data: CoachFormData): CreateCoachRequest {
@@ -151,6 +151,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [pendingCoachAction, setPendingCoachAction] = useState<PendingCoachAction | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, MessageFeedback>>(new Map());
+  // Saved thumbs-down reasons, keyed by message id. Hydrated from the server
+  // alongside the ratings so a reload re-renders the comment.
+  const [messageFeedbackComment, setMessageFeedbackComment] = useState<Map<string, string>>(new Map());
   const [activityLists, setActivityLists] = useState<Map<string, string>>(new Map());
   // Slash-command action buttons (e.g. per-coach select on /coach).
   // Keyed by assistant message id; not persisted — buttons disappear
@@ -179,11 +182,27 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const hasConnectedProvider = providersData?.providers?.some(p => p.connected) ?? false;
 
   // Fetch messages for selected conversation
-  const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[] }>({
+  const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[]; feedback?: MessageFeedbackEntry[] }>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
     enabled: !!selectedConversation,
   });
+
+  // Hydrate thumbs up/down state (and any saved reason) from the server whenever
+  // the messages load/refetch, so feedback survives reloads and conversation
+  // switches. The server is the source of truth — this replaces local state.
+  useEffect(() => {
+    const feedback = messagesData?.feedback;
+    if (!feedback) return;
+    const ratings = new Map<string, MessageFeedback>();
+    const comments = new Map<string, string>();
+    for (const f of feedback) {
+      ratings.set(f.message_id, f.rating);
+      if (f.comment) comments.set(f.message_id, f.comment);
+    }
+    setMessageFeedback(ratings);
+    setMessageFeedbackComment(comments);
+  }, [messagesData]);
 
   // Tier 5.5 — claim verdicts attached to messages in the selected conversation.
   // Refetched alongside messages so a coach reply that triggers verification
@@ -933,25 +952,78 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   }, [isGeneratingInsight, selectedConversation, isStreaming, queryClient, token]);
 
-  const handleThumbsUp = useCallback((messageId: string) => {
+  // Apply a rating change optimistically and persist it. Clicking the active
+  // rating again toggles it off (DELETE); otherwise the rating is upserted.
+  // On failure the optimistic change is reverted and an error surfaced.
+  const applyFeedback = useCallback(async (messageId: string, rating: 'up' | 'down') => {
+    if (!selectedConversation) return;
+    const previous = messageFeedback.get(messageId) ?? null;
+    const next: MessageFeedback = previous === rating ? null : rating;
+
     setMessageFeedback(prev => {
       const newMap = new Map(prev);
-      const current = newMap.get(messageId);
-      // Toggle: if already up, remove; otherwise set to up
-      newMap.set(messageId, current === 'up' ? null : 'up');
+      if (next) newMap.set(messageId, next);
+      else newMap.delete(messageId);
       return newMap;
     });
-  }, []);
+    // Switching away from a down-rating drops its reason.
+    if (next !== 'down') {
+      setMessageFeedbackComment(prev => {
+        if (!prev.has(messageId)) return prev;
+        const newMap = new Map(prev);
+        newMap.delete(messageId);
+        return newMap;
+      });
+    }
+
+    try {
+      if (next === null) {
+        await chatApi.deleteMessageFeedback(selectedConversation, messageId);
+      } else {
+        await chatApi.submitMessageFeedback(selectedConversation, messageId, next);
+      }
+    } catch (error) {
+      // Revert the optimistic rating on failure.
+      setMessageFeedback(prev => {
+        const newMap = new Map(prev);
+        if (previous) newMap.set(messageId, previous);
+        else newMap.delete(messageId);
+        return newMap;
+      });
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save feedback');
+    }
+  }, [selectedConversation, messageFeedback]);
+
+  const handleThumbsUp = useCallback((messageId: string) => {
+    void applyFeedback(messageId, 'up');
+  }, [applyFeedback]);
 
   const handleThumbsDown = useCallback((messageId: string) => {
-    setMessageFeedback(prev => {
+    void applyFeedback(messageId, 'down');
+  }, [applyFeedback]);
+
+  // Persist an optional thumbs-down reason on the existing feedback row. The
+  // down rating is already saved; this only adds/updates the comment.
+  const handleSubmitFeedbackReason = useCallback(async (messageId: string, comment: string) => {
+    if (!selectedConversation) return;
+    const trimmed = comment.trim();
+    setMessageFeedbackComment(prev => {
       const newMap = new Map(prev);
-      const current = newMap.get(messageId);
-      // Toggle: if already down, remove; otherwise set to down
-      newMap.set(messageId, current === 'down' ? null : 'down');
+      if (trimmed) newMap.set(messageId, trimmed);
+      else newMap.delete(messageId);
       return newMap;
     });
-  }, []);
+    try {
+      await chatApi.submitMessageFeedback(
+        selectedConversation,
+        messageId,
+        'down',
+        trimmed || undefined,
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save feedback');
+    }
+  }, [selectedConversation]);
 
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!selectedConversation || isStreaming) return;
@@ -1147,6 +1219,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messages={messagesData?.messages || []}
                 messageMetadata={messageMetadata}
                 messageFeedback={messageFeedback}
+                messageFeedbackComment={messageFeedbackComment}
                 activityLists={activityLists}
                 messageActions={messageActions}
                 insightMessageIds={new Set<string>()}
@@ -1166,6 +1239,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 onCreateInsight={handleCreateInsight}
                 onThumbsUp={handleThumbsUp}
                 onThumbsDown={handleThumbsDown}
+                onSubmitFeedbackReason={handleSubmitFeedbackReason}
                 onRetryMessage={handleRetryMessage}
                 onShowVerdict={setSelectedVerdict}
                 onAskAboutClaim={handleAskAboutClaim}

@@ -101,7 +101,8 @@ pub mod workout_templates;
 pub mod test_utils;
 
 pub use chat::{
-    AddMessageParams, ChatManager, ConversationRecord, ConversationSummary, MessageRecord,
+    AddMessageParams, ChatManager, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
+    MessageRecord, UpsertMessageFeedbackParams,
 };
 pub use coach_authors::{
     CoachAuthor, CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
@@ -2586,6 +2587,51 @@ impl Database {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
             .get_message_count(conversation_id, user_id, tenant_id)
+            .await
+    }
+
+    /// Upsert message feedback (impl for trait)
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, or `NotFound` if the
+    /// caller does not own the message's conversation.
+    pub async fn chat_upsert_message_feedback_impl(
+        &self,
+        params: &UpsertMessageFeedbackParams<'_>,
+    ) -> AppResult<MessageFeedbackRecord> {
+        let chat_manager = ChatManager::new(self.pool.clone());
+        chat_manager.upsert_message_feedback(params).await
+    }
+
+    /// Delete message feedback (impl for trait)
+    ///
+    /// # Errors
+    /// Returns an error if the database delete fails.
+    pub async fn chat_delete_message_feedback_impl(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let chat_manager = ChatManager::new(self.pool.clone());
+        chat_manager
+            .delete_message_feedback(message_id, user_id, tenant_id)
+            .await
+    }
+
+    /// Get a conversation's feedback rows (impl for trait)
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    pub async fn chat_get_conversation_feedback_impl(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<MessageFeedbackRecord>> {
+        let chat_manager = ChatManager::new(self.pool.clone());
+        chat_manager
+            .get_conversation_feedback(conversation_id, user_id, tenant_id)
             .await
     }
 

@@ -4,7 +4,7 @@
 // ABOUTME: Individual message item in the chat message list
 // ABOUTME: Memoized for performance when rendering many messages
 
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
@@ -38,6 +38,10 @@ interface MessageItemProps {
   onCreateInsight?: () => void;
   onThumbsUp?: () => void;
   onThumbsDown?: () => void;
+  /** Saved thumbs-down reason for this message, hydrated on reload. */
+  feedbackComment?: string;
+  /** Persist an optional "what went wrong?" reason for a thumbs-down. */
+  onSubmitReason?: (comment: string) => void;
   onRetry?: () => void;
   /** Open the verdict detail drawer for a single verdict. */
   onShowVerdict?: (verdict: ChatVerdictRow) => void;
@@ -109,6 +113,59 @@ function chipClassForTone(tone: WorstStrengthTone): string {
   }
 }
 
+/**
+ * Optional "what went wrong?" reason captured after a thumbs-down. Submitting
+ * is optional — the down rating is already persisted; this only adds a comment
+ * to the same feedback row. Pre-fills with any saved reason on reload.
+ */
+function FeedbackReasonForm({
+  initialComment,
+  onSubmit,
+}: {
+  initialComment?: string;
+  onSubmit: (comment: string) => void;
+}) {
+  const [value, setValue] = useState(initialComment ?? '');
+  const [saved, setSaved] = useState(false);
+
+  // The saved reason can arrive after mount (conversation reload); sync it in
+  // as long as the user hasn't started editing.
+  useEffect(() => {
+    setValue(initialComment ?? '');
+  }, [initialComment]);
+
+  const submit = () => {
+    onSubmit(value.trim());
+    setSaved(true);
+  };
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setSaved(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+        placeholder="What went wrong? (optional)"
+        aria-label="Feedback reason"
+        className="flex-1 max-w-xs px-2 py-1 text-xs rounded bg-surface-container-high text-on-surface placeholder:text-outline border border-outline/20 focus:outline-none focus:border-primary"
+      />
+      <button
+        type="button"
+        onClick={submit}
+        className="px-2 py-1 text-xs rounded bg-pierre-violet/15 text-primary hover:bg-pierre-violet/25 transition-colors"
+      >
+        {saved ? 'Saved' : 'Send'}
+      </button>
+    </div>
+  );
+}
+
 const MessageItem = memo(function MessageItem({
   message,
   metadata,
@@ -125,6 +182,8 @@ const MessageItem = memo(function MessageItem({
   onCreateInsight,
   onThumbsUp,
   onThumbsDown,
+  feedbackComment,
+  onSubmitReason,
   onRetry,
   onShowVerdict,
   onAskAboutClaim,
@@ -372,6 +431,11 @@ const MessageItem = memo(function MessageItem({
               </>
             )}
           </div>
+        )}
+        {/* Optional thumbs-down reason — the down rating is already saved; this
+            adds/updates the free-text comment on the same feedback row. */}
+        {!isUser && !isError && feedback === 'down' && onSubmitReason && (
+          <FeedbackReasonForm initialComment={feedbackComment} onSubmit={onSubmitReason} />
         )}
       </div>
     </div>

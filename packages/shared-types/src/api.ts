@@ -51,6 +51,22 @@ export interface Message {
   isError?: boolean;
 }
 
+/**
+ * A user's thumbs up/down feedback on a single assistant message.
+ *
+ * Returned parallel to the messages list (not nested on {@link Message}) so
+ * clients hydrate their feedback state directly from the conversation load,
+ * and echoed back from the feedback upsert endpoint.
+ */
+export interface MessageFeedbackEntry {
+  /** Message the feedback is attached to. */
+  message_id: string;
+  /** Rating value. */
+  rating: 'up' | 'down';
+  /** Optional free-text reason captured on a thumbs-down. */
+  comment?: string | null;
+}
+
 // ========== PROMPT SUGGESTIONS ==========
 
 /** Activity pillar for prompt categorization */
