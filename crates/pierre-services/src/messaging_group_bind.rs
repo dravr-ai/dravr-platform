@@ -129,6 +129,8 @@ pub async fn resolve_or_create_channel_group(
         )),
         coach_id,
         owner_id: user_uuid,
+        // No human coach until one redeems a coach-kind invite.
+        coach_user_id: None,
         // Group-level kill switch — TRUE means "individual member
         // consent is the gate", FALSE means admin nuked all sharing.
         // Defaults to TRUE so a member who runs `/group consent yes`

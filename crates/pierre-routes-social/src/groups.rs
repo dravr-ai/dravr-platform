@@ -35,7 +35,8 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest, UpdateGroupRequest,
+    GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest,
+    UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_strategy_for;
@@ -58,10 +59,12 @@ pub struct GroupResponse {
     pub name: String,
     /// Optional description
     pub description: Option<String>,
-    /// Coach persona ID
+    /// Coach persona ID (the AI coach that answers chats)
     pub coach_id: String,
     /// Owner user ID
     pub owner_id: String,
+    /// Human coach user ID, if one is attached (`None` otherwise)
+    pub coach_user_id: Option<String>,
     /// Whether peer data sharing is enabled
     pub peer_data_sharing: bool,
     /// Maximum members allowed
@@ -83,6 +86,7 @@ impl From<CoachingGroup> for GroupResponse {
             description: g.description,
             coach_id: g.coach_id,
             owner_id: g.owner_id.to_string(),
+            coach_user_id: g.coach_user_id.map(|u| u.to_string()),
             peer_data_sharing: g.peer_data_sharing,
             max_members: g.max_members,
             is_active: g.is_active,
@@ -98,6 +102,18 @@ impl From<CoachingGroup> for GroupResponse {
 pub struct ListGroupsResponse {
     /// Groups the user belongs to
     pub groups: Vec<GroupSummary>,
+    /// Total count
+    pub total: usize,
+    /// Response metadata
+    pub metadata: GroupMetadata,
+}
+
+/// Response for listing the groups a user is the human coach of
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct CoachedGroupsResponse {
+    /// Groups the user coaches
+    pub groups: Vec<GroupResponse>,
     /// Total count
     pub total: usize,
     /// Response metadata
@@ -163,6 +179,8 @@ pub struct InviteResponse {
     pub group_id: String,
     /// The invite code
     pub code: String,
+    /// What redeeming this invite grants ("member" or "coach")
+    pub kind: String,
     /// User who created the invite
     pub created_by: String,
     /// When the invite expires (if ever)
@@ -183,6 +201,7 @@ impl From<GroupInvite> for InviteResponse {
             id: inv.id.to_string(),
             group_id: inv.group_id.to_string(),
             code: inv.code,
+            kind: inv.kind.as_str().to_owned(),
             created_by: inv.created_by.to_string(),
             expires_at: inv.expires_at.map(|dt| dt.to_rfc3339()),
             max_uses: inv.max_uses,
@@ -269,6 +288,10 @@ pub struct CreateInviteBody {
     pub expires_in_days: Option<i64>,
     /// Maximum number of uses (None = unlimited)
     pub max_uses: Option<i32>,
+    /// What the invite grants: athlete membership (default) or coach
+    /// attachment. Omitted → `member`.
+    #[serde(default)]
+    pub kind: GroupInviteKind,
 }
 
 /// Request to update a member's role
@@ -339,6 +362,15 @@ impl GroupRoutes {
             .route(
                 "/api/groups/{group_id}/members/me/consent",
                 put(Self::handle_update_peer_consent::<C>),
+            )
+            // Human coach attachment
+            .route(
+                "/api/groups/coached",
+                get(Self::handle_list_coached_groups::<C>),
+            )
+            .route(
+                "/api/groups/{group_id}/coach",
+                delete(Self::handle_remove_coach::<C>),
             )
             // Invites
             .route(
@@ -915,6 +947,7 @@ impl GroupRoutes {
                 tenant_id,
                 body.expires_in_days,
                 body.max_uses,
+                body.kind,
             )
             .await?;
 
@@ -1017,26 +1050,79 @@ impl GroupRoutes {
             .parse()
             .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
 
-        let created = resources
-            .group_service()
-            .join_group(&body.invite_code, auth.user_id, group_tenant_id)
-            .await?;
+        // Coach invites attach the redeemer as the group's human coach; member
+        // invites add an athlete. Dispatch on the invite kind.
+        match invite.kind {
+            GroupInviteKind::Member => {
+                let created = resources
+                    .group_service()
+                    .join_group(&body.invite_code, auth.user_id, group_tenant_id)
+                    .await?;
 
-        // notify: user joined a group. The invite's tenant carries the
-        // group's tenant — record both so the Slack ping reflects the
-        // group context, not the caller's home tenant.
-        let span = Span::current();
-        span.record("tenant_id", field::display(&group_tenant_id));
-        span.record("group_id", field::display(&invite.group_id));
-        info!(
-            target: "notify",
-            event = "group.joined",
-            group_id = %invite.group_id,
-            "user joined coaching group"
-        );
+                // notify: user joined a group. The invite's tenant carries the
+                // group's tenant — record both so the Slack ping reflects the
+                // group context, not the caller's home tenant.
+                let span = Span::current();
+                span.record("tenant_id", field::display(&group_tenant_id));
+                span.record("group_id", field::display(&invite.group_id));
+                info!(
+                    target: "notify",
+                    event = "group.joined",
+                    group_id = %invite.group_id,
+                    "user joined coaching group"
+                );
 
-        let response: MemberResponse = created.into();
-        Ok((StatusCode::CREATED, Json(response)).into_response())
+                let response: MemberResponse = created.into();
+                Ok((StatusCode::CREATED, Json(response)).into_response())
+            }
+            GroupInviteKind::Coach => {
+                // Coach eligibility: the redeemer must be a roster-managing
+                // coach (`manages_roster`) or a platform admin — the same gate
+                // the `/api/roster` endpoints use.
+                let user = resources
+                    .repos()
+                    .users
+                    .get_global(auth.user_id)
+                    .await?
+                    .ok_or_else(|| AppError::not_found("User not found"))?;
+                if !user.manages_roster && !user.is_admin {
+                    return Err(AppError::new(
+                        ErrorCode::PermissionDenied,
+                        "Only roster-managing coaches can join a group as its coach",
+                    ));
+                }
+
+                // Cross-tenant rule (v1): a human coach must belong to the
+                // group's tenant. Athlete membership is cross-tenant by design,
+                // but coach attachment is tenant-scoped to match the
+                // tenant-scoped roster/coach model.
+                let caller_tenant = Self::get_tenant_id(&auth)?;
+                if caller_tenant != group_tenant_id {
+                    return Err(AppError::new(
+                        ErrorCode::PermissionDenied,
+                        "A coach must belong to the group's tenant to join it",
+                    ));
+                }
+
+                let group = resources
+                    .group_service()
+                    .redeem_coach_invite(&body.invite_code, auth.user_id, group_tenant_id)
+                    .await?;
+
+                let span = Span::current();
+                span.record("tenant_id", field::display(&group_tenant_id));
+                span.record("group_id", field::display(&invite.group_id));
+                info!(
+                    target: "notify",
+                    event = "group.coach_joined",
+                    group_id = %invite.group_id,
+                    "coach joined coaching group"
+                );
+
+                let response: GroupResponse = group.into();
+                Ok((StatusCode::CREATED, Json(response)).into_response())
+            }
+        }
     }
 
     /// POST `/api/groups/:group_id/leave` — Leave a group
@@ -1064,6 +1150,58 @@ impl GroupRoutes {
 
         if !left {
             return Err(AppError::internal("Failed to remove membership"));
+        }
+
+        Ok((StatusCode::NO_CONTENT, ()).into_response())
+    }
+
+    // ========================================================================
+    // Human coach handlers
+    // ========================================================================
+
+    /// GET /api/groups/coached — List groups the caller is the human coach of
+    async fn handle_list_coached_groups<C: SocialCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+
+        let groups = resources
+            .group_service()
+            .list_coached_groups(auth.user_id)
+            .await?;
+
+        let group_responses: Vec<GroupResponse> =
+            groups.into_iter().map(GroupResponse::from).collect();
+
+        let response = CoachedGroupsResponse {
+            total: group_responses.len(),
+            groups: group_responses,
+            metadata: Self::build_metadata(),
+        };
+
+        Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// DELETE `/api/groups/:group_id/coach` — Detach the human coach (admin/owner only)
+    async fn handle_remove_coach<C: SocialCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(group_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let tenant_id = Self::get_tenant_id(&auth)?;
+
+        // Verify admin/owner role
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
+
+        let cleared = resources
+            .group_service()
+            .set_group_coach(&group_id, None, tenant_id)
+            .await?;
+
+        if !cleared {
+            return Err(AppError::not_found(format!("Group {group_id}")));
         }
 
         Ok((StatusCode::NO_CONTENT, ()).into_response())

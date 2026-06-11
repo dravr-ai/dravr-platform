@@ -221,6 +221,10 @@ export const ENDPOINTS = {
     INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
     /** Join a group via invite code */
     JOIN: '/api/groups/join',
+    /** Detach the human coach (admin/owner only) */
+    COACH: (id: string) => `/api/groups/${id}/coach`,
+    /** List groups the current user is the human coach of */
+    COACHED: '/api/groups/coached',
     /** Check group creation permissions */
     PERMISSIONS: '/api/groups/permissions',
     /** Leave a group */

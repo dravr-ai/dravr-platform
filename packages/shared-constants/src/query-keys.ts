@@ -201,6 +201,7 @@ export const QUERY_KEYS = {
     stats: (groupId: string) => ['groups', groupId, 'stats'] as const,
     invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
     permissions: () => ['groups', 'permissions'] as const,
+    coached: () => ['groups', 'coached'] as const,
   },
 
   // ==================== MESSAGING ====================

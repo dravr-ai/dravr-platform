@@ -162,6 +162,48 @@ export function useJoinGroup() {
 }
 
 /**
+ * Fetches the groups the current user is the human coach of.
+ */
+export function useCoachedGroups() {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.groups.coached(),
+    queryFn: () => groupsApi.listCoachedGroups(),
+    staleTime: 30_000,
+  });
+
+  return {
+    groups: query.data?.groups ?? [],
+    total: query.data?.total ?? 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Mutation hook for detaching a group's human coach (admin/owner only).
+ */
+export function useRemoveCoach(groupId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => groupsApi.removeCoach(groupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.detail(groupId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coached() });
+    },
+  });
+
+  return {
+    removeCoach: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
+  };
+}
+
+/**
  * Mutation hook for leaving a group.
  */
 export function useLeaveGroup() {

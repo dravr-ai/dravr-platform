@@ -5,8 +5,8 @@
 // ABOUTME: Displays group header info and delegates to sub-components for each tab
 
 import { useState } from 'react';
-import { ArrowLeft, Users, BarChart3, Link2, Settings, Crown } from 'lucide-react';
-import { useGroup, useGroupMembers, useGroupStats, useUpdateGroup, useLeaveGroup, useDeleteGroup } from '../../hooks/useGroups';
+import { ArrowLeft, Users, BarChart3, Link2, Settings, Crown, UserCog } from 'lucide-react';
+import { useGroup, useGroupMembers, useGroupStats, useUpdateGroup, useLeaveGroup, useDeleteGroup, useRemoveCoach } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
 import { Card, Button, Tabs, TabPanel, Input, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import MemberList from './MemberList';
@@ -54,6 +54,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
+  const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
   const auth = useAuth();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
@@ -61,6 +62,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
   const [activeTab, setActiveTab] = useState('members');
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRemoveCoach, setConfirmRemoveCoach] = useState(false);
 
   // Settings form state
   const [editName, setEditName] = useState('');
@@ -94,6 +96,17 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save settings';
       showError('Save failed', message);
+    }
+  };
+
+  const handleRemoveCoach = async () => {
+    try {
+      await removeCoach();
+      showSuccess('Coach removed', 'The human coach has been detached from this group.');
+      setConfirmRemoveCoach(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to remove coach';
+      showError('Remove failed', message);
     }
   };
 
@@ -172,6 +185,12 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                 <span className="flex items-center gap-1.5 text-amber-400">
                   <Crown className="w-4 h-4" />
                   Owner
+                </span>
+              )}
+              {group.coach_user_id && (
+                <span className="flex items-center gap-1.5 text-pierre-violet-light">
+                  <UserCog className="w-4 h-4" />
+                  Coach attached
                 </span>
               )}
             </div>
@@ -303,6 +322,39 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
             </Card>
           )}
 
+          {/* Group coach (admin/owner) */}
+          {isAdmin && (
+            <Card variant="dark" className="!p-5">
+              <h4 className="text-sm font-semibold text-on-surface mb-4">Group Coach</h4>
+              {group.coach_user_id ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <UserCog className="w-4 h-4 text-pierre-violet-light flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-on-surface">A human coach oversees this group.</p>
+                      <code className="text-xs text-outline font-mono truncate block">
+                        {group.coach_user_id}
+                      </code>
+                    </div>
+                  </div>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => setConfirmRemoveCoach(true)}
+                  >
+                    Remove Coach
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-outline">
+                  No human coach attached. Create a{' '}
+                  <span className="text-on-surface-variant">Coach</span> invite in the Invites tab
+                  and share it with the coach you want to oversee this group.
+                </p>
+              )}
+            </Card>
+          )}
+
           {/* Danger zone */}
           <Card variant="dark" className="!p-5 border border-red-500/20">
             <h4 className="text-sm font-semibold text-red-400 mb-4">Danger Zone</h4>
@@ -363,6 +415,18 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
         confirmLabel="Delete Group"
         variant="danger"
         isLoading={isDeleting}
+      />
+
+      {/* Confirm remove coach dialog */}
+      <ConfirmDialog
+        isOpen={confirmRemoveCoach}
+        onClose={() => setConfirmRemoveCoach(false)}
+        onConfirm={handleRemoveCoach}
+        title="Remove Coach"
+        message="Detach the human coach from this group? They will lose access to the group's roster. You can invite a coach again later."
+        confirmLabel="Remove Coach"
+        variant="warning"
+        isLoading={isRemovingCoach}
       />
     </div>
   );

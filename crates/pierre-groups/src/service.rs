@@ -10,9 +10,9 @@ use std::sync::Arc;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTrend, GroupWeeklyReport,
-    HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag, MemberGroupComparison,
-    MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
+    GroupInvite, GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupTrend,
+    GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
+    MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
@@ -141,10 +141,17 @@ impl GroupService {
             .await
             .unwrap_or_default();
 
-        let is_admin = members
-            .iter()
-            .find(|m| m.user_id == user_id)
-            .is_some_and(|m| m.role.can_manage_members());
+        // The group's human coach gets the same whole-group overview an admin
+        // sees. The visibility filter below still gates each member's snapshot
+        // behind their own `peer_sharing_consent`, so a coach never sees data a
+        // member hasn't shared — coach access reuses the existing peer gate
+        // rather than bypassing it.
+        let is_coach = group.coach_user_id == Some(user_id);
+        let is_admin = is_coach
+            || members
+                .iter()
+                .find(|m| m.user_id == user_id)
+                .is_some_and(|m| m.role.can_manage_members());
 
         let member_count = members.len();
 
@@ -283,6 +290,8 @@ impl GroupService {
             description: request.description.clone(),
             coach_id: request.coach_id.clone(),
             owner_id,
+            // No human coach until one redeems a coach-kind invite.
+            coach_user_id: None,
             // `peer_data_sharing` is the admin kill switch — defaults
             // to TRUE so individual members' `/group consent yes` opt-
             // ins immediately surface their data. Owner can flip to
@@ -386,21 +395,15 @@ impl GroupService {
             .await?
             .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
 
-        // Check invite validity
-        if !invite.is_active {
-            return Err(AppError::invalid_input("This invite has been deactivated"));
-        }
-        if let Some(expires) = invite.expires_at {
-            if expires < chrono::Utc::now() {
-                return Err(AppError::invalid_input("This invite has expired"));
-            }
-        }
-        if let Some(max) = invite.max_uses {
-            if invite.use_count >= max {
-                return Err(AppError::invalid_input(
-                    "This invite has reached its use limit",
-                ));
-            }
+        Self::check_invite_usable(&invite)?;
+
+        // Member invites never attach a coach — coach-kind invites are
+        // redeemed through `redeem_coach_invite`, which the route dispatches
+        // to based on `invite.kind`.
+        if invite.kind == GroupInviteKind::Coach {
+            return Err(AppError::invalid_input(
+                "This is a coach invite — redeem it from the coach flow, not group join",
+            ));
         }
 
         // Check member limit
@@ -449,6 +452,128 @@ impl GroupService {
 
         info!(group_id = %invite.group_id, user_id = %user_id, "Member joined group via invite");
         Ok(created)
+    }
+
+    /// Shared invite-validity gate: active, not expired, under its use limit.
+    fn check_invite_usable(invite: &GroupInvite) -> AppResult<()> {
+        if !invite.is_active {
+            return Err(AppError::invalid_input("This invite has been deactivated"));
+        }
+        if let Some(expires) = invite.expires_at {
+            if expires < chrono::Utc::now() {
+                return Err(AppError::invalid_input("This invite has expired"));
+            }
+        }
+        if let Some(max) = invite.max_uses {
+            if invite.use_count >= max {
+                return Err(AppError::invalid_input(
+                    "This invite has reached its use limit",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Redeem a coach-kind invite, attaching the caller as the group's human
+    /// coach (`coach_user_id`).
+    ///
+    /// Eligibility (the caller is a roster-managing coach and belongs to the
+    /// group's tenant) is enforced by the route layer, which owns user-repo
+    /// access. This method owns the group-side business logic: invite
+    /// validity, the single-coach guard, the attachment write, and the
+    /// invite-use increment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the invite is invalid/expired/exhausted, is not a
+    /// coach invite, the group is missing, or a different coach is already
+    /// attached.
+    pub async fn redeem_coach_invite(
+        &self,
+        invite_code: &str,
+        coach_user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<CoachingGroup> {
+        let invite = self
+            .repo
+            .get_invite_by_code(invite_code)
+            .await?
+            .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
+
+        Self::check_invite_usable(&invite)?;
+
+        if invite.kind != GroupInviteKind::Coach {
+            return Err(AppError::invalid_input(
+                "This invite does not grant coach access",
+            ));
+        }
+
+        let group = self
+            .repo
+            .get_group(&invite.group_id.to_string(), tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group not found"))?;
+
+        // Single human coach per group (v1). Re-redeeming as the same coach is
+        // idempotent; a different coach is rejected so an owner explicitly
+        // detaches the current coach first.
+        match group.coach_user_id {
+            Some(existing) if existing == coach_user_id => return Ok(group),
+            Some(_) => {
+                return Err(AppError::invalid_input(
+                    "This group already has a coach. Remove the current coach first.",
+                ));
+            }
+            None => {}
+        }
+
+        let attached = self
+            .repo
+            .set_group_coach_user(&invite.group_id.to_string(), Some(coach_user_id), tenant_id)
+            .await?;
+        if !attached {
+            return Err(AppError::internal("Failed to attach coach to group"));
+        }
+        self.repo
+            .increment_invite_use_count(&invite.id.to_string())
+            .await?;
+
+        info!(
+            group_id = %invite.group_id,
+            coach_user_id = %coach_user_id,
+            "Coach attached to group via invite"
+        );
+
+        self.repo
+            .get_group(&invite.group_id.to_string(), tenant_id)
+            .await?
+            .ok_or_else(|| AppError::internal("Group not found after coach attach"))
+    }
+
+    /// Attach or clear the group's human coach directly (admin/owner action).
+    /// Pass `None` to detach.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail.
+    pub async fn set_group_coach(
+        &self,
+        group_id: &str,
+        coach_user_id: Option<Uuid>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        self.repo
+            .set_group_coach_user(group_id, coach_user_id, tenant_id)
+            .await
+    }
+
+    /// List active groups the user is the attached human coach of.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail.
+    pub async fn list_coached_groups(&self, user_id: Uuid) -> AppResult<Vec<CoachingGroup>> {
+        self.repo.list_groups_coached_by(user_id).await
     }
 
     /// Leave a group
@@ -508,6 +633,7 @@ impl GroupService {
         tenant_id: TenantId,
         expires_in_days: Option<i64>,
         max_uses: Option<i32>,
+        kind: GroupInviteKind,
     ) -> AppResult<GroupInvite> {
         let code = generate_invite_code();
         let expires_at =
@@ -518,6 +644,7 @@ impl GroupService {
             group_id,
             tenant_id: tenant_id.to_string(),
             code,
+            kind,
             created_by,
             expires_at,
             max_uses,

@@ -5,11 +5,16 @@
 // ABOUTME: Lists active invites, create new invites with expiry/max uses, copy links, deactivate
 
 import { useState } from 'react';
-import { Link2, Plus, Copy, Check, Trash2 } from 'lucide-react';
+import { Link2, Plus, Copy, Check, Trash2, UserCog } from 'lucide-react';
 import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hooks/useGroups';
 import { Button, Card, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
-import type { GroupRole, GroupInvite, CreateInviteRequest } from '@pierre/shared-types';
+import type {
+  GroupRole,
+  GroupInvite,
+  GroupInviteKind,
+  CreateInviteRequest,
+} from '@pierre/shared-types';
 
 interface InviteManagerProps {
   groupId: string;
@@ -31,6 +36,11 @@ const MAX_USES_OPTIONS: SelectOption[] = [
   { value: '10', label: '10 uses' },
   { value: '25', label: '25 uses' },
   { value: '0', label: 'Unlimited' },
+];
+
+const KIND_OPTIONS: SelectOption[] = [
+  { value: 'member', label: 'Member (athlete)' },
+  { value: 'coach', label: 'Coach' },
 ];
 
 function formatDate(dateStr: string): string {
@@ -63,6 +73,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expiryDays, setExpiryDays] = useState('7');
   const [maxUses, setMaxUses] = useState('10');
+  const [inviteKind, setInviteKind] = useState<GroupInviteKind>('member');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<GroupInvite | null>(null);
 
@@ -78,10 +89,17 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     if (uses > 0) {
       request.max_uses = uses;
     }
+    if (inviteKind === 'coach') {
+      request.kind = 'coach';
+    }
 
     try {
       await createInvite(request);
-      showSuccess('Invite created', 'The invite link is ready to share.');
+      const detail =
+        inviteKind === 'coach'
+          ? 'Share it with the coach you want to oversee this group.'
+          : 'The invite link is ready to share.';
+      showSuccess('Invite created', detail);
       setShowCreateForm(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create invite';
@@ -153,6 +171,20 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {showCreateForm && canManage && (
         <Card variant="dark" className="!p-5">
           <h4 className="text-sm font-semibold text-on-surface mb-4">Create Invite Link</h4>
+          <div className="mb-4">
+            <Select
+              label="Invite Type"
+              options={KIND_OPTIONS}
+              value={inviteKind}
+              onChange={(e) => setInviteKind(e.target.value as GroupInviteKind)}
+            />
+            {inviteKind === 'coach' && (
+              <p className="text-xs text-outline mt-1.5">
+                A coach invite attaches the redeemer as this group's human coach. Only a
+                roster-managing coach in this group's tenant can redeem it.
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <Select
               label="Expires After"
@@ -194,6 +226,12 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                   <div className="flex items-center gap-2 mb-1">
                     <Link2 className="w-4 h-4 text-pierre-violet-light flex-shrink-0" />
                     <code className="text-sm text-on-surface font-mono truncate">{invite.code}</code>
+                    {invite.kind === 'coach' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-pierre-violet/20 text-pierre-violet-light rounded-full">
+                        <UserCog className="w-3 h-3" />
+                        Coach
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-outline">
                     <span>

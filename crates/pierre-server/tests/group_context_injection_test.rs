@@ -132,6 +132,7 @@ mod inject_tests {
             description: None,
             coach_id: coach_id.to_string(),
             owner_id,
+            coach_user_id: None,
             peer_data_sharing,
             max_members: 20,
             is_active: true,
