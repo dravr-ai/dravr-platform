@@ -495,7 +495,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
 
     let http_client = Client::new();
 
-    // Test 1: tools/list doesn't require auth (it's public)
+    // Test 1: unauthenticated tools/list is rejected at the transport with 401 (RFC 9728)
     let response = http_client
         .post(format!("http://127.0.0.1:{}/mcp", server.port))
         .header("Content-Type", "application/json")
@@ -507,10 +507,18 @@ async fn test_mcp_authentication_required() -> Result<()> {
         .send()
         .await?;
 
-    // tools/list is public, so should succeed
-    assert_eq!(response.status(), 200, "tools/list should be public");
+    // All /mcp methods require auth post-RFC-9728; unauthenticated requests are rejected.
+    assert_eq!(
+        response.status(),
+        401,
+        "unauthenticated tools/list must be rejected with 401"
+    );
+    assert!(
+        response.headers().contains_key("www-authenticate"),
+        "401 must carry a WWW-Authenticate challenge (RFC 9728)"
+    );
 
-    // Test 2: tools/call DOES require auth - returns JSON-RPC error
+    // Test 2: unauthenticated tools/call is likewise rejected with 401 + a JSON-RPC auth error
     let response2 = http_client
         .post(format!("http://127.0.0.1:{}/mcp", server.port))
         .header("Content-Type", "application/json")
@@ -526,8 +534,12 @@ async fn test_mcp_authentication_required() -> Result<()> {
         .send()
         .await?;
 
-    // MCP returns 200 with JSON-RPC error (standard JSON-RPC behavior)
-    assert_eq!(response2.status(), 200, "MCP returns 200 with error object");
+    // The 401 carries a JSON-RPC auth error body (RFC 9728 resource-server challenge).
+    assert_eq!(
+        response2.status(),
+        401,
+        "unauthenticated tools/call must be rejected with 401"
+    );
 
     let json: Value = response2.json().await?;
     assert!(json["error"].is_object(), "Should have error object");
@@ -544,7 +556,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
         json["error"]
     );
 
-    println!("✅ Test passed: tools/list is public, tools/call requires auth");
+    println!("✅ Test passed: unauthenticated /mcp is rejected with 401 (RFC 9728)");
 
     Ok(())
 }
