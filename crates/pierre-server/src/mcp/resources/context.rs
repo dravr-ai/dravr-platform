@@ -24,6 +24,8 @@ use super::slices::{
     A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
 use super::ServerContextBuilder;
+#[cfg(feature = "client-messaging")]
+use crate::services::user_approval_notifier::ApprovalNotifier;
 #[cfg(feature = "provider-sciotte")]
 use dravr_contremaitre::schemas::STRUCTURED_WORKOUT_SCHEMA;
 use dravr_contremaitre::system::STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE;
@@ -443,6 +445,16 @@ impl ServerContext {
             data: self.data(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             tool_selection: self.mcp.tool_selection.clone(),
+            approval_notifier: {
+                #[cfg(feature = "client-messaging")]
+                {
+                    Some(ApprovalNotifier::from_context(self))
+                }
+                #[cfg(not(feature = "client-messaging"))]
+                {
+                    None
+                }
+            },
         }
     }
 }

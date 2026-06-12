@@ -58,6 +58,7 @@ use pierre_llm::pricing::calculate_cost;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
 use pierre_runtime_context::DataContext;
 use pierre_services::admin_ops;
+use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 
 /// Shared state for every web-admin route handler in this crate.
@@ -93,6 +94,9 @@ pub struct WebAdminContext {
     pub admin_jwt_secret: Arc<str>,
     /// Tool-selection service — backs the `/api/admin/tools/*` surface.
     pub tool_selection: Arc<ToolSelectionService>,
+    /// Notifier that emails and messages a just-approved user across their
+    /// linked channels (injected by the composition root; `None` until wired).
+    pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
 }
 
 #[async_trait::async_trait]
@@ -705,6 +709,13 @@ impl WebAdminRoutes {
             request.reason.as_deref(),
         )
         .await?;
+
+        // Notify the user: approval email + a message on each linked channel.
+        if let Some(notifier) = resources.approval_notifier.as_ref() {
+            notifier
+                .notify_user_approved(user_uuid, &result.email, None)
+                .await;
+        }
 
         Ok((
             StatusCode::OK,

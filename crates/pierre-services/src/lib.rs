@@ -169,6 +169,9 @@ pub mod usage_pruning;
 /// Account-status authorization gate shared by HTTP middleware and messaging ingress.
 pub mod user_status_gate;
 
+/// User-approval notification seam (email + linked-channel messages).
+pub mod user_approval;
+
 /// Lazy weather backfill — fills missing ambient temperature on activities
 /// from start coordinates + start time via dravr-meteo.
 pub mod weather_backfill;

@@ -132,6 +132,10 @@ pub const KEY_COACH_PROPOSAL_WELCOME_GENERIC: &str = "messaging.coach_proposal.w
 /// Key: coach-proposal closing line inviting the user to reply with a number.
 pub const KEY_COACH_PROPOSAL_FOOTER: &str = "messaging.coach_proposal.footer";
 
+/// Key: account-approval welcome, sent on each linked messaging channel when a
+/// user's account is approved. No placeholders.
+pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_approved";
+
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
 // account, so locale resolution here cannot consult `users.locale`. Callers
@@ -413,6 +417,9 @@ pub const FR_COACH_PROPOSAL_WELCOME_GENERIC: &str =
 /// French coach-proposal footer.
 pub const FR_COACH_PROPOSAL_FOOTER: &str =
     "\nRéponds avec un numéro pour commencer, ou pose-moi simplement ta question.";
+/// French default for [`KEY_REGISTRATION_APPROVED`].
+pub const FR_REGISTRATION_APPROVED: &str =
+    "🎉 Ton compte Dravr a été approuvé ! Tu peux maintenant discuter avec ton coach ici. Pose-moi ta première question quand tu veux.";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -568,6 +575,9 @@ pub const EN_COACH_PROPOSAL_WELCOME_GENERIC: &str =
 /// English coach-proposal footer.
 pub const EN_COACH_PROPOSAL_FOOTER: &str =
     "\nReply with a number to start, or just ask me anything.";
+/// English default for [`KEY_REGISTRATION_APPROVED`].
+pub const EN_REGISTRATION_APPROVED: &str =
+    "🎉 Your Dravr account has been approved! You can now chat with your coach right here. Ask me your first question whenever you're ready.";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -719,6 +729,9 @@ pub(crate) const ES_COACH_PROPOSAL_WELCOME_GENERIC: &str =
 /// Spanish coach-proposal footer.
 pub(crate) const ES_COACH_PROPOSAL_FOOTER: &str =
     "\nResponde con un número para empezar, o simplemente pregúntame lo que quieras.";
+/// Spanish default for [`KEY_REGISTRATION_APPROVED`].
+pub(crate) const ES_REGISTRATION_APPROVED: &str =
+    "🎉 ¡Tu cuenta de Dravr ha sido aprobada! Ya puedes hablar con tu coach aquí. Hazme tu primera pregunta cuando quieras.";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -865,6 +878,9 @@ pub(crate) const DE_COACH_PROPOSAL_WELCOME_GENERIC: &str =
 /// German coach-proposal footer.
 pub(crate) const DE_COACH_PROPOSAL_FOOTER: &str =
     "\nAntworte mit einer Zahl, um zu starten, oder frag mich einfach etwas.";
+/// German default for [`KEY_REGISTRATION_APPROVED`].
+pub(crate) const DE_REGISTRATION_APPROVED: &str =
+    "🎉 Dein Dravr-Konto wurde freigeschaltet! Du kannst jetzt hier mit deinem Coach chatten. Stell mir deine erste Frage, wann immer du möchtest.";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -1014,6 +1030,9 @@ pub(crate) const PT_COACH_PROPOSAL_WELCOME_GENERIC: &str =
 /// Portuguese coach-proposal footer.
 pub(crate) const PT_COACH_PROPOSAL_FOOTER: &str =
     "\nResponde com um número para começar, ou pergunta-me o que quiseres.";
+/// Portuguese default for [`KEY_REGISTRATION_APPROVED`].
+pub(crate) const PT_REGISTRATION_APPROVED: &str =
+    "🎉 A tua conta Dravr foi aprovada! Já podes falar com o teu coach aqui. Faz-me a tua primeira pergunta quando quiseres.";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -1155,6 +1174,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         FR_COACH_PROPOSAL_WELCOME_GENERIC,
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "fr", FR_COACH_PROPOSAL_FOOTER),
+    (KEY_REGISTRATION_APPROVED, "fr", FR_REGISTRATION_APPROVED),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -1262,6 +1282,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         EN_COACH_PROPOSAL_WELCOME_GENERIC,
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "en", EN_COACH_PROPOSAL_FOOTER),
+    (KEY_REGISTRATION_APPROVED, "en", EN_REGISTRATION_APPROVED),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -1375,6 +1396,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         ES_COACH_PROPOSAL_WELCOME_GENERIC,
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "es", ES_COACH_PROPOSAL_FOOTER),
+    (KEY_REGISTRATION_APPROVED, "es", ES_REGISTRATION_APPROVED),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -1488,6 +1510,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         DE_COACH_PROPOSAL_WELCOME_GENERIC,
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "de", DE_COACH_PROPOSAL_FOOTER),
+    (KEY_REGISTRATION_APPROVED, "de", DE_REGISTRATION_APPROVED),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1601,6 +1624,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         PT_COACH_PROPOSAL_WELCOME_GENERIC,
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "pt", PT_COACH_PROPOSAL_FOOTER),
+    (KEY_REGISTRATION_APPROVED, "pt", PT_REGISTRATION_APPROVED),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),

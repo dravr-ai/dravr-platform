@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::resolve_messaging_locale;
+use crate::services::user_approval_notifier::ApprovalNotifier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
 use pierre_services::tenant_admin as tenant_admin_service;
@@ -541,6 +542,15 @@ async fn approve_user(
     );
 
     crate::ops_notifier().notify_user_approved(&updated_user.email, approved_by);
+
+    // Notify the approved user: account email + a message on each linked channel.
+    ApprovalNotifier::from_context(resources)
+        .notify_user_approved(
+            user_uuid,
+            &updated_user.email,
+            updated_user.display_name.as_deref(),
+        )
+        .await;
 
     Ok(updated_user.email)
 }

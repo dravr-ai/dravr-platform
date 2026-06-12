@@ -28,16 +28,13 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::activity_fetch::{write_through_activity_cache, ACTIVITY_CACHE_RETENTION_DAYS};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 
 /// Number of days of activity history to fetch for training load calculation.
 /// CTL uses a 42-day exponential moving average, so 60 days gives adequate data.
 const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
-
-/// Retention + read window for the provider-agnostic activity cache. Exceeds
-/// the training-load lookback so cached reads always cover CTL/ATL/TSB.
-const ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
 
 /// Age beyond which cached activities trigger a background revalidation
 /// (stale-while-revalidate). Cached data is served immediately regardless;
@@ -1066,37 +1063,6 @@ fn spawn_activity_revalidation(
             ),
         }
     });
-}
-
-/// Persist a provider's freshly fetched activities into the activity cache and
-/// prune rows outside the retention window. Failures are logged, not fatal —
-/// the live activities still flow to the caller.
-///
-/// Shared with [`crate::activity_fetch`] so the coach/recommendation fetch path
-/// warms the same stale-while-revalidate cache the group snapshot builder reads.
-pub(crate) async fn write_through_activity_cache(
-    auth_service: &AuthService,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    activities: &[Activity],
-) {
-    let data = auth_service.runtime().data();
-    let cache = data.repos().activity_cache.clone();
-    if let Err(e) = cache
-        .upsert_activities(user_id, &tenant_id, provider, activities)
-        .await
-    {
-        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
-        return;
-    }
-    let cutoff = Utc::now() - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
-    if let Err(e) = cache
-        .prune_activities_before(user_id, &tenant_id, cutoff)
-        .await
-    {
-        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
-    }
 }
 
 /// Compute all fitness metrics from activities and assemble the snapshot.

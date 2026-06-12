@@ -23,6 +23,7 @@ use pierre_contremaitre::{
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_services::user_approval::UserApprovalNotifier;
 use tracing::info;
 
 use crate::auth::service::AdminAuthService;
@@ -55,6 +56,9 @@ pub struct AdminApiContext {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Public frontend URL used to build sign-in links in outbound emails
     pub frontend_url: Option<String>,
+    /// Notifier that emails and messages a just-approved user across their
+    /// linked channels (injected by the composition root; `None` until wired).
+    pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
     /// Shared coaching harness config registry, mutated by the
     /// `PUT /admin/settings/harness` handler so subsequent chat turns
     /// pick up the new compaction / Tier 6 guardrail values without a
@@ -135,6 +139,7 @@ impl AdminApiContext {
             admin_api_key_monthly_limit: init.admin_api_key_monthly_limit,
             email_service: None,
             frontend_url: None,
+            approval_notifier: None,
             harness_config_registry: init.harness_config_registry,
             prompt_registry: init.prompt_registry,
             tool_description_registry: init.tool_description_registry,
