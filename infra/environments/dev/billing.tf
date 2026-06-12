@@ -39,9 +39,9 @@ variable "billing_account_id" {
 }
 
 variable "monthly_budget_amount" {
-  description = "Monthly cost budget for this project in the billing account's currency (CAD). The budget is an ALERT trigger, not a hard spend cap — Google never stops resources at the limit."
+  description = "Monthly cost budget for this project in the billing account's currency (CAD). The budget is an ALERT trigger, not a hard spend cap — Google never stops resources at the limit. Set to 300 (above the ~$250/mo post-free-trial-expiry run-rate) for headroom that still catches a doubling."
   type        = number
-  default     = 200
+  default     = 300
 }
 
 # Project number is required by the budget filter (projects/<number>, not the id).
