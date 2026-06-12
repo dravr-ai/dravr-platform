@@ -51,6 +51,8 @@ pub mod security;
 pub mod sleep_tool_params;
 /// Social insights configuration for coach-mediated sharing
 pub mod social;
+/// Per-turn tool intent pre-filter configuration (default-off chat tool narrowing)
+pub mod tool_intent_prefilter;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;
 /// Core configuration type definitions (`LogLevel`, `Environment`, `LlmProviderType`)

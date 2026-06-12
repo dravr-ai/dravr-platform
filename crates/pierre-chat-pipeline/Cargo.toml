@@ -50,6 +50,10 @@ pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = tru
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 
+# Standalone tool-selection SPI (per-turn tool-set narrowing). Provider-free
+# core lib; the tronc MCP shell is a separate package not pulled here.
+dravr-aiguilleur = { git = "https://github.com/dravr-ai/dravr-aiguilleur.git", tag = "v0.1.0" }
+
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
