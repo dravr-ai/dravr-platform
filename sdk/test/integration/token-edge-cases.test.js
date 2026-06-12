@@ -89,7 +89,7 @@ describe('Token Edge Cases - Refresh Race Conditions', () => {
 
   test('should handle token refresh during active tool call', async () => {
     // Use the real server-issued token so the /mcp request actually authenticates.
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
     const validateEndpoint = `${serverUrl}/oauth2/validate-and-refresh`;
 
@@ -129,7 +129,7 @@ describe('Token Edge Cases - Refresh Race Conditions', () => {
   }, 30000);
 
   test('should use latest token after refresh completes', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // First request with initial token
@@ -320,7 +320,7 @@ describe('Token Edge Cases - Concurrent Token Refresh Requests', () => {
   }, 60000);
 
   test('should maintain token consistency across concurrent refreshes', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Multiple concurrent tool calls with same token
@@ -420,7 +420,7 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
   });
 
   test('should handle token becoming invalid during tool execution', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Start a request with token about to expire
@@ -448,7 +448,7 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
   }, 30000);
 
   test('should return proper error when token is revoked mid-session', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // First request should work
@@ -520,7 +520,7 @@ describe('Token Edge Cases - Token Invalidation Mid-Request', () => {
   }, 30000);
 
   test('should gracefully handle session termination', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Make a request
@@ -565,7 +565,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   });
 
   test('should refresh provider token transparently during tool call', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {
@@ -591,7 +591,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should handle provider token refresh failure gracefully', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {
@@ -618,7 +618,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should isolate provider token refresh from Pierre token', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Request to one provider
@@ -662,7 +662,7 @@ describe('Token Edge Cases - Provider Token Refresh', () => {
   }, 30000);
 
   test('should require provider re-auth when refresh token expires', async () => {
-    const tokenData = { access_token: serverHandle.testToken };
+    const tokenData = { access_token: serverHandle.testToken.access_token };
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     const response = await fetch(mcpEndpoint, {
