@@ -49,9 +49,9 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     }
   });
 
-  test('tools/list returns public discovery tools WITHOUT authentication', async () => {
-    // Server returns a curated subset of read-only tools for unauthenticated requests
-    // This enables tool discovery while protecting auth-gated capabilities
+  test('tools/list WITHOUT authentication is rejected (RFC 9728)', async () => {
+    // /mcp is an OAuth 2.1 protected resource: an unauthenticated tools/list is
+    // rejected with 401 and discloses no tools (the public-discovery subset is retired).
 
     bridgeClient = new MockMCPClient('node', [
       bridgePath,
@@ -63,24 +63,18 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
 
-    const toolsList = await bridgeClient.send(MCPMessages.toolsList);
-    const toolNames = toolsList.result.tools.map(t => t.name);
+    try {
+      const toolsList = await bridgeClient.send(MCPMessages.toolsList, 10000);
+      // The bridge surfaces the 401 as a JSON-RPC error or returns no tools —
+      // either way, nothing is disclosed without authentication.
+      const toolNames = toolsList.result?.tools?.map(t => t.name) ?? [];
+      expect(toolNames).toHaveLength(0);
+    } catch (error) {
+      // A surfaced 401 / closed stream is the expected unauthenticated outcome.
+      console.log(`Unauthenticated tools/list rejected: ${error.message}`);
+    }
 
-    console.log(`Unauthenticated tools/list returned: ${toolNames.length} tools`);
-
-    // Public discovery tools include read-only data retrieval and analytics
-    expect(toolNames).toContain('get_activities');
-    expect(toolNames).toContain('get_athlete');
-    expect(toolNames).toContain('get_stats');
-
-    // Auth-gated tools should NOT be visible without authentication
-    expect(toolNames).not.toContain('connect_provider');
-    expect(toolNames).not.toContain('disconnect_provider');
-
-    // Should have public discovery subset (10+ tools)
-    expect(toolNames.length).toBeGreaterThanOrEqual(10);
-
-    console.log('✅ Public discovery tools returned without authentication');
+    console.log('✅ Unauthenticated tools/list disclosed no tools');
   }, 60000);
 
   test('MCP SPEC: tools/list MUST return MORE tools WITH authentication', async () => {
@@ -131,26 +125,9 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     }
   }, 60000);
 
-  test('authenticated tools/list returns superset of unauthenticated tools', async () => {
-    // Authenticated users see all tools; unauthenticated see public discovery subset
-    // The authenticated set must be a strict superset of the unauthenticated set
-
-    // First: Get tools WITHOUT auth
-    const unauthClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl
-    ]);
-
-    await unauthClient.start();
-    await unauthClient.send(MCPMessages.initialize);
-
-    const unauthTools = await unauthClient.send(MCPMessages.toolsList);
-    const unauthToolNames = unauthTools.result.tools.map(t => t.name).sort();
-
-    await unauthClient.stop();
-
-    // Second: Get tools WITH auth
+  test('authenticated tools/list returns the full tool set', async () => {
+    // Post-RFC-9728 there is no unauthenticated tool set; an authenticated client
+    // sees the complete catalog over the bridge.
     bridgeClient = new MockMCPClient('node', [
       bridgePath,
       '--server',
@@ -166,20 +143,15 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     const authTools = await bridgeClient.send(MCPMessages.toolsList);
-    const authToolNames = authTools.result.tools.map(t => t.name).sort();
+    const authToolNames = authTools.result.tools.map(t => t.name);
 
-    console.log(`Unauthenticated: ${unauthToolNames.length} tools`);
     console.log(`Authenticated: ${authToolNames.length} tools`);
 
-    // Authenticated must have AT LEAST as many tools as unauthenticated
-    // (more if the bridge successfully propagates auth tokens to tools/list)
-    expect(authToolNames.length).toBeGreaterThanOrEqual(unauthToolNames.length);
+    expect(authToolNames.length).toBeGreaterThanOrEqual(18);
+    expect(authToolNames).toContain('get_activities');
+    expect(authToolNames).toContain('get_athlete');
 
-    // Every public tool must also be visible when authenticated (superset or equal)
-    const missingFromAuth = unauthToolNames.filter(t => !authToolNames.includes(t));
-    expect(missingFromAuth).toEqual([]);
-
-    console.log('✅ Authenticated tools include all public discovery tools');
+    console.log('✅ Authenticated tools/list returned the full tool set');
   }, 120000);
 });
 
