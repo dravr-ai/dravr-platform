@@ -45,7 +45,7 @@ echo "[fougere] copilot CLI: $(copilot --version 2>&1)"
 # --- Auth check: test once per session ---
 if [ ! -f "$AUTH_MARKER" ]; then
   echo "[fougere] Testing authentication..."
-  AUTH_OUTPUT=$(copilot -p "Reply with exactly AUTH_OK" --model claude-opus-4.6 --yolo --no-ask-user 2>&1 || true)
+  AUTH_OUTPUT=$(copilot -p "Reply with exactly AUTH_OK" --model claude-opus-4.8 --yolo --no-ask-user 2>&1 || true)
 
   if echo "$AUTH_OUTPUT" | grep -q "AUTH_OK"; then
     echo "[fougere] Authentication OK."
@@ -80,7 +80,7 @@ echo ""
 cd "$PROJECT_ROOT"
 set +e
 copilot -p "$PROMPT" \
-  --model claude-opus-4.6 \
+  --model claude-opus-4.8 \
   --yolo \
   --no-ask-user \
   --add-dir . \
