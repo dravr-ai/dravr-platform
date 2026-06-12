@@ -22,15 +22,13 @@ const fetch = global.fetch || (async (...args) => {
  * - Locally: Uses existing server if available
  */
 async function ensureServerRunning(config = {}) {
-  const isCI = process.env.CI === 'true';
   const port = config.port || process.env.PIERRE_SERVER_PORT || process.env.HTTP_PORT || process.env.MCP_PORT || 8081;
   const healthUrl = `http://localhost:${port}/health`;
 
-  if (isCI) {
-    console.log('🤖 CI environment - starting fresh server');
-    return await startServer({ port, ...config });
-  }
-
+  // Reuse an already-running server. The integration/e2e runs start ONE shared
+  // server in jest globalSetup; locally a dev may already have one up. Starting a
+  // fresh server per suite races server lifecycles on the shared port (bind
+  // failures + cold-start health-check timeouts) — see test/helpers/global-setup.js.
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2000);
@@ -38,7 +36,7 @@ async function ensureServerRunning(config = {}) {
     clearTimeout(timeout);
 
     if (response.ok) {
-      console.log('✅ Using existing Pierre server');
+      console.log('✅ Using running Pierre server');
       const testToken = await registerAndGetToken(port);
       return { process: null, port, logs: [], testToken, cleanup: null };
     }
@@ -122,7 +120,9 @@ async function startServer(config) {
   });
 
   try {
-    await waitForHealth(`http://localhost:${port}/health`, 30000);
+    // Generous timeout: globalSetup starts the one shared server for the whole
+    // run, so a slow cold boot here would otherwise fail every suite at once.
+    await waitForHealth(`http://localhost:${port}/health`, 90000);
   } catch (error) {
     serverProcess.kill('SIGKILL');
     console.error('Server logs:', logs.join('\n'));
