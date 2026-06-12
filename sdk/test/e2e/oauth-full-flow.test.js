@@ -49,19 +49,20 @@ describe('E2E: OAuth Full Flow Tests', () => {
       }
     });
 
-    test('unauthenticated bridge should show public discovery tools', async () => {
+    test('unauthenticated bridge tools/list is rejected (RFC 9728)', async () => {
       client = new MockMCPClient('node', [bridgePath, '--server', serverUrl]);
       await client.start();
       await client.send(MCPMessages.initialize);
 
-      const response = await client.send(MCPMessages.toolsList);
-      const toolNames = response.result.tools.map(t => t.name);
-
-      // Unauthenticated clients see public discovery tools (read-only capabilities)
-      // connect_provider requires authentication; clients discover auth via RFC 8414
-      expect(toolNames).toContain('get_activities');
-      expect(toolNames).toContain('get_athlete');
-      expect(toolNames.length).toBeGreaterThan(0);
+      // /mcp is an OAuth 2.1 protected resource: unauthenticated tools/list is
+      // rejected with 401 and discloses no tools (public-discovery subset retired).
+      try {
+        const response = await client.send(MCPMessages.toolsList, 10000);
+        const toolNames = response.result?.tools?.map(t => t.name) ?? [];
+        expect(toolNames).toHaveLength(0);
+      } catch (error) {
+        // A surfaced 401 / closed stream is the expected unauthenticated outcome.
+      }
     }, 30000);
 
     test('unauthenticated tool call should indicate need for OAuth', async () => {
