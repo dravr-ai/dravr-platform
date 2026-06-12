@@ -307,6 +307,11 @@ module "backend" {
       PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
+      # Per-turn tool intent pre-filter (dravr-aiguilleur): narrows the
+      # chat-callable tool set to what each message + coach needs before sending
+      # it to the LLM. Default-off in code; enabled here so dev runs it.
+      PIERRE_TOOL_INTENT_PREFILTER_ENABLED = "1"
+
       # Route Copilot-headless tool turns through native MCP tool calling: the
       # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
       # (per-turn, tenant-scoped token), so the model calls Dravr tools natively

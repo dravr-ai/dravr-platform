@@ -171,24 +171,29 @@ pub(crate) async fn dispatch_llm_with_tools(
     // the selector drops tool categories irrelevant to this message + coach so
     // the model sees a focused list; it falls back to the full set when the
     // signal is too weak to narrow safely.
-    let (tools, tool_selection_reason) = match ctx.tool_intent_prefilter.as_ref() {
-        Some(prefilter) => {
-            let outcome = prefilter
-                .select(
-                    &ctx.tool_registry,
-                    &input.content,
-                    coach_ctx.map(|c| c.category.as_str()),
+    let (tools, tool_selection_reason, tools_kept, tools_dropped) =
+        match ctx.tool_intent_prefilter.as_ref() {
+            Some(prefilter) => {
+                let outcome = prefilter
+                    .select(
+                        &ctx.tool_registry,
+                        &input.content,
+                        coach_ctx.map(|c| c.category.as_str()),
+                    )
+                    .await;
+                let reason = outcome.reason;
+                let kept = outcome.keep.len();
+                let dropped = outcome.dropped.len();
+                let keep: HashSet<String> = outcome.keep.into_iter().collect();
+                (
+                    build_mcp_tools_filtered(&ctx.tool_registry, &keep),
+                    Some(reason),
+                    Some(kept),
+                    Some(dropped),
                 )
-                .await;
-            let reason = outcome.reason;
-            let keep: HashSet<String> = outcome.keep.into_iter().collect();
-            (
-                build_mcp_tools_filtered(&ctx.tool_registry, &keep),
-                Some(reason),
-            )
-        }
-        None => (build_mcp_tools(&ctx.tool_registry), None),
-    };
+            }
+            None => (build_mcp_tools(&ctx.tool_registry), None, None, None),
+        };
     let tool_params = ToolLoopParams {
         provider,
         executor,
@@ -239,8 +244,11 @@ pub(crate) async fn dispatch_llm_with_tools(
         tokens = result.usage.as_ref().map_or(0, |u| u.total_tokens),
         // Tool-prefilter telemetry: `None` = disabled (full set sent);
         // otherwise the selector's verdict for this turn (deterministic /
-        // fallback / llm). Lets us A/B token savings before defaulting on.
+        // fallback / llm) plus how many chat-callable tools survived vs were
+        // dropped. Lets us quantify the per-turn narrowing without re-running it.
         tool_selection_reason = ?tool_selection_reason,
+        tools_kept = ?tools_kept,
+        tools_dropped = ?tools_dropped,
         "Chat pipeline dispatch completed"
     );
 
