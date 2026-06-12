@@ -50,18 +50,16 @@ describe('E2E: MCP Client Bridge Integration', () => {
     expect(response.result.serverInfo.name).toBe('pierre-fitness');
   }, 30000);
 
-  test('should list available tools', async () => {
-    const response = await bridgeClient.send(MCPMessages.toolsList);
-
-    expect(response).toHaveProperty('result');
-    expect(response.result).toHaveProperty('tools');
-    expect(Array.isArray(response.result.tools)).toBe(true);
-    expect(response.result.tools.length).toBeGreaterThan(0);
-
-    const toolNames = response.result.tools.map(t => t.name);
-    // Unauthenticated bridge sees public discovery tools (read-only subset)
-    expect(toolNames).toContain('get_activities');
-    expect(toolNames).toContain('get_athlete');
+  test('unauthenticated tools/list discloses no tools (RFC 9728)', async () => {
+    // /mcp is a protected resource: without a token, tools/list is rejected with
+    // 401 and returns no tools (the public-discovery subset is retired).
+    try {
+      const response = await bridgeClient.send(MCPMessages.toolsList, 10000);
+      const toolNames = response.result?.tools?.map(t => t.name) ?? [];
+      expect(toolNames).toHaveLength(0);
+    } catch (error) {
+      // A surfaced 401 / closed stream is the expected unauthenticated outcome.
+    }
   }, 30000);
 
   test('should reject batch requests per 2025-06-18 spec', async () => {

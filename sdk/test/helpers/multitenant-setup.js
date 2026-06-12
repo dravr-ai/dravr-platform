@@ -19,24 +19,42 @@ const crypto = require('crypto');
  * @returns {Promise<Array>} Array of client objects with {user, token, client}
  */
 async function setupMultiTenantClients(numTenants = 2, serverConfig = {}) {
+    const fetch = global.fetch || (async (...args) => (await import('node-fetch')).default(...args));
+    const serverUrl = serverConfig.serverUrl || `http://localhost:${serverConfig.port || 8081}`;
     const clients = [];
 
     for (let i = 0; i < numTenants; i++) {
         const email = `tenant${i + 1}-${Date.now()}-${crypto.randomUUID()}@example.com`;
-        const userId = crypto.randomUUID();
+        const password = 'TenantTestPassword123!';
 
-        // Generate JWT token for this tenant
-        const tokenData = generateTestToken(userId, email, 3600);
+        // Register a real user so it gets its own tenant and a server-issued RS256
+        // token. Fake/HS256 tokens (generateTestToken) are rejected by /mcp with 401
+        // post-RFC-9728 — they only ever "worked" via the removed public-tools fallback.
+        // AUTO_APPROVE_USERS makes the registered user Active so the token authenticates.
+        await fetch(`${serverUrl}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, display_name: `Tenant ${i + 1}` }),
+        });
 
-        // Note: Actual MCP client instantiation happens in the test
-        // This helper just prepares the tenant credentials
+        const loginResponse = await fetch(`${serverUrl}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ grant_type: 'password', username: email, password }).toString(),
+        });
+        if (!loginResponse.ok) {
+            const text = await loginResponse.text();
+            throw new Error(`Tenant ${i + 1} login failed (${loginResponse.status}): ${text}`);
+        }
+        const tokenData = await loginResponse.json();
+
         clients.push({
             tenantId: i + 1,
-            userId,
+            userId: tokenData.user_id || email,
             email,
             token: tokenData.access_token,
             tokenData,
-            serverUrl: serverConfig.serverUrl || `http://localhost:${serverConfig.port || 8081}`,
+            serverUrl,
         });
     }
 
