@@ -390,12 +390,22 @@ impl LiveScenarioDriver {
         // arithmetic-sensitive scenarios.
         let mut summary_parts: Vec<String> = Vec::new();
         for (sport, total) in &sport_totals_rounded {
-            summary_parts.push(format!("{sport} total: {total:.2} km"));
+            // Explicit user-facing labels so the model maps "côté course"
+            // → the running total (and knows it already folds in trail),
+            // and so a single-activity figure (e.g. the 6.09 km run) is
+            // unmissable rather than buried under a terse "run total".
+            let label = match sport.as_str() {
+                "run" => "RUNNING total (course — includes trail, route and road runs)",
+                "ride" => "CYCLING total (vélo)",
+                "swim" => "SWIMMING total (natation)",
+                other => other,
+            };
+            summary_parts.push(format!("{label}: {total:.2} km"));
         }
         let summary = if summary_parts.is_empty() {
             "No activities in scope.".to_owned()
         } else {
-            summary_parts.join("; ")
+            summary_parts.join(". ")
         };
 
         // Production's provider-side `detect_fragments` collapses
