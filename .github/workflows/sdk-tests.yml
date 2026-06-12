@@ -108,6 +108,7 @@ jobs:
           echo "SDK types are up to date"
         env:
           DATABASE_URL: "sqlite::memory:"
+          AUTO_APPROVE_USERS: "true"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           HTTP_PORT: "8081"
@@ -207,6 +208,7 @@ jobs:
         run: bun run test:integration -- --updateSnapshot
         env:
           DATABASE_URL: "sqlite::memory:"
+          AUTO_APPROVE_USERS: "true"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           STRAVA_CLIENT_ID: "test_client_id_ci"
@@ -225,6 +227,7 @@ jobs:
         run: bun run test:e2e
         env:
           DATABASE_URL: "sqlite::memory:"
+          AUTO_APPROVE_USERS: "true"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           STRAVA_CLIENT_ID: "test_client_id_ci"

@@ -174,7 +174,10 @@ async function registerAndGetToken(port) {
       })
     });
 
-    if (!registerResponse.ok) {
+    if (registerResponse.ok) {
+      const registered = await registerResponse.json();
+      console.log(`📋 Registered ${testEmail} (user_status=${registered.user_status})`);
+    } else {
       const errorText = await registerResponse.text();
       console.warn(`⚠️ Registration returned ${registerResponse.status}: ${errorText}`);
     }
