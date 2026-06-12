@@ -26,4 +26,20 @@ module.exports = async () => {
   console.log(
     `✅ Shared test server ready (pid ${handle.process.pid}, port ${TestConfig.defaultServerPort})`
   );
+
+  // Self-check: confirm the shared server's issued token actually authenticates
+  // /mcp. Surfaces auth misconfiguration (e.g. unapproved user -> 401) up front
+  // instead of as 20 opaque per-test failures.
+  const tok = handle.testToken && handle.testToken.access_token;
+  const res = await fetch(`http://localhost:${TestConfig.defaultServerPort}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  });
+  const body = await res.json().catch(() => ({}));
+  console.log(
+    `🔎 globalSetup /mcp self-check: status=${res.status} tools=${
+      body.result && body.result.tools ? body.result.tools.length : 'n/a'
+    } error=${JSON.stringify(body.error || null)}`
+  );
 };
