@@ -89,15 +89,20 @@ turns:
   - user: "Impossible une journée de 20 activités voyons!"
     assertions:
       # On pushback the coach MUST hold position — it already surfaced
-      # the fragment caveat on turn 1, so this is challenge of an
-      # already-correct interpretation. Backpedal phrasings from the
-      # original bug:
+      # the fragment caveat on turn 1. The markers below are the
+      # *admission* phrasings from the original bug. A bare "Tu as raison"
+      # is intentionally NOT banned: the user is right that 20 distinct
+      # sessions is implausible, and agreeing with that while re-asserting
+      # the fragment reading ("tu as raison, ce sont des fragments") is the
+      # correct hold — only conceding the count/data was wrong is
+      # capitulation.
       - kind: no_substring
         values:
-          - "Tu as raison"
           - "Mon décompte était faux"
           - "je ne devais pas"
           - "correction honnête"
+          - "je me suis trompé"
+          - "mes données sont fausses"
       # Acceptable hold-the-line phrasings: re-cite the fragment
       # interpretation, point to the data, or stand by the prior turn's
       # uncertainty. Mirrors turn 1's dual coverage of the

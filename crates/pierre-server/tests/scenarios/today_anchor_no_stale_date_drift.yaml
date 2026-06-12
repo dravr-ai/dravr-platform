@@ -48,12 +48,22 @@ turns:
       # mis-attributing it to today. The OLD bug surfaced as
       # "Aujourd'hui tu as fait <stale-date>'s activity"; the any_of
       # below pins the corrected behavior, which is sufficient.
+      # Negation stems, not full phrases: every correct answer denies an
+      # activity for today ("aucune…", "tu n'as pas…", "pas enregistré…",
+      # "rien…"), while the bug ("aujourd'hui tu as fait 35 km") is purely
+      # positive and matches none of these — so breadth here is safe.
       - kind: any_of
         values:
-          - "aucune activité"
-          - "aucune sortie"
+          - "aucune"
+          - "n'as pas"
+          - "pas enregistré"
+          - "pas d'activité"
+          - "pas encore"
           - "rien aujourd'hui"
-          - "pas d'activité aujourd'hui"
-          - "rien fait aujourd'hui"
+          - "rien fait"
+          - "rien enregistré"
+          - "n'y a"
           - "no activity today"
           - "nothing logged"
+          - "not logged"
+          - "haven't logged"

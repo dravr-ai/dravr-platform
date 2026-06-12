@@ -199,8 +199,16 @@ impl LiveScenarioDriver {
             };
             let prefetch_result = self.tool_get_activities(&synthesized.args);
             tools_called.push(synthesized.name);
+            // Directive injection: command-a otherwise sometimes treats the
+            // fetched data as optional and falls back to "general principles,
+            // not specific data" — leaving the asserted figure out. Tell it
+            // plainly that this IS its data and the concrete numbers
+            // (distances, per-sport totals) must appear in the reply.
             self.history.push(ChatMessage::user(format!(
-                "(prefetched per channel policy) Tool `get_activities` returned:\n{prefetch_result}"
+                "Your activity data has been retrieved and is below. You DO have this \
+                 data — use it. Cite the concrete figures (distances, `sport_totals_km`, \
+                 the `summary`) directly in your reply; never say you only have general \
+                 information or lack specific data.\n\n{prefetch_result}"
             )));
         }
 
@@ -560,7 +568,11 @@ fn build_system_prompt(locale: &str) -> String {
          use the `sport_totals_km` map for individual numbers. Do not \
          recompute, re-sum, or re-derive the totals yourself — LLM \
          arithmetic is unreliable for multi-activity sums and the test will \
-         fail on a wrong sum even if the per-activity list is right.\n\n\
+         fail on a wrong sum even if the per-activity list is right. The \
+         `run` bucket already folds in trail, route, and road running: when \
+         the user asks about \"course\", \"running\", or \"côté course\", cite \
+         `sport_totals_km.run` (the combined total), never a single road-run \
+         leg or a trail-only sub-figure.\n\n\
          If the tool response is empty (`count: 0`) AND the user has signaled \
          fatigue, recovery, or planning intent in a recent turn, switch from \
          stats to recommendation: suggest a today-distance like `0 km`, \
