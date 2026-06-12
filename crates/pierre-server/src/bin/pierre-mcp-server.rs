@@ -39,9 +39,11 @@ use pierre_routes_auth::init_sciotte_limiter;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 
 type Result<T> = AppResult<T>;
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::Duration};
 use tokio::runtime::{Builder, Runtime};
-use tracing::{error, info};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::time::sleep;
+use tracing::{error, info, warn};
 
 /// Command-line arguments for the Dravr MCP server
 #[derive(Parser)]
@@ -755,6 +757,26 @@ async fn create_server(
     // Initialize ops notifier (Slack or noop) and send deploy notification
     pierre_mcp_server::init_ops_notifier();
     pierre_mcp_server::ops_notifier().notify_deploy();
+
+    // Best-effort shutdown notification: post "Server Stopping" to the deploys
+    // channel when Cloud Run sends SIGTERM (scale-down or redeploy). The post is
+    // fire-and-forget and races the ~10s SIGTERM grace window — the short flush
+    // sleep gives it a chance to send before the process is killed, but it may
+    // still be lost. The reliable "is an instance stuck up?" signal is the
+    // idle-floor Cloud Run alert, not this message.
+    tokio::spawn(async {
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+                info!("SIGTERM received — posting best-effort shutdown notification");
+                pierre_mcp_server::ops_notifier().notify_shutdown();
+                sleep(Duration::from_secs(3)).await;
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to install SIGTERM handler for shutdown notification");
+            }
+        }
+    });
 
     // Initialize product analytics (PostHog or noop)
     pierre_mcp_server::init_analytics();
