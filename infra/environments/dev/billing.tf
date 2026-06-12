@@ -86,14 +86,12 @@ resource "google_billing_budget" "dev_monthly" {
     spend_basis       = "CURRENT_SPEND"
   }
 
-  all_updates_rule {
-    # Email the billing account's IAM admins (jf@dravr.ai) at every threshold —
-    # the zero-wiring baseline that works even if the Slack channel breaks.
-    disable_default_iam_recipients = false
-    # Also fan the threshold notifications out to the #dev-dravr-errors Slack
-    # channel (the notification channel defined in monitoring.tf).
-    monitoring_notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
-  }
+  # No all_updates_rule: the budget falls back to the default notification path,
+  # emailing the billing account's IAM admins (jf@dravr.ai) at each threshold.
+  # A custom all_updates_rule must specify a monitoring channel or Pub/Sub topic,
+  # and budget notifications reject Slack-type Monitoring channels (Error 400) —
+  # so real-time Slack cost alerting is handled by the idle-floor monitoring
+  # alert (instance_floor_monitoring.tf), not the budget.
 }
 
 # -----------------------------------------------------------------------------
