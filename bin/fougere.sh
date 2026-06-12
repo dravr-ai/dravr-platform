@@ -84,6 +84,7 @@ copilot -p "$PROMPT" \
   --yolo \
   --no-ask-user \
   --add-dir . \
+  --disable-mcp-server pierre \
   1>"$STDOUT_FILE" 2>"$STDERR_FILE"
 EXIT_CODE=$?
 set -e
