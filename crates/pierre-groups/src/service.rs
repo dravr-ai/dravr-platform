@@ -234,7 +234,37 @@ impl GroupService {
             "Injected group context into system prompt"
         );
 
-        Ok(format!("{base_system_prompt}{context_block}"))
+        // Connection alerts: name any visible member whose provider connection died so the
+        // coach reports the dead provider instead of treating it as merely quiet. Gated
+        // identically to the snapshots (only visible/consenting members appear). The
+        // member's own reconnect link is delivered out-of-band — never leaked to peers here.
+        let mut reauth_lines: Vec<String> = visible_snapshots
+            .iter()
+            .filter(|s| !s.needs_reauth_providers.is_empty())
+            .map(|s| {
+                format!(
+                    "- {} needs to reconnect: {}",
+                    s.display_name,
+                    s.needs_reauth_providers.join(", ")
+                )
+            })
+            .collect();
+        let reauth_alerts = if reauth_lines.is_empty() {
+            String::new()
+        } else {
+            reauth_lines.sort();
+            format!(
+                "\n\n## Connection alerts\n\
+                These members have a disconnected provider — you cannot pull their fresh data \
+                for it. Tell them to reconnect and do not invent data for a disconnected \
+                source:\n{}",
+                reauth_lines.join("\n")
+            )
+        };
+
+        Ok(format!(
+            "{base_system_prompt}{context_block}{reauth_alerts}"
+        ))
     }
 
     // ========================================================================

@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_core::models::{ConnectionType, ProviderConnection};
+use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderConnection};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -43,7 +43,11 @@ impl Database {
             ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET
                 connection_type = excluded.connection_type,
                 connected_at = excluded.connected_at,
-                metadata = excluded.metadata
+                metadata = excluded.metadata,
+                status = 'active',
+                status_changed_at = excluded.connected_at,
+                last_error = NULL,
+                notified_at = NULL
             ",
         )
         .bind(&id)
@@ -104,7 +108,7 @@ impl Database {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                 FROM provider_connections
                 WHERE user_id = ? AND tenant_id = ?
                 ORDER BY connected_at DESC
@@ -117,7 +121,7 @@ impl Database {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                 FROM provider_connections
                 WHERE user_id = ?
                 ORDER BY connected_at DESC
@@ -153,6 +157,7 @@ impl Database {
                     .unwrap_or(ConnectionType::Manual),
                 connected_at,
                 last_used_at,
+                status: ConnectionStatus::from_str_value(&row.get::<String, _>("status")),
                 metadata: row.get("metadata"),
             });
         }
@@ -213,7 +218,7 @@ impl Database {
         let row_opt = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = ? AND tenant_id = ?
                  ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
@@ -227,7 +232,7 @@ impl Database {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = ?
                  ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
@@ -265,6 +270,7 @@ impl Database {
                 .unwrap_or(ConnectionType::Manual),
             connected_at,
             last_used_at,
+            status: ConnectionStatus::from_str_value(&row.get::<String, _>("status")),
             metadata: row.get("metadata"),
         }))
     }
@@ -292,6 +298,128 @@ impl Database {
         .await?;
 
         Ok(count > 0)
+    }
+
+    /// Mark a provider connection as needing re-authentication after a non-recoverable
+    /// token refresh failure.
+    ///
+    /// Transitions `status` to `needs_reauth`, stamps `status_changed_at`, and records the
+    /// token-free error classification in `last_error`. Guarded on `status != 'needs_reauth'`
+    /// so the transition timestamp (and the notify dedup it drives) reflects the *first*
+    /// failure, not every retry. No-op when the (user, tenant, provider) row does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn mark_provider_connection_needs_reauth_impl(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        error_code: Option<&str>,
+    ) -> AppResult<()> {
+        let user_id_str = user_id.to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET status = 'needs_reauth',
+                   status_changed_at = ?,
+                   last_error = ?
+             WHERE user_id = ? AND tenant_id = ? AND provider = ?
+               AND status != 'needs_reauth'
+            ",
+        )
+        .bind(&now)
+        .bind(error_code)
+        .bind(&user_id_str)
+        .bind(tenant_id)
+        .bind(provider)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Re-arm a provider connection after a successful (re)connect or token refresh.
+    ///
+    /// Transitions `status` back to `active` and clears `last_error` and `notified_at`
+    /// so a future disconnect notifies the user again. Guarded on `status != 'active'`
+    /// so a normal refresh of an already-healthy connection is a no-op. No-op when the
+    /// (user, tenant, provider) row does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn mark_provider_connection_active_impl(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        let user_id_str = user_id.to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET status = 'active',
+                   status_changed_at = ?,
+                   last_error = NULL,
+                   notified_at = NULL
+             WHERE user_id = ? AND tenant_id = ? AND provider = ?
+               AND status != 'active'
+            ",
+        )
+        .bind(&now)
+        .bind(&user_id_str)
+        .bind(tenant_id)
+        .bind(provider)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Atomically claim the one-time disconnect notification for a `needs_reauth`
+    /// connection.
+    ///
+    /// Sets `notified_at` only when the connection is currently `needs_reauth` AND has not
+    /// been notified yet, returning whether this call won the claim. Drives "notify the
+    /// user exactly once per disconnect": the first caller after the transition gets `true`
+    /// and sends the push; everyone else gets `false`. The marker is cleared by
+    /// [`Self::mark_provider_connection_active_impl`] on reconnect, re-arming a future nudge.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn claim_provider_reauth_notification_impl(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool> {
+        let user_id_str = user_id.to_string();
+        let now = Utc::now().to_rfc3339();
+
+        let result = sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET notified_at = ?
+             WHERE user_id = ? AND tenant_id = ? AND provider = ?
+               AND status = 'needs_reauth'
+               AND notified_at IS NULL
+            ",
+        )
+        .bind(&now)
+        .bind(&user_id_str)
+        .bind(tenant_id)
+        .bind(provider)
+        .execute(self.pool())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 
@@ -347,5 +475,33 @@ impl ProviderConnectionRepository for Database {
         tenant_id: Option<TenantId>,
     ) -> AppResult<Option<ProviderConnection>> {
         Self::resolve_most_recent_provider_connection_impl(self, user_id, tenant_id).await
+    }
+    async fn mark_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        error_code: Option<&str>,
+    ) -> AppResult<()> {
+        Self::mark_provider_connection_needs_reauth_impl(
+            self, user_id, tenant_id, provider, error_code,
+        )
+        .await
+    }
+    async fn mark_active(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        Self::mark_provider_connection_active_impl(self, user_id, tenant_id, provider).await
+    }
+    async fn claim_reauth_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool> {
+        Self::claim_provider_reauth_notification_impl(self, user_id, tenant_id, provider).await
     }
 }

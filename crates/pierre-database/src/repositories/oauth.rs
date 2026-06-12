@@ -230,4 +230,41 @@ pub trait ProviderConnectionRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Option<ProviderConnection>>;
+    /// Mark a connection as needing re-authentication after a non-recoverable token
+    /// refresh failure.
+    ///
+    /// Transitions `status` to `needs_reauth` and records the token-free error class in
+    /// `last_error`. Guarded so the transition timestamp reflects the first failure, not
+    /// every retry. `error_code` is a short OAuth error class (e.g. `invalid_request`) —
+    /// NEVER token material. No-op when the row does not exist.
+    async fn mark_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        error_code: Option<&str>,
+    ) -> AppResult<()>;
+    /// Re-arm a connection after a successful (re)connect or token refresh.
+    ///
+    /// Transitions `status` back to `active` and clears the disconnect notification
+    /// marker so a future disconnect notifies again. No-op when already active or when
+    /// the row does not exist.
+    async fn mark_active(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()>;
+    /// Atomically claim the one-time disconnect notification for a `needs_reauth`
+    /// connection.
+    ///
+    /// Sets `notified_at` only when the connection is `needs_reauth` and not yet notified,
+    /// returning whether this call won the claim. Drives a single out-of-band reconnect
+    /// nudge per disconnect; the marker is cleared on reconnect via [`Self::mark_active`].
+    async fn claim_reauth_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool>;
 }

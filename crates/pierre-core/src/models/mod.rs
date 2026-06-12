@@ -117,8 +117,9 @@ pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 
 // OAuth domain
 pub use oauth::{
-    AuthRequest, AuthResponse, ConnectionType, DecryptedToken, EncryptedToken, OAuthAppCredentials,
-    OAuthNotification, ProviderConnection, UserOAuthApp, UserOAuthToken, UserSession,
+    AuthRequest, AuthResponse, ConnectionStatus, ConnectionType, DecryptedToken, EncryptedToken,
+    OAuthAppCredentials, OAuthNotification, ProviderConnection, UserOAuthApp, UserOAuthToken,
+    UserSession,
 };
 
 // OAuth client state for provider authorization flows

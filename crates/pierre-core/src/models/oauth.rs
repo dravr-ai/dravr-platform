@@ -423,6 +423,60 @@ impl fmt::Display for ConnectionType {
     }
 }
 
+/// Lifecycle status of a provider connection.
+///
+/// Presence of a `provider_connections` row means the provider was connected at some
+/// point; `ConnectionStatus` distinguishes a usable connection from one whose OAuth
+/// token refresh failed non-recoverably (`NeedsReauth`) or that the user/provider
+/// revoked (`Revoked`). Read by the connection-status tool, the group context builder,
+/// and the web/mobile connection screens so a dead connection stops looking healthy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionStatus {
+    /// Connection is usable: token valid or refreshable.
+    Active,
+    /// Token refresh failed non-recoverably; the user must re-authorize the provider.
+    NeedsReauth,
+    /// The user or provider revoked access (e.g. WHOOP `user.deauthorized` webhook).
+    Revoked,
+}
+
+impl ConnectionStatus {
+    /// Convert from database string representation. Unknown values fall back to
+    /// `Active` so a forward-compatible status written by a newer node never makes
+    /// an existing connection read as broken.
+    #[must_use]
+    pub fn from_str_value(s: &str) -> Self {
+        match s {
+            "needs_reauth" => Self::NeedsReauth,
+            "revoked" => Self::Revoked,
+            _ => Self::Active,
+        }
+    }
+
+    /// Convert to database string representation.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::NeedsReauth => "needs_reauth",
+            Self::Revoked => "revoked",
+        }
+    }
+
+    /// Whether this status requires the user to re-authorize before data can flow.
+    #[must_use]
+    pub const fn requires_reauth(&self) -> bool {
+        matches!(self, Self::NeedsReauth | Self::Revoked)
+    }
+}
+
+impl fmt::Display for ConnectionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Provider connection record: single source of truth for provider connectivity
 ///
 /// Tracks whether a provider (OAuth, synthetic, or manual) is connected for a user.
@@ -448,6 +502,10 @@ pub struct ProviderConnection {
     /// per-user resolver that picks the active backend when an LLM tool call omits the
     /// provider argument.
     pub last_used_at: Option<DateTime<Utc>>,
+    /// Lifecycle status: usable, needs re-auth, or revoked. Defaults to `Active` for
+    /// freshly registered connections and flips to `NeedsReauth` when a token refresh
+    /// fails non-recoverably.
+    pub status: ConnectionStatus,
     /// Optional JSON metadata (e.g., {"source": "seed-synthetic-activities"})
     pub metadata: Option<String>,
 }
@@ -469,6 +527,7 @@ impl ProviderConnection {
             connection_type,
             connected_at: Utc::now(),
             last_used_at: None,
+            status: ConnectionStatus::Active,
             metadata: None,
         }
     }

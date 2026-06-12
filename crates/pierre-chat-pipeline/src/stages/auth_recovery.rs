@@ -38,6 +38,8 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED,
 };
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution::ToolLoopResult;
 
 /// Inputs to [`apply_auth_recovery`].
@@ -54,6 +56,9 @@ pub struct AuthRecoveryDeps<'a> {
     pub base_url: &'a str,
     /// Localized messaging strings used to render the user-facing reply.
     pub messaging_strings_registry: &'a Arc<MessagingStringsRegistry>,
+    /// Tool runtime used to mint a real OAuth authorization URL (WHOOP/Fitbit/…) for
+    /// non-sciotte providers — the sciotte mirror keeps its hosted-login mint above.
+    pub tool_runtime: &'a Arc<dyn ToolRuntime>,
 }
 
 /// Apply provider re-auth recovery in place.
@@ -69,19 +74,14 @@ pub struct AuthRecoveryDeps<'a> {
 ///
 /// `recovery_dispatched` is updated atomically so observability hooks can
 /// surface the short-circuit alongside the assistant message.
-pub fn apply_auth_recovery(
+pub async fn apply_auth_recovery(
     deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,
     profile: &ChannelProfile,
     result: &mut ToolLoopResult,
     recovery_dispatched: &AtomicBool,
 ) -> bool {
-    let AuthRecoveryDeps {
-        admin_jwt_secret,
-        base_url,
-        messaging_strings_registry,
-    } = deps;
-    let Some(provider_slug) = result.pending_provider_auth_required.as_deref() else {
+    let Some(provider_slug) = result.pending_provider_auth_required.clone() else {
         return false;
     };
 
@@ -100,44 +100,17 @@ pub fn apply_auth_recovery(
         }
     };
 
-    let target = sciotte_target_for_provider(provider_slug);
-    let channel = profile.channel.as_str();
-    let token = match mint_link_token(
-        &MintProviderLinkTokenArgs {
-            user_id,
-            tenant_id: input.tool_tenant_id.0,
-            provider: "sciotte",
-            target,
-            channel,
-            channel_thread: None,
-        },
-        admin_jwt_secret,
-    ) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                error = %e,
-                "auth_recovery: failed to mint hosted-login token"
-            );
-            return false;
-        }
+    let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
+        return false;
     };
-
-    let url = format!(
-        "{}/providers/sciotte/login?token={}",
-        base_url,
-        urlencoding::encode(&token)
-    );
 
     let locale = input
         .locale
         .as_deref()
         .filter(|l| !l.is_empty())
         .unwrap_or(DEFAULT_LOCALE);
-    let display_name = provider_display_name(provider_slug);
-    let message = messaging_strings_registry.render(
+    let display_name = provider_display_name(&provider_slug);
+    let message = deps.messaging_strings_registry.render(
         KEY_PROVIDER_REAUTH_REQUIRED,
         locale,
         &[display_name, &url],
@@ -146,15 +119,79 @@ pub fn apply_auth_recovery(
     info!(
         user_id = %user_id,
         provider = %provider_slug,
-        target = %target,
-        channel = %channel,
         locale = %locale,
-        "auth_recovery: emitting hosted-login URL in chat reply"
+        "auth_recovery: emitting reconnect URL in chat reply"
     );
 
     result.content = message;
     recovery_dispatched.store(true, Ordering::Relaxed);
     true
+}
+
+/// Mint the reconnect URL for `provider_slug`.
+///
+/// Scrape-mirror providers (`sciotte`, `sciotte_garmin`) use the Dravr-hosted login page
+/// (email + password) — the same short-TTL link-token mint the channel bots use. OAuth
+/// providers (WHOOP, Fitbit, Strava, Garmin, …) get their real provider authorization URL
+/// plus a persisted CSRF state row. Returns `None` (fall back to the LLM path) on failure.
+async fn mint_reconnect_url(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &ChannelProfile,
+) -> Option<String> {
+    if matches!(provider_slug, "sciotte" | "sciotte_garmin") {
+        let target = sciotte_target_for_provider(provider_slug);
+        let token = match mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id,
+                tenant_id: input.tool_tenant_id.0,
+                provider: "sciotte",
+                target,
+                channel: profile.channel.as_str(),
+                channel_thread: None,
+            },
+            deps.admin_jwt_secret,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(
+                    user_id = %user_id,
+                    provider = %provider_slug,
+                    error = %e,
+                    "auth_recovery: failed to mint hosted-login token"
+                );
+                return None;
+            }
+        };
+        return Some(format!(
+            "{}/providers/sciotte/login?token={}",
+            deps.base_url,
+            urlencoding::encode(&token)
+        ));
+    }
+
+    match mint_oauth_authorize_url(
+        deps.tool_runtime.as_ref(),
+        user_id,
+        input.tool_tenant_id,
+        provider_slug,
+        None,
+    )
+    .await
+    {
+        Ok((url, _state)) => Some(url),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                error = %e,
+                "auth_recovery: failed to mint OAuth authorization URL"
+            );
+            None
+        }
+    }
 }
 
 /// Map a provider slug returned from the tool loop to the `target` field
@@ -174,8 +211,12 @@ fn sciotte_target_for_provider(provider_slug: &str) -> &'static str {
 /// and English copies stay short.
 fn provider_display_name(provider_slug: &str) -> &'static str {
     match provider_slug {
-        "sciotte_garmin" => "Garmin Connect",
-        "sciotte" => "Strava",
+        "sciotte_garmin" | "garmin" => "Garmin",
+        "sciotte" | "strava" => "Strava",
+        "whoop" => "WHOOP",
+        "fitbit" => "Fitbit",
+        "coros" => "COROS",
+        "terra" => "Terra",
         _ => "ton fournisseur",
     }
 }

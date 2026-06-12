@@ -28,13 +28,15 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, GetConnectionStatusTool,
 };
+use pierre_tool_runtime::protocol::auth::AuthService;
+use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::traits::McpTool;
 use serde_json::json;
@@ -397,6 +399,109 @@ async fn single_provider_status_reports_mirror_backend_when_present() {
 }
 
 // ============================================================================
+// GetConnectionStatusTool — needs_reauth surfacing
+// ============================================================================
+
+#[tokio::test]
+async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // WHOOP has a token row (so the resolver reads it as connected) plus a
+    // provider_connections row that a dead refresh flipped to needs_reauth.
+    seed_token(&resources, user_id, tenant_id, oauth_providers::WHOOP).await;
+    let pc = &resources.common.repos.provider_connections;
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        &ConnectionType::OAuth,
+        None,
+    )
+    .await
+    .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        Some("invalid_request"),
+    )
+    .await
+    .unwrap();
+
+    let tool = GetConnectionStatusTool;
+    let ctx = tool_context(&resources, user_id, tenant_id);
+    let result = tool
+        .execute(json!({ "provider": "whoop" }), &ctx)
+        .await
+        .unwrap();
+
+    let data = result.content;
+    assert_eq!(
+        data.get("status").and_then(|v| v.as_str()),
+        Some("needs_reauth"),
+        "a connected provider whose refresh died must report needs_reauth, not connected"
+    );
+    assert_eq!(
+        data.get("needs_reauth")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[tokio::test]
+async fn multi_provider_status_reports_needs_reauth() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(&resources, user_id, tenant_id, oauth_providers::WHOOP).await;
+    let pc = &resources.common.repos.provider_connections;
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        &ConnectionType::OAuth,
+        None,
+    )
+    .await
+    .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        Some("invalid_request"),
+    )
+    .await
+    .unwrap();
+
+    let tool = GetConnectionStatusTool;
+    let ctx = tool_context(&resources, user_id, tenant_id);
+    let result = tool.execute(json!({}), &ctx).await.unwrap();
+
+    let providers = result
+        .content
+        .get("providers")
+        .and_then(|v| v.as_object())
+        .unwrap()
+        .clone();
+    let whoop = providers
+        .get(oauth_providers::WHOOP)
+        .expect("whoop entry present");
+    assert_eq!(
+        whoop.get("status").and_then(|v| v.as_str()),
+        Some("needs_reauth")
+    );
+    assert_eq!(
+        whoop
+            .get("needs_reauth")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+// ============================================================================
 // ConnectProviderTool — mirror re-auth block
 // ============================================================================
 
@@ -458,5 +563,58 @@ async fn connect_provider_rejects_explicit_sciotte_name() {
     assert!(
         err_text.to_lowercase().contains("unknown") || err_text.contains("strava"),
         "error should steer caller to the user-facing provider: {err_text}"
+    );
+}
+
+// ============================================================================
+// create_authenticated_provider — needs_reauth short-circuit signal
+// ============================================================================
+
+/// A provider whose connection died (`needs_reauth`) makes `create_authenticated_provider`
+/// tag its failure with `META_AUTH_REQUIRED_PROVIDER`, so the chat tool loop short-circuits
+/// the turn and the `auth_recovery` stage renders a localized reconnect message + minted link
+/// instead of letting the LLM rephrase a generic "no token" error.
+#[tokio::test]
+async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    let pc = &resources.common.repos.provider_connections;
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        &ConnectionType::OAuth,
+        None,
+    )
+    .await
+    .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        oauth_providers::WHOOP,
+        Some("invalid_request"),
+    )
+    .await
+    .unwrap();
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let auth_service = AuthService::new(runtime);
+    let tenant_str = tenant_id.to_string();
+    let result = auth_service
+        .create_authenticated_provider(oauth_providers::WHOOP, user_id, Some(&tenant_str))
+        .await;
+
+    let response = result
+        .err()
+        .expect("a dead connection must fail provider creation");
+    let signalled = response
+        .metadata
+        .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER).cloned());
+    assert_eq!(
+        signalled,
+        Some(json!(oauth_providers::WHOOP)),
+        "create_authenticated_provider must tag the auth-required provider for the recovery stage"
     );
 }

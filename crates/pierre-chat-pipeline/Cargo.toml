@@ -43,7 +43,7 @@ pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-sse = { version = "0.3.0", path = "../pierre-sse" }
-pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["client-chat"] }
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["client-chat", "tools-connection"] }
 
 # Optional crates (feature-gated)
 pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true }

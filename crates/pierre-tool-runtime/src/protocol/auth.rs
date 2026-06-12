@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::types::UniversalResponse;
+use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
@@ -15,8 +15,14 @@ use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{TenantId, UserOAuthToken};
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::models::NotificationCategory;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::{DispatchRequest, TenantId as CommTenantId};
 use pierre_providers::backend_resolver;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -54,6 +60,49 @@ pub enum OAuthError {
     /// Database operation failed
     #[error("Database error: {0}")]
     DatabaseError(String),
+}
+
+/// Classify a token-refresh failure as either "the user must re-authorize" or transient.
+///
+/// Returns `Some(error_code)` when the provider's token endpoint definitively rejected the
+/// refresh — a dead/rotated refresh token, a revoked grant, or a rejected client. These do
+/// not recover on retry: the connection must be flipped to `needs_reauth` and the user
+/// prompted to reconnect. Returns `None` for transient failures (network, timeout, 5xx),
+/// which must NOT disconnect a healthy connection — a flake is not a disconnect.
+///
+/// Conservative by design: transient transport/server signatures are checked first and
+/// short-circuit to `None`, so an auth marker that merely appears in a 5xx body can't
+/// trip a false disconnect. WHOOP returns `invalid_request` for a consumed/rotated refresh
+/// token; RFC 6749's code for a dead refresh token is `invalid_grant`.
+fn classify_refresh_failure(reason: &str) -> Option<&'static str> {
+    // Transient transport/server failures recover on retry — never disconnect on these.
+    const TRANSIENT_MARKERS: [&str; 8] = [
+        "timed out",
+        "timeout",
+        "connection",
+        "dns",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+    ];
+    // Definitive OAuth-layer rejections of the refresh grant or client → require reconnect.
+    const REAUTH_MARKERS: [&str; 8] = [
+        "invalid_grant",
+        "invalid_request",
+        "invalid_client",
+        "unauthorized_client",
+        "unauthorized",
+        "forbidden",
+        "http 401",
+        "http 403",
+    ];
+
+    let r = reason.to_ascii_lowercase();
+    if TRANSIENT_MARKERS.into_iter().any(|m| r.contains(m)) {
+        return None;
+    }
+    REAUTH_MARKERS.into_iter().find(|m| r.contains(*m))
 }
 
 /// Service responsible for authentication and provider creation
@@ -253,16 +302,183 @@ impl AuthService {
                     "Token refreshed successfully for user {} provider {}",
                     user_id, provider
                 );
+                // A successful refresh proves the token works — re-arm a connection that a
+                // prior transient/raced failure may have flipped to needs_reauth. No-op when
+                // already active.
+                self.mark_connection_active(user_id, tenant_id, provider)
+                    .await;
                 Ok(Some(refreshed_token))
             }
             Err(e) => {
-                warn!(
-                    "Token refresh failed for user {} provider {}: {}",
-                    user_id, provider, e
-                );
+                self.handle_refresh_failure(user_id, tenant_id, provider, &e)
+                    .await;
                 Ok(None)
             }
         }
+    }
+
+    /// Log a token refresh failure and, when it is a non-recoverable auth rejection,
+    /// flip the connection to `needs_reauth`.
+    ///
+    /// A dead/rotated refresh token, a revoked grant, or a rejected client means the user
+    /// must reconnect — flip the connection so the status tool, group context, and app
+    /// stop treating it as healthy. Transient failures (network, 5xx) are logged only: a
+    /// flake is not a disconnect.
+    async fn handle_refresh_failure(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        provider: &str,
+        error: &OAuthError,
+    ) {
+        warn!(
+            "Token refresh failed for user {} provider {}: {}",
+            user_id, provider, error
+        );
+        if let Some(error_code) = classify_refresh_failure(&error.to_string()) {
+            self.mark_connection_needs_reauth(user_id, tenant_id, provider, error_code)
+                .await;
+        }
+    }
+
+    /// Persist a non-recoverable refresh failure as `needs_reauth` on the provider
+    /// connection (best-effort).
+    ///
+    /// The connection row stays in the DB so the user/tenant mapping and history survive;
+    /// only its `status` flips. A write failure here must not abort the user's request —
+    /// log and continue.
+    async fn mark_connection_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        provider: &str,
+        error_code: &str,
+    ) {
+        let Ok(tenant) = tenant_id.parse::<TenantId>() else {
+            warn!("Cannot mark {provider} needs_reauth for user {user_id}: invalid tenant_id");
+            return;
+        };
+        match self
+            .resources
+            .repos()
+            .provider_connections
+            .mark_needs_reauth(user_id, tenant, provider, Some(error_code))
+            .await
+        {
+            Ok(()) => {
+                info!(
+                    "Provider {provider} flipped to needs_reauth for user {user_id} ({error_code})"
+                );
+                self.notify_provider_disconnected(user_id, tenant, provider)
+                    .await;
+            }
+            Err(e) => {
+                warn!("Failed to persist needs_reauth for user {user_id} provider {provider}: {e}");
+            }
+        }
+    }
+
+    /// Send a one-time out-of-band push telling the user a provider disconnected and to
+    /// reconnect.
+    ///
+    /// Deduped via the `notified_at` claim so a user is nudged exactly once per
+    /// `active`→`needs_reauth` transition (re-armed on reconnect). Best-effort; cfg-gated on
+    /// `client-notifications` so builds without the notification backend compile to a no-op.
+    #[cfg(feature = "client-notifications")]
+    async fn notify_provider_disconnected(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) {
+        let claimed = self
+            .resources
+            .repos()
+            .provider_connections
+            .claim_reauth_notification(user_id, tenant_id, provider)
+            .await
+            .unwrap_or(false);
+        if !claimed {
+            return;
+        }
+        let Some(service) = self.resources.notification_service() else {
+            return;
+        };
+        let data = [
+            ("type", "provider_needs_reauth"),
+            ("provider", provider),
+            ("screen", "connections"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), JsonValue::String(v.to_owned())))
+        .collect();
+        let request = DispatchRequest {
+            user_id,
+            tenant_id: CommTenantId(tenant_id.0),
+            category: NotificationCategory::System,
+            notification_type: "provider_needs_reauth".to_owned(),
+            title: "Reconnect needed".to_owned(),
+            body: format!(
+                "Your {provider} connection expired. Reconnect it so I can keep using your data."
+            ),
+            data: Some(JsonValue::Object(data)),
+            image_url: None,
+            actions: None,
+            bypass_frequency_cap: false,
+        };
+        if let Err(e) = service.dispatch(&request).await {
+            warn!("Failed to dispatch reauth push for user {user_id} provider {provider}: {e}");
+        }
+    }
+
+    /// No-op variant when the notification backend is not compiled in.
+    #[cfg(not(feature = "client-notifications"))]
+    async fn notify_provider_disconnected(
+        &self,
+        _user_id: Uuid,
+        _tenant_id: TenantId,
+        _provider: &str,
+    ) {
+    }
+
+    /// Re-arm a provider connection to `active` after a successful refresh (best-effort).
+    ///
+    /// No-op when the connection is already active or the row does not exist. A write
+    /// failure must not abort the user's request — log and continue.
+    async fn mark_connection_active(&self, user_id: Uuid, tenant_id: &str, provider: &str) {
+        let Ok(tenant) = tenant_id.parse::<TenantId>() else {
+            return;
+        };
+        if let Err(e) = self
+            .resources
+            .repos()
+            .provider_connections
+            .mark_active(user_id, tenant, provider)
+            .await
+        {
+            warn!("Failed to re-arm connection for user {user_id} provider {provider}: {e}");
+        }
+    }
+
+    /// Whether the user's connection for `provider` is flipped to `needs_reauth`/`revoked`.
+    ///
+    /// Reads the persisted `provider_connections.status`. Best-effort: a read failure
+    /// returns `false` so a DB blip never spuriously short-circuits a turn.
+    async fn connection_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+        provider: &str,
+    ) -> bool {
+        let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+        self.resources
+            .repos()
+            .provider_connections
+            .get_for_user(user_id, tenant)
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|c| c.provider == provider && c.status.requires_reauth())
     }
 
     /// Create authenticated provider with proper tenant-aware credentials
@@ -323,13 +539,30 @@ impl AuthService {
                 // so the LLM never mentions "sciotte" in an error it
                 // forwards to the user.
                 let user_facing = backend_resolver::user_facing_name(provider_name);
+                // When the connection died non-recoverably (needs_reauth), tag the response
+                // with the auth-required provider so the chat tool loop short-circuits the
+                // turn and the auth_recovery stage renders a localized reconnect message +
+                // minted OAuth link — instead of letting the LLM rephrase a generic error.
+                let metadata = if self
+                    .connection_needs_reauth(user_id, tenant_id, provider_name)
+                    .await
+                {
+                    let mut map = HashMap::new();
+                    map.insert(
+                        META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                        JsonValue::String(user_facing.to_owned()),
+                    );
+                    Some(map)
+                } else {
+                    None
+                };
                 Err(UniversalResponse {
                     success: false,
                     result: None,
                     error: Some(format!(
                         "No valid {user_facing} token found. Please reconnect your {user_facing} account."
                     )),
-                    metadata: None,
+                    metadata,
                 })
             }
             Err(e) => Err(UniversalResponse {

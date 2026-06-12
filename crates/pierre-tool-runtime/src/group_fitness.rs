@@ -807,17 +807,32 @@ async fn fetch_single_member_snapshot(
             "Snapshot: activity included in training-load input"
         );
     }
-    if activities.is_empty() {
-        return empty_snapshot(user_id, display_name, now);
-    }
+    let mut snapshot = if activities.is_empty() {
+        empty_snapshot(user_id, display_name, now)
+    } else {
+        build_snapshot_from_activities(
+            user_id,
+            display_name,
+            &activities,
+            now,
+            &runtime.cageux_config().algorithms,
+        )
+    };
 
-    build_snapshot_from_activities(
-        user_id,
-        display_name,
-        &activities,
-        now,
-        &runtime.cageux_config().algorithms,
-    )
+    // Surface any provider whose connection died non-recoverably so the group coach can
+    // name it ("Phil's WHOOP needs reconnecting") instead of treating the dead source as
+    // merely quiet. Best-effort: a read failure leaves the list empty (no false alarms).
+    snapshot.needs_reauth_providers = data
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| c.status.requires_reauth())
+        .map(|c| c.provider)
+        .collect();
+    snapshot
 }
 
 /// Resolve a member's connected providers and fetch activities using the merge strategy.
@@ -1115,6 +1130,9 @@ fn build_snapshot_from_activities(
         days_since_last_activity: weekly.days_since_last,
         last_activity_per_provider,
         recent_activities,
+        // Populated by the caller (fetch_single_member_snapshot), which holds the repos
+        // needed to read connection status. Activity data alone can't tell needs_reauth.
+        needs_reauth_providers: Vec::new(),
         computed_at: now,
     }
 }
@@ -1204,6 +1222,7 @@ fn empty_snapshot(
         days_since_last_activity: None,
         last_activity_per_provider: HashMap::new(),
         recent_activities: Vec::new(),
+        needs_reauth_providers: Vec::new(),
         computed_at,
     }
 }
