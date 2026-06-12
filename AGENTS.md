@@ -731,6 +731,29 @@ Before adding or extending a dependency, confirm:
 Test: if I deleted this dependency line, what breaks? If the answer is "only a
 re-export no one reads," the integration is phantom — finish it or remove it.
 
+### Bumping a Shared Dependency Across Repos (dravr-tronc & siblings)
+When you bump or release a crate that sibling repos consume (`dravr-tronc` is the
+canonical one — it backs every satellite's `-server`/`-mcp` crate plus the platform's
+`pierre-server`/`-services`/`-logging`/`-contremaitre`), **open a PR on each consumer
+repo bumping its dependency** so they know they can update. This is the one carve-out to
+the NO-Pull-Requests rule above: that rule governs *platform self-merges*; a cross-repo
+*notification* PR on a sibling is allowed and expected.
+
+The drift it prevents (2026-06-12): `dravr-tronc` 0.3.x lived only as git tags, so every
+satellite's `= "0.2"` registry requirement silently resolved to the stale published
+`0.2.1` while the platform had moved to the `v0.3.1` git tag — two minor versions of
+skew, unnoticed for months.
+
+Coordinated-republish rule: a satellite that **publishes** its member crates to
+crates.io cannot bump the shared dep in one member crate alone — republish in dependency
+order (root lib → `-mcp` → `-server`) so the graph resolves a single version. embacle
+proved it: bumping only `embacle-server` to tronc 0.3 left the published `embacle-mcp
+0.19.0` on `0.2.1` → two tronc versions → `cargo publish --dry-run` fails with `E0308`.
+A local `cargo check` (which uses the path member crate) does **not** catch this; only
+`--dry-run` does.
+
+Full procedure: dravr-vault `Development/Runbooks/Releasing dravr-tronc — Notify Consumers`.
+
 ### Forbidden patterns (junk disguised as discipline)
 These freeze architectural debt by making it *testable* instead of *fixed*.
 Delete them when you find them; do not add them:
