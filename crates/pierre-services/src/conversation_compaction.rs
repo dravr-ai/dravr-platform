@@ -146,15 +146,22 @@ impl ConversationCompactor {
         mut ctx: CompactionContext<'_, R>,
     ) -> AppResult<CompactionOutcome> {
         let before = estimate_messages_tokens(ctx.llm_messages);
+        let over_messages = non_system_count(ctx.llm_messages) > self.config.max_messages;
+
+        // The character-based token estimate under-counts dense content (JSON
+        // tool results, structured data), so a genuinely oversized thread can
+        // read below the token thresholds and slip through as a no-op. The
+        // message-count cap is the estimate-independent backstop: too many
+        // accreted turns forces the emergency slide even when `before` looks
+        // safe. Checked first so it overrides the warn-threshold no-op below.
+        if before >= self.config.emergency_tokens() || over_messages {
+            return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
+        }
 
         if before < self.config.warn_tokens() {
             return Ok(CompactionOutcome::NoOp {
                 estimated_tokens: before,
             });
-        }
-
-        if before >= self.config.emergency_tokens() {
-            return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
         }
 
         self.try_summarize(&mut ctx, before).await
@@ -300,18 +307,73 @@ impl ConversationCompactor {
         Some(CompactRange { start, end })
     }
 
-    /// Sliding-window fallback: drop the oldest turns outright.
+    /// Sliding-window fallback: delegates to [`sliding_window_to_fit`].
     fn sliding_window(&self, llm_messages: &mut Vec<ChatMessage>) -> usize {
-        let system_count = llm_messages
-            .first()
-            .map_or(0, |m| usize::from(matches!(m.role, MessageRole::System)));
-        let drop_end = (system_count + self.config.sliding_drop_n).min(llm_messages.len());
-        if drop_end <= system_count {
-            return 0;
-        }
-        llm_messages.drain(system_count..drop_end);
-        drop_end - system_count
+        sliding_window_to_fit(llm_messages, &self.config)
     }
+}
+
+/// Count of non-system messages (the system prompt at index 0, if present, is
+/// preserved and excluded from the message cap). Exposed for integration tests.
+#[must_use]
+pub fn non_system_count(messages: &[ChatMessage]) -> usize {
+    let system_count = messages
+        .first()
+        .map_or(0, |m| usize::from(matches!(m.role, MessageRole::System)));
+    messages.len().saturating_sub(system_count)
+}
+
+/// Drop the oldest non-system turns until the prompt fits within both the
+/// message cap (`config.max_messages`) and the warn-level token budget.
+///
+/// Walks newest → oldest keeping turns until the next-older one would breach the
+/// message cap or the token budget, then drops everything older — always
+/// retaining at least the most recent user+assistant pair, and dropping at least
+/// `config.sliding_drop_n` so a barely-over thread does not re-trigger emergency
+/// on the next turn. Unlike a fixed-count drop, this bounds an already-ballooned
+/// thread in a single pass. Returns the number of messages removed. Exposed for
+/// integration tests.
+pub fn sliding_window_to_fit(
+    llm_messages: &mut Vec<ChatMessage>,
+    config: &CompactionConfig,
+) -> usize {
+    let system_count = llm_messages
+        .first()
+        .map_or(0, |m| usize::from(matches!(m.role, MessageRole::System)));
+    let total = llm_messages.len();
+    let non_system = total.saturating_sub(system_count);
+    let min_keep = non_system.min(2);
+    let token_budget = config.warn_tokens();
+    let msg_cap = config.max_messages.max(min_keep);
+
+    let mut kept = 0usize;
+    let mut tokens = 0u32;
+    let mut keep_start = total;
+    for i in (system_count..total).rev() {
+        let next_kept = kept + 1;
+        let next_tokens = tokens.saturating_add(estimate_prompt_tokens(&llm_messages[i].content));
+        if next_kept > min_keep && (next_kept > msg_cap || next_tokens > token_budget) {
+            break;
+        }
+        kept = next_kept;
+        tokens = next_tokens;
+        keep_start = i;
+    }
+
+    // Nothing breached the bounds — the thread already fits, so drop nothing
+    // (the `sliding_drop_n` floor only applies when we are actually trimming).
+    let fit_dropped = keep_start.saturating_sub(system_count);
+    if fit_dropped == 0 {
+        return 0;
+    }
+
+    let max_droppable = non_system.saturating_sub(min_keep);
+    let dropped = fit_dropped.max(config.sliding_drop_n).min(max_droppable);
+    if dropped == 0 {
+        return 0;
+    }
+    llm_messages.drain(system_count..system_count + dropped);
+    dropped
 }
 
 /// Everything the compactor needs per call.

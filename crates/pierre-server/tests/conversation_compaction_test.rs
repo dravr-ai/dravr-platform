@@ -9,7 +9,9 @@
 
 use pierre_core::config::CompactionConfig;
 use pierre_llm::{ChatMessage, MessageRole};
-use pierre_services::conversation_compaction::estimate_messages_tokens;
+use pierre_services::conversation_compaction::{
+    estimate_messages_tokens, non_system_count, sliding_window_to_fit,
+};
 
 fn msgs(items: &[(MessageRole, &str)]) -> Vec<ChatMessage> {
     items
@@ -66,4 +68,73 @@ fn estimate_messages_tokens_is_content_sum() {
 #[test]
 fn estimate_messages_tokens_empty_list_is_zero() {
     assert_eq!(estimate_messages_tokens(&[]), 0);
+}
+
+#[test]
+fn default_caps_messages_at_forty() {
+    assert_eq!(CompactionConfig::default().max_messages, 40);
+}
+
+#[test]
+fn sliding_window_bounds_by_message_cap_even_at_zero_token_estimate() {
+    // 100 two-char turns: each estimates to floor(2/4)=0 tokens, so the whole
+    // thread reads as 0 estimated tokens — it would slip through a token-only
+    // trigger (the exact bug that let a 168-message thread reach the provider).
+    // The message cap must bound it regardless of the under-counting estimate.
+    let cfg = CompactionConfig {
+        max_messages: 40,
+        ..CompactionConfig::default()
+    };
+    let mut v: Vec<ChatMessage> = (0..100)
+        .map(|i| {
+            if i % 2 == 0 {
+                ChatMessage::user("hi")
+            } else {
+                ChatMessage::assistant("ok")
+            }
+        })
+        .collect();
+    assert_eq!(
+        estimate_messages_tokens(&v),
+        0,
+        "precondition: estimate is 0"
+    );
+
+    let dropped = sliding_window_to_fit(&mut v, &cfg);
+
+    assert_eq!(non_system_count(&v), 40, "bounded to the message cap");
+    assert_eq!(dropped, 60);
+    // The most recent turn is preserved (index 99 was an assistant turn).
+    assert_eq!(v.last().unwrap().content, "ok");
+}
+
+#[test]
+fn sliding_window_preserves_system_prompt_and_recent_pair() {
+    let cfg = CompactionConfig {
+        max_messages: 2,
+        ..CompactionConfig::default()
+    };
+    let mut v = vec![
+        ChatMessage::system("sys"),
+        ChatMessage::user("a"),
+        ChatMessage::assistant("b"),
+        ChatMessage::user("c"),
+        ChatMessage::assistant("d"),
+    ];
+
+    let dropped = sliding_window_to_fit(&mut v, &cfg);
+
+    assert_eq!(v[0].content, "sys", "system prompt at index 0 is preserved");
+    assert_eq!(non_system_count(&v), 2, "keeps only the recent pair");
+    assert_eq!(v.last().unwrap().content, "d");
+    assert_eq!(dropped, 2);
+}
+
+#[test]
+fn sliding_window_noop_when_already_within_bounds() {
+    let cfg = CompactionConfig::default();
+    let mut v = vec![ChatMessage::user("a"), ChatMessage::assistant("b")];
+    let dropped = sliding_window_to_fit(&mut v, &cfg);
+    assert_eq!(dropped, 0, "a short thread is left untouched");
+    assert_eq!(v.len(), 2);
 }

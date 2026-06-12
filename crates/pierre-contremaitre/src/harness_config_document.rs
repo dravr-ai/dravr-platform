@@ -42,6 +42,17 @@ pub struct HarnessCompactionConfig {
     pub summarize_oldest_n: u32,
     /// How many of the oldest history turns to drop under emergency mode.
     pub sliding_drop_n: u32,
+    /// Hard cap on non-system messages kept in the prompt — an
+    /// estimate-independent backstop against the token heuristic under-counting
+    /// dense content. Defaulted so older persisted documents still deserialize.
+    #[serde(default = "default_compaction_max_messages")]
+    pub max_messages: u32,
+}
+
+/// Default for [`HarnessCompactionConfig::max_messages`], also used by serde
+/// when an older persisted document omits the field.
+fn default_compaction_max_messages() -> u32 {
+    40
 }
 
 impl Default for HarnessCompactionConfig {
@@ -52,6 +63,7 @@ impl Default for HarnessCompactionConfig {
             emergency_threshold: 0.95,
             summarize_oldest_n: 6,
             sliding_drop_n: 4,
+            max_messages: default_compaction_max_messages(),
         }
     }
 }
@@ -149,6 +161,9 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "warn_threshold must be strictly less than emergency_threshold",
         ));
+    }
+    if c.max_messages == 0 {
+        return Err(AppError::invalid_input("max_messages must be > 0"));
     }
 
     let g = &doc.guardrails;
