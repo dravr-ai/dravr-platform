@@ -82,6 +82,10 @@ async function startServer(config) {
     ...process.env,
     HTTP_PORT: port.toString(),
     DATABASE_URL: config.database || 'sqlite::memory:',
+    // Integration tests register users over HTTP, which default to "Pending" (admin
+    // approval). Auto-approve so the issued token belongs to an Active user and
+    // authenticates against /mcp (which rejects non-Active users with 401, RFC 9728).
+    AUTO_APPROVE_USERS: 'true',
     PIERRE_MASTER_ENCRYPTION_KEY: config.encryptionKey || 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=',
     PIERRE_JWT_SECRET: config.jwtSecret || 'test_jwt_secret_for_automated_tests_only',
     PIERRE_RSA_KEY_SIZE: '2048', // Use smaller key size for faster test startup
