@@ -335,6 +335,11 @@ pub struct MemberFitnessSnapshot {
     /// support. Empty for members without `peer_sharing_consent` or
     /// without activity data.
     pub recent_activities: Vec<RosterActivity>,
+    /// Provider slugs whose connection flipped to `needs_reauth`/`revoked` for this member
+    /// (an OAuth token refresh died non-recoverably). Lets the group coach name the dead
+    /// provider ("Phil's WHOOP needs reconnecting") instead of treating it as merely quiet.
+    /// Empty when all of the member's connections are healthy.
+    pub needs_reauth_providers: Vec<String>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
 }

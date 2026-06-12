@@ -17,7 +17,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::OAuthClientState;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    AuthorizationCode, ConnectionType, ProviderConnection, UserOAuthApp, UserOAuthToken,
+    AuthorizationCode, ConnectionStatus, ConnectionType, ProviderConnection, UserOAuthApp,
+    UserOAuthToken,
 };
 use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
 use sqlx::Row;
@@ -1114,7 +1115,11 @@ impl ProviderConnectionRepository for PostgresDatabase {
             ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET
                 connection_type = EXCLUDED.connection_type,
                 connected_at = EXCLUDED.connected_at,
-                metadata = EXCLUDED.metadata
+                metadata = EXCLUDED.metadata,
+                status = 'active',
+                status_changed_at = EXCLUDED.connected_at,
+                last_error = NULL,
+                notified_at = NULL
             ",
         )
         .bind(&id)
@@ -1156,7 +1161,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                 FROM provider_connections
                 WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY connected_at DESC
@@ -1169,7 +1174,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                 FROM provider_connections
                 WHERE user_id = $1
                 ORDER BY connected_at DESC
@@ -1198,6 +1203,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
                     .unwrap_or(ConnectionType::Manual),
                 connected_at,
                 last_used_at,
+                status: ConnectionStatus::from_str_value(&row.get::<String, _>("status")),
                 metadata: row.get("metadata"),
             });
         }
@@ -1248,7 +1254,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         let row_opt = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = $1 AND tenant_id = $2
                  ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
@@ -1262,7 +1268,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         } else {
             sqlx::query(
                 r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, metadata
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = $1
                  ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
@@ -1293,8 +1299,89 @@ impl ProviderConnectionRepository for PostgresDatabase {
                 .unwrap_or(ConnectionType::Manual),
             connected_at,
             last_used_at,
+            status: ConnectionStatus::from_str_value(&row.get::<String, _>("status")),
             metadata: row.get("metadata"),
         }))
+    }
+
+    async fn mark_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        error_code: Option<&str>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET status = 'needs_reauth',
+                   status_changed_at = $1,
+                   last_error = $2
+             WHERE user_id = $3 AND tenant_id = $4 AND provider = $5
+               AND status != 'needs_reauth'
+            ",
+        )
+        .bind(Utc::now())
+        .bind(error_code)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_active(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET status = 'active',
+                   status_changed_at = $1,
+                   last_error = NULL,
+                   notified_at = NULL
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status != 'active'
+            ",
+        )
+        .bind(Utc::now())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn claim_reauth_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE provider_connections
+               SET notified_at = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status = 'needs_reauth'
+               AND notified_at IS NULL
+            ",
+        )
+        .bind(Utc::now())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 

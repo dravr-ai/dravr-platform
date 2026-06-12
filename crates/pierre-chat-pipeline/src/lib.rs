@@ -314,12 +314,14 @@ async fn run_recovery_and_post_process(
             admin_jwt_secret: &ctx.admin_jwt_secret,
             base_url: &ctx.config.base_url,
             messaging_strings_registry: &ctx.messaging_strings_registry,
+            tool_runtime: &ctx.tool_runtime,
         },
         input,
         profile,
         result,
         &recovery_dispatched,
-    );
+    )
+    .await;
 
     if recovery_active {
         return stages::post_process::PostProcessedReply {

@@ -19,11 +19,12 @@ use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConnectionStatus, TenantId};
 use serde_json::{json, Map, Value};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::context::ToolExecutionContext;
+use crate::runtime::ToolRuntime;
 use crate::traits::{McpTool, ToolCapabilities};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::AppResult;
@@ -102,6 +103,75 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
         "error_type": "oauth_configuration_error",
         "provider": provider,
     }))
+}
+
+/// Mint a provider OAuth authorization URL and persist its CSRF state row.
+///
+/// Shared by `connect_provider` (interactive connect) and the chat auth-recovery stage
+/// (reconnect a dead OAuth provider). Builds the opaque `state`, asks the tenant OAuth
+/// client for the provider's authorization URL, and stores an [`OAuthClientState`] row so
+/// the callback can validate the round-trip. Returns `(authorization_url, state)`.
+///
+/// # Errors
+///
+/// Returns an error if the tenant has no OAuth client for the provider, the authorization
+/// URL cannot be generated, or the CSRF state row cannot be persisted.
+pub async fn mint_oauth_authorize_url(
+    resources: &dyn ToolRuntime,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    redirect_url: Option<&str>,
+) -> AppResult<(String, String)> {
+    let tenant_name = resources
+        .repos()
+        .tenants
+        .get_by_id(tenant_id)
+        .await
+        .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
+    let tenant_context = TenantContext {
+        tenant_id,
+        user_id,
+        tenant_name,
+        user_role: TenantRole::Member,
+    };
+
+    let state = build_oauth_state(user_id, redirect_url);
+
+    let url = resources
+        .tenant_oauth_client()
+        .get_authorization_url(
+            &tenant_context,
+            provider,
+            &state,
+            resources.repos().tenants.as_ref(),
+            resources.repos().oauth_tokens.as_ref(),
+        )
+        .await?;
+
+    let now = Utc::now();
+    let base_url = env::var("BASE_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}", resources.config().http_port));
+    let oauth_callback_uri = format!("{base_url}/api/oauth/callback/{provider}");
+    let client_state = OAuthClientState {
+        state: state.clone(),
+        provider: provider.to_owned(),
+        user_id: Some(user_id),
+        tenant_id: Some(tenant_id.to_string()),
+        redirect_uri: oauth_callback_uri,
+        scope: None,
+        pkce_code_verifier: None,
+        created_at: now,
+        expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
+        used: false,
+    };
+    resources
+        .repos()
+        .oauth_client_state
+        .store_oauth_client_state(&client_state)
+        .await?;
+
+    Ok((url, state))
 }
 
 /// Annotations for tools that interact with external OAuth services
@@ -292,63 +362,16 @@ impl McpTool for ConnectProviderTool {
                 )
             })));
         }
-        let tenant_name = repos
-            .tenants
-            .get_by_id(tenant_id)
-            .await
-            .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
-        let tctx = TenantContext {
+        match mint_oauth_authorize_url(
+            ctx.resources.as_ref(),
+            user_uuid,
             tenant_id,
-            user_id: user_uuid,
-            tenant_name,
-            user_role: TenantRole::Member,
-        };
-
-        let state = build_oauth_state(user_uuid, redirect_url);
-
-        match ctx
-            .resources
-            .tenant_oauth_client()
-            .get_authorization_url(
-                &tctx,
-                provider,
-                &state,
-                ctx.resources.repos().tenants.as_ref(),
-                ctx.resources.repos().oauth_tokens.as_ref(),
-            )
-            .await
+            provider,
+            redirect_url,
+        )
+        .await
         {
-            Ok(url) => {
-                let now = Utc::now();
-                let base_url = env::var("BASE_URL").unwrap_or_else(|_| {
-                    format!("http://localhost:{}", ctx.resources.config().http_port)
-                });
-                let oauth_callback_uri = format!("{base_url}/api/oauth/callback/{provider}");
-                let client_state = OAuthClientState {
-                    state: state.clone(),
-                    provider: provider.to_owned(),
-                    user_id: Some(user_uuid),
-                    tenant_id: Some(tenant_id.to_string()),
-                    redirect_uri: oauth_callback_uri,
-                    scope: None,
-                    pkce_code_verifier: None,
-                    created_at: now,
-                    expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
-                    used: false,
-                };
-
-                if let Err(e) = repos
-                    .oauth_client_state
-                    .store_oauth_client_state(&client_state)
-                    .await
-                {
-                    warn!("Failed to store OAuth state for CSRF protection: {}", e);
-                    return Ok(oauth_error_result(
-                        provider,
-                        &format!("Failed to initiate OAuth flow: {e}"),
-                    ));
-                }
-
+            Ok((url, state)) => {
                 let flow_type = if redirect_url.is_some() {
                     " (mobile flow)"
                 } else {
@@ -421,6 +444,20 @@ impl McpTool for GetConnectionStatusTool {
         let user_uuid = ctx.user_id;
         let tenant_id = TenantId::from(ctx.require_tenant()?);
 
+        // Lifecycle status per connected provider (best-effort). Lets us report a
+        // connected-but-dead provider as `needs_reauth` — a token row still exists, but a
+        // non-recoverable refresh failure means the user must reconnect before data flows.
+        let status_by_provider: HashMap<String, ConnectionStatus> = ctx
+            .resources
+            .repos()
+            .provider_connections
+            .get_for_user(user_uuid, Some(tenant_id))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| (c.provider, c.status))
+            .collect();
+
         if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
             // Mirror backends are internal-only.
             if backend_resolver::is_mirror_backend(specific_provider) {
@@ -448,7 +485,13 @@ impl McpTool for GetConnectionStatusTool {
                 None => (false, BackendKind::None),
             };
 
-            let status = if is_connected {
+            let needs_reauth = status_by_provider
+                .get(specific_provider)
+                .copied()
+                .is_some_and(|s| s.requires_reauth());
+            let status = if needs_reauth {
+                "needs_reauth"
+            } else if is_connected {
                 "connected"
             } else {
                 "disconnected"
@@ -458,6 +501,7 @@ impl McpTool for GetConnectionStatusTool {
                 "provider": specific_provider,
                 "status": status,
                 "connected": is_connected,
+                "needs_reauth": needs_reauth,
                 "backend": backend_kind.as_str()
             })))
         } else {
@@ -473,7 +517,13 @@ impl McpTool for GetConnectionStatusTool {
                 )
                 .await;
 
-                let status_str = if status.connected {
+                let needs_reauth = status_by_provider
+                    .get(*user_facing)
+                    .copied()
+                    .is_some_and(|s| s.requires_reauth());
+                let status_str = if needs_reauth {
+                    "needs_reauth"
+                } else if status.connected {
                     "connected"
                 } else {
                     "disconnected"
@@ -484,6 +534,7 @@ impl McpTool for GetConnectionStatusTool {
                     json!({
                         "connected": status.connected,
                         "status": status_str,
+                        "needs_reauth": needs_reauth,
                         "backend": status.backend_kind.as_str()
                     }),
                 );

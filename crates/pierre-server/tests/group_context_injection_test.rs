@@ -197,6 +197,7 @@ mod inject_tests {
             days_since_last_activity: Some(1),
             last_activity_per_provider: HashMap::new(),
             recent_activities: vec![],
+            needs_reauth_providers: vec![],
             computed_at: Utc::now(),
         }
     }
@@ -370,6 +371,63 @@ mod inject_tests {
         assert!(
             !out.contains("PeerBob"),
             "non-consenting peer must be filtered out, got: {out}"
+        );
+    }
+
+    /// A visible member whose provider connection died surfaces a "Connection alerts"
+    /// section naming the dead provider, so the coach reports it instead of fabricating
+    /// data for a disconnected source.
+    #[tokio::test]
+    async fn inject_surfaces_needs_reauth_for_visible_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (requester, tenant_id) = seed_user(&resources, "reauthreq").await;
+        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let peer = seed_bare_user(&resources, "reauthpeer").await;
+
+        let gid = create_group(
+            &resources,
+            tenant_id,
+            coach_id,
+            requester,
+            "Recovery Squad",
+            true,
+        )
+        .await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            tenant_id,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        add_member(&resources, gid, peer, tenant_id, GroupRole::Member, true).await;
+
+        let mut peer_snapshot = snapshot(peer, "PhilPeer");
+        peer_snapshot.needs_reauth_providers = vec!["whoop".to_owned()];
+        let snapshots = vec![snapshot(requester, "RequesterRunner"), peer_snapshot];
+
+        let out = resources
+            .group_service()
+            .inject_group_context(
+                BASE_PROMPT,
+                &coach_id.to_string(),
+                requester,
+                tenant_id,
+                Some(&gid.to_string()),
+                &snapshots,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            out.contains("Connection alerts"),
+            "expected a connection-alerts section, got: {out}"
+        );
+        assert!(
+            out.contains("PhilPeer needs to reconnect: whoop"),
+            "alert must name the member and the dead provider, got: {out}"
         );
     }
 
