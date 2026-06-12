@@ -1261,6 +1261,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "dravr-aiguilleur"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-aiguilleur.git?tag=v0.1.0#e67224fe4e8b5e0498d3e2a37ff33d05a8256430"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-browser"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3333,6 +3344,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
+ "dravr-aiguilleur",
  "dravr-contremaitre",
  "jsonschema",
  "pierre-agui",

@@ -223,6 +223,18 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Return the category a tool was registered under, if any.
+    ///
+    /// Used by the per-turn tool intent pre-filter to attach a category to each
+    /// chat-callable candidate before relevance selection.
+    #[must_use]
+    pub fn category_for_tool(&self, tool_name: &str) -> Option<&str> {
+        self.categories
+            .iter()
+            .find(|(_, names)| names.iter().any(|n| n == tool_name))
+            .map(|(category, _)| category.as_str())
+    }
+
     /// List schemas for tools visible to a specific role
     ///
     /// # Arguments

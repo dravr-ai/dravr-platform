@@ -34,7 +34,10 @@
 pub mod channel_profile;
 pub mod hooks;
 pub mod stages;
+pub mod tool_prefilter;
 pub mod turn;
+
+pub use tool_prefilter::ToolPrefilter;
 
 pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
 pub use hooks::{
@@ -186,6 +189,9 @@ pub struct ChatPipelineContext {
     /// (Copilot Headless) exposes for native Dravr tool calling. `None`
     /// disables the bridge (text-based tool calling is used instead).
     pub mcp_bridge: Option<Arc<dyn McpBridgeProvider>>,
+    /// Optional per-turn tool intent pre-filter. `None` disables narrowing
+    /// (the default); the full chat-callable tool set is sent every turn.
+    pub tool_intent_prefilter: Option<ToolPrefilter>,
 }
 
 /// Emit an AG-UI `STEP_STARTED` event if a sink is wired.
