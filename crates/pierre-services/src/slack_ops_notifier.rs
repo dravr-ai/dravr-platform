@@ -65,6 +65,9 @@ pub fn ops_notifier() -> &'static dyn OpsNotifier {
 pub trait OpsNotifier: Send + Sync {
     /// Server started (deploy or restart)
     fn notify_deploy(&self);
+    /// Server stopping — SIGTERM received (best-effort; delivery races the ~10s
+    /// Cloud Run grace window and may be lost)
+    fn notify_shutdown(&self);
     /// User registered with given approval status (includes user ID for interactive actions)
     fn notify_user_registered(&self, user_id: &str, email: &str, status: &str);
     /// Admin approved a user
@@ -92,6 +95,7 @@ struct NoopOpsNotifier;
 
 impl OpsNotifier for NoopOpsNotifier {
     fn notify_deploy(&self) {}
+    fn notify_shutdown(&self) {}
     fn notify_user_registered(&self, _user_id: &str, _email: &str, _status: &str) {}
     fn notify_user_approved(&self, _email: &str, _approved_by: &str) {}
     fn notify_user_suspended(&self, _email: &str, _suspended_by: &str) {}
@@ -200,6 +204,36 @@ impl OpsNotifier for SlackOpsNotifier {
                 "type": "context",
                 "elements": [
                     { "type": "mrkdwn", "text": format!(":clock1: {timestamp}") }
+                ]
+            }
+        ]);
+
+        self.client.post_message(channel, &blocks);
+    }
+
+    fn notify_shutdown(&self) {
+        let Some(channel) = &self.deploys_channel else {
+            return;
+        };
+        let revision = env::var(K_REVISION_ENV).unwrap_or_else(|_| "local".to_owned());
+        let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+
+        let blocks = json!([
+            {
+                "type": "header",
+                "text": { "type": "plain_text", "text": "Server Stopping", "emoji": true }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    { "type": "mrkdwn", "text": format!("*Environment:*\n{}", self.environment) },
+                    { "type": "mrkdwn", "text": format!("*Revision:*\n`{revision}`") }
+                ]
+            },
+            {
+                "type": "context",
+                "elements": [
+                    { "type": "mrkdwn", "text": format!(":octagonal_sign: SIGTERM received — {timestamp}") }
                 ]
             }
         ]);

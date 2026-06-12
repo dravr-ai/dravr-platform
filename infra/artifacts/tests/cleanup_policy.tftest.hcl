@@ -7,14 +7,33 @@ variables {
   project_id = "dravr-artifacts"
 }
 
-# The first apply must never delete anything until an operator reviews the
-# dry-run results and explicitly flips the flag.
-run "dry_run_defaults_true" {
+# Production enforces the cleanup policy: terraform.tfvars sets
+# cleanup_policy_dry_run = false so the 4-rule policy actually prunes. Guards
+# against an accidental revert to dry-run that would silently stop pruning and
+# let the registry grow again. (The variable still DEFAULTS to true in
+# variables.tf, so a fresh apply with no tfvars stays safe — an operator
+# reviews the dry-run before flipping enforcement on.)
+run "cleanup_policy_is_enforced" {
   command = plan
 
   assert {
+    condition     = google_artifact_registry_repository.images.cleanup_policy_dry_run == false
+    error_message = "terraform.tfvars must keep cleanup_policy_dry_run = false so the policy prunes"
+  }
+}
+
+# The dry-run safety mode must still be reachable: operators flip it on to
+# preview a policy change before enforcing.
+run "dry_run_mode_is_available" {
+  command = plan
+
+  variables {
+    cleanup_policy_dry_run = true
+  }
+
+  assert {
     condition     = google_artifact_registry_repository.images.cleanup_policy_dry_run == true
-    error_message = "cleanup_policy_dry_run must default to true so the first apply deletes nothing"
+    error_message = "setting cleanup_policy_dry_run = true must put the policy in log-only mode"
   }
 }
 
