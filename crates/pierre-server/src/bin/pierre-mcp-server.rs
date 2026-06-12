@@ -720,7 +720,17 @@ async fn create_server(
         messaging_seed::seed_from_env(&repos).await;
     }
 
-    let chat_provider_singleton = build_chat_provider_singleton().await;
+    // In-memory (test) databases run headless: skip building the ChatProvider so a
+    // test-spawned server never starts an interactive CLI provider (e.g. `copilot
+    // --acp`, which blocks on browser OAuth). Tests that exercise chat inject a mock.
+    let chat_provider_singleton = if config.database.url.is_memory() {
+        info!(
+            "In-memory (test) database detected — skipping ChatProvider startup build (headless)"
+        );
+        None
+    } else {
+        build_chat_provider_singleton().await
+    };
     let billing_provider = build_billing_provider();
 
     let resources_instance = ServerContext::new(
@@ -784,10 +794,17 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route
     // (Cloud Run startup probe is /health by default and stays unaffected).
-    spawn_llm_health_probe(
-        Arc::clone(&resources.common.llm_health),
-        resources.common.chat_provider.as_ref().map(Arc::clone),
-    );
+    //
+    // Skipped for in-memory (test) servers: probing would exercise the CLI
+    // provider and spawn `copilot --acp`, which blocks on browser OAuth.
+    if resources.common.config.database.url.is_memory() {
+        info!("In-memory (test) database detected — skipping LLM health probe (headless)");
+    } else {
+        spawn_llm_health_probe(
+            Arc::clone(&resources.common.llm_health),
+            resources.common.chat_provider.as_ref().map(Arc::clone),
+        );
+    }
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)
     #[cfg(feature = "client-messaging")]
