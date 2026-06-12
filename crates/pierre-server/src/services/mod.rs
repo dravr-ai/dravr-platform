@@ -32,6 +32,10 @@ pub mod slack_socket;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_ingress;
 
+/// Account-approved notifier: email + localized message on each linked channel
+#[cfg(feature = "client-messaging")]
+pub(crate) mod user_approval_notifier;
+
 /// Endurance Phase 2 training-history compute service — fetches activities + physiology,
 /// runs `pierre_intelligence::training_history_compute`, persists rows.
 pub mod training_history_compute;

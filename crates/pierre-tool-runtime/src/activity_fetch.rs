@@ -16,10 +16,9 @@ use std::sync::Arc;
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::group_fitness::write_through_activity_cache;
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
 
@@ -28,6 +27,10 @@ const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
 
 /// Cap on stale rows served from cache when a live fetch fails.
 const STALE_FALLBACK_LIMIT: i64 = 500;
+
+/// Retention + read window for the provider-agnostic activity cache. Exceeds
+/// the training-load lookback so cached reads always cover CTL/ATL/TSB.
+pub(crate) const ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
 
 /// Fetch activities for a single provider connection, authenticating (and
 /// refreshing tokens) as needed.
@@ -183,4 +186,32 @@ pub async fn fetch_recent_activities_all_providers(
         }
     }
     all
+}
+
+/// Warm the provider-agnostic activity cache after a successful live fetch so
+/// the next outage serves these rows stale-while-revalidate. Shared with the
+/// group snapshot builder through the `activity_cache` repo.
+pub(crate) async fn write_through_activity_cache(
+    auth_service: &AuthService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    activities: &[Activity],
+) {
+    let data = auth_service.runtime().data();
+    let cache = data.repos().activity_cache.clone();
+    if let Err(e) = cache
+        .upsert_activities(user_id, &tenant_id, provider, activities)
+        .await
+    {
+        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
+        return;
+    }
+    let cutoff = Utc::now() - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
+    if let Err(e) = cache
+        .prune_activities_before(user_id, &tenant_id, cutoff)
+        .await
+    {
+        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
+    }
 }

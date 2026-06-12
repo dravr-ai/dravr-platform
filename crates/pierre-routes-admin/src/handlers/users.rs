@@ -20,7 +20,7 @@ use uuid::Uuid;
 use chrono::Utc;
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::models::{UserStatus, UserTier};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::repositories::UserTierOverride;
 use pierre_database::RepositoryRegistry;
@@ -286,7 +286,16 @@ pub(crate) async fn handle_approve_user(
     // Send ops notification for user approval
     ops_notifier().notify_user_approved(&updated_user.email, &admin_token.service_name);
 
-    send_user_approved_email(ctx, &updated_user).await;
+    // Notify the user: approval email + a message on each linked channel.
+    if let Some(notifier) = ctx.approval_notifier.as_ref() {
+        notifier
+            .notify_user_approved(
+                user_uuid,
+                &updated_user.email,
+                updated_user.display_name.as_deref(),
+            )
+            .await;
+    }
 
     Ok(json_response(
         AdminResponse {
@@ -307,27 +316,6 @@ pub(crate) async fn handle_approve_user(
         },
         StatusCode::OK,
     ))
-}
-
-/// Fire-and-forget dispatch of the "your account is approved" email
-///
-/// Delivery failures or missing Resend config are warn-logged only — never
-/// propagated, so they cannot fail the parent approval response.
-async fn send_user_approved_email(ctx: &AdminApiContext, user: &User) {
-    let Some(email_svc) = ctx.email_service.as_ref() else {
-        return;
-    };
-    let sign_in_url = ctx.frontend_url.as_deref();
-    if let Err(e) = email_svc
-        .send_registration_approved(&user.email, user.display_name.as_deref(), sign_in_url)
-        .await
-    {
-        warn!(
-            user_id = %user.id,
-            error = %e,
-            "Failed to send account-approved email — user not notified"
-        );
-    }
 }
 
 /// Handle user suspension workflow

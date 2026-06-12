@@ -56,6 +56,8 @@ use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::endurance;
 use crate::routes::user_profile::routes as user_profile_routes;
+#[cfg(feature = "client-messaging")]
+use crate::services::user_approval_notifier::ApprovalNotifier;
 use axum::body::Body;
 use axum::middleware;
 use axum::response::Response;
@@ -1137,6 +1139,10 @@ impl MultiTenantMcpServer {
             admin_context
                 .frontend_url
                 .clone_from(&resources.common.config.frontend_url);
+            #[cfg(feature = "client-messaging")]
+            {
+                admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));
+            }
 
             // Tool-selection and diagnostic sub-routes use pierre-server-internal
             // types (`ToolSelectionService`, `ToolRegistry`) and so are
