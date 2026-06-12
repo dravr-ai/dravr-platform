@@ -209,6 +209,7 @@ fn compaction_from(c: &HarnessCompactionConfig) -> CompactionConfig {
         emergency_threshold: c.emergency_threshold,
         summarize_oldest_n: c.summarize_oldest_n as usize,
         sliding_drop_n: c.sliding_drop_n as usize,
+        max_messages: c.max_messages as usize,
     }
 }
 

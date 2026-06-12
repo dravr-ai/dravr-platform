@@ -30,8 +30,16 @@ pub struct CompactionConfig {
     /// How many of the oldest history turns we summarize when we trigger.
     pub summarize_oldest_n: usize,
     /// How many of the oldest history turns we drop under emergency sliding
-    /// window mode.
+    /// window mode. Acts as a minimum-drop floor so a barely-over thread does
+    /// not re-trigger emergency on every subsequent turn.
     pub sliding_drop_n: usize,
+    /// Hard cap on the number of non-system messages kept in the prompt,
+    /// enforced independently of the token estimate. The character-based token
+    /// heuristic under-counts dense content (JSON tool results, structured
+    /// data), so a genuinely oversized prompt can read below the token
+    /// threshold and slip through; this message cap is the estimate-independent
+    /// backstop that bounds the prompt regardless.
+    pub max_messages: usize,
 }
 
 impl Default for CompactionConfig {
@@ -42,6 +50,7 @@ impl Default for CompactionConfig {
             emergency_threshold: 0.95,
             summarize_oldest_n: 6,
             sliding_drop_n: 4,
+            max_messages: 40,
         }
     }
 }
