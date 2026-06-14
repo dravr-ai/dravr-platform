@@ -670,12 +670,17 @@ impl FitnessProvider for WhoopProvider {
 
         info!("Refreshing WHOOP access token");
 
-        // Prepare token refresh request
+        // Prepare token refresh request. WHOOP rotates refresh tokens and only
+        // returns a new one when `scope=offline` is sent on the refresh; without
+        // it the single-use refresh token is consumed but not replaced, so the
+        // next refresh fails with HTTP 400 invalid_request. The rotated refresh
+        // token is persisted below via token_response.refresh_token.
         let params = [
             ("client_id", credentials.client_id.as_str()),
             ("client_secret", credentials.client_secret.as_str()),
             ("grant_type", "refresh_token"),
             ("refresh_token", &refresh_token),
+            ("scope", "offline"),
         ];
 
         let response = self
