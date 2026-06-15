@@ -353,6 +353,20 @@ fn test_tool_discipline_prompt_covers_get_activities() {
 }
 
 #[test]
+fn test_tool_discipline_prompt_relays_backfilling_status() {
+    let prompt = get_tool_discipline_prompt();
+
+    assert!(
+        prompt.contains("backfilling"),
+        "Tool-discipline prompt must address the `backfilling` status so the model relays it"
+    );
+    assert!(
+        prompt.contains("being fetched") && prompt.contains("ask again"),
+        "Tool-discipline prompt must tell the model to say older data is being fetched and to ask again — not answer 'no data'"
+    );
+}
+
+#[test]
 fn test_tool_discipline_prompt_forbids_gratuitous_connection_check() {
     let prompt = get_tool_discipline_prompt();
 
