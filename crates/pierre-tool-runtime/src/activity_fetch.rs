@@ -130,11 +130,20 @@ pub(crate) async fn read_cached_window(
     tenant: TenantId,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let end = Utc::now();
+    let now = Utc::now();
+    // Honor the request's `before` upper bound. A historical query like
+    // "2022 races" (after=2022, before=2023) must read the bounded [after,
+    // before] window — reading [after, now] would return recent rows that fall
+    // inside the open window and mask whether the deep history is actually
+    // cached.
+    let end = params
+        .before
+        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .unwrap_or(now);
     let start = params
         .after
         .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-        .unwrap_or_else(|| end - Duration::days(STALE_FALLBACK_WINDOW_DAYS));
+        .unwrap_or_else(|| now - Duration::days(STALE_FALLBACK_WINDOW_DAYS));
     let limit = params
         .limit
         .and_then(|l| i64::try_from(l).ok())
