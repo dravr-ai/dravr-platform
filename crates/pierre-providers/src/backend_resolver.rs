@@ -26,6 +26,8 @@
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
 
+use std::env;
+
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_database::AuthRepos;
 use uuid::Uuid;
@@ -103,6 +105,10 @@ async fn has_token_row(
 /// mirror session is stale. Downstream code surfaces an auth failure in
 /// that case, which the caller is expected to translate into a
 /// mirror-re-login prompt — never a fallback to OAuth.
+///
+/// Exception: when `PIERRE_STRAVA_PREFER_OAUTH` is set, a Strava request whose
+/// user holds an OAuth token resolves to the OAuth backend instead of the
+/// sciotte mirror (Strava → OAuth-API migration; see [`prefers_oauth`]).
 pub async fn resolve_backend(
     repos: &AuthRepos,
     user_id: Uuid,
@@ -115,11 +121,30 @@ pub async fn resolve_backend(
     let Some(tid) = tenant_id else {
         return requested.to_owned();
     };
+    // Strava → OAuth-API migration (ADR: retire sciotte scraping for Strava).
+    // When opted in, prefer the OAuth backend over the sciotte mirror if the
+    // user actually holds an OAuth token for it. Opt-in + Strava-scoped, so the
+    // long-standing mirror-preference is unchanged for everyone else and for
+    // Garmin (whose API is partner-gated and stays on the scraper).
+    if prefers_oauth(requested) && has_token_row(repos, user_id, tid, requested).await {
+        return requested.to_owned();
+    }
     if has_token_row(repos, user_id, tid, mirror).await {
         mirror.to_owned()
     } else {
         requested.to_owned()
     }
+}
+
+/// Whether to prefer the OAuth backend over the sciotte mirror for `requested`.
+///
+/// Gates the Strava → OAuth-API migration: enabled per-deployment via
+/// `PIERRE_STRAVA_PREFER_OAUTH` (`1`/`true`), Strava-only. Default off keeps the
+/// historical mirror-preference behaviour until the migration is rolled out.
+fn prefers_oauth(requested: &str) -> bool {
+    requested == oauth_providers::STRAVA
+        && env::var("PIERRE_STRAVA_PREFER_OAUTH")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 /// Connection status for a user-facing provider after mirror coalescing.
