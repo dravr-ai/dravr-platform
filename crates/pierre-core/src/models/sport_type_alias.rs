@@ -37,7 +37,7 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
         // Cycling
         "ride" | "cycling" | "bike" | "bicycle" | "vélo" | "velo" | "sortieavélo"
         | "sortieavelo" => SportType::Ride,
-        "mountainbike" | "mtb" | "vtt" => SportType::MountainBike,
+        "mountainbike" | "mountainbikeride" | "mtb" | "vtt" => SportType::MountainBike,
         "gravelride" | "gravel" | "gravelvelo" => SportType::GravelRide,
         "ebikeride" | "ebike" | "véloélectrique" | "veloelectrique" => SportType::EbikeRide,
         "virtualride" | "indoorbike" | "vélointérieur" | "velointerieur" | "trainer"
@@ -112,6 +112,15 @@ mod tests {
             Some(SportType::CrossCountrySkiing)
         );
         assert_eq!(resolve_sport_type("mtb"), Some(SportType::MountainBike));
+        // Strava API sport_type values (granular), not just short forms.
+        assert_eq!(
+            resolve_sport_type("MountainBikeRide"),
+            Some(SportType::MountainBike)
+        );
+        assert_eq!(
+            resolve_sport_type("GravelRide"),
+            Some(SportType::GravelRide)
+        );
     }
 
     #[test]

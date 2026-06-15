@@ -18,7 +18,7 @@ use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use async_trait::async_trait;
@@ -67,6 +67,11 @@ pub struct StravaActivityResponse {
     name: String,
     #[serde(rename = "type")]
     activity_type: String,
+    /// Granular Strava sport type (e.g. `MountainBikeRide`, `GravelRide`).
+    /// Introduced 2022 and preferred over the deprecated `type` field, which
+    /// flattens every bike to `Ride`. Optional for backward compatibility with
+    /// any response that omits it.
+    sport_type: Option<String>,
     start_date: String,
     distance: Option<f32>,
     elapsed_time: Option<u32>,
@@ -439,21 +444,6 @@ impl StravaProvider {
         })
     }
 
-    /// Convert Strava activity type to our `SportType` enum
-    fn parse_sport_type(strava_type: &str) -> SportType {
-        match strava_type.to_lowercase().as_str() {
-            "run" => SportType::Run,
-            "ride" => SportType::Ride,
-            "swim" => SportType::Swim,
-            "walk" => SportType::Walk,
-            "hike" => SportType::Hike,
-            "workout" => SportType::Workout,
-            "yoga" => SportType::Yoga,
-            "weighttraining" => SportType::StrengthTraining,
-            _ => SportType::Other(strava_type.to_owned()),
-        }
-    }
-
     /// Convert Strava activity response to internal Activity model
     /// Build an [`ActivityBuilder`] from a Strava summary response.
     ///
@@ -480,10 +470,23 @@ impl StravaProvider {
             u64::from,
         );
 
+        // Prefer the granular `sport_type` (MountainBikeRide, GravelRide, …)
+        // over the deprecated `type` (which flattens every bike to `Ride`), and
+        // resolve it through the canonical sport-type alias map so VTT/gravel/
+        // e-bike rides classify distinctly. Unknown values fall back to
+        // `Other(raw)` so the exact label is still preserved for the coach.
+        let effective_type = activity
+            .sport_type
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&activity.activity_type)
+            .to_owned();
+
         Ok(ActivityBuilder::new(
             activity.id.to_string(),
             &activity.name,
-            Self::parse_sport_type(&activity.activity_type),
+            resolve_sport_type(&effective_type)
+                .unwrap_or_else(|| SportType::Other(effective_type.clone())),
             start_date,
             duration_seconds,
             oauth_providers::STRAVA,
@@ -514,7 +517,7 @@ impl StravaProvider {
         .city_opt(activity.location_city)
         .region_opt(activity.location_state)
         .country_opt(activity.location_country)
-        .sport_type_detail_opt(Some(activity.activity_type.clone())))
+        .sport_type_detail_opt(Some(effective_type)))
     }
 
     fn convert_strava_activity(activity: StravaActivityResponse) -> AppResult<Activity> {
