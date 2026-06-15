@@ -39,9 +39,17 @@ use pierre_routes_auth::init_sciotte_limiter;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 
 type Result<T> = AppResult<T>;
-use std::{env, sync::Arc, time::Duration};
+use std::{env, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
+// SIGTERM-based shutdown notification is Unix-only: Cloud Run (Linux) delivers
+// SIGTERM on scale-down/redeploy, and `tokio::signal::unix` does not exist on
+// Windows. The cross-platform build compiles this binary on Windows too, so the
+// handler and its supporting imports are gated to Unix.
+#[cfg(unix)]
+use std::time::Duration;
+#[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+#[cfg(unix)]
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
@@ -764,6 +772,7 @@ async fn create_server(
     // sleep gives it a chance to send before the process is killed, but it may
     // still be lost. The reliable "is an instance stuck up?" signal is the
     // idle-floor Cloud Run alert, not this message.
+    #[cfg(unix)]
     tokio::spawn(async {
         match signal(SignalKind::terminate()) {
             Ok(mut sigterm) => {
@@ -808,7 +817,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
             .install_protocol_factory(factory)
             .is_err()
         {
-            tracing::warn!("SseManager protocol factory already installed; skipping");
+            warn!("SseManager protocol factory already installed; skipping");
         }
     }
 
