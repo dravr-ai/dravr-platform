@@ -616,7 +616,7 @@ async fn try_reuse_existing_session(
 
     // `is_authenticated` is a cheap cookie-state probe on the scraper; it
     // never launches Chrome and never holds a backpressure permit.
-    let probe = SciotteTarget::from_target_param(target).build_scraper();
+    let probe = SciotteTarget::from_target_param(target).build_scraper()?;
     if probe.is_authenticated(&session).await {
         info!(
             %user_id,
@@ -718,7 +718,7 @@ pub async fn handle_sciotte_login(
     let cached = resources.sciotte_vision_llm.as_ref().map_or_else(
         || target_kind.build_scraper(),
         |llm| target_kind.build_scraper_with_llm(Arc::clone(llm)),
-    );
+    )?;
 
     let result = match cached
         .credential_login(&request.email, &request.password, &request.method)

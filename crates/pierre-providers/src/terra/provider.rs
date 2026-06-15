@@ -457,8 +457,11 @@ impl TerraProviderFactory {
 }
 
 impl ProviderFactory for TerraProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(TerraProvider::with_config(config, Arc::clone(&self.cache)))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(TerraProvider::with_config(
+            config,
+            Arc::clone(&self.cache),
+        )))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

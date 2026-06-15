@@ -52,6 +52,8 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+/// Background historical-activity backfill (deep `after` never scrapes inline).
+pub mod activity_backfill;
 /// Shared provider activity fetching (used by group snapshots + coach recs).
 pub mod activity_fetch;
 pub mod capabilities;

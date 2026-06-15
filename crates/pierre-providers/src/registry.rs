@@ -75,8 +75,8 @@ struct BundleFactory {
 }
 
 impl ProviderFactory for BundleFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        (self.factory_fn)(config)
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok((self.factory_fn)(config))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {
@@ -538,7 +538,7 @@ impl ProviderRegistry {
             })?
             .clone();
 
-        Ok(factory.create(config))
+        factory.create(config)
     }
 
     /// Create a provider instance with custom configuration
@@ -555,7 +555,7 @@ impl ProviderRegistry {
             AppError::invalid_input(format!("Unsupported provider: {provider_name}"))
         })?;
 
-        Ok(factory.create(config))
+        factory.create(config)
     }
 
     /// Create a tenant-aware provider

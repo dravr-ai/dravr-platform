@@ -11,6 +11,7 @@
 //! group analytics snapshot builder or the coach recommender. This module
 //! owns that single path so neither re-implements it.
 
+use std::env;
 use std::sync::Arc;
 
 use chrono::{Duration, TimeZone, Utc};
@@ -28,9 +29,25 @@ const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
 /// Cap on stale rows served from cache when a live fetch fails.
 const STALE_FALLBACK_LIMIT: i64 = 500;
 
-/// Retention + read window for the provider-agnostic activity cache. Exceeds
-/// the training-load lookback so cached reads always cover CTL/ATL/TSB.
-pub(crate) const ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
+/// Default retention + read window (days) for the provider-agnostic activity
+/// cache when `PIERRE_ACTIVITY_CACHE_RETENTION_DAYS` is unset. Exceeds the
+/// training-load lookback so cached reads always cover CTL/ATL/TSB.
+const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 90;
+
+/// Resolve the activity-cache retention window (days) from the environment,
+/// falling back to [`DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS`]. This is both the
+/// prune cutoff applied after a write-through and the lookback used when
+/// reading cached rows, so widening it deepens the cache into a historical
+/// store (e.g. to keep a backfilled season) at the cost of more rows retained.
+/// Non-positive or unparseable values fall back to the default.
+#[must_use]
+pub(crate) fn activity_cache_retention_days() -> i64 {
+    env::var("PIERRE_ACTIVITY_CACHE_RETENTION_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|days| *days > 0)
+        .unwrap_or(DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS)
+}
 
 /// Fetch activities for a single provider connection, authenticating (and
 /// refreshing tokens) as needed.
@@ -87,6 +104,7 @@ pub async fn fetch_provider_activities(
                 tenant,
                 provider_slug,
                 &activities,
+                activity_cache_retention_days(),
             )
             .await;
         }
@@ -98,12 +116,14 @@ pub async fn fetch_provider_activities(
     serve_stale_activities(runtime, provider_slug, user_id, tenant?, params).await
 }
 
-/// Read a provider's cached activities for the request window, newest first.
+/// Read a provider's cached activities for the request window from the durable
+/// activity cache, newest first.
 ///
 /// Returns `None` when the cache is empty or the read fails — the caller then
-/// treats the provider as "no activities". Only invoked after a live fetch
-/// failure, so any non-empty result is strictly better than the empty fallback.
-async fn serve_stale_activities(
+/// treats the provider as "no activities". Shared by the stale-fallback path
+/// and the historical-backfill gate (which serves a deep window straight from
+/// cache once a prior backfill has populated it).
+pub(crate) async fn read_cached_window(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
@@ -126,26 +146,42 @@ async fn serve_stale_activities(
         .get_cached_activities(user_id, &tenant, Some(provider_slug), start, end, limit)
         .await
     {
-        Ok(cached) if !cached.is_empty() => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                count = cached.len(),
-                "fetch_provider_activities: live fetch failed, serving stale cached activities"
-            );
-            Some(cached)
-        }
+        Ok(cached) if !cached.is_empty() => Some(cached),
         Ok(_) => None,
         Err(e) => {
             warn!(
                 user_id = %user_id,
                 provider = %provider_slug,
                 error = %e,
-                "fetch_provider_activities: stale cache read failed"
+                "activity cache window read failed"
             );
             None
         }
     }
+}
+
+/// Read a provider's cached activities after a failed live fetch, newest first.
+///
+/// Thin wrapper over [`read_cached_window`] that logs the stale-serve. Only
+/// invoked after a live fetch failure, so any non-empty result is strictly
+/// better than the empty fallback.
+async fn serve_stale_activities(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant: TenantId,
+    params: &ActivityQueryParams,
+) -> Option<Vec<Activity>> {
+    let cached = read_cached_window(runtime, provider_slug, user_id, tenant, params).await;
+    if let Some(ref activities) = cached {
+        warn!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            count = activities.len(),
+            "fetch_provider_activities: live fetch failed, serving stale cached activities"
+        );
+    }
+    cached
 }
 
 /// Fetch recent activities across all of a user's connected providers and
@@ -191,12 +227,21 @@ pub async fn fetch_recent_activities_all_providers(
 /// Warm the provider-agnostic activity cache after a successful live fetch so
 /// the next outage serves these rows stale-while-revalidate. Shared with the
 /// group snapshot builder through the `activity_cache` repo.
+///
+/// `retention_days` is the per-transaction prune window: after the upsert,
+/// rows older than `now - retention_days` are garbage-collected. Recent-fetch
+/// callers pass [`activity_cache_retention_days`] (the deployment default);
+/// a historical backfill passes a deeper window so the season it just wrote is
+/// not immediately pruned. Pruning is keyed by `(user_id, tenant_id)` across
+/// all providers, so the retention floor for durable history is whatever the
+/// *widest-window* writer uses.
 pub(crate) async fn write_through_activity_cache(
     auth_service: &AuthService,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
     activities: &[Activity],
+    retention_days: i64,
 ) {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
@@ -207,7 +252,7 @@ pub(crate) async fn write_through_activity_cache(
         info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
         return;
     }
-    let cutoff = Utc::now() - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
+    let cutoff = Utc::now() - Duration::days(retention_days);
     if let Err(e) = cache
         .prune_activities_before(user_id, &tenant_id, cutoff)
         .await
