@@ -1013,8 +1013,8 @@ use super::core::ProviderFactory;
 pub struct CorosProviderFactory;
 
 impl ProviderFactory for CorosProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(CorosProvider::with_config(config))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(CorosProvider::with_config(config)))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

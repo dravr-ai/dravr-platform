@@ -13,6 +13,7 @@
 //! No HTTP sidecar needed — the scraper runs in Pierre's process.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::{CacheConfig, ScraperConfig};
 use dravr_sciotte::error::ScraperError;
@@ -83,14 +84,21 @@ impl SciotteTarget {
     /// [`SciotteProvider::new`] to back the runtime fetch path — both must
     /// use the same scraper configuration so a cached login from one path
     /// stays usable by the other.
-    #[must_use]
-    pub fn build_scraper(self) -> CachedScraper<ChromeScraper> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the embedded provider scraper config fails to parse.
+    /// The TOML is a compile-time constant validated by sciotte's own tests, so
+    /// this is a should-never-happen surfaced as a structured error rather than
+    /// a panic (the workspace denies `expect`/`unwrap`).
+    pub fn build_scraper(self) -> AppResult<CachedScraper<ChromeScraper>> {
         let provider_config = match self {
             Self::Strava => SciotteProviderConfig::strava_default(),
             Self::Garmin => SciotteProviderConfig::garmin_default(),
-        };
+        }
+        .map_err(|e| AppError::internal(format!("Failed to build sciotte provider config: {e}")))?;
         let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
-        CachedScraper::new(chrome_scraper, &CacheConfig::default())
+        Ok(CachedScraper::new(chrome_scraper, &CacheConfig::default()))
     }
 
     /// Build a scraper with an LLM provider attached for vision-based login.
@@ -102,15 +110,23 @@ impl SciotteTarget {
     /// login uses the LLM. The login route supplies the shared Copilot-headless
     /// provider so a Strava DOM change degrades to screenshot reasoning instead
     /// of a hard failure.
-    #[must_use]
-    pub fn build_scraper_with_llm(self, llm: Arc<dyn LlmProvider>) -> CachedScraper<ChromeScraper> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the embedded provider scraper config fails to parse
+    /// (see [`Self::build_scraper`]).
+    pub fn build_scraper_with_llm(
+        self,
+        llm: Arc<dyn LlmProvider>,
+    ) -> AppResult<CachedScraper<ChromeScraper>> {
         let provider_config = match self {
             Self::Strava => SciotteProviderConfig::strava_default(),
             Self::Garmin => SciotteProviderConfig::garmin_default(),
-        };
+        }
+        .map_err(|e| AppError::internal(format!("Failed to build sciotte provider config: {e}")))?;
         let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config)
             .with_llm(Arc::new(EmbacleVisionAdapter(llm)));
-        CachedScraper::new(chrome_scraper, &CacheConfig::default())
+        Ok(CachedScraper::new(chrome_scraper, &CacheConfig::default()))
     }
 }
 
@@ -164,18 +180,18 @@ pub struct SciotteProvider {
 }
 
 impl SciotteProvider {
-    fn new(config: ProviderConfig, target: SciotteTarget) -> Self {
-        let cached = target.build_scraper();
+    fn new(config: ProviderConfig, target: SciotteTarget) -> AppResult<Self> {
+        let cached = target.build_scraper()?;
         let provider_name = target.provider_name();
 
         info!(target = ?target, "Sciotte provider initialized (in-process)");
 
-        Self {
+        Ok(Self {
             config,
             scraper: Arc::new(cached),
             session: RwLock::new(None),
             provider_name,
-        }
+        })
     }
 
     /// Translate a `dravr_sciotte::ScraperError` into an `AppError`. The
@@ -565,14 +581,31 @@ impl FitnessProvider for SciotteProvider {
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(DEFAULT_SCIOTTE_ENRICH_LIMIT)
         });
+        // Pass the date window through so the scrape can bound the fetch by date,
+        // matching the API providers (Strava/Whoop) — the unified contract is that
+        // every provider honors before/after identically. The dravr-sciotte scrape
+        // uses these to page back to the requested window; epoch seconds -> UTC.
+        let before = params
+            .before
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
+        let after = params
+            .after
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
+            before,
+            after,
             enrich_details,
             enrich_limit,
             ..Default::default()
         };
 
-        debug!(limit, "Fetching activities from sciotte (in-process)");
+        debug!(
+            limit,
+            ?before,
+            ?after,
+            "Fetching activities from sciotte (in-process)"
+        );
 
         // Profile lock before the global permit: waiting for the profile to
         // free up must not pin a scarce Chrome-concurrency slot. Time the wait
@@ -689,8 +722,11 @@ impl FitnessProvider for SciotteProvider {
 pub struct SciotteProviderFactory;
 
 impl ProviderFactory for SciotteProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(SciotteProvider::new(config, SciotteTarget::Strava))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(SciotteProvider::new(
+            config,
+            SciotteTarget::Strava,
+        )?))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {
@@ -702,8 +738,11 @@ impl ProviderFactory for SciotteProviderFactory {
 pub struct SciotteGarminProviderFactory;
 
 impl ProviderFactory for SciotteGarminProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(SciotteProvider::new(config, SciotteTarget::Garmin))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(SciotteProvider::new(
+            config,
+            SciotteTarget::Garmin,
+        )?))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

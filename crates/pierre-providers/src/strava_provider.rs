@@ -1218,8 +1218,8 @@ use super::core::ProviderFactory;
 pub struct StravaProviderFactory;
 
 impl ProviderFactory for StravaProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(StravaProvider::with_config(config))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(StravaProvider::with_config(config)))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

@@ -1103,8 +1103,8 @@ impl FitnessProvider for FitbitProvider {
 pub struct FitbitProviderFactory;
 
 impl ProviderFactory for FitbitProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(FitbitProvider::with_config(config))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(FitbitProvider::with_config(config)))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

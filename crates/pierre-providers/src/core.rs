@@ -541,8 +541,14 @@ pub trait FitnessProvider: Send + Sync {
 
 /// Provider factory for creating instances
 pub trait ProviderFactory: Send + Sync {
-    /// Create a new provider instance with the given configuration
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider>;
+    /// Create a new provider instance with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provider cannot be constructed — e.g. the
+    /// sciotte-backed providers parse an embedded scraper config that, while
+    /// validated at build time, surfaces a structured error rather than panics.
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>>;
 
     /// Get supported provider names
     fn supported_providers(&self) -> &'static [&'static str];

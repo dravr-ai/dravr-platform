@@ -33,6 +33,10 @@ use tracing::{debug, field, info, warn, Span};
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
 
+use crate::activity_backfill::{
+    is_historical_backfill_window, spawn_activity_backfill, ActivityBackfillJob,
+};
+use crate::activity_fetch::read_cached_window;
 use crate::context::ToolExecutionContext;
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, fetch_and_cache_athlete,
@@ -442,38 +446,79 @@ impl McpTool for GetActivitiesTool {
             }
         }
 
-        // Cache miss path — authenticate and fetch from provider.
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let provider = match executor
-            .auth_service
-            .create_authenticated_provider(
+        // Cache miss path. A deep historical `after` must NOT scrape inline —
+        // paging a provider's reverse-chronological feed back across years
+        // stalls the turn and trips the sciotte navigation timeout. Serve such
+        // windows from the durable activity cache; on a cold cache, kick off a
+        // bounded background backfill and tell the caller to ask again shortly,
+        // so the next ask is a plain cache hit. Recent windows fetch inline.
+        //
+        // `provider` is `None` on the historical-served path so the detail
+        // auto-promotion below is skipped — promoting would issue per-activity
+        // detail scrapes, exactly the inline cost the gate exists to avoid.
+        let (activities, provider) = if after.is_some_and(is_historical_backfill_window) {
+            let Some(cached) = read_cached_window(
+                &context.resources,
                 &provider_name,
                 context.user_id,
-                tenant_id_str.as_deref(),
+                tenant_id,
+                &query_params,
             )
             .await
-        {
-            Ok(provider) => provider,
-            Err(response) => {
-                let fallback_error = response
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "get_activities authentication failed".to_owned());
-                let error_payload = response.result.unwrap_or_else(|| {
-                    json!({
-                        "error": fallback_error,
-                    })
+            else {
+                let started = spawn_activity_backfill(ActivityBackfillJob {
+                    resources: context.resources.clone(),
+                    user_id: context.user_id,
+                    tenant_id,
+                    tenant_id_str: tenant_id_str.clone(),
+                    provider_name: provider_name.clone(),
+                    query_params: query_params.clone(),
                 });
-                return Ok(ToolResult::error(error_payload));
-            }
-        };
-
-        let activities = match provider.get_activities_with_params(&query_params).await {
-            Ok(activities) => activities,
-            Err(e) => {
-                return Ok(ToolResult::error(json!({
-                    "error": format!("Failed to fetch activities: {e}"),
+                return Ok(ToolResult::ok(json!({
+                    "status": "backfilling",
+                    "provider": provider_name,
+                    "backfill_started": started,
+                    "message": format!(
+                        "I'm pulling your older {provider_name} history now — this can take a \
+                         minute. Ask me again shortly and it'll be ready."
+                    ),
                 })));
+            };
+            (cached, None)
+        } else {
+            // Recent window — authenticate and fetch from the provider inline.
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let provider = match executor
+                .auth_service
+                .create_authenticated_provider(
+                    &provider_name,
+                    context.user_id,
+                    tenant_id_str.as_deref(),
+                )
+                .await
+            {
+                Ok(provider) => provider,
+                Err(response) => {
+                    let fallback_error = response
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "get_activities authentication failed".to_owned());
+                    let error_payload = response.result.unwrap_or_else(|| {
+                        json!({
+                            "error": fallback_error,
+                        })
+                    });
+                    return Ok(ToolResult::error(error_payload));
+                }
+            };
+
+            match provider.get_activities_with_params(&query_params).await {
+                Ok(activities) => (activities, Some(provider)),
+                Err(e) => {
+                    return Ok(ToolResult::error(json!({
+                        "error": format!("Failed to fetch activities: {e}"),
+                    })));
+                }
             }
         };
 
@@ -509,7 +554,10 @@ impl McpTool for GetActivitiesTool {
         // richer detail-endpoint shape on providers that have one (Strava);
         // providers without a detail endpoint inherit the default impl that
         // forwards to get_activity.
-        let effective_mode = if auto_promote_to_detail && !filtered_activities.is_empty() {
+        let effective_mode = if let (true, Some(provider)) = (
+            auto_promote_to_detail && !filtered_activities.is_empty(),
+            provider.as_ref(),
+        ) {
             let mut detailed = Vec::with_capacity(filtered_activities.len());
             let original_count = filtered_activities.len();
             for activity in &filtered_activities {

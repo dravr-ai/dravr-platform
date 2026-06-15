@@ -28,7 +28,7 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::{write_through_activity_cache, ACTIVITY_CACHE_RETENTION_DAYS};
+use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 
@@ -417,6 +417,7 @@ impl ActivityMergeStrategy for AllProvidersMerge {
                     tenant_id,
                     &provider_name,
                     &activities,
+                    activity_cache_retention_days(),
                 )
                 .await;
                 all_activities.extend(activities);
@@ -853,7 +854,7 @@ async fn fetch_member_activities(
     }
 
     let now = Utc::now();
-    let window_start = now - Duration::days(ACTIVITY_CACHE_RETENTION_DAYS);
+    let window_start = now - Duration::days(activity_cache_retention_days());
     let read_limit = i64::try_from(
         runtime
             .config()

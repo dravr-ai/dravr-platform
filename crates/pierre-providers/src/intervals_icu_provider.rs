@@ -820,8 +820,8 @@ impl FitnessProvider for IntervalsIcuProvider {
 pub struct IntervalsIcuProviderFactory;
 
 impl ProviderFactory for IntervalsIcuProviderFactory {
-    fn create(&self, config: ProviderConfig) -> Box<dyn FitnessProvider> {
-        Box::new(IntervalsIcuProvider::with_config(config))
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(IntervalsIcuProvider::with_config(config)))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {
