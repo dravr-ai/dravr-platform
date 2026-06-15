@@ -67,6 +67,11 @@ use pierre_weather::WeatherProvider;
 /// Default lookback window when no explicit date range is supplied.
 const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 
+/// When a historical `get_activities` query leaves `before` open, the backfill
+/// gate checks cache coverage over `[after, after + 1 year]` so recent rows in
+/// `[after, now]` don't mask a missing historical season.
+const HISTORICAL_COVERAGE_BOUND_SECS: i64 = 365 * 24 * 60 * 60;
+
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
 fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
     let end = args
@@ -480,15 +485,54 @@ impl McpTool for GetActivitiesTool {
             false
         };
         let (activities, provider) = if route_to_backfill {
-            let Some(cached) = read_cached_window(
+            // Is the requested historical window actually cached, or only recent
+            // rows that happen to fall inside it? `read_cached_window` honors
+            // `before`, so a cold [2022,2023] returns empty and triggers the
+            // backfill; once backfilled it returns the 2022 rows. When the caller
+            // leaves `before` open we bound the coverage probe to a year above
+            // `after` so recent rows in [after, now] can't mask missing depth.
+            let coverage_params = if before.is_some() {
+                query_params.clone()
+            } else {
+                ActivityQueryParams {
+                    after,
+                    before: after.map(|a| a.saturating_add(HISTORICAL_COVERAGE_BOUND_SECS)),
+                    limit: Some(1),
+                    offset,
+                }
+            };
+            let covered = read_cached_window(
                 &context.resources,
                 &provider_name,
                 context.user_id,
                 tenant_id,
-                &query_params,
+                &coverage_params,
             )
             .await
-            else {
+            .is_some();
+
+            info!(
+                user_id = %context.user_id,
+                provider = %provider_name,
+                ?after,
+                ?before,
+                covered,
+                "get_activities historical gate decision"
+            );
+
+            if covered {
+                // The requested depth is cached — serve the user's actual window.
+                let served = read_cached_window(
+                    &context.resources,
+                    &provider_name,
+                    context.user_id,
+                    tenant_id,
+                    &query_params,
+                )
+                .await
+                .unwrap_or_default();
+                (served, None)
+            } else {
                 let started = spawn_activity_backfill(ActivityBackfillJob {
                     resources: context.resources.clone(),
                     user_id: context.user_id,
@@ -506,8 +550,7 @@ impl McpTool for GetActivitiesTool {
                          minute. Ask me again shortly and it'll be ready."
                     ),
                 })));
-            };
-            (cached, None)
+            }
         } else {
             // Recent window, or a deep window on a fast OAuth API provider —
             // authenticate and fetch from the provider inline.
