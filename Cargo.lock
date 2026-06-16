@@ -1361,8 +1361,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=d11d8256904
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.27"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.27#5c3aeed4204890f5cd073f601438f44a10354412"
+version = "0.1.28"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.28#9597d314b6896965b4b9843df68422f23d599510"
 dependencies = [
  "async-trait",
  "axum",
@@ -2334,7 +2334,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration 0.7.0",
  "tokio",
  "tower-service",
@@ -4519,7 +4519,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4556,7 +4556,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
