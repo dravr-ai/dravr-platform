@@ -56,16 +56,42 @@ jobs:
         id: bump
         run: |
           NEW_SHA="${{ steps.target.outputs.new_sha }}"
-          OLD_SHA=$(grep -oE 'rev = "[a-f0-9]+"' crates/pierre-llm/Cargo.toml | grep -oE '[a-f0-9]{7,40}' | head -1)
-          echo "old_sha=${OLD_SHA}" >> "$GITHUB_OUTPUT"
-          if [ "${OLD_SHA}" = "${NEW_SHA}" ]; then
+
+          # Auto-discover EVERY manifest that pins the dravr-contremaitre git
+          # dep, rather than hardcoding the consumer list. A hardcoded list
+          # repeatedly left pierre-chat-pipeline (the 3rd consumer) on the old
+          # rev -> two dravr-contremaitre revs -> Security Audit duplicate
+          # hard-fail on main. Discovery means a new consumer crate is bumped
+          # automatically the moment it pins the dep.
+          MANIFESTS=$(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml)
+          if [ -z "${MANIFESTS}" ]; then
+            echo "::error::no Cargo.toml pins dravr-contremaitre — workflow assumption broke"
+            exit 1
+          fi
+          echo "Consumers pinning dravr-contremaitre:"
+          echo "${MANIFESTS}"
+
+          # Rewrite the rev on the dravr-contremaitre line in every consumer,
+          # regardless of its current value (targeting the line, not a global
+          # OLD_SHA->NEW_SHA swap, also converges any pre-existing drift), then
+          # verify each discovered consumer actually landed on NEW_SHA. A
+          # mismatch means a manifest's line shape escaped the sed — fail loudly
+          # here rather than push a duplicate that reds the Security Audit on
+          # main (the recurring pierre-chat-pipeline drift).
+          for m in ${MANIFESTS}; do
+            sed -i -E "s|(dravr-contremaitre = \{ git = \"[^\"]+\", rev = \")[a-f0-9]{7,40}\"|\1${NEW_SHA}\"|" "$m"
+            REV=$(grep 'dravr-contremaitre = { git' "$m" | grep -oE 'rev = "[a-f0-9]+"' | grep -oE '[a-f0-9]{7,40}')
+            if [ "${REV}" != "${NEW_SHA}" ]; then
+              echo "::error::${m} pins dravr-contremaitre at ${REV:-<unparseable>} after bump, expected ${NEW_SHA} — refusing to push drift"
+              exit 1
+            fi
+          done
+
+          # No manifest changed (all consumers already at NEW_SHA) -> no-op.
+          if git diff --quiet -- ${MANIFESTS}; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Both the pierre-llm dep and the pierre-server dev-dep pin the rev.
-          sed -i "s/${OLD_SHA}/${NEW_SHA}/g" \
-            crates/pierre-llm/Cargo.toml \
-            crates/pierre-server/Cargo.toml
           cargo update -p dravr-contremaitre
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
@@ -75,7 +101,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           SHORT_NEW=$(echo "${{ steps.target.outputs.new_sha }}" | cut -c1-8)
-          git add crates/pierre-llm/Cargo.toml crates/pierre-server/Cargo.toml Cargo.lock
+          # Re-discover and stage all consumer manifests + the lockfile, so the
+          # commit carries every file the bump touched (no hardcoded list).
+          git add $(grep -rl 'dravr-contremaitre = { git' crates/ --include=Cargo.toml) Cargo.lock
           git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}"
           git push origin main
 
