@@ -23,6 +23,8 @@ use pierre_providers::backend_resolver;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+#[cfg(not(feature = "client-notifications"))]
+use std::future::ready;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -439,6 +441,9 @@ impl AuthService {
         _tenant_id: TenantId,
         _provider: &str,
     ) {
+        // No notification backend compiled in; this `.await` keeps it an honest
+        // async no-op so callers can await both variants uniformly.
+        ready(()).await;
     }
 
     /// Re-arm a provider connection to `active` after a successful refresh (best-effort).

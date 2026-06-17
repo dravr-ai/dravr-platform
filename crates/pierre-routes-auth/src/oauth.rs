@@ -670,6 +670,15 @@ pub async fn handle_mobile_oauth_init(
 ///
 /// Disconnects a fitness provider (e.g., Strava, Fitbit) by deleting the stored OAuth tokens.
 /// Requires valid JWT authentication via cookie or Authorization header.
+#[tracing::instrument(
+    skip(resources, headers),
+    fields(
+        route = "oauth_disconnect",
+        provider = %provider,
+        user_id = Empty,
+        tenant_id = Empty,
+    )
+)]
 pub async fn handle_disconnect_provider_rest(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
@@ -682,6 +691,15 @@ pub async fn handle_disconnect_provider_rest(
         .await?;
 
     let user_id = auth_result.user_id;
+
+    // Record IDs on the span so the NotifyLayer can attribute the
+    // provider.disconnected event without re-passing fields.
+    let span = Span::current();
+    span.record("user_id", field::display(&user_id));
+    if let Some(tenant_id) = auth_result.active_tenant_id {
+        span.record("tenant_id", field::display(&tenant_id));
+    }
+
     info!("Disconnecting provider {} for user {}", provider, user_id);
 
     // Create OAuthService instance and call existing disconnect logic
@@ -693,6 +711,13 @@ pub async fn handle_disconnect_provider_rest(
     oauth_service
         .disconnect_provider(user_id, &provider, auth_result.active_tenant_id)
         .await?;
+
+    // notify: provider was successfully revoked (provider is on the span).
+    info!(
+        target: "notify",
+        event = "provider.disconnected",
+        "provider disconnected"
+    );
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

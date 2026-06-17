@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
 import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
+import { track } from '../services/analytics';
 import { useAuth } from '../hooks/useAuth';
 import { useAgUiProgress } from '../hooks/useAgUiProgress';
 import PromptSuggestions from './PromptSuggestions';
@@ -557,6 +558,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     setStreamingContent('');
     setErrorMessage(null);
     setNeedsProvider(false);
+    track({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
 
     const userMessageId = `user-${Date.now()}`;
     const tempUserMessage: Message = {

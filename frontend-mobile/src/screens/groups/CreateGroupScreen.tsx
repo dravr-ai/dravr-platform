@@ -23,6 +23,7 @@ import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { coachesApi } from '../../services/api';
+import { trackMobile } from '../../services/analytics';
 import { useAuth } from '../../contexts/AuthContext';
 import { useGroupActions } from '../../hooks/useGroups';
 import type { Coach } from '../../types';
@@ -108,6 +109,7 @@ export function CreateGroupScreen() {
         coach_id: selectedCoachId,
         max_members: maxMembers,
       });
+      trackMobile({ name: 'feature_engaged', props: { feature: 'group_created' } });
       router.back();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to create group';

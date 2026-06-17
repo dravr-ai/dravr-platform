@@ -11,7 +11,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_messaging::commands::{CommandMatcher, CommandRegistry, CommandResponse};
 use pierre_runtime_context::CommandCtx;
-use pierre_services::analytics::{analytics, hash_id};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{CommandHandlerRegistry, PlatformCommandContext};
@@ -117,9 +117,6 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
     let cmd_registry = req.command_registry;
     let handler_registry = req.command_handler_registry;
 
-    let hashed_tenant = hash_id(&req.tenant_id.to_string());
-    let hashed_user = hash_id(&req.user_id.to_string());
-
     let matcher = CommandMatcher::from_registry(cmd_registry);
     let Some(parsed) = matcher.try_match(req.text, cmd_registry) else {
         // Slash prefix but no matching command. Emit a localized "unknown
@@ -129,12 +126,16 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
             .ctx
             .messaging_strings_registry()
             .get(KEY_UNKNOWN_COMMAND, req.locale);
-        analytics().track_command_executed(
-            req.channel_type,
-            &hashed_tenant,
-            &hashed_user,
-            "unknown",
-            false,
+        // Operational tier: the sink keys on the hashed tenant and drops the
+        // user dimension, so emit `tenant_id` inline and omit user.
+        info!(
+            target: "notify",
+            event = "messaging.command_executed",
+            tenant_id = %req.tenant_id,
+            channel = %req.channel_type,
+            command_name = "unknown",
+            success = false,
+            "slash command executed"
         );
         return Ok(DispatchOutcome::UnknownCommand { body });
     };
@@ -165,12 +166,14 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
 
     let result = handler.execute(&ctx).await;
     let ok = result.is_ok();
-    analytics().track_command_executed(
-        req.channel_type,
-        &hashed_tenant,
-        &hashed_user,
-        &parsed.name,
-        ok,
+    info!(
+        target: "notify",
+        event = "messaging.command_executed",
+        tenant_id = %req.tenant_id,
+        channel = %req.channel_type,
+        command_name = %parsed.name,
+        success = ok,
+        "slash command executed"
     );
 
     let response = result?;

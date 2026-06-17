@@ -25,6 +25,7 @@ use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
 use serde::Serialize;
+use tracing::{field, info, instrument, Span};
 use uuid::Uuid;
 
 /// `GET /api/billing/subscription` view returned to the frontend.
@@ -175,11 +176,34 @@ async fn plans() -> Json<PlansResponse> {
 }
 
 /// `POST /api/billing/checkout` — create a hosted-checkout session.
+#[instrument(
+    skip(resources, req),
+    fields(
+        route = "billing_checkout",
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+        tier = field::Empty,
+    )
+)]
 async fn checkout<C: BillingCtx>(
     State(resources): State<Arc<C>>,
     AxumJson(req): AxumJson<CheckoutRequest>,
 ) -> AppResult<Json<CheckoutResponse>> {
+    // Record the requesting user/tenant/tier on the span so the NotifyLayer
+    // attributes the checkout.started event without the emit re-passing IDs.
+    let span = Span::current();
+    span.record("user_id", field::display(&req.user_id));
+    span.record("tenant_id", field::display(&req.tenant_id));
+    span.record("tier", field::display(&req.tier));
+
     let resp = resources.billing_provider().start_checkout(&req).await?;
+
+    info!(
+        target: "notify",
+        event = "checkout.started",
+        tier = %req.tier,
+        "checkout started"
+    );
     Ok(Json(resp))
 }
 
@@ -382,13 +406,50 @@ async fn admin_override_blocks_tier_change(
     Ok(false)
 }
 
+/// Emit the analytics notify events for an entitled subscription upsert:
+/// always `checkout.completed`, plus `tier_changed` when the entitled tier
+/// differs from `prior_tier`.
+///
+/// The webhook runs outside any user-scoped handler span, so `user_id` /
+/// `tenant_id` are passed inline rather than read from the enclosing span.
+fn notify_entitlement(stored: &Subscription, prior_tier: Option<&UserTier>) {
+    info!(
+        target: "notify",
+        event = "checkout.completed",
+        user_id = %stored.user_id,
+        tenant_id = %stored.tenant_id,
+        tier = %stored.plan_tier.as_str(),
+        "checkout completed"
+    );
+    // Emit tier_changed only when the entitled tier actually differs from the
+    // prior tier, so renewals at the same tier stay quiet.
+    if prior_tier != Some(&stored.plan_tier) {
+        let from = prior_tier.map_or_else(|| UserTier::Starter.as_str(), UserTier::as_str);
+        info!(
+            target: "notify",
+            event = "tier_changed",
+            user_id = %stored.user_id,
+            tenant_id = %stored.tenant_id,
+            from = %from,
+            to = %stored.plan_tier.as_str(),
+            "subscription tier changed"
+        );
+    }
+}
+
 /// Apply (or skip) the tier flip for an upserted subscription: entitled
 /// subscriptions push their `plan_tier` onto the user and tenant; others
 /// only log the status update.
+///
+/// `prior_tier` is the user's tier on the subscription row before this
+/// upsert (`None` when no prior subscription existed). It drives the
+/// `tier_changed` notify event so a renewal that keeps the same tier does
+/// not emit a spurious change.
 async fn apply_entitled_tier(
     auth_repos: &AuthRepos,
     provider: &str,
     stored: &Subscription,
+    prior_tier: Option<&UserTier>,
 ) -> AppResult<()> {
     if stored.is_entitled() {
         auth_repos
@@ -406,6 +467,7 @@ async fn apply_entitled_tier(
             tier = stored.plan_tier.as_str(),
             "billing webhook applied tier change",
         );
+        notify_entitlement(stored, prior_tier);
     } else {
         tracing::info!(
             billing_provider = provider,
@@ -431,6 +493,15 @@ async fn handle_subscription_upsert(
         .map_err(|e| AppError::invalid_input(format!("invalid plan_tier metadata: {e}")))?;
     let status =
         SubscriptionStatus::from_str(&payload.status).unwrap_or(SubscriptionStatus::Incomplete);
+
+    // Capture the tier on the user's existing subscription (if any) before the
+    // upsert overwrites it, so apply_entitled_tier can tell a genuine tier
+    // change apart from a same-tier renewal for the `tier_changed` event.
+    let prior_tier = usage_repos
+        .subscriptions
+        .get_subscription_by_user(user_id)
+        .await?
+        .map(|existing| existing.plan_tier);
 
     let now = Utc::now();
     let sub = Subscription {
@@ -459,7 +530,7 @@ async fn handle_subscription_upsert(
         return Ok(());
     }
 
-    apply_entitled_tier(auth_repos, provider, &stored).await
+    apply_entitled_tier(auth_repos, provider, &stored, prior_tier.as_ref()).await
 }
 
 async fn handle_subscription_canceled(

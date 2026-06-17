@@ -208,6 +208,52 @@ pub(super) async fn link_time_reply(
     }
 }
 
+/// Emit the post-link notify pair: `messaging.identity_alias` (glues the
+/// `{channel}:{sender_id}` distinct id to the linked Pierre user) and
+/// `messaging.linking_completed`. `link_method` is `deep_link` or `otp`.
+///
+/// `user_id` is the raw (un-hashed) Pierre user id. Shared by the deep-link
+/// path here and the in-chat OTP path in `otp.rs`.
+pub(super) fn emit_linking_success(
+    user_id: &str,
+    tenant_id: TenantId,
+    channel: &str,
+    sender_id: &str,
+    link_method: &str,
+) {
+    let channel_identity = format!("{channel}:{sender_id}");
+    info!(
+        target: "notify",
+        event = "messaging.identity_alias",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        channel_identity = %channel_identity,
+        "channel identity aliased to linked user"
+    );
+    info!(
+        target: "notify",
+        event = "messaging.linking_completed",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        channel = %channel,
+        link_method = link_method,
+        "channel linking completed"
+    );
+}
+
+/// Emit the `messaging.linking_failed` notify event. `failure_reason` is the
+/// operator-facing detail string from the `DeepLinkError`.
+fn emit_linking_failed(tenant_id: TenantId, channel: &str, failure_reason: &str) {
+    info!(
+        target: "notify",
+        event = "messaging.linking_failed",
+        tenant_id = %tenant_id,
+        channel = %channel,
+        failure_reason = %failure_reason,
+        "channel linking failed"
+    );
+}
+
 async fn consume_and_link(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -220,11 +266,7 @@ async fn consume_and_link(
     match execute_link_code(db, tenant_id, channel, sender_id, code).await {
         Ok(user_id) => {
             info!(channel = %channel, user_id = %user_id, channel_user_id = %sender_id, "Channel linked via deep link");
-            let hashed_tenant = hash_id(&tenant_id.to_string());
-            let hashed_user = hash_id(&user_id);
-            let hashed_channel_id = hash_id(&format!("{channel}:{sender_id}"));
-            analytics().alias(&hashed_channel_id, &hashed_user);
-            analytics().track_linking_completed(channel, &hashed_tenant, &hashed_user, "deep_link");
+            emit_linking_success(&user_id, tenant_id, channel, sender_id, "deep_link");
             // Run the unified channel-auth path on the freshly-minted link so
             // the immediate reply reflects approval state exactly as every
             // subsequent inbound message will.
@@ -236,7 +278,7 @@ async fn consume_and_link(
                 DeepLinkError::IdentityCollision(d) => (KEY_LINK_IDENTITY_COLLISION, d.as_str()),
             };
             warn!(error = %detail, "Channel linking failed");
-            analytics().track_linking_failed(channel, &hash_id(&tenant_id.to_string()), detail);
+            emit_linking_failed(tenant_id, channel, detail);
             reg.get(key, DEFAULT_LOCALE)
         }
     }

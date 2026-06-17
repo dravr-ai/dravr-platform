@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { billingApi } from '../services/api';
+import { track } from '../services/analytics';
 import type { PlanView } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
@@ -77,6 +78,7 @@ export default function BillingPage() {
   const checkoutMutation = useMutation({
     mutationFn: (tier: 'professional' | 'enterprise') => {
       if (!user) throw new Error('not authenticated');
+      track({ name: 'checkout_started', props: { tier } });
       const successUrl = `${window.location.origin}/billing?upgrade=success`;
       const cancelUrl = `${window.location.origin}/billing?upgrade=cancel`;
       return billingApi.startCheckout({
@@ -116,6 +118,23 @@ export default function BillingPage() {
   const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
   const tierLabel = TIER_LABELS[tier] ?? tier;
   const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
+
+  // Checkout success return path: the provider redirects to
+  // `/billing?upgrade=success` once payment completes. Fire the funnel-close
+  // events once the subscription row has resolved to the new paid tier, then
+  // strip the query param so a refresh doesn't double-count. Gated on the
+  // resolved `tier` so we report the real destination plan, not a guess.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgrade') !== 'success') return;
+    if (subscriptionQuery.isLoading) return;
+    track({ name: 'checkout_completed', props: { tier } });
+    track({ name: 'tier_changed', props: { from: 'starter', to: tier } });
+    params.delete('upgrade');
+    const query = params.toString();
+    const cleaned = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', cleaned);
+  }, [subscriptionQuery.isLoading, tier]);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

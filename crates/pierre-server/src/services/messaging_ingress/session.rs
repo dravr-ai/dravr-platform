@@ -25,7 +25,6 @@ use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
 };
 use pierre_core::errors::AppError;
-use pierre_services::analytics::{analytics, hash_id};
 use pierre_services::messaging_group_bind::resolve_or_create_channel_group;
 
 use super::linking::hydrate_analytics_consent;
@@ -388,11 +387,14 @@ async fn open_new_session(
 
     hydrate_analytics_consent(resources, &user_id).await;
 
-    analytics().track_session_started(
-        channel_type,
-        &hash_id(&tenant_id.to_string()),
-        &hash_id(&user_id),
-        true,
+    info!(
+        target: "notify",
+        event = "messaging.session_started",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        channel = %channel_type,
+        is_new = true,
+        "messaging session started"
     );
 
     Ok(ResolvedSession {

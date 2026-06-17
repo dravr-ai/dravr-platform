@@ -424,6 +424,15 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
                 record.cached_tokens,
                 record.completion_tokens,
             );
+            info!(
+                target: "notify",
+                event = "embacle.cost_usd",
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                model = %record.model,
+                cost_usd = cost_usd,
+                "llm call cost"
+            );
             let call_type_owned = if record.token_counts_estimated {
                 format!("{base_call_type}_estimated")
             } else {

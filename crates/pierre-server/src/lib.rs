@@ -78,6 +78,9 @@ pub use pierre_a2a as a2a;
 /// tests keep compiling without a search-and-replace cycle.
 pub use pierre_agui as agui;
 
+/// Platform `AnalyticsProvider` for the tronc `NotifyLayer` `PostHog` sink
+pub mod analytics_sink;
+
 /// Cache abstraction layer with pluggable backends
 pub mod cache;
 

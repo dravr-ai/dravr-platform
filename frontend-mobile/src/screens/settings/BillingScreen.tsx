@@ -17,6 +17,7 @@ import {
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiClient } from '../../services/api';
+import { trackMobile } from '../../services/analytics';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 
 interface SubscriptionView {
@@ -139,6 +140,7 @@ export function BillingScreen(): React.ReactElement {
   const checkoutMutation = useMutation({
     mutationFn: async (tier: 'professional' | 'enterprise'): Promise<{ checkout_url: string }> => {
       if (!user) throw new Error('not authenticated');
+      trackMobile({ name: 'checkout_started', props: { tier } });
       const r = await apiClient.post('/api/billing/checkout', {
         tier,
         tenant_id: '',

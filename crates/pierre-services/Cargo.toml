@@ -54,7 +54,7 @@ pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context"
 pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
 pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
 
-dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.3.1", features = ["notifications"] }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.4.0", features = ["notifications"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3", optional = true }
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3", optional = true }
 

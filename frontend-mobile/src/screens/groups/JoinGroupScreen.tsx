@@ -19,6 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { trackMobile } from '../../services/analytics';
 import { useGroupActions } from '../../hooks/useGroups';
 
 export function JoinGroupScreen() {
@@ -59,6 +60,7 @@ export function JoinGroupScreen() {
 
     try {
       await joinGroup({ invite_code: trimmedCode });
+      trackMobile({ name: 'feature_engaged', props: { feature: 'group_joined' } });
       setSuccessMessage('You have joined the group!');
       // Navigate back to group list after a brief delay
       setTimeout(() => {

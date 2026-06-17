@@ -46,7 +46,7 @@ use pierre_services::auth::AuthService;
 /// unauthorized user creation, database pollution, and `DoS` attacks.
 #[tracing::instrument(
     skip(resources, headers, request),
-    fields(route = "admin_register", user_id = Empty, success = Empty)
+    fields(route = "admin_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
 pub async fn handle_register(
     State(resources): State<AuthRoutesContext>,
@@ -93,6 +93,17 @@ pub async fn handle_register(
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
+            // notify: record the new user on the current span so the NotifyLayer can
+            // attribute the user.signed_up event without re-passing the id. The
+            // personal tenant is created inside register() and not exposed on the
+            // response, so tenant_id is recorded at the login/session span instead.
+            Span::current().record("user_id", field::display(&response.user_id));
+            info!(
+                target: "notify",
+                event = "user.signed_up",
+                source = "admin",
+                "user account created"
+            );
             send_post_registration_email(&resources, &request.email, &response).await;
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
@@ -150,7 +161,7 @@ async fn send_post_registration_email(
 /// unless `AUTO_APPROVE_USERS` is true or the email domain is in `AUTO_APPROVE_DOMAINS`.
 #[tracing::instrument(
     skip(resources, request),
-    fields(route = "public_register", user_id = Empty, success = Empty)
+    fields(route = "public_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
 pub async fn handle_public_register(
     State(resources): State<AuthRoutesContext>,
@@ -167,6 +178,17 @@ pub async fn handle_public_register(
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
+            // notify: record the new user on the current span so the NotifyLayer can
+            // attribute the user.signed_up event without re-passing the id. The
+            // personal tenant is created inside register() and not exposed on the
+            // response, so tenant_id is recorded at the login/session span instead.
+            Span::current().record("user_id", field::display(&response.user_id));
+            info!(
+                target: "notify",
+                event = "user.signed_up",
+                source = "web",
+                "user account created"
+            );
             send_post_registration_email(&resources, &request.email, &response).await;
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
@@ -363,19 +385,6 @@ pub async fn handle_session(
         tenants.first().map(|t| t.id.to_string())
     };
     let tenant_id_for_response = active_tenant_id.clone();
-
-    // Phase 4: PostHog `$identify` on session restore so user properties
-    // (tier, locale, signup-date) follow every subsequent event for this
-    // user. Tier is sourced from the canonical `users.tier` column; the
-    // tenant id is hashed so PostHog never sees raw IDs.
-    let identify_props = serde_json::json!({
-        "tier": user.tier.to_string(),
-        "tenant_id_hash": tenant_id_for_response.as_deref().map(hash_id).unwrap_or_default(),
-        "signup_date": user.created_at.to_rfc3339(),
-        "primary_locale": user.locale.clone(),
-        "analytics_consent": user.analytics_consent,
-    });
-    analytics().identify(&hashed_user_id, identify_props);
 
     // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
     let jwt_token = resources

@@ -34,7 +34,6 @@ use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
     FunctionDeclaration, FunctionResponse, McpServerConfig, MessageRole, TokenUsage, Tool,
 };
-use pierre_services::analytics::analytics;
 use pierre_services::chat_stream::{ChatStreamEvent, ChatStreamSink};
 
 // ============================================================================
@@ -916,8 +915,6 @@ pub async fn execute_function_calls(
     user_id: &str,
     tenant_id: TenantId,
 ) -> Result<ExecutedFunctionCalls, AppError> {
-    use pierre_formatters::TokenEfficiencyMetrics;
-
     let mut responses = Vec::with_capacity(function_calls.len());
     let mut auth_required_provider: Option<String> = None;
     for function_call in function_calls {
@@ -944,28 +941,21 @@ pub async fn execute_function_calls(
 
         let func_response = build_function_response(function_call, &tool_response);
 
-        // Phase 4: PostHog visibility on every tool dispatch.
-        analytics().track_tool_executed(
-            "chat",
-            &tenant_id.to_string(),
-            user_id,
-            &function_call.name,
-            tool_response.success,
-            tool_duration_ms,
+        // notify: visibility on every tool dispatch. Operational tier — the
+        // sink keys on the hashed tenant and drops the user dimension, so
+        // emit `tenant_id` inline and omit user.
+        info!(
+            target: "notify",
+            event = "messaging.tool_executed",
+            tenant_id = %tenant_id,
+            channel = "chat",
+            tool_name = %function_call.name,
+            success = tool_response.success,
+            duration_ms = tool_duration_ms,
+            "tool executed"
         );
 
-        // Measure serialized response size and estimate token cost
-        let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
-        let byte_size = serialized.len();
-        let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
-        let name = &func_response.name;
-        info!(
-            event_type = "tool_response_size",
-            tool_name = %name,
-            response_bytes = byte_size,
-            estimated_tokens = estimated_tokens,
-            "Tool response measurement"
-        );
+        log_tool_response_size(&func_response);
 
         responses.push(func_response);
     }
@@ -973,6 +963,24 @@ pub async fn execute_function_calls(
         responses,
         auth_required_provider,
     })
+}
+
+/// Measure a tool's serialized response size and estimated token cost, logging
+/// both for token-efficiency observability.
+fn log_tool_response_size(func_response: &FunctionResponse) {
+    use pierre_formatters::TokenEfficiencyMetrics;
+
+    let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
+    let byte_size = serialized.len();
+    let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
+    let name = &func_response.name;
+    info!(
+        event_type = "tool_response_size",
+        tool_name = %name,
+        response_bytes = byte_size,
+        estimated_tokens = estimated_tokens,
+        "Tool response measurement"
+    );
 }
 
 /// Output of [`execute_function_calls`].

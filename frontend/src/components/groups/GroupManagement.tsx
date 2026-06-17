@@ -10,6 +10,7 @@ import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Users, Plus, LogIn } from 'lucide-react';
 import { useMyGroups, useCreateGroup, useGroupPermissions } from '../../hooks/useGroups';
 import { coachesApi } from '../../services/api';
+import { track } from '../../services/analytics';
 import { Button, Card, Input, Select, Modal, ModalActions, useErrorToast, useSuccessToast } from '../ui';
 import GroupCard from './GroupCard';
 import JoinGroupModal from './JoinGroupModal';
@@ -93,6 +94,7 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
 
     try {
       const group = await createGroup(request);
+      track({ name: 'feature_engaged', props: { feature: 'group_created' } });
       showSuccess('Group created', `${group.name} is ready for members.`);
       setIsCreateOpen(false);
       resetForm();

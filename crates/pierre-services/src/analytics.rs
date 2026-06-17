@@ -1,4 +1,4 @@
-// ABOUTME: Product analytics trait and PostHog implementation for messaging funnel tracking
+// ABOUTME: Analytics consent cache + event tiers for the notify->PostHog sink
 // ABOUTME: OnceLock singleton with noop fallback; SHA-256 hashed user IDs for anonymization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,6 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "analytics-posthog")]
 use dashmap::DashMap;
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
@@ -25,6 +24,49 @@ pub fn hash_id(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+/// Consent tier of a catalogued notify event, controlling whether per-user
+/// opt-in consent gates its capture to the `PostHog` analytics sink.
+///
+/// The tier is declared per event in dravr-contremaitre's `notify-events.yaml`
+/// and asserted by `notify_catalogue_test`. It is the single switch the sink
+/// consults to choose a `distinct_id` strategy and a consent requirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EventTier {
+    /// Per-user behavioural event (signup, provider connect, chat turn,
+    /// checkout). The `PostHog` `distinct_id` is the hashed user id and
+    /// capture requires the user's `analytics_consent` (opt-in).
+    Product,
+    /// System / health / cost event carrying no personal dimension (sync
+    /// outcomes, LLM latency and COGS, fallback and circuit-breaker signals).
+    /// The `PostHog` `distinct_id` is the hashed tenant id (or the literal
+    /// `service`); the user dimension is never forwarded. Captured
+    /// unconditionally as legitimate-interest telemetry.
+    Operational,
+}
+
+impl EventTier {
+    /// Whether an event of this tier may be captured given the user's analytics
+    /// consent.
+    ///
+    /// Operational events are consent-exempt (they carry no personal
+    /// dimension); product events require opt-in consent.
+    ///
+    /// ```
+    /// use pierre_services::analytics::EventTier;
+    /// assert!(EventTier::Operational.should_capture(false));
+    /// assert!(EventTier::Product.should_capture(true));
+    /// assert!(!EventTier::Product.should_capture(false));
+    /// ```
+    #[must_use]
+    pub const fn should_capture(self, consent: bool) -> bool {
+        match self {
+            Self::Operational => true,
+            Self::Product => consent,
+        }
+    }
 }
 
 /// Initialize the global analytics tracker from environment variables
@@ -60,93 +102,27 @@ pub fn analytics() -> &'static dyn AnalyticsTracker {
         .map_or(&NOOP_FALLBACK as &dyn AnalyticsTracker, AsRef::as_ref)
 }
 
+/// Whether the user behind `hashed_user_id` has affirmative analytics consent.
+///
+/// Convenience over [`analytics()`] for the `PostHog` notify sink's product-tier
+/// consent gate. Returns `false` before `init_analytics()` (noop tracker).
+#[must_use]
+pub fn is_consented(hashed_user_id: &str) -> bool {
+    analytics().is_consented(hashed_user_id)
+}
+
 // =============================================================================
 // Trait
 // =============================================================================
 
-/// Product analytics tracker for messaging funnel events, tool usage, and commands
+/// Per-user analytics consent cache for the `PostHog` notify sink.
 ///
-/// Implementations are either a live `PostHog` client or a noop.
-/// All methods are fire-and-forget; errors are logged internally, never propagated.
-/// All user/tenant identifiers are pre-hashed by callers via `hash_id()`.
+/// Implementations are either a live `PostHog`-backed cache or a noop. The
+/// messaging-funnel, tool, and command events are emitted via the unified
+/// `info!(target: "notify", ...)` path and captured by tronc's `NotifyLayer`
+/// through `PierreAnalyticsProvider`; this trait only owns the consent state
+/// that the provider's product-tier gate consults.
 pub trait AnalyticsTracker: Send + Sync {
-    // -- Messaging Funnel --
-
-    /// New messaging session created (user linked, first message on new channel)
-    fn track_session_started(&self, channel: &str, tenant_id: &str, user_id: &str, is_new: bool);
-
-    /// Inbound message received and stored
-    fn track_message_received(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        content_type: &str,
-    );
-
-    /// User intent recognized (`link_code`, `otp_flow`, `slash_command:<name>`, `logout`, `normal_chat`)
-    fn track_intent(&self, channel: &str, tenant_id: &str, distinct_id: &str, intent_type: &str);
-
-    /// Bot response sent back to the user
-    fn track_bot_response(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        response_type: &str,
-        execution_time_ms: u64,
-        model: &str,
-    );
-
-    /// Account linking completed (`deep_link` or `otp`)
-    fn track_linking_completed(&self, channel: &str, tenant_id: &str, user_id: &str, method: &str);
-
-    /// Account linking failed
-    fn track_linking_failed(&self, channel: &str, tenant_id: &str, reason: &str);
-
-    /// Error occurred (`llm_dispatch_failed`, `delivery_failed`, `dead_lettered`)
-    fn track_error(&self, channel: &str, tenant_id: &str, error_type: &str);
-
-    /// Outbound message delivered successfully
-    fn track_outbound_delivered(&self, channel: &str, tenant_id: &str, is_retry: bool);
-
-    /// Unlinked user prompted to link their account
-    fn track_unlinked_prompted(&self, channel: &str, tenant_id: &str, prompt_type: &str);
-
-    /// Session ended (logout, timeout, unlinked)
-    fn track_session_dropped(&self, channel: &str, tenant_id: &str, user_id: &str, reason: &str);
-
-    // -- Tool & Command Usage --
-
-    /// `MCP` tool executed during LLM dispatch (auto-captured per tool name)
-    fn track_tool_executed(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        tool_name: &str,
-        success: bool,
-        duration_ms: u64,
-    );
-
-    /// Slash command executed (auto-captured per command name)
-    fn track_command_executed(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        command_name: &str,
-        success: bool,
-    );
-
-    // -- Identity --
-
-    /// Merge pre-link channel identity with post-link Pierre user ID
-    fn alias(&self, channel_identity: &str, pierre_user_id: &str);
-
-    /// Set user properties (platform, tenant, new/returning)
-    fn identify(&self, user_id: &str, properties: Value);
-
     // -- Consent --
 
     /// Update the consent cache for a user (called on consent change and session start)
@@ -157,6 +133,11 @@ pub trait AnalyticsTracker: Send + Sync {
     /// Used by hydration callsites to skip a database fetch when the pod has already
     /// seen this user since the last cold start.
     fn has_consent_cached(&self, user_id: &str) -> bool;
+
+    /// Returns `true` only when this user has a cached, affirmative analytics
+    /// consent. The `PostHog` notify sink calls this to gate product-tier events;
+    /// operational events are consent-exempt and never reach it.
+    fn is_consented(&self, hashed_user_id: &str) -> bool;
 
     /// Populate the consent cache from a durable source (typically the users table)
     /// only if the user is not already cached.
@@ -175,22 +156,11 @@ pub trait AnalyticsTracker: Send + Sync {
 struct NoopAnalyticsTracker;
 
 impl AnalyticsTracker for NoopAnalyticsTracker {
-    fn track_session_started(&self, _: &str, _: &str, _: &str, _: bool) {}
-    fn track_message_received(&self, _: &str, _: &str, _: &str, _: &str) {}
-    fn track_intent(&self, _: &str, _: &str, _: &str, _: &str) {}
-    fn track_bot_response(&self, _: &str, _: &str, _: &str, _: &str, _: u64, _: &str) {}
-    fn track_linking_completed(&self, _: &str, _: &str, _: &str, _: &str) {}
-    fn track_linking_failed(&self, _: &str, _: &str, _: &str) {}
-    fn track_error(&self, _: &str, _: &str, _: &str) {}
-    fn track_outbound_delivered(&self, _: &str, _: &str, _: bool) {}
-    fn track_unlinked_prompted(&self, _: &str, _: &str, _: &str) {}
-    fn track_session_dropped(&self, _: &str, _: &str, _: &str, _: &str) {}
-    fn track_tool_executed(&self, _: &str, _: &str, _: &str, _: &str, _: bool, _: u64) {}
-    fn track_command_executed(&self, _: &str, _: &str, _: &str, _: &str, _: bool) {}
-    fn alias(&self, _: &str, _: &str) {}
-    fn identify(&self, _: &str, _: Value) {}
     fn set_consent(&self, _: &str, _: bool) {}
     fn has_consent_cached(&self, _: &str) -> bool {
+        false
+    }
+    fn is_consented(&self, _: &str) -> bool {
         false
     }
     fn hydrate_consent(&self, _: &str, _: bool) {}
@@ -200,10 +170,14 @@ impl AnalyticsTracker for NoopAnalyticsTracker {
 // PostHog implementation
 // =============================================================================
 
-/// Attempt to create a `PostHog` tracker from environment variables.
+/// Attempt to create a `PostHog` consent-cache tracker from environment.
 ///
-/// Returns `None` if `POSTHOG_API_KEY` is not set.
-/// Uses direct HTTP calls to the `PostHog` capture API via reqwest.
+/// Returns `None` when `POSTHOG_API_KEY` is unset or empty — without a
+/// configured `PostHog` project there is nothing for the consent cache to
+/// gate, so the noop tracker is installed instead. The actual capture HTTP
+/// is owned by tronc's `NotifyLayer` (via `PierreAnalyticsProvider`); this
+/// tracker only holds the per-user consent state the provider's product-tier
+/// gate consults.
 #[cfg(feature = "analytics-posthog")]
 fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
     let api_key = env::var("POSTHOG_API_KEY").ok()?;
@@ -213,14 +187,9 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
 
     let host = env::var("POSTHOG_HOST").unwrap_or_else(|_| "https://us.i.posthog.com".to_owned());
 
-    let http_client = reqwest::Client::new();
-
-    info!(host = %host, "PostHog analytics initialized");
+    info!(host = %host, "PostHog analytics consent cache initialized");
 
     Some(Box::new(PostHogTracker {
-        api_key,
-        host,
-        http_client,
         consent_cache: DashMap::new(),
     }))
 }
@@ -233,9 +202,6 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
 
 #[cfg(feature = "analytics-posthog")]
 struct PostHogTracker {
-    api_key: String,
-    host: String,
-    http_client: reqwest::Client,
     /// Per-user consent cache: `hashed_user_id` to consented
     /// Missing entry = no consent known, skip events
     consent_cache: DashMap<String, bool>,
@@ -248,249 +214,20 @@ impl PostHogTracker {
     fn has_consent(&self, hashed_user_id: &str) -> bool {
         self.consent_cache.get(hashed_user_id).is_some_and(|v| *v)
     }
-
-    /// Fire-and-forget: spawn a tokio task to POST the event to `PostHog`'s capture API
-    fn capture_event(&self, event_name: &str, distinct_id: &str, props: Value) {
-        if !self.has_consent(distinct_id) {
-            return;
-        }
-
-        let client = self.http_client.clone();
-        let url = format!("{}/capture/", self.host);
-        let api_key = self.api_key.clone();
-        let event_name = event_name.to_owned();
-        let distinct_id = distinct_id.to_owned();
-
-        tokio::spawn(async move {
-            let body = serde_json::json!({
-                "api_key": api_key,
-                "event": event_name,
-                "distinct_id": distinct_id,
-                "properties": props,
-            });
-
-            let result = client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await;
-
-            match result {
-                Ok(resp) if !resp.status().is_success() => {
-                    warn!(event = %event_name, status = %resp.status(), "PostHog capture returned non-2xx");
-                }
-                Err(e) => {
-                    warn!(event = %event_name, error = %e, "PostHog capture failed");
-                }
-                Ok(_) => {}
-            }
-        });
-    }
 }
 
 #[cfg(feature = "analytics-posthog")]
 impl AnalyticsTracker for PostHogTracker {
-    fn track_session_started(&self, channel: &str, tenant_id: &str, user_id: &str, is_new: bool) {
-        self.capture_event(
-            "messaging_session_started",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "is_new_user": is_new,
-            }),
-        );
-    }
-
-    fn track_message_received(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        content_type: &str,
-    ) {
-        self.capture_event(
-            "messaging_message_received",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "content_type": content_type,
-            }),
-        );
-    }
-
-    fn track_intent(&self, channel: &str, tenant_id: &str, distinct_id: &str, intent_type: &str) {
-        self.capture_event(
-            "messaging_intent_recognized",
-            distinct_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "intent_type": intent_type,
-            }),
-        );
-    }
-
-    fn track_bot_response(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        response_type: &str,
-        execution_time_ms: u64,
-        model: &str,
-    ) {
-        self.capture_event(
-            "messaging_bot_response_sent",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "response_type": response_type,
-                "execution_time_ms": execution_time_ms,
-                "model": model,
-            }),
-        );
-    }
-
-    fn track_linking_completed(&self, channel: &str, tenant_id: &str, user_id: &str, method: &str) {
-        self.capture_event(
-            "messaging_linking_completed",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "link_method": method,
-            }),
-        );
-    }
-
-    fn track_linking_failed(&self, channel: &str, tenant_id: &str, reason: &str) {
-        self.capture_event(
-            "messaging_linking_failed",
-            tenant_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "failure_reason": reason,
-            }),
-        );
-    }
-
-    fn track_error(&self, channel: &str, tenant_id: &str, error_type: &str) {
-        self.capture_event(
-            "messaging_error_occurred",
-            tenant_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "error_type": error_type,
-            }),
-        );
-    }
-
-    fn track_outbound_delivered(&self, channel: &str, tenant_id: &str, is_retry: bool) {
-        self.capture_event(
-            "messaging_outbound_delivered",
-            tenant_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "is_retry": is_retry,
-            }),
-        );
-    }
-
-    fn track_unlinked_prompted(&self, channel: &str, tenant_id: &str, prompt_type: &str) {
-        self.capture_event(
-            "messaging_unlinked_user_prompted",
-            tenant_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "prompt_type": prompt_type,
-            }),
-        );
-    }
-
-    fn track_session_dropped(&self, channel: &str, tenant_id: &str, user_id: &str, reason: &str) {
-        self.capture_event(
-            "messaging_session_dropped",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "reason": reason,
-            }),
-        );
-    }
-
-    fn track_tool_executed(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        tool_name: &str,
-        success: bool,
-        duration_ms: u64,
-    ) {
-        self.capture_event(
-            "messaging_tool_executed",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "tool_name": tool_name,
-                "success": success,
-                "duration_ms": duration_ms,
-            }),
-        );
-    }
-
-    fn track_command_executed(
-        &self,
-        channel: &str,
-        tenant_id: &str,
-        user_id: &str,
-        command_name: &str,
-        success: bool,
-    ) {
-        self.capture_event(
-            "messaging_command_executed",
-            user_id,
-            serde_json::json!({
-                "channel": channel,
-                "tenant_id": tenant_id,
-                "command_name": command_name,
-                "success": success,
-            }),
-        );
-    }
-
-    fn alias(&self, channel_identity: &str, pierre_user_id: &str) {
-        self.capture_event(
-            "$create_alias",
-            pierre_user_id,
-            serde_json::json!({ "alias": channel_identity }),
-        );
-    }
-
-    fn identify(&self, user_id: &str, properties: Value) {
-        self.capture_event(
-            "$identify",
-            user_id,
-            serde_json::json!({ "$set": properties }),
-        );
-    }
-
     fn set_consent(&self, user_id: &str, enabled: bool) {
         self.consent_cache.insert(user_id.to_owned(), enabled);
     }
 
     fn has_consent_cached(&self, user_id: &str) -> bool {
         self.consent_cache.contains_key(user_id)
+    }
+
+    fn is_consented(&self, hashed_user_id: &str) -> bool {
+        self.has_consent(hashed_user_id)
     }
 
     fn hydrate_consent(&self, user_id: &str, enabled: bool) {

@@ -31,7 +31,7 @@ use pierre_services::coach_grading::{
     compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT,
 };
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{field, info, Span};
 use uuid::Uuid;
 
 /// Query parameters for browsing published coaches
@@ -427,6 +427,15 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
 }
 
 /// Handle POST /api/store/coaches/{id}/install - Install a coach from the Store
+#[tracing::instrument(
+    skip(ctx, auth),
+    fields(
+        route = "coach_install",
+        coach_slug = %coach_id,
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+    )
+)]
 async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -434,6 +443,12 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_user_tenant(&auth)?;
+
+    // Record IDs on the span so the NotifyLayer can attribute the
+    // coach.installed event without re-passing fields.
+    let span = Span::current();
+    span.record("user_id", field::display(&auth.user_id));
+    span.record("tenant_id", field::display(&tenant_id));
 
     let manager = get_store_manager(&ctx);
 
@@ -449,6 +464,13 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     info!(
         "User {} installed coach '{}' ({}) from Store",
         auth.user_id, installed.title, coach_id
+    );
+
+    // notify: coach was successfully installed (coach_slug is on the span).
+    info!(
+        target: "notify",
+        event = "coach.installed",
+        "coach installed from store"
     );
 
     // For the install response, we return an InstalledCoach (no listing data)
@@ -476,6 +498,15 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
 }
 
 /// Handle DELETE /api/store/coaches/{id}/install - Uninstall a coach
+#[tracing::instrument(
+    skip(ctx, auth),
+    fields(
+        route = "coach_uninstall",
+        coach_slug = %coach_id,
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+    )
+)]
 async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -483,6 +514,12 @@ async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_user_tenant(&auth)?;
+
+    // Record IDs on the span so the NotifyLayer can attribute the
+    // coach.uninstalled event without re-passing fields.
+    let span = Span::current();
+    span.record("user_id", field::display(&auth.user_id));
+    span.record("tenant_id", field::display(&tenant_id));
 
     let manager = get_store_manager(&ctx);
 
@@ -498,6 +535,13 @@ async fn handle_uninstall<C: CoachesCtx + MiddlewareCtx>(
     info!(
         "User {} uninstalled coach {} (source: {})",
         auth.user_id, coach_id, source_id
+    );
+
+    // notify: coach was successfully uninstalled (coach_slug is on the span).
+    info!(
+        target: "notify",
+        event = "coach.uninstalled",
+        "coach uninstalled"
     );
 
     let response = UninstallCoachResponse {
