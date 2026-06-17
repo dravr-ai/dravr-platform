@@ -975,11 +975,9 @@ pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
             // Canonical shape carries a nested `arguments`; the flat shape (e.g.
             // Cohere's `{"name":X,"after":..,"limit":..}`) leaves the parameters
             // as the remaining top-level keys.
-            let args = if let Some(arguments) = obj.remove("arguments") {
-                arguments
-            } else {
-                serde_json::Value::Object(obj)
-            };
+            let args = obj
+                .remove("arguments")
+                .unwrap_or(serde_json::Value::Object(obj));
             calls.push(FunctionCall { name, args });
         }
     }
