@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the provider backend_resolver and connection-status coalescing
-// ABOUTME: Verifies sciotte* backends are hidden from LLM-visible output and block OAuth reconnect
+// ABOUTME: Verifies sciotte* backends are hidden from LLM output and gate OAuth reconnect per provider
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,9 +18,10 @@
 //!    with `backend: "mirror"`.
 //! 3. `get_connection_status` rejects an explicit query for "sciotte" so the
 //!    LLM cannot probe the internal backend name.
-//! 4. `connect_provider(strava)` returns an error when the user has already
-//!    opted into the sciotte mirror — protecting the "stay with sciotte even
-//!    if expired" invariant.
+//! 4. `connect_provider(garmin)` returns an error when the user has already
+//!    opted into the sciotte mirror (Garmin stays on the scraper), while
+//!    `connect_provider(strava)` is allowed through so a sciotte-Strava user
+//!    can migrate to OAuth.
 
 mod common;
 
@@ -180,12 +181,13 @@ async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
 }
 
 #[tokio::test]
-async fn resolve_backend_prefers_mirror_when_both_rows_exist() {
+async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Both rows: mirror wins (user's stated preference).
+    // Both rows: for Strava the OAuth backend wins (Strava → OAuth-API
+    // migration). The sciotte row goes dormant; the user is served from the API.
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
@@ -196,7 +198,34 @@ async fn resolve_backend_prefers_mirror_when_both_rows_exist() {
         oauth_providers::STRAVA,
     )
     .await;
-    assert_eq!(resolved, oauth_providers::SCIOTTE);
+    assert_eq!(resolved, oauth_providers::STRAVA);
+}
+
+#[tokio::test]
+async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // Both rows: for Garmin the mirror still wins — Garmin's official API is
+    // partner-gated, so it stays on the scraper (no OAuth-API migration).
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    let resolved = backend_resolver::resolve_backend(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        Some(tenant_id),
+        oauth_providers::GARMIN,
+    )
+    .await;
+    assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
 }
 
 #[tokio::test]
@@ -311,7 +340,7 @@ async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
 }
 
 #[tokio::test]
-async fn multi_provider_status_prefers_mirror_when_both_rows_exist() {
+async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
@@ -334,10 +363,49 @@ async fn multi_provider_status_prefers_mirror_when_both_rows_exist() {
         strava.get("connected").and_then(serde_json::Value::as_bool),
         Some(true)
     );
+    // Status must match routing: Strava with an OAuth token reports OAuth, not
+    // the dormant sciotte mirror (Strava → OAuth-API migration).
     assert_eq!(
         strava.get("backend").and_then(|v| v.as_str()),
+        Some("oauth"),
+        "oauth must win for Strava when both rows exist"
+    );
+}
+
+#[tokio::test]
+async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    let tool = GetConnectionStatusTool;
+    let ctx = tool_context(&resources, user_id, tenant_id);
+    let result = tool.execute(json!({}), &ctx).await.unwrap();
+
+    let providers = result
+        .content
+        .get("providers")
+        .and_then(|v| v.as_object())
+        .unwrap()
+        .clone();
+    let garmin = providers.get(oauth_providers::GARMIN).unwrap();
+    assert_eq!(
+        garmin.get("connected").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        garmin.get("backend").and_then(|v| v.as_str()),
         Some("mirror"),
-        "mirror must win when both rows exist"
+        "mirror must win for Garmin when both rows exist"
     );
 }
 
@@ -506,24 +574,31 @@ async fn multi_provider_status_reports_needs_reauth() {
 // ============================================================================
 
 #[tokio::test]
-async fn connect_provider_blocks_oauth_when_mirror_backend_active() {
+async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
 
     let tool = ConnectProviderTool;
     let ctx = tool_context(&resources, user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "strava" }), &ctx)
+        .execute(json!({ "provider": "garmin" }), &ctx)
         .await
         .unwrap();
 
-    // The connector must refuse to mint an OAuth URL in this state.
+    // Garmin keeps the mirror block: its official API is partner-gated, so the
+    // connector must refuse to mint an OAuth URL while the mirror is active.
     assert!(
         result.is_error,
-        "connect_provider must fail rather than return an OAuth URL when the mirror is active"
+        "connect_provider(garmin) must fail rather than return an OAuth URL when the mirror is active"
     );
     let err_text = result
         .content
@@ -538,6 +613,46 @@ async fn connect_provider_blocks_oauth_when_mirror_backend_active() {
     assert!(
         !err_text.contains("sciotte"),
         "error message must not leak the internal backend name: {err_text}"
+    );
+}
+
+#[tokio::test]
+async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // A sciotte-Strava user authorizing OAuth: the block is lifted for Strava
+    // (Strava → OAuth-API migration), so the connector mints an OAuth URL
+    // instead of steering them back to the mirror flow.
+    seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+
+    let tool = ConnectProviderTool;
+    let ctx = tool_context(&resources, user_id, tenant_id);
+    let result = tool
+        .execute(json!({ "provider": "strava" }), &ctx)
+        .await
+        .unwrap();
+
+    // The mirror block must be lifted for Strava: the connector reaches the
+    // OAuth-minting stage instead of steering the user back to the mirror flow.
+    // (Minting itself may still fail downstream on tenant OAuth credentials —
+    // an orthogonal concern — so we assert the block is gone, not end-to-end
+    // success.) If the block were still active the response would carry
+    // `requires_mirror_reauth` and a "direct login" steer.
+    assert!(
+        result.content.get("requires_mirror_reauth").is_none(),
+        "Strava connect must not return the mirror-reauth block: {:?}",
+        result.content
+    );
+    let err_text = result
+        .content
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        !err_text.to_lowercase().contains("direct login"),
+        "Strava connect must not be steered back to the mirror flow: {err_text}"
     );
 }
 

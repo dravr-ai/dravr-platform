@@ -293,9 +293,20 @@ impl McpTool for ConnectProviderTool {
 
         let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-        // If the user has already opted into the sciotte mirror backend
-        // for this provider, refuse to mint an OAuth URL.
-        if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
+        // If the user has already opted into the sciotte mirror backend for
+        // this provider, refuse to mint an OAuth URL — they must re-authenticate
+        // through the mirror flow.
+        //
+        // Strava is exempt: it is migrating to its OAuth API, so a sciotte-Strava
+        // user is allowed to authorize OAuth (after which resolve_backend routes
+        // them to the API and the mirror goes dormant). Garmin keeps the block —
+        // its official API is partner-gated, so the mirror is its only backend.
+        let mirror = if provider == oauth_providers::STRAVA {
+            None
+        } else {
+            backend_resolver::mirror_backend_for(provider)
+        };
+        if let Some(mirror) = mirror {
             if let Ok(Some(_)) = repos
                 .oauth_tokens
                 .get_token(user_uuid, tenant_id, mirror)

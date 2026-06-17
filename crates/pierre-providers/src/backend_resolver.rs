@@ -1,5 +1,5 @@
 // ABOUTME: Resolves user-facing provider names to the actual backend implementation
-// ABOUTME: Prefers web-scraping (sciotte*) backends when their token row exists
+// ABOUTME: Routes Strava to OAuth when a token exists, else to the sciotte* mirror
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,15 +18,17 @@
 //!
 //! When a user has a sciotte* token row in the database (regardless of
 //! whether the session cookies are still valid — a stale row still encodes
-//! their explicit choice to use the mirror backend), any request that
-//! targets the user-facing provider name must be routed to the mirror
-//! backend. If the mirror session is stale the user is prompted to
-//! re-authenticate through the mirror flow, never through OAuth.
+//! their explicit choice to use the mirror backend), a request targeting the
+//! user-facing provider name is routed to the mirror backend. If the mirror
+//! session is stale the user is prompted to re-authenticate through the mirror
+//! flow.
+//!
+//! Strava is migrating to its OAuth API: when a user holds an OAuth token for
+//! Strava it takes precedence over the sciotte mirror. Garmin stays on the
+//! mirror because its official API is partner-gated.
 //!
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
-
-use std::env;
 
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_database::AuthRepos;
@@ -106,9 +108,8 @@ async fn has_token_row(
 /// that case, which the caller is expected to translate into a
 /// mirror-re-login prompt — never a fallback to OAuth.
 ///
-/// Exception: when `PIERRE_STRAVA_PREFER_OAUTH` is set, a Strava request whose
-/// user holds an OAuth token resolves to the OAuth backend instead of the
-/// sciotte mirror (Strava → OAuth-API migration; see [`prefers_oauth`]).
+/// Exception: a Strava request whose user holds an OAuth token resolves to the
+/// OAuth backend instead of the sciotte mirror (Strava → OAuth-API migration).
 pub async fn resolve_backend(
     repos: &AuthRepos,
     user_id: Uuid,
@@ -122,11 +123,12 @@ pub async fn resolve_backend(
         return requested.to_owned();
     };
     // Strava → OAuth-API migration (ADR: retire sciotte scraping for Strava).
-    // When opted in, prefer the OAuth backend over the sciotte mirror if the
-    // user actually holds an OAuth token for it. Opt-in + Strava-scoped, so the
-    // long-standing mirror-preference is unchanged for everyone else and for
-    // Garmin (whose API is partner-gated and stays on the scraper).
-    if prefers_oauth(requested) && has_token_row(repos, user_id, tid, requested).await {
+    // Prefer the OAuth backend over the sciotte mirror whenever the user holds
+    // an OAuth token for Strava. The OAuth-token check is itself the guard:
+    // sciotte-only users have no OAuth token, so they keep the mirror until they
+    // authorize OAuth, at which point their real OAuth connection wins. Garmin's
+    // API is partner-gated, so it has no such branch and stays on the scraper.
+    if requested == oauth_providers::STRAVA && has_token_row(repos, user_id, tid, requested).await {
         return requested.to_owned();
     }
     if has_token_row(repos, user_id, tid, mirror).await {
@@ -134,17 +136,6 @@ pub async fn resolve_backend(
     } else {
         requested.to_owned()
     }
-}
-
-/// Whether to prefer the OAuth backend over the sciotte mirror for `requested`.
-///
-/// Gates the Strava → OAuth-API migration: enabled per-deployment via
-/// `PIERRE_STRAVA_PREFER_OAUTH` (`1`/`true`), Strava-only. Default off keeps the
-/// historical mirror-preference behaviour until the migration is rolled out.
-fn prefers_oauth(requested: &str) -> bool {
-    requested == oauth_providers::STRAVA
-        && env::var("PIERRE_STRAVA_PREFER_OAUTH")
-            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 /// Connection status for a user-facing provider after mirror coalescing.
@@ -187,15 +178,28 @@ impl BackendKind {
 
 /// Probe connection status for a single user-facing provider.
 ///
-/// Mirror presence wins over OAuth. The function reports `Mirror` when
-/// the mirror row exists (even if stale) because the user's stated
-/// preference is to keep using it.
+/// For Strava an OAuth token wins over the sciotte mirror (Strava → OAuth-API
+/// migration), matching `resolve_backend`. For every other mirror-backed
+/// provider (Garmin) the mirror still wins when present — even if stale —
+/// because the user's stated preference is to keep using it.
 pub async fn coalesced_status(
     repos: &AuthRepos,
     user_id: Uuid,
     tenant_id: TenantId,
     user_facing: &'static str,
 ) -> CoalescedStatus {
+    // Strava prefers its OAuth backend: report it as the active backend when an
+    // OAuth token exists, even if a sciotte mirror row also lingers.
+    if user_facing == oauth_providers::STRAVA
+        && has_token_row(repos, user_id, tenant_id, user_facing).await
+    {
+        return CoalescedStatus {
+            user_facing,
+            connected: true,
+            backend_kind: BackendKind::Oauth,
+        };
+    }
+
     if let Some(mirror) = mirror_backend_for(user_facing) {
         if has_token_row(repos, user_id, tenant_id, mirror).await {
             return CoalescedStatus {
