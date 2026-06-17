@@ -513,6 +513,12 @@ impl CohereProvider {
 
     /// Parse error response from Cohere API
     fn parse_error_response(status: reqwest::StatusCode, body: &str) -> AppError {
+        // Cohere returns 400/422 carrying this phrase when the model produced an
+        // empty completion (no text and no tool call) — a provider-side "couldn't
+        // answer", classified retryable below so the runtime fallback chain
+        // cascades to the next provider rather than surfacing a user-facing error.
+        const EMPTY_COMPLETION_MARKER: &str = "no tool calls or response";
+
         let parsed_message = serde_json::from_str::<CohereErrorResponse>(body)
             .ok()
             .and_then(|err| err.message)
@@ -536,7 +542,19 @@ impl CohereProvider {
                 format!("Cohere rate limit reached. {error_message}"),
             ),
             400 | 422 => {
-                AppError::invalid_input(format!("Cohere API validation error: {error_message}"))
+                // An empty-completion 400/422 is a retryable "provider couldn't
+                // answer": classify it as an external-service error so the runtime
+                // fallback chain cascades to the next provider instead of surfacing
+                // a user-facing failure. Genuine validation errors stay
+                // non-retryable InvalidInput.
+                if error_message
+                    .to_lowercase()
+                    .contains(EMPTY_COMPLETION_MARKER)
+                {
+                    AppError::external_service("Cohere", error_message)
+                } else {
+                    AppError::invalid_input(format!("Cohere API validation error: {error_message}"))
+                }
             }
             _ => AppError::external_service("Cohere", error_message),
         }
@@ -956,8 +974,41 @@ impl LlmProvider for CohereProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::is_retryable_for_fallback;
     use embacle::types::ToolCallRequest;
     use pierre_core::errors::AppResult;
+
+    #[test]
+    fn empty_completion_422_is_retryable_for_fallback() {
+        // Cohere 422 "No tool calls or response was generated" is a provider-side
+        // empty completion, not a malformed request — it must classify as a
+        // retryable error so the runtime fallback chain cascades to the next
+        // provider. Regression for the 2026-06-17 cold-start incident: Copilot
+        // auth failed, Cohere returned this, and the turn errored out (generic
+        // "Dravr indisponible") instead of trying Gemini.
+        let body = r#"{"message":"No tool calls or response was generated. Try updating messages or tool definitions"}"#;
+        let err =
+            CohereProvider::parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
+        assert!(
+            is_retryable_for_fallback(&err),
+            "empty-completion 422 must cascade; got code {:?}",
+            err.code
+        );
+    }
+
+    #[test]
+    fn genuine_validation_422_stays_non_retryable() {
+        // A real malformed-request 422 would fail on every provider, so it must
+        // NOT cascade — it stays a non-retryable InvalidInput.
+        let body = r#"{"message":"invalid request: messages must not be empty"}"#;
+        let err =
+            CohereProvider::parse_error_response(reqwest::StatusCode::UNPROCESSABLE_ENTITY, body);
+        assert!(
+            !is_retryable_for_fallback(&err),
+            "a genuine validation 422 must not cascade; got code {:?}",
+            err.code
+        );
+    }
 
     #[test]
     fn role_mapping_matches_cohere_v2_schema() {

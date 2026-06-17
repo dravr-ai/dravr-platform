@@ -405,7 +405,75 @@ pub async fn run_api_tool_loop(
             }
         }
 
-        // No function calls - we have a text response (strip any synthetic function syntax)
+        // No structured function calls — but a native-tool model can still emit
+        // the call as a text `<tool_call>` block because the shared system prompt
+        // teaches that syntax (e.g. Cohere on a messaging turn). Parse and execute
+        // those before treating the content as a final answer, so the turn runs
+        // the tool instead of leaking the raw block to the user. run_cli_tool_loop
+        // does the same for CLI providers.
+        let text_tool_calls = response
+            .content
+            .as_deref()
+            .map(parse_lenient_tool_call_blocks)
+            .unwrap_or_default();
+        if !text_tool_calls.is_empty() {
+            info!(
+                "Iteration {}: executing {} text <tool_call> block(s) from a native-tool response",
+                iteration,
+                text_tool_calls.len()
+            );
+            let ExecutedFunctionCalls {
+                responses: function_responses,
+                auth_required_provider,
+            } = execute_function_calls(
+                &params.executor,
+                &text_tool_calls,
+                params.user_id,
+                params.tenant_id,
+            )
+            .await?;
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                tool_calls_count += text_tool_calls.len() as u32;
+            }
+            tools_called.extend(text_tool_calls.iter().map(|c| c.name.clone()));
+            if let Some(provider) = auth_required_provider {
+                return Ok(ToolLoopResult {
+                    content: String::new(),
+                    usage: Some(cumulative_usage),
+                    finish_reason: Some("provider_auth_required".to_owned()),
+                    activity_list: captured_activity_list,
+                    tool_calls_count,
+                    tools_called,
+                    pending_provider_auth_required: Some(provider),
+                });
+            }
+            let assistant_round_text =
+                response
+                    .content
+                    .as_deref()
+                    .map_or_else(String::new, |text| {
+                        let cleaned = strip_synthetic_function_calls(text).into_owned();
+                        if !cleaned.is_empty() {
+                            llm_messages.push(ChatMessage::assistant(&cleaned));
+                        }
+                        cleaned
+                    });
+            let round_responses =
+                add_function_responses_to_messages(llm_messages, &function_responses);
+            if let Some(list) = round_responses.activity_list {
+                captured_activity_list = Some(list);
+            }
+            if let Some(recorder) = params.tool_message_recorder.as_ref() {
+                recorder.record(ToolRoundRecord {
+                    assistant_text: assistant_round_text,
+                    tool_result_text: round_responses.combined_text,
+                });
+            }
+            continue;
+        }
+
+        // No tool calls - we have a text response (strip any synthetic function syntax)
         let content = response
             .content
             .map(|c| strip_synthetic_function_calls(&c).into_owned())
@@ -869,6 +937,53 @@ pub fn generate_tool_catalog(declarations: &[FunctionDeclaration]) -> String {
 #[must_use]
 pub fn parse_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
     from_embacle_calls(tool_simulation::parse_tool_call_blocks(content))
+}
+
+/// Parse `<tool_call>` blocks tolerantly into pierre-llm function calls.
+///
+/// Accepts both the canonical `{"name": X, "arguments": {...}}` shape and the
+/// flat `{"name": X, ...args}` shape some native-tool models (e.g. Cohere) emit
+/// when they return a call as text instead of a structured `function_calls`
+/// payload. The canonical [`parse_tool_call_blocks`] drops the flat args (it
+/// only reads a nested `arguments` field), which would run the tool with no
+/// parameters. Used as the API-loop fallback so such a call still executes
+/// correctly instead of leaking the raw block to the user.
+#[must_use]
+pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
+    const OPEN: &str = "<tool_call>";
+    const CLOSE: &str = "</tool_call>";
+
+    let mut calls = Vec::new();
+    let mut rest = content;
+    while let Some(open) = rest.find(OPEN) {
+        let after_open = &rest[open + OPEN.len()..];
+        let Some(close) = after_open.find(CLOSE) else {
+            break;
+        };
+        let json_str = after_open[..close].trim();
+        rest = &after_open[close + CLOSE.len()..];
+
+        if let Ok(serde_json::Value::Object(mut obj)) =
+            serde_json::from_str::<serde_json::Value>(json_str)
+        {
+            let Some(name) = obj
+                .remove("name")
+                .and_then(|n| n.as_str().map(str::to_owned))
+            else {
+                continue;
+            };
+            // Canonical shape carries a nested `arguments`; the flat shape (e.g.
+            // Cohere's `{"name":X,"after":..,"limit":..}`) leaves the parameters
+            // as the remaining top-level keys.
+            let args = if let Some(arguments) = obj.remove("arguments") {
+                arguments
+            } else {
+                serde_json::Value::Object(obj)
+            };
+            calls.push(FunctionCall { name, args });
+        }
+    }
+    calls
 }
 
 /// Format pierre-llm function responses as `<tool_result>` text blocks.
