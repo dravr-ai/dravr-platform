@@ -53,6 +53,11 @@
 #![warn(missing_docs)]
 
 /// Background historical-activity backfill (deep `after` never scrapes inline).
+///
+/// Gated to match its only consumer, the `tools-data` `data` module — without
+/// it the whole module is dead-code when the crate is built as a dependency
+/// that doesn't enable `tools-data` (e.g. under per-crate preflight clippy).
+#[cfg(feature = "tools-data")]
 pub mod activity_backfill;
 /// Shared provider activity fetching (used by group snapshots + coach recs).
 pub mod activity_fetch;

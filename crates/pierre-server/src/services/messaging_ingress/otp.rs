@@ -28,7 +28,6 @@ use pierre_contremaitre::messaging_strings::{
     KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
 };
-use pierre_services::analytics::{analytics, hash_id};
 
 /// Parameters for the OTP code verification step of the channel linking flow
 struct OtpVerificationParams<'a> {
@@ -74,11 +73,17 @@ pub(super) async fn handle_logout(
         "User logged out from messaging channel"
     );
 
-    analytics().track_session_dropped(
-        channel,
-        &hash_id(&tenant_id.to_string()),
-        &hash_id(sender_id),
-        "logout",
+    // Logout fires before the channel link is re-resolved, so the only
+    // identity in scope is the channel `sender_id`; it is the raw distinct_id
+    // the provider hashes (matching the pre-link identity used elsewhere).
+    info!(
+        target: "notify",
+        event = "messaging.session_dropped",
+        user_id = %sender_id,
+        tenant_id = %tenant_id,
+        channel = %channel,
+        reason = "logout",
+        "messaging session dropped"
     );
 
     otp_reply(
@@ -600,11 +605,13 @@ async fn handle_otp_verification_step(
         "Account linked via in-chat OTP verification"
     );
 
-    let hashed_tenant = hash_id(&params.tenant_id.to_string());
-    let hashed_user = hash_id(&user.id.to_string());
-    let hashed_channel_id = hash_id(&format!("{}:{}", params.channel, params.sender_id));
-    analytics().alias(&hashed_channel_id, &hashed_user);
-    analytics().track_linking_completed(params.channel, &hashed_tenant, &hashed_user, "otp");
+    super::linking::emit_linking_success(
+        &user.id.to_string(),
+        params.tenant_id,
+        params.channel,
+        params.sender_id,
+        "otp",
+    );
 
     // Run the unified channel-auth path so the post-OTP reply matches what
     // the next inbound message will produce. Pending / Suspended users see

@@ -56,6 +56,7 @@ const GroupDetail = lazy(() => import('./groups/GroupDetail'));
 import { Card } from './ui';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { BILLING_ENABLED } from '../constants/features';
+import { track } from '../services/analytics';
 
 // Tab definition type with optional badge for notification counts
 interface TabDefinition {
@@ -88,12 +89,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   // Mirror activeTab → location.hash so the URL bar reflects the section.
+  // The tab id is the SPA's logical route, so it doubles as the page_view
+  // path for analytics (no query string, so no risk of leaking secrets).
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const current = window.location.hash.replace(/^#/, '');
     if (current !== activeTab) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
+    track({ name: 'page_view', props: { path: `/${activeTab}` } });
   }, [activeTab]);
 
   // React to back/forward and external hash changes.

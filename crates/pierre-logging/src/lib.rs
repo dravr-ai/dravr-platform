@@ -30,9 +30,10 @@ use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
 
 use dravr_tronc::notifications::{
-    EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient, SlackConfig,
+    EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
+    SlackConfig,
 };
-use dravr_tronc::notify::NotifyLayer;
+use dravr_tronc::notify::{AnalyticsProvider, NotifyLayer};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
@@ -40,7 +41,7 @@ use serde_json::json;
 use std::env;
 use std::fmt::Debug;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::field::{Field, Visit};
 use tracing::{info, Event, Metadata, Subscriber};
 use tracing_subscriber::{
@@ -54,8 +55,6 @@ use tracing_subscriber::{
 
 #[cfg(feature = "telemetry")]
 use opentelemetry_sdk::trace::Tracer;
-#[cfg(feature = "telemetry")]
-use std::sync::OnceLock;
 
 /// Per-event closure type for the chromiumoxide teardown suppression
 /// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
@@ -138,6 +137,23 @@ impl Visit for MessageContainsVisitor<'_> {
             self.matched = true;
         }
     }
+}
+
+/// Process-wide `AnalyticsProvider` for the `NotifyLayer` `PostHog` sink.
+///
+/// Set once at startup (before [`init_from_env`]) by the binary, which owns
+/// the crates needed to build the provider (consent cache, tier catalogue,
+/// identifier hashing). [`build_notify_layer`](LoggingConfig::build_notify_layer)
+/// reads it and, when `POSTHOG_API_KEY` is also set, attaches the sink. Mirrors
+/// the existing `NOTIFY_ROUTING_PROVIDER` injection pattern.
+static ANALYTICS_PROVIDER: OnceLock<Arc<dyn AnalyticsProvider>> = OnceLock::new();
+
+/// Register the `AnalyticsProvider` used by the `NotifyLayer` `PostHog` sink.
+///
+/// Call once before [`init_from_env`]. Subsequent calls are ignored (the slot
+/// is set-once), so a re-init in tests can't clobber the live provider.
+pub fn set_analytics_provider(provider: Arc<dyn AnalyticsProvider>) {
+    let _ = ANALYTICS_PROVIDER.set(provider);
 }
 
 /// Per-event filter applied to the Slack notification sink only.
@@ -676,11 +692,37 @@ impl LoggingConfig {
             "NotifyLayer enabled: target=notify business events route via contremaitre"
         );
 
-        Some(NotifyLayer::new(
-            slack_client,
-            provider,
-            environment.to_owned(),
-        ))
+        // Attach the PostHog analytics sink when a project key is set and a
+        // provider was registered at startup. The sink captures every
+        // catalogued event (tier/consent decided by the provider) independent
+        // of the Slack routing rules. Analytics rides on this layer, so it
+        // currently requires SLACK_BOT_TOKEN (checked above) for the layer to
+        // exist at all.
+        let posthog = env::var("POSTHOG_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(
+                |key| match env::var("POSTHOG_HOST").ok().filter(|s| !s.is_empty()) {
+                    Some(host) => Arc::new(PostHogClient::with_host(key, host)),
+                    None => Arc::new(PostHogClient::new(key)),
+                },
+            );
+
+        match (ANALYTICS_PROVIDER.get().cloned(), posthog) {
+            (Some(analytics), Some(posthog)) => {
+                info!("PostHog analytics sink enabled on NotifyLayer");
+                Some(
+                    NotifyLayer::builder(slack_client, provider, environment.to_owned())
+                        .with_analytics(analytics, posthog)
+                        .build(),
+                )
+            }
+            _ => Some(NotifyLayer::new(
+                slack_client,
+                provider,
+                environment.to_owned(),
+            )),
+        }
     }
 
     /// Create GCP optimized logging configuration

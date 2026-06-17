@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { PRIMARY_PALETTE, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
+import { trackMobile } from '../../services/analytics';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoachDetail } from '../../types';
@@ -73,6 +74,7 @@ export function StoreCoachDetailScreen() {
       setIsInstalling(true);
       await storeApi.installStoreCoach(coach.id);
       setIsInstalled(true);
+      trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
       Alert.alert(
         'Installed!',
         `"${coach.title}" has been added to your coaches.`,

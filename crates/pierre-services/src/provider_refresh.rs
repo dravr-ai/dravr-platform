@@ -504,6 +504,17 @@ impl RefreshService {
                             "Background provider sync completed"
                         );
 
+                        info!(
+                            target: "notify",
+                            event = "sync.completed",
+                            user_id = %user_id,
+                            tenant_id = %tenant_id,
+                            provider = %provider,
+                            records = sync_result.records_created,
+                            trigger = "background",
+                            "provider sync completed"
+                        );
+
                         // Update last_sync timestamp
                         if let Err(e) = repos
                             .oauth_tokens
@@ -549,6 +560,17 @@ impl RefreshService {
                     }
                     Err(e) => {
                         warn!(provider = %provider, error = %e, "Background provider sync failed");
+
+                        info!(
+                            target: "notify",
+                            event = "sync.failed",
+                            user_id = %user_id,
+                            tenant_id = %tenant_id,
+                            provider = %provider,
+                            trigger = "background",
+                            reason = %e,
+                            "provider sync failed"
+                        );
 
                         let notification = OAuthNotification {
                             id: Uuid::new_v4().to_string(),

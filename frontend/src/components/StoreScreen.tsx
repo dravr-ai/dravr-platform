@@ -9,6 +9,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { clsx } from 'clsx';
 import { Compass, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { storeApi } from '../services/api';
+import { track } from '../services/analytics';
 import { TabHeader } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -150,6 +151,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setSuccessMessage(`"${coachDetail?.title}" has been added to your coaches.`);
+      track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     },
   });
 

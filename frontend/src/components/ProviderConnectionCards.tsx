@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
+import { track } from '../services/analytics';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import SciotteLoginModal from './SciotteLoginModal';
@@ -132,6 +133,7 @@ export default function ProviderConnectionCards({
   // mobile Safari preserves the user gesture across the authorize-URL await;
   // otherwise the popup is silently blocked and the card sits in a stuck state.
   const connectViaOAuth = async (providerName: string) => {
+    track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
     if (onConnectProvider) {
       onConnectProvider(providerName);
       return;

@@ -7,6 +7,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { oauthApi } from '../../services/api';
+import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
 
 export interface ProviderStatusState {
@@ -108,6 +109,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         const errorParam = parsedUrl.queryParams?.error as string | undefined;
 
         if (success) {
+          trackMobile({ name: 'feature_engaged', props: { feature: 'provider_connected' } });
           await loadProviderStatus();
           setSelectedProvider(provider);
           if (onSuccess) {

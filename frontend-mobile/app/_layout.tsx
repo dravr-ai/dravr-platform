@@ -7,7 +7,7 @@
 import '../global.css';
 import React from 'react';
 import { View, ActivityIndicator, LogBox } from 'react-native';
-import { Slot, useSegments, useRouter } from 'expo-router';
+import { Slot, useSegments, useRouter, useNavigationContainerRef } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -38,6 +38,7 @@ import { QueryProvider } from '../src/providers/QueryProvider';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
 import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
+import { trackMobile } from '../src/services/analytics';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -53,6 +54,7 @@ function RootLayoutNav() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const navigationRef = useNavigationContainerRef();
   // ThemeProvider resolves the user's appearance preference (System / Light /
   // Dark, default = Dark) from AsyncStorage and pushes it to NativeWind so
   // every Tailwind class flips automatically. `tokens` is the live BOREAL_*
@@ -102,6 +104,26 @@ function RootLayoutNav() {
       cancelled = true;
     };
   }, [user?.id, user?.analytics_consent]);
+
+  // Emit a screen_view whenever the focused route changes. We read the route
+  // name off the navigation container's state listener (the Expo Router
+  // equivalent of NavigationContainer's onStateChange) and de-dupe so a
+  // re-render that leaves the active screen unchanged doesn't double-fire.
+  // trackMobile() is a no-op until consent boots PostHog, so this is safe to
+  // wire unconditionally.
+  React.useEffect(() => {
+    let lastScreen: string | null = null;
+    const emit = (): void => {
+      const screen = navigationRef.getCurrentRoute()?.name;
+      if (!screen || screen === lastScreen) return;
+      lastScreen = screen;
+      trackMobile({ name: 'screen_view', props: { screen } });
+    };
+    const unsubscribe = navigationRef.addListener('state', emit);
+    // Fire once for the initial route the container lands on.
+    if (navigationRef.isReady()) emit();
+    return unsubscribe;
+  }, [navigationRef]);
 
   // Onboarding gate: refuse to land the user on the chat tabs until they
   // have at least one connected fitness provider. The same source of truth

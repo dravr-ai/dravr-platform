@@ -60,7 +60,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_middleware::auth::record_jwt_usage_for_request;
-use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::analytics::hash_id;
 use pierre_services::channel_error_reply::ChannelErrorReply;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
@@ -286,6 +286,54 @@ async fn delete_room_command_echo(
     }
 }
 
+/// Emit the `messaging.intent` product notify event for a recognised intent.
+///
+/// `user_id` is the raw (un-hashed) Pierre user id, or — for pre-link intents
+/// that have no resolved user yet — the `{channel}:{sender_id}` distinct id the
+/// provider will hash. `intent_type` is one of `link_code`, `otp_flow`,
+/// `logout`, `normal_chat`.
+fn emit_messaging_intent(user_id: &str, tenant_id: TenantId, channel: &str, intent_type: &str) {
+    info!(
+        target: "notify",
+        event = "messaging.intent",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        channel = %channel,
+        intent_type = intent_type,
+        "messaging intent recognised"
+    );
+}
+
+/// Emit the `messaging.message_received` product notify event for a stored
+/// inbound message.
+fn emit_message_received(user_id: &str, tenant_id: TenantId, channel: &str, content_type: &str) {
+    info!(
+        target: "notify",
+        event = "messaging.message_received",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        channel = %channel,
+        content_type = %content_type,
+        "messaging message received"
+    );
+}
+
+/// Emit the `messaging.unlinked_prompted` operational notify event.
+///
+/// Pre-link event — there is no Pierre user yet. Operational tier: the sink
+/// keys on the hashed tenant and never forwards a user dimension, so we emit
+/// `tenant_id` inline and omit `user_id`. `prompt_type` is `otp` or `link_url`.
+fn emit_unlinked_prompted(tenant_id: TenantId, channel: &str, prompt_type: &str) {
+    info!(
+        target: "notify",
+        event = "messaging.unlinked_prompted",
+        tenant_id = %tenant_id,
+        channel = %channel,
+        prompt_type = %prompt_type,
+        "unlinked user prompted to link"
+    );
+}
+
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
@@ -308,13 +356,16 @@ async fn persist_single_message(
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
-    let hashed_tenant = hash_id(&tenant_id.to_string());
-    let hashed_sender = hash_id(&format!("{channel}:{}", message.sender_id));
+    // Pre-link intent events have no resolved Pierre user yet, so the
+    // `{channel}:{sender_id}` channel identity is the raw distinct_id the
+    // provider will hash (the same value the post-link `alias` glues to the
+    // user id once linking completes).
+    let pre_link_identity = format!("{channel}:{}", message.sender_id);
 
     // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
     if let LinkingAction::LinkCode(code) = detect_linking_code(channel_type, &message.content) {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
-        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "link_code");
+        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "link_code");
         let mut response =
             handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
         response.thread_id = thread_id;
@@ -334,7 +385,7 @@ async fn persist_single_message(
     )
     .await
     {
-        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "otp_flow");
+        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "otp_flow");
         let mut otp_response = otp_response;
         otp_response.thread_id = thread_id;
         apply_conversation_recipient(&mut otp_response, message.conversation_id.as_deref());
@@ -344,7 +395,7 @@ async fn persist_single_message(
 
     // Check for logout command: unlink channel and destroy session
     if is_logout_command(&message.content) {
-        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "logout");
+        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "logout");
         let logout_response = handle_logout(
             resources,
             tenant_id,
@@ -434,14 +485,13 @@ async fn persist_single_message(
         return Err(());
     }
 
-    let hashed_user = hash_id(&session.user_id);
-    analytics().track_message_received(
+    emit_message_received(
+        &session.user_id,
+        tenant_id,
         channel,
-        &hashed_tenant,
-        &hashed_user,
         content_type_label(&message.content),
     );
-    analytics().track_intent(channel, &hashed_tenant, &hashed_user, "normal_chat");
+    emit_messaging_intent(&session.user_id, tenant_id, channel, "normal_chat");
 
     // The user's tenant for tool execution comes straight from AuthResult —
     // authenticate_channel already resolved it (first tenant membership,
@@ -550,12 +600,7 @@ async fn send_unlinked_user_prompt(
     } else {
         "link_url"
     };
-    // Pre-link event — there is no Pierre user yet, so we use a
-    // `{channel}:{sender_id}` identity hash as the PostHog distinct_id.
-    // Once linking completes, `analytics().alias(channel_identity,
-    // pierre_user_id)` glues the pre-link history to the user id.
-    let pre_link_identity = format!("{channel}:{}", message.sender_id);
-    analytics().track_unlinked_prompted(channel, &hash_id(&pre_link_identity), prompt_type);
+    emit_unlinked_prompted(tenant_id, channel, prompt_type);
 
     let mut prompt = if resources.common.email_service.is_some() {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");

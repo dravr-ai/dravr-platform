@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
 import { SharePreviewModal } from '../../components/social';
 import { socialApi } from '../../services/api';
+import { trackMobile } from '../../services/analytics';
 import type { ShareVisibility, Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
@@ -175,6 +176,7 @@ export function ChatScreen() {
     }
 
     try {
+      trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
       await messagesHook.sendMessage(conversationId, messageText);
     } finally {
       usageStatus.invalidate();

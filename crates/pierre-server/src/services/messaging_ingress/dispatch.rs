@@ -30,7 +30,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
-use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::analytics::hash_id;
 use pierre_services::usage_counter::UsageCounterService;
 
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
@@ -272,8 +272,14 @@ async fn report_dispatch_failure(
         conversation_id = %dispatch.session.conversation,
         "LLM dispatch failed for messaging"
     );
-    let hashed_user = hash_id(&dispatch.session.user_id);
-    analytics().track_error(&dispatch.channel, &hashed_user, "llm_dispatch_failed");
+    info!(
+        target: "notify",
+        event = "messaging.error",
+        tenant_id = %dispatch.channel_tenant_id,
+        channel = %dispatch.channel,
+        error_type = "llm_dispatch_failed",
+        "messaging error"
+    );
     let short_id = correlation_id.to_string()[..8].to_owned();
     let template = dispatch
         .resources
@@ -308,7 +314,6 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let dispatch_guard = lock.lock().await;
 
     let start = Instant::now();
-    let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
     let hashed_user = hash_id(&dispatch.session.user_id);
 
     // Log the inbound user message at debug. The full body is dumped at
@@ -431,13 +436,16 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     #[allow(clippy::cast_possible_truncation)]
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
-    analytics().track_bot_response(
-        &dispatch.channel,
-        &hashed_tenant,
-        &hashed_user,
-        "llm",
-        execution_time_ms,
-        &dispatch_result.model,
+    info!(
+        target: "notify",
+        event = "messaging.response_sent",
+        user_id = %dispatch.session.user_id,
+        tenant_id = %dispatch.channel_tenant_id,
+        channel = %dispatch.channel,
+        response_type = "llm",
+        execution_time_ms = execution_time_ms,
+        model = %dispatch_result.model,
+        "messaging response sent"
     );
 
     // Record LLM usage for cost tracking and quota enforcement

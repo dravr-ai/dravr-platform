@@ -17,6 +17,11 @@
 //!   `#[tracing::instrument(..., fields(...))]` attribute in the same
 //!   function.
 //!
+//! Separately, every catalogue entry must declare a valid `tier`
+//! (`product` | `operational`) — a missing or unknown value fails to
+//! deserialize into `EventTier` and fails this test. The tier drives the
+//! `PostHog` analytics sink's consent gate and `distinct_id` strategy.
+//!
 //! `tenant_id` and `user_id` are universal span fields per ADR-014 — the
 //! `NotifyLayer` extracts them at runtime from the enclosing handler span,
 //! which may live in a different file than the emit site, so the
@@ -28,6 +33,7 @@
 //! test always runs against it — there is no missing-file skip path.
 
 use dravr_contremaitre::schemas::NOTIFY_EVENTS_YAML;
+use pierre_services::analytics::EventTier;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,9 +50,13 @@ struct NotifyCall {
     instrument_fields: HashSet<String>,
 }
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct CatalogueEntry {
     name: String,
+    /// Consent tier. Required: a missing or unknown `tier` fails the parse,
+    /// which is how this test enforces that every catalogued event declares
+    /// one for the `PostHog` analytics sink.
+    tier: EventTier,
     #[serde(default)]
     required_fields: Vec<String>,
 }
@@ -79,6 +89,22 @@ fn notify_call_sites_match_catalogue() {
     // The event catalogue ships embedded in the dravr-contremaitre crate
     // (no vendor submodule), so it's always present — the test never skips.
     let catalogue = Catalogue::from_yaml(NOTIFY_EVENTS_YAML).expect("parse notify-events.yaml");
+
+    // Every entry declares a valid `tier` (enforced by the required field on
+    // `CatalogueEntry` — a missing or unknown value fails the parse above).
+    // Spot-check the two taxonomy anchors so a silent reclassification of the
+    // whole catalogue to a single tier is caught here too.
+    let tier_of = |name: &str| catalogue.events.get(name).map(|e| e.tier);
+    assert_eq!(
+        tier_of("user.login"),
+        Some(EventTier::Product),
+        "user.login must be a product (consent-gated) event"
+    );
+    assert_eq!(
+        tier_of("embacle.call_completed"),
+        Some(EventTier::Operational),
+        "embacle.call_completed must be an operational (consent-exempt) event"
+    );
 
     let crates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../")
