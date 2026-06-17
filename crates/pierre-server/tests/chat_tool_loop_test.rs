@@ -10,7 +10,8 @@ use pierre_core::llm::MessageRole;
 use pierre_llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
 use pierre_tool_runtime::tool_execution::{
     extract_activity_list, format_tool_results_as_text, generate_tool_catalog,
-    inject_tool_catalog_into_system_prompt, parse_tool_call_blocks, strip_simulation_artifacts,
+    inject_tool_catalog_into_system_prompt, parse_lenient_tool_call_blocks, parse_tool_call_blocks,
+    strip_simulation_artifacts,
 };
 
 #[test]
@@ -67,6 +68,53 @@ fn test_parse_malformed_json_skipped() {
     let calls = parse_tool_call_blocks(content);
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].name, "get_stats");
+}
+
+#[test]
+fn test_lenient_parse_flat_args_shape() {
+    // A native-tool model (e.g. Cohere) can emit a tool call as a text block
+    // with FLAT args — parameters as top-level siblings of `name`, with no
+    // nested `arguments` object. The canonical parser drops those args; the
+    // lenient parser keeps them so the tool runs with the right parameters.
+    // Regression for the 2026-06-17 Telegram "2022 races" leak.
+    let content = r#"<tool_call>
+{"name": "get_activities", "after": 1640995200, "before": 1672531200, "limit": 200}
+</tool_call>"#;
+
+    let lenient = parse_lenient_tool_call_blocks(content);
+    assert_eq!(lenient.len(), 1);
+    assert_eq!(lenient[0].name, "get_activities");
+    assert_eq!(lenient[0].args["after"], 1_640_995_200_i64);
+    assert_eq!(lenient[0].args["before"], 1_672_531_200_i64);
+    assert_eq!(lenient[0].args["limit"], 200);
+
+    // The canonical parser drops the flat args (only reads nested `arguments`).
+    let canonical = parse_tool_call_blocks(content);
+    assert_eq!(canonical.len(), 1);
+    assert_eq!(canonical[0].name, "get_activities");
+    assert_eq!(
+        canonical[0].args.as_object().map(serde_json::Map::len),
+        Some(0),
+        "canonical parser must yield empty args for the flat shape"
+    );
+}
+
+#[test]
+fn test_lenient_parse_nested_arguments_shape() {
+    // The lenient parser must also handle the canonical nested shape identically.
+    let content = r#"<tool_call>
+{"name": "get_activities", "arguments": {"provider": "strava", "limit": 25}}
+</tool_call>"#;
+
+    let calls = parse_lenient_tool_call_blocks(content);
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].name, "get_activities");
+    assert_eq!(calls[0].args["provider"], "strava");
+    assert_eq!(calls[0].args["limit"], 25);
+    assert!(
+        calls[0].args.get("arguments").is_none(),
+        "nested arguments must be unwrapped, not double-nested"
+    );
 }
 
 #[test]
