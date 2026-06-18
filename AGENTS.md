@@ -209,7 +209,7 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 - **Local Claude Code (this CLI):** prefer the vault via `obsidian-writer`. Avoid `gh gist create` for the doc types above — gists aren't vault-searchable or wikilinkable.
 - **Claude Code for Web (containerized, no vault checkout):** `gh gist create` is the only durable output — acceptable there as a fallback; drop the gist link in chat so a later local session can backfill it into the vault.
 - Gists are also fine for pasteable snippets, cross-project material, and ephemeral share-with-stranger artifacts.
-- Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo.
+- Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Claude Outputs/` (create it if missing; without the symlink, output stays local and never reaches the vault).
 </important>
 
 <important if="you are adding an abstraction, a dependency, or refactoring an existing system">
