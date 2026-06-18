@@ -51,8 +51,11 @@ fn plan_waits_out_short_window_while_attempts_remain() {
 
 #[test]
 fn plan_floors_zero_second_reset_to_avoid_tight_loop() {
-    let delay = plan_retry(0, Some(Duration::from_secs(0))).expect("0s reset should still retry");
-    assert!(delay >= Duration::from_millis(1));
+    // A 0s reset floors to RETRY_DELAY_FLOOR (200ms), never a 0-delay tight loop.
+    assert_eq!(
+        plan_retry(0, Some(Duration::ZERO)),
+        Some(Duration::from_millis(200))
+    );
 }
 
 #[test]
@@ -69,5 +72,5 @@ fn plan_gives_up_after_max_attempts() {
 #[test]
 fn plan_gives_up_on_long_reset_window() {
     // A multi-minute reset signals a daily/monthly cap; don't block the caller.
-    assert_eq!(plan_retry(0, Some(Duration::from_secs(120))), None);
+    assert_eq!(plan_retry(0, Some(Duration::from_mins(2))), None);
 }
