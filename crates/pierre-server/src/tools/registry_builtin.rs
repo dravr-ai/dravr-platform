@@ -18,7 +18,7 @@
 //!   populate the shared registry at startup.
 //! - [`get_tools`] — test-only convenience helper that constructs a one-shot
 //!   registry and returns its schemas. Production `tools/list` goes through the
-//!   shared registry via `McpRequestProcessor::handle_tools_list`.
+//!   shared registry via the `PierreToolDispatcher` host seam.
 //!
 //! Each `register_*_tools` helper is a free function taking `&mut ToolRegistry`
 //! and is gated by the same Cargo feature flag that gated the original

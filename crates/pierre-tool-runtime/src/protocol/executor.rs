@@ -5,12 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
-use crate::context::{AuthMethod, ToolExecutionContext};
+use crate::context::AuthMethod;
+use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Content, ToolResponse};
+use dravr_tronc::mcp::tool::ToolContext;
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
-use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::business_thresholds::{
@@ -21,7 +23,6 @@ use pierre_intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
 use pierre_intelligence::IntelligenceConfig;
-use pierre_tools_core::ToolResult;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -190,19 +191,34 @@ impl UniversalExecutor {
                 available_count: self.resources.tool_registry().tool_names().len(),
             })?;
 
-        let context = build_tool_execution_context(&self.resources, &request)?;
+        let ctx = build_tool_context(&self.resources, &request).await?;
         let args = request.parameters;
         let tool_name = request.tool_name;
 
-        match tool.execute(args, &context).await {
-            Ok(tool_result) => Ok(tool_result_to_universal_response(&tool_name, tool_result)),
-            // Map AppError back onto the pre-unification ProtocolError shape
-            // so callers that distinguish "missing required arg" (Err) from
-            // "tool ran, returned a failure payload" (Ok with success=false)
-            // keep the behaviour they had when UniversalExecutor owned the
-            // handler dispatch directly.
-            Err(e) => Err(app_error_to_protocol_error(&tool_name, &e)),
+        let response = tool.execute(&self.resources, &ctx, args).await;
+
+        if response.is_error {
+            // Preserve the provider-auth short-circuit across the tronc
+            // `ToolResponse` boundary: a tool body that hit `ProviderAuthRequired`
+            // encodes the provider slug in `structured_content` so the chat tool
+            // loop can mint a hosted-login URL instead of surfacing a generic
+            // failure to the LLM.
+            if let Some(provider) = provider_auth_required_slug(&response) {
+                return Err(ProtocolError::ProviderAuthRequired { provider });
+            }
+
+            // A body that returned `Err(AppError)` ("the tool refused to run")
+            // tagged the response with its originating `ErrorCode`. Re-raise it
+            // as the matching `ProtocolError` so `.is_err()` callers see input /
+            // auth / tenant failures as protocol errors — the pre-E3 contract.
+            // A body that returned `Ok(ToolResult::error(..))` carries no tag and
+            // falls through to the in-band `success: false` response below.
+            if let Some(code) = raised_error_code(&response) {
+                return Err(protocol_error_from_raised(&tool_name, &code, &response));
+            }
         }
+
+        Ok(tool_response_to_universal_response(&tool_name, &response))
     }
 
     /// Check if executor has a specific tool
@@ -212,98 +228,146 @@ impl UniversalExecutor {
     }
 }
 
-/// Map an [`AppError`] thrown by an `McpTool::execute` body back to the
-/// matching [`ProtocolError`] variant.
+/// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
+/// [`UniversalRequest`].
 ///
-/// Validation-class errors (missing required arg, bad tenant id, auth
-/// failure) flow to `ProtocolError::InvalidRequest`, so a caller doing
-/// `.is_err()` on the result sees input failures as protocol errors rather
-/// than as successful-but-failing responses. Everything else flows to
-/// `::InternalError`.
-fn app_error_to_protocol_error(tool_name: &str, e: &AppError) -> ProtocolError {
-    use pierre_core::errors::ErrorCode;
-    match e.code {
-        ErrorCode::ProviderAuthRequired => {
-            // Preserve the provider slug across the protocol boundary so the
-            // tool loop can short-circuit and the chat pipeline can mint a
-            // hosted-login URL. Falls back to a placeholder if `details` was
-            // somehow malformed — the loop still detects the variant.
-            let provider = e
-                .provider_auth_required_provider()
-                .unwrap_or_else(|| "unknown".to_owned());
-            ProtocolError::ProviderAuthRequired { provider }
-        }
-        ErrorCode::InvalidInput => ProtocolError::InvalidParameters(format!("{tool_name}: {e}")),
-        ErrorCode::AuthRequired
-        | ErrorCode::AuthInvalid
-        | ErrorCode::AuthExpired
-        | ErrorCode::NoProviderConnected => {
-            ProtocolError::InvalidRequest(format!("{tool_name}: {e}"))
-        }
-        _ => ProtocolError::InternalError(format!("{tool_name}: {e}")),
+/// Enforces that `user_id` parses as a UUID (fail fast), and that a present
+/// `tenant_id` parses as a UUID. A missing `tenant_id` passes through as
+/// absent — tenant presence is enforced per-tool, not at this boundary, because
+/// some tools legitimately run pre-onboarding (e.g. provider listing). Identity
+/// fields are carried as strings on the host-agnostic context and rebuilt into
+/// the typed [`crate::context::ToolExecutionContext`] inside each tool via
+/// `ToolExecutionContext::from_tronc`.
+///
+/// Resolves the caller's admin flag from the global `User.is_admin` flag and
+/// records it via [`ToolContext::as_admin`]. The flag is then read back as the
+/// cached admin status inside each tool, so admin-gated tools see the same
+/// decision regardless of which dispatch path surfaced the request.
+///
+/// System-admin tools (e.g. system-coach management) gate on the global
+/// `is_admin` flag, not the per-tenant role: being a tenant owner makes a user
+/// admin *of their tenant*, which must not grant system-wide admin powers. A
+/// global-lookup failure defaults to non-admin (deny-by-default).
+async fn build_tool_context(
+    resources: &Arc<dyn ToolRuntime>,
+    request: &UniversalRequest,
+) -> Result<ToolContext, ProtocolError> {
+    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+
+    let is_admin = resources
+        .repos()
+        .users
+        .get_global(user_uuid)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|user| user.is_admin);
+
+    let mut ctx = ToolContext::new()
+        .with_user(user_uuid.to_string())
+        .with_auth_method(AuthMethod::JwtBearer.as_str())
+        .as_admin(is_admin);
+
+    if let Some(raw) = request.tenant_id.as_deref() {
+        let uuid = Uuid::parse_str(raw)
+            .map_err(|e| ProtocolError::InvalidRequest(format!("Invalid tenant_id format: {e}")))?;
+        ctx = ctx.with_tenant(TenantId::from_uuid(uuid).to_string());
+    }
+
+    Ok(ctx)
+}
+
+/// Detect the provider-auth sentinel a tool body encodes in `structured_content`
+/// when it hit `ProviderAuthRequired`, returning the provider slug to re-raise.
+fn provider_auth_required_slug(response: &ToolResponse) -> Option<String> {
+    let structured = response.structured_content.as_ref()?;
+    if structured.get("error_code").and_then(|v| v.as_str()) == Some("provider_auth_required") {
+        structured
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned)
+    } else {
+        None
     }
 }
 
-/// Build the [`ToolExecutionContext`] that every `McpTool::execute` expects
-/// from a [`UniversalRequest`].
-///
-/// What this function actually enforces:
-///
-/// - The `user_id` field MUST parse as a UUID (fails fast otherwise).
-/// - If a `tenant_id` is present, it MUST parse as a UUID (fails fast).
-///
-/// What it does NOT enforce:
-///
-/// - **Tenant presence.** A missing `tenant_id` is passed through as
-///   `None`. Tools that require a tenant must check `context.tenant_id`
-///   themselves (or call `require_tenant_id` — see
-///   `pierre_runtime_context::tenant`). The enforcement is deferred to
-///   the tool, not centralised at the boundary, because some tools
-///   legitimately run pre-onboarding (e.g. provider listing). Do not
-///   read this as "fails fast on missing tenant" — it doesn't, and a
-///   tool that forgets to check will silently operate on `tenant_id =
-///   None`.
-fn build_tool_execution_context(
-    resources: &Arc<dyn ToolRuntime>,
-    request: &UniversalRequest,
-) -> Result<ToolExecutionContext, ProtocolError> {
-    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-
-    let tenant_id = if let Some(raw) = request.tenant_id.as_deref() {
-        let uuid = Uuid::parse_str(raw)
-            .map_err(|e| ProtocolError::InvalidRequest(format!("Invalid tenant_id format: {e}")))?;
-        Some(TenantId::from_uuid(uuid))
-    } else {
-        None
-    };
-
-    Ok(ToolExecutionContext::new(
-        user_uuid,
-        tenant_id,
-        resources.clone(),
-        AuthMethod::JwtBearer,
-    ))
+/// Read the `ErrorCode` tag a raised [`pierre_core::errors::AppError`] recorded
+/// in `structured_content` (see [`RAISED_ERROR_CODE_KEY`]). Returns `None` for an
+/// in-band `Ok(ToolResult::error(..))` failure, which carries no tag.
+fn raised_error_code(response: &ToolResponse) -> Option<String> {
+    response
+        .structured_content
+        .as_ref()?
+        .get(RAISED_ERROR_CODE_KEY)
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
 }
 
-/// Convert an `McpTool::execute` [`ToolResult`] into a [`UniversalResponse`].
+/// Rebuild the [`ProtocolError`] a raised [`pierre_core::errors::AppError`] would
+/// have produced before the E3 cutover, from the `ErrorCode` tag and message the
+/// tool recorded in its [`ToolResponse`].
 ///
-/// Preserves the success bit, the structured JSON payload, and the error
-/// text — identical to the inverse conversion in
-/// `tools::dispatch::dispatch_handler` so protocol clients see
-/// the same shape regardless of which direction the dispatch came from.
-fn tool_result_to_universal_response(
+/// Mirrors the pre-E3 `AppError` → `ProtocolError` mapping: validation input maps
+/// to `InvalidParameters`; auth / provider gating maps to `InvalidRequest`; every
+/// other code (permission, not-found, internal, …) maps to `InternalError`. The
+/// `tool_name` prefix and original message are preserved so message-asserting
+/// callers keep matching.
+fn protocol_error_from_raised(
     tool_name: &str,
-    tool_result: ToolResult,
+    error_code: &str,
+    response: &ToolResponse,
+) -> ProtocolError {
+    let message = response
+        .structured_content
+        .as_ref()
+        .and_then(|sc| sc.get("error"))
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            response
+                .content
+                .iter()
+                .find_map(Content::as_text)
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| "Tool execution failed".to_owned());
+    let rendered = format!("{tool_name}: {message}");
+    match error_code {
+        "InvalidInput" => ProtocolError::InvalidParameters(rendered),
+        "AuthRequired" | "AuthInvalid" | "AuthExpired" | "NoProviderConnected" => {
+            ProtocolError::InvalidRequest(rendered)
+        }
+        _ => ProtocolError::InternalError(rendered),
+    }
+}
+
+/// Convert a tool's [`ToolResponse`] into a [`UniversalResponse`].
+///
+/// Preserves the success bit, the structured JSON payload (`structuredContent`),
+/// and the error text so protocol clients see the same shape regardless of which
+/// direction the dispatch came from.
+fn tool_response_to_universal_response(
+    tool_name: &str,
+    response: &ToolResponse,
 ) -> UniversalResponse {
-    if tool_result.is_error {
-        let message = tool_result
-            .content
-            .get("error")
+    if response.is_error {
+        let message = response
+            .structured_content
+            .as_ref()
+            .and_then(|sc| sc.get("error"))
             .and_then(|v| v.as_str())
-            .map_or_else(|| tool_result.content.to_string(), ToOwned::to_owned);
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                response
+                    .content
+                    .iter()
+                    .find_map(Content::as_text)
+                    .map(ToOwned::to_owned)
+            })
+            .unwrap_or_else(|| "Tool execution failed".to_owned());
         UniversalResponse {
             success: false,
-            result: Some(tool_result.content),
+            result: response.structured_content.clone(),
             error: Some(message),
             metadata: None,
         }
@@ -311,7 +375,7 @@ fn tool_result_to_universal_response(
         tracing::debug!(tool_name, "universal executor: tool executed successfully");
         UniversalResponse {
             success: true,
-            result: Some(tool_result.content),
+            result: response.structured_content.clone(),
             error: None,
             metadata: None,
         }

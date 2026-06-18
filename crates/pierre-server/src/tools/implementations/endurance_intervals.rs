@@ -14,12 +14,17 @@ use pierre_intelligence::intervals::build_intervals;
 use pierre_intelligence::routes::build_route_summary_from_streams;
 use serde_json::{json, Value};
 
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_routes_social::SocialRoutes;
+use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::conversions::{
+    capabilities_to_tronc, tool_definition, tool_result_to_response,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
 use pierre_tools_core::ToolResult;
 
 const MAX_ACTIVITIES_PER_FETCH: usize = 200;
@@ -106,52 +111,59 @@ fn activity_id_schema() -> JsonSchema {
 pub struct ExportIntervalsTool;
 
 #[async_trait]
-impl McpTool for ExportIntervalsTool {
-    fn name(&self) -> &'static str {
-        "export_intervals"
+impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
+    fn definition(&self) -> Tool {
+        let schema = activity_id_schema();
+        tool_definition(
+            "export_intervals",
+            "Export the Endurance 'intervals.json' shape for a single activity — \
+             one row per lap with avg HR, normalized power, intensity factor, and \
+             decoupling. Use this when a coach needs the per-interval breakdown \
+             for tempo/threshold/VO2max workouts. Activities without laps return \
+             a single synthetic interval covering the whole session. Mirrors \
+             GET /api/v1/endurance/intervals/{activity_id}.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn description(&self) -> &'static str {
-        "Export the Endurance 'intervals.json' shape for a single activity — \
-         one row per lap with avg HR, normalized power, intensity factor, and \
-         decoupling. Use this when a coach needs the per-interval breakdown \
-         for tempo/threshold/VO2max workouts. Activities without laps return \
-         a single synthetic interval covering the whole session. Mirrors \
-         GET /api/v1/endurance/intervals/{activity_id}."
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
     }
 
-    fn input_schema(&self) -> JsonSchema {
-        activity_id_schema()
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let activity_id = activity_id_arg(&args)?;
-        let activity = fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-        let physiology = context
-            .resources
-            .repos()
-            .user_physiological_profile
-            .get_user_physiological_profile(tenant_id, user_id)
-            .await?;
-        let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
-        let intervals = build_intervals(&activity, ftp_watts);
-        let payload = serde_json::to_value(&intervals)
-            .map_err(|e| AppError::internal(format!("serialize intervals: {e}")))?;
-        Ok(ToolResult::ok(payload))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let activity_id = activity_id_arg(&args)?;
+            let activity =
+                fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
+            let physiology = context
+                .resources
+                .repos()
+                .user_physiological_profile
+                .get_user_physiological_profile(tenant_id, user_id)
+                .await?;
+            let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
+            let intervals = build_intervals(&activity, ftp_watts);
+            let payload = serde_json::to_value(&intervals)
+                .map_err(|e| AppError::internal(format!("serialize intervals: {e}")))?;
+            Ok(ToolResult::ok(payload))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -159,75 +171,82 @@ impl McpTool for ExportIntervalsTool {
 pub struct ExportRoutesTool;
 
 #[async_trait]
-impl McpTool for ExportRoutesTool {
-    fn name(&self) -> &'static str {
-        "export_routes"
+impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
+    fn definition(&self) -> Tool {
+        let schema = activity_id_schema();
+        tool_definition(
+            "export_routes",
+            "Export the Endurance 'routes.json' shape for a single activity — \
+             GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
+             and distinct climb segments with Strava-style category. Requires the \
+             activity stream to include lat/lon and altitude. Mirrors \
+             GET /api/v1/endurance/routes/{activity_id}.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn description(&self) -> &'static str {
-        "Export the Endurance 'routes.json' shape for a single activity — \
-         GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
-         and distinct climb segments with Strava-style category. Requires the \
-         activity stream to include lat/lon and altitude. Mirrors \
-         GET /api/v1/endurance/routes/{activity_id}."
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
     }
 
-    fn input_schema(&self) -> JsonSchema {
-        activity_id_schema()
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let activity_id = activity_id_arg(&args)?;
-        let activity = fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-        let stream = activity.time_series_data().ok_or_else(|| {
-            AppError::not_found("activity has no GPS stream — terrain unavailable")
-        })?;
-        let coords = stream
-            .gps_coordinates
-            .as_ref()
-            .ok_or_else(|| AppError::not_found("activity stream has no gps_coordinates"))?;
-        let altitudes = stream
-            .altitude
-            .as_ref()
-            .ok_or_else(|| AppError::not_found("activity stream has no altitude"))?;
-        let summary = build_route_summary_from_streams(coords, altitudes).ok_or_else(|| {
-            AppError::not_found("activity stream has fewer than 2 paired GPS+altitude points")
-        })?;
-        // Cache write so the HTTP endpoint can short-circuit on the next call.
-        let terrain_json = serde_json::to_string(&summary.terrain)
-            .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
-        let climbs_json = serde_json::to_string(&summary.climbs)
-            .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
-        context
-            .resources
-            .repos()
-            .route_summaries
-            .upsert_route_summary(
-                tenant_id,
-                user_id,
-                &activity_id,
-                &summary.gpx_hash,
-                &terrain_json,
-                &climbs_json,
-            )
-            .await?;
-        let payload = serde_json::to_value(&summary)
-            .map_err(|e| AppError::internal(format!("serialize route summary: {e}")))?;
-        Ok(ToolResult::ok(payload))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let activity_id = activity_id_arg(&args)?;
+            let activity =
+                fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
+            let stream = activity.time_series_data().ok_or_else(|| {
+                AppError::not_found("activity has no GPS stream — terrain unavailable")
+            })?;
+            let coords = stream
+                .gps_coordinates
+                .as_ref()
+                .ok_or_else(|| AppError::not_found("activity stream has no gps_coordinates"))?;
+            let altitudes = stream
+                .altitude
+                .as_ref()
+                .ok_or_else(|| AppError::not_found("activity stream has no altitude"))?;
+            let summary = build_route_summary_from_streams(coords, altitudes).ok_or_else(|| {
+                AppError::not_found("activity stream has fewer than 2 paired GPS+altitude points")
+            })?;
+            // Cache write so the HTTP endpoint can short-circuit on the next call.
+            let terrain_json = serde_json::to_string(&summary.terrain)
+                .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
+            let climbs_json = serde_json::to_string(&summary.climbs)
+                .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
+            context
+                .resources
+                .repos()
+                .route_summaries
+                .upsert_route_summary(
+                    tenant_id,
+                    user_id,
+                    &activity_id,
+                    &summary.gpx_hash,
+                    &terrain_json,
+                    &climbs_json,
+                )
+                .await?;
+            let payload = serde_json::to_value(&summary)
+                .map_err(|e| AppError::internal(format!("serialize route summary: {e}")))?;
+            Ok(ToolResult::ok(payload))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -236,56 +255,63 @@ impl McpTool for ExportRoutesTool {
 pub struct ExtractActivityStreamsTool;
 
 #[async_trait]
-impl McpTool for ExtractActivityStreamsTool {
-    fn name(&self) -> &'static str {
-        "extract_activity_streams"
+impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
+    fn definition(&self) -> Tool {
+        let schema = activity_id_schema();
+        tool_definition(
+            "extract_activity_streams",
+            "Return the raw per-second time-series streams for a single activity — \
+             heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), \
+             altitude (m), and gps_coordinates (lat/lon pairs). Each stream is \
+             omitted when the provider didn't record it. Use this when a coach \
+             needs the underlying samples to rerun a custom analysis the higher \
+             Endurance tools (export_intervals / export_routes) don't cover.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn description(&self) -> &'static str {
-        "Return the raw per-second time-series streams for a single activity — \
-         heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), \
-         altitude (m), and gps_coordinates (lat/lon pairs). Each stream is \
-         omitted when the provider didn't record it. Use this when a coach \
-         needs the underlying samples to rerun a custom analysis the higher \
-         Endurance tools (export_intervals / export_routes) don't cover."
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn input_schema(&self) -> JsonSchema {
-        activity_id_schema()
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let activity_id = activity_id_arg(&args)?;
-        let activity = fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-        let stream = activity
-            .time_series_data()
-            .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;
-        Ok(ToolResult::ok(json!({
-            "activity_id": activity_id,
-            "sample_count": stream.timestamps.len(),
-            "streams": serde_json::to_value(stream).map_err(|e| {
-                AppError::internal(format!("serialize stream: {e}"))
-            })?,
-        })))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let activity_id = activity_id_arg(&args)?;
+            let activity =
+                fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
+            let stream = activity
+                .time_series_data()
+                .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;
+            Ok(ToolResult::ok(json!({
+                "activity_id": activity_id,
+                "sample_count": stream.timestamps.len(),
+                "streams": serde_json::to_value(stream).map_err(|e| {
+                    AppError::internal(format!("serialize stream: {e}"))
+                })?,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
 /// Build the Endurance intervals/routes tool list for registry registration.
 #[must_use]
-pub fn create_endurance_intervals_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_endurance_intervals_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ExportIntervalsTool),
         Box::new(ExportRoutesTool),

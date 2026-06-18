@@ -50,9 +50,31 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
   });
 
   test('tools/list WITHOUT authentication is rejected (RFC 9728)', async () => {
-    // /mcp is an OAuth 2.1 protected resource: an unauthenticated tools/list is
-    // rejected with 401 and discloses no tools (the public-discovery subset is retired).
+    // /mcp is an OAuth 2.1 protected resource. Server-side contract: an
+    // unauthenticated tools/list MUST be rejected with HTTP 401, a
+    // WWW-Authenticate challenge, and the JSON-RPC error -32001 — disclosing no
+    // server tools (the public-discovery subset is retired).
+    const rawResponse = await fetch(`${serverUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify(MCPMessages.toolsList)
+      // NO Authorization header — this is unauthenticated
+    });
 
+    expect(rawResponse.status).toBe(401);
+    expect(rawResponse.headers.get('www-authenticate')).toMatch(/Bearer/i);
+    const rawBody = await rawResponse.json();
+    expect(rawBody.result).toBeUndefined();
+    expect(rawBody.error).toBeDefined();
+    expect(rawBody.error.code).toBe(-32001);
+
+    // Bridge-side: the bridge cannot fetch the server catalog without a token, so
+    // it discloses NO server tools. It may still surface its own synthetic
+    // `connect_to_pierre` affordance (a client-side OAuth trigger, not a server
+    // tool and carrying no fitness data) so an MCP host can start the login flow.
     bridgeClient = new MockMCPClient('node', [
       bridgePath,
       '--server',
@@ -65,16 +87,16 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
 
     try {
       const toolsList = await bridgeClient.send(MCPMessages.toolsList, 10000);
-      // The bridge surfaces the 401 as a JSON-RPC error or returns no tools —
-      // either way, nothing is disclosed without authentication.
       const toolNames = toolsList.result?.tools?.map(t => t.name) ?? [];
-      expect(toolNames).toHaveLength(0);
+      // No real server tools may leak; only the client-side connect affordance.
+      const serverTools = toolNames.filter(n => n !== 'connect_to_pierre');
+      expect(serverTools).toHaveLength(0);
     } catch (error) {
-      // A surfaced 401 / closed stream is the expected unauthenticated outcome.
+      // A surfaced 401 / closed stream is also an acceptable unauthenticated outcome.
       console.log(`Unauthenticated tools/list rejected: ${error.message}`);
     }
 
-    console.log('✅ Unauthenticated tools/list disclosed no tools');
+    console.log('✅ Unauthenticated tools/list disclosed no server tools (401 / connect-only)');
   }, 60000);
 
   test('MCP SPEC: tools/list MUST return MORE tools WITH authentication', async () => {
@@ -280,7 +302,8 @@ describe('MCP Spec Compliance: Tools List Consistency', () => {
   beforeAll(async () => {
     serverHandle = await ensureServerRunning({
       port: TestConfig.defaultServerPort,
-      database: TestConfig.testEncryptionKey
+      database: TestConfig.testDatabase,
+      encryptionKey: TestConfig.testEncryptionKey
     });
     testToken = serverHandle?.testToken;
   }, 60000);

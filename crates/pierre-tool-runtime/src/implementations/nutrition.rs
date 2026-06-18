@@ -16,15 +16,20 @@
 //! All tools use direct intelligence module and USDA API access.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 use tracing::{debug, warn};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::protocol::auth::AuthService;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Activity;
 use pierre_external::{UsdaClient, UsdaClientConfig};
@@ -212,16 +217,8 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<UsdaClient, ToolR
 pub struct CalculateDailyNutritionTool;
 
 #[async_trait]
-impl McpTool for CalculateDailyNutritionTool {
-    fn name(&self) -> &'static str {
-        "calculate_daily_nutrition"
-    }
-
-    fn description(&self) -> &'static str {
-        "Calculate daily calorie and macronutrient needs based on biometrics and goals"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "weight_kg".to_owned(),
@@ -277,7 +274,7 @@ impl McpTool for CalculateDailyNutritionTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![
@@ -288,40 +285,56 @@ impl McpTool for CalculateDailyNutritionTool {
                 "activity_level".to_owned(),
                 "training_goal".to_owned(),
             ]),
-        }
+        };
+        tool_definition(
+            "calculate_daily_nutrition",
+            "Calculate daily calorie and macronutrient needs based on biometrics and goals",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let params = parse_nutrition_params(&args)?;
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let params = parse_nutrition_params(&args)?;
 
-        let cageux_config = context.cageux_config();
-        let nutrition_config = &cageux_config.nutrition;
+            let cageux_config = context.cageux_config();
+            let nutrition_config = &cageux_config.nutrition;
 
-        match calculate_daily_nutrition_needs(
-            &params,
-            &nutrition_config.bmr,
-            &nutrition_config.activity_factors,
-            &nutrition_config.macronutrients,
-        ) {
-            Ok(nutrition) => Ok(ToolResult::ok(json!({
-                "bmr": nutrition.bmr,
-                "tdee": nutrition.tdee,
-                "protein_g": nutrition.protein_g,
-                "carbs_g": nutrition.carbs_g,
-                "fat_g": nutrition.fat_g,
-                "protein_percent": nutrition.macro_percentages.protein_percent,
-                "carbs_percent": nutrition.macro_percentages.carbs_percent,
-                "fat_percent": nutrition.macro_percentages.fat_percent,
-                "goal": format!("{:?}", params.training_goal),
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Calculation error: {e}")
-            }))),
+            match calculate_daily_nutrition_needs(
+                &params,
+                &nutrition_config.bmr,
+                &nutrition_config.activity_factors,
+                &nutrition_config.macronutrients,
+            ) {
+                Ok(nutrition) => Ok(ToolResult::ok(json!({
+                    "bmr": nutrition.bmr,
+                    "tdee": nutrition.tdee,
+                    "protein_g": nutrition.protein_g,
+                    "carbs_g": nutrition.carbs_g,
+                    "fat_g": nutrition.fat_g,
+                    "protein_percent": nutrition.macro_percentages.protein_percent,
+                    "carbs_percent": nutrition.macro_percentages.carbs_percent,
+                    "fat_percent": nutrition.macro_percentages.fat_percent,
+                    "goal": format!("{:?}", params.training_goal),
+                }))),
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Calculation error: {e}")
+                }))),
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -333,16 +346,8 @@ impl McpTool for CalculateDailyNutritionTool {
 pub struct GetNutrientTimingTool;
 
 #[async_trait]
-impl McpTool for GetNutrientTimingTool {
-    fn name(&self) -> &'static str {
-        "get_nutrient_timing"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get optimal nutrient timing recommendations around workouts"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "workout_intensity".to_owned(),
@@ -368,7 +373,7 @@ impl McpTool for GetNutrientTimingTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![
@@ -376,14 +381,27 @@ impl McpTool for GetNutrientTimingTool {
                 "weight_kg".to_owned(),
                 "daily_protein_g".to_owned(),
             ]),
-        }
+        };
+        tool_definition(
+            "get_nutrient_timing",
+            "Get optimal nutrient timing recommendations around workouts",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let weight_kg = args
             .get("weight_kg")
             .and_then(Value::as_f64)
@@ -511,6 +529,9 @@ impl McpTool for GetNutrientTimingTool {
                 "error": format!("Calculation error: {e}")
             }))),
         }
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -522,16 +543,8 @@ impl McpTool for GetNutrientTimingTool {
 pub struct SearchFoodTool;
 
 #[async_trait]
-impl McpTool for SearchFoodTool {
-    fn name(&self) -> &'static str {
-        "search_food"
-    }
-
-    fn description(&self) -> &'static str {
-        "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SearchFoodTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "query".to_owned(),
@@ -560,67 +573,83 @@ impl McpTool for SearchFoodTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["query".to_owned()]),
-        }
+        };
+        tool_definition(
+            "search_food",
+            "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages.",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let client = match build_usda_client(context) {
-            Ok(c) => c,
-            Err(err_result) => return Ok(err_result),
-        };
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let client = match build_usda_client(&context) {
+                Ok(c) => c,
+                Err(err_result) => return Ok(err_result),
+            };
 
-        let query = args.get("query").and_then(Value::as_str).ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: query")
-        })?;
+            let query = args.get("query").and_then(Value::as_str).ok_or_else(|| {
+                AppError::invalid_input("Missing or invalid required parameter: query")
+            })?;
 
-        let page_size_u64 = args.get("page_size").and_then(Value::as_u64).unwrap_or(10);
+            let page_size_u64 = args.get("page_size").and_then(Value::as_u64).unwrap_or(10);
 
-        #[allow(clippy::cast_possible_truncation)]
-        let page_size = if (1..=200).contains(&page_size_u64) {
-            page_size_u64 as u32
-        } else {
-            return Ok(ToolResult::error(json!({
-                "error": "Page size must be between 1 and 200"
-            })));
-        };
+            #[allow(clippy::cast_possible_truncation)]
+            let page_size = if (1..=200).contains(&page_size_u64) {
+                page_size_u64 as u32
+            } else {
+                return Ok(ToolResult::error(json!({
+                    "error": "Page size must be between 1 and 200"
+                })));
+            };
 
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let page_number = args
-            .get("page_number")
-            .and_then(|v| {
-                v.as_u64()
-                    .map(|n| n.min(u64::from(u32::MAX)) as u32)
-                    .or_else(|| v.as_f64().map(|f| f as u32))
-            })
-            .unwrap_or(1)
-            .max(1);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let page_number = args
+                .get("page_number")
+                .and_then(|v| {
+                    v.as_u64()
+                        .map(|n| n.min(u64::from(u32::MAX)) as u32)
+                        .or_else(|| v.as_f64().map(|f| f as u32))
+                })
+                .unwrap_or(1)
+                .max(1);
 
-        match client.search_foods(query, page_size, page_number).await {
-            Ok(paginated) => {
-                let count = paginated.foods.len();
-                let has_more = paginated.current_page < paginated.total_pages;
-                Ok(ToolResult::ok(json!({
-                    "foods": paginated.foods,
-                    "returned_count": count,
-                    "total_hits": paginated.total_hits,
-                    "page_number": paginated.current_page,
-                    "page_size": page_size,
-                    "total_pages": paginated.total_pages,
-                    "has_more": has_more,
-                })))
+            match client.search_foods(query, page_size, page_number).await {
+                Ok(paginated) => {
+                    let count = paginated.foods.len();
+                    let has_more = paginated.current_page < paginated.total_pages;
+                    Ok(ToolResult::ok(json!({
+                        "foods": paginated.foods,
+                        "returned_count": count,
+                        "total_hits": paginated.total_hits,
+                        "page_number": paginated.current_page,
+                        "page_size": page_size,
+                        "total_pages": paginated.total_pages,
+                        "has_more": has_more,
+                    })))
+                }
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Search error: {e}")
+                }))),
             }
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Search error: {e}")
-            }))),
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -632,16 +661,8 @@ impl McpTool for SearchFoodTool {
 pub struct GetFoodDetailsTool;
 
 #[async_trait]
-impl McpTool for GetFoodDetailsTool {
-    fn name(&self) -> &'static str {
-        "get_food_details"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get detailed nutritional information for a specific food item"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "fdc_id".to_owned(),
@@ -651,45 +672,61 @@ impl McpTool for GetFoodDetailsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["fdc_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let client = match build_usda_client(context) {
-            Ok(c) => c,
-            Err(err_result) => return Ok(err_result),
         };
+        tool_definition(
+            "get_food_details",
+            "Get detailed nutritional information for a specific food item",
+            schema,
+            None,
+        )
+    }
 
-        let fdc_id = args.get("fdc_id").and_then(Value::as_u64).ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: fdc_id")
-        })?;
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
 
-        match client.get_food_details(fdc_id).await {
-            Ok(food) => Ok(ToolResult::ok(json!({
-                "fdc_id": food.fdc_id,
-                "description": food.description,
-                "data_type": food.data_type,
-                "nutrients": food.food_nutrients.iter().map(|n| json!({
-                    "nutrient_id": n.nutrient_id,
-                    "name": n.nutrient_name,
-                    "amount": n.amount,
-                    "unit": n.unit_name,
-                })).collect::<Vec<_>>(),
-                "serving_size": food.serving_size,
-                "serving_size_unit": food.serving_size_unit,
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Food not found: {e}")
-            }))),
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let client = match build_usda_client(&context) {
+                Ok(c) => c,
+                Err(err_result) => return Ok(err_result),
+            };
+
+            let fdc_id = args.get("fdc_id").and_then(Value::as_u64).ok_or_else(|| {
+                AppError::invalid_input("Missing or invalid required parameter: fdc_id")
+            })?;
+
+            match client.get_food_details(fdc_id).await {
+                Ok(food) => Ok(ToolResult::ok(json!({
+                    "fdc_id": food.fdc_id,
+                    "description": food.description,
+                    "data_type": food.data_type,
+                    "nutrients": food.food_nutrients.iter().map(|n| json!({
+                        "nutrient_id": n.nutrient_id,
+                        "name": n.nutrient_name,
+                        "amount": n.amount,
+                        "unit": n.unit_name,
+                    })).collect::<Vec<_>>(),
+                    "serving_size": food.serving_size,
+                    "serving_size_unit": food.serving_size_unit,
+                }))),
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Food not found: {e}")
+                }))),
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -701,16 +738,8 @@ impl McpTool for GetFoodDetailsTool {
 pub struct AnalyzeMealNutritionTool;
 
 #[async_trait]
-impl McpTool for AnalyzeMealNutritionTool {
-    fn name(&self) -> &'static str {
-        "analyze_meal_nutrition"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze nutritional content of a meal from its ingredients"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "ingredients".to_owned(),
@@ -745,93 +774,111 @@ impl McpTool for AnalyzeMealNutritionTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["ingredients".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let client = match build_usda_client(context) {
-            Ok(c) => c,
-            Err(err_result) => return Ok(err_result),
         };
+        tool_definition(
+            "analyze_meal_nutrition",
+            "Analyze nutritional content of a meal from its ingredients",
+            schema,
+            None,
+        )
+    }
 
-        let ingredients = args
-            .get("ingredients")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                AppError::invalid_input(
-                    "Missing or invalid required parameter: ingredients (must be array)",
-                )
-            })?;
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
 
-        let mut meal_items: Vec<(u64, f64)> = Vec::new();
-        for item in ingredients {
-            let fdc_id = item
-                .get("fdc_id")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| AppError::invalid_input("Each ingredient must have fdc_id"))?;
-            let amount_g = item
-                .get("amount_g")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| AppError::invalid_input("Each ingredient must have amount_g"))?;
-            meal_items.push((fdc_id, amount_g));
-        }
-
-        let mut total_calories = 0.0_f64;
-        let mut total_protein = 0.0_f64;
-        let mut total_carbs = 0.0_f64;
-        let mut total_fat = 0.0_f64;
-        let mut food_details_list = Vec::new();
-
-        for (fdc_id, grams) in meal_items {
-            let food = match client.get_food_details(fdc_id).await {
-                Ok(f) => f,
-                Err(e) => {
-                    return Ok(ToolResult::error(json!({
-                        "error": format!("USDA API request failed for fdc_id {fdc_id}: {e}")
-                    })));
-                }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let client = match build_usda_client(&context) {
+                Ok(c) => c,
+                Err(err_result) => return Ok(err_result),
             };
 
-            // USDA nutrient amounts are per 100 g
-            let multiplier = grams / 100.0;
-            for nutrient in &food.food_nutrients {
-                match nutrient.nutrient_name.as_str() {
-                    "Energy" => {
-                        total_calories = nutrient.amount.mul_add(multiplier, total_calories);
-                    }
-                    "Protein" => total_protein = nutrient.amount.mul_add(multiplier, total_protein),
-                    "Carbohydrate, by difference" => {
-                        total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
-                    }
-                    "Total lipid (fat)" => {
-                        total_fat = nutrient.amount.mul_add(multiplier, total_fat);
-                    }
-                    _ => {}
-                }
+            let ingredients = args
+                .get("ingredients")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "Missing or invalid required parameter: ingredients (must be array)",
+                    )
+                })?;
+
+            let mut meal_items: Vec<(u64, f64)> = Vec::new();
+            for item in ingredients {
+                let fdc_id = item
+                    .get("fdc_id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| AppError::invalid_input("Each ingredient must have fdc_id"))?;
+                let amount_g = item
+                    .get("amount_g")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| AppError::invalid_input("Each ingredient must have amount_g"))?;
+                meal_items.push((fdc_id, amount_g));
             }
 
-            food_details_list.push(json!({
-                "fdc_id": fdc_id,
-                "description": food.description,
-                "grams": grams,
-            }));
-        }
+            let mut total_calories = 0.0_f64;
+            let mut total_protein = 0.0_f64;
+            let mut total_carbs = 0.0_f64;
+            let mut total_fat = 0.0_f64;
+            let mut food_details_list = Vec::new();
 
-        Ok(ToolResult::ok(json!({
-            "total_calories": total_calories.round(),
-            "total_protein_g": total_protein.round(),
-            "total_carbs_g": total_carbs.round(),
-            "total_fat_g": total_fat.round(),
-            "foods": food_details_list,
-        })))
+            for (fdc_id, grams) in meal_items {
+                let food = match client.get_food_details(fdc_id).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        return Ok(ToolResult::error(json!({
+                            "error": format!("USDA API request failed for fdc_id {fdc_id}: {e}")
+                        })));
+                    }
+                };
+
+                // USDA nutrient amounts are per 100 g
+                let multiplier = grams / 100.0;
+                for nutrient in &food.food_nutrients {
+                    match nutrient.nutrient_name.as_str() {
+                        "Energy" => {
+                            total_calories = nutrient.amount.mul_add(multiplier, total_calories);
+                        }
+                        "Protein" => {
+                            total_protein = nutrient.amount.mul_add(multiplier, total_protein);
+                        }
+                        "Carbohydrate, by difference" => {
+                            total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
+                        }
+                        "Total lipid (fat)" => {
+                            total_fat = nutrient.amount.mul_add(multiplier, total_fat);
+                        }
+                        _ => {}
+                    }
+                }
+
+                food_details_list.push(json!({
+                    "fdc_id": fdc_id,
+                    "description": food.description,
+                    "grams": grams,
+                }));
+            }
+
+            Ok(ToolResult::ok(json!({
+                "total_calories": total_calories.round(),
+                "total_protein_g": total_protein.round(),
+                "total_carbs_g": total_carbs.round(),
+                "total_fat_g": total_fat.round(),
+                "foods": food_details_list,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -841,7 +888,7 @@ impl McpTool for AnalyzeMealNutritionTool {
 
 /// Create all nutrition tools for registration
 #[must_use]
-pub fn create_nutrition_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_nutrition_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(CalculateDailyNutritionTool),
         Box::new(GetNutrientTimingTool),

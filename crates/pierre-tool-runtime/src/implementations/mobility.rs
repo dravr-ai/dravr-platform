@@ -17,6 +17,7 @@
 //! All tools use direct database access for seeded mobility data.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -26,8 +27,12 @@ use pierre_database::database::mobility::{
 };
 use serde_json::{json, Value};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -40,16 +45,8 @@ use pierre_tools_core::ToolResult;
 pub struct ListStretchingExercisesTool;
 
 #[async_trait]
-impl McpTool for ListStretchingExercisesTool {
-    fn name(&self) -> &'static str {
-        "list_stretching_exercises"
-    }
-
-    fn description(&self) -> &'static str {
-        "List stretching exercises with optional filtering by category, difficulty, muscle group, or activity type"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "category".to_owned(),
@@ -99,76 +96,93 @@ impl McpTool for ListStretchingExercisesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(StretchingCategory::parse);
-
-        let difficulty = args
-            .get("difficulty")
-            .and_then(Value::as_str)
-            .map(DifficultyLevel::parse);
-
-        let muscle_group = args
-            .get("muscle_group")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|l| l.min(100) as u32);
-
-        let filter = ListStretchingFilter {
-            category,
-            difficulty,
-            muscle_group,
-            activity_type: None,
-            limit,
-            offset: None,
         };
 
-        let repo = context.resources.repos().mobility.as_ref();
-        let exercises = repo
-            .list_stretching_exercises(&filter)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+        tool_definition(
+            "list_stretching_exercises",
+            "List stretching exercises with optional filtering by category, difficulty, muscle group, or activity type",
+            schema,
+            None,
+        )
+    }
 
-        let exercises_json: Vec<Value> = exercises
-            .iter()
-            .map(|e| {
-                json!({
-                    "id": e.id,
-                    "name": e.name,
-                    "description": e.description,
-                    "category": e.category.as_str(),
-                    "difficulty": e.difficulty.as_str(),
-                    "primary_muscles": e.primary_muscles,
-                    "secondary_muscles": e.secondary_muscles,
-                    "duration_seconds": e.duration_seconds,
-                    "sets": e.sets,
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let category = args
+                .get("category")
+                .and_then(Value::as_str)
+                .map(StretchingCategory::parse);
+
+            let difficulty = args
+                .get("difficulty")
+                .and_then(Value::as_str)
+                .map(DifficultyLevel::parse);
+
+            let muscle_group = args
+                .get("muscle_group")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+
+            #[allow(clippy::cast_possible_truncation)]
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|l| l.min(100) as u32);
+
+            let filter = ListStretchingFilter {
+                category,
+                difficulty,
+                muscle_group,
+                activity_type: None,
+                limit,
+                offset: None,
+            };
+
+            let repo = context.resources.repos().mobility.as_ref();
+            let exercises = repo
+                .list_stretching_exercises(&filter)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            let exercises_json: Vec<Value> = exercises
+                .iter()
+                .map(|e| {
+                    json!({
+                        "id": e.id,
+                        "name": e.name,
+                        "description": e.description,
+                        "category": e.category.as_str(),
+                        "difficulty": e.difficulty.as_str(),
+                        "primary_muscles": e.primary_muscles,
+                        "secondary_muscles": e.secondary_muscles,
+                        "duration_seconds": e.duration_seconds,
+                        "sets": e.sets,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(ToolResult::ok(json!({
-            "exercises": exercises_json,
-            "count": exercises_json.len(),
-            "timestamp": Utc::now().to_rfc3339(),
-        })))
+            Ok(ToolResult::ok(json!({
+                "exercises": exercises_json,
+                "count": exercises_json.len(),
+                "timestamp": Utc::now().to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -180,16 +194,8 @@ impl McpTool for ListStretchingExercisesTool {
 pub struct GetStretchingExerciseTool;
 
 #[async_trait]
-impl McpTool for GetStretchingExerciseTool {
-    fn name(&self) -> &'static str {
-        "get_stretching_exercise"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get detailed information about a specific stretching exercise"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "exercise_id".to_owned(),
@@ -199,53 +205,70 @@ impl McpTool for GetStretchingExerciseTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["exercise_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let exercise_id = args
-            .get("exercise_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("exercise_id is required"))?;
-
-        let repo = context.resources.repos().mobility.as_ref();
-        let exercise_opt = repo
-            .get_stretching_exercise(exercise_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
-
-        let Some(exercise) = exercise_opt else {
-            return Ok(ToolResult::error(json!({
-                "error": format!("Stretching exercise not found: {exercise_id}")
-            })));
         };
 
-        Ok(ToolResult::ok(json!({
-            "id": exercise.id,
-            "name": exercise.name,
-            "description": exercise.description,
-            "category": exercise.category.as_str(),
-            "difficulty": exercise.difficulty.as_str(),
-            "primary_muscles": exercise.primary_muscles,
-            "secondary_muscles": exercise.secondary_muscles,
-            "duration_seconds": exercise.duration_seconds,
-            "repetitions": exercise.repetitions,
-            "sets": exercise.sets,
-            "recommended_for_activities": exercise.recommended_for_activities,
-            "contraindications": exercise.contraindications,
-            "instructions": exercise.instructions,
-            "cues": exercise.cues,
-            "image_url": exercise.image_url,
-            "video_url": exercise.video_url,
-        })))
+        tool_definition(
+            "get_stretching_exercise",
+            "Get detailed information about a specific stretching exercise",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let exercise_id = args
+                .get("exercise_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("exercise_id is required"))?;
+
+            let repo = context.resources.repos().mobility.as_ref();
+            let exercise_opt = repo
+                .get_stretching_exercise(exercise_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            let Some(exercise) = exercise_opt else {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Stretching exercise not found: {exercise_id}")
+                })));
+            };
+
+            Ok(ToolResult::ok(json!({
+                "id": exercise.id,
+                "name": exercise.name,
+                "description": exercise.description,
+                "category": exercise.category.as_str(),
+                "difficulty": exercise.difficulty.as_str(),
+                "primary_muscles": exercise.primary_muscles,
+                "secondary_muscles": exercise.secondary_muscles,
+                "duration_seconds": exercise.duration_seconds,
+                "repetitions": exercise.repetitions,
+                "sets": exercise.sets,
+                "recommended_for_activities": exercise.recommended_for_activities,
+                "contraindications": exercise.contraindications,
+                "instructions": exercise.instructions,
+                "cues": exercise.cues,
+                "image_url": exercise.image_url,
+                "video_url": exercise.video_url,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -257,16 +280,8 @@ impl McpTool for GetStretchingExerciseTool {
 pub struct SuggestStretchesForActivityTool;
 
 #[async_trait]
-impl McpTool for SuggestStretchesForActivityTool {
-    fn name(&self) -> &'static str {
-        "suggest_stretches_for_activity"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get personalized stretching recommendations based on your recent activity type"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "activity_type".to_owned(),
@@ -298,80 +313,97 @@ impl McpTool for SuggestStretchesForActivityTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["activity_type".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let activity_type = args
-            .get("activity_type")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("activity_type is required"))?;
-
-        let difficulty = args
-            .get("difficulty")
-            .and_then(Value::as_str)
-            .map(DifficultyLevel::parse);
-
-        #[allow(clippy::cast_possible_truncation)]
-        let duration_minutes = args
-            .get("duration_minutes")
-            .and_then(Value::as_u64)
-            .map(|d| d.min(240) as u32);
-
-        let repo = context.resources.repos().mobility.as_ref();
-        let all_exercises = repo
-            .get_stretches_for_activity(activity_type, Some(20))
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
-
-        let exercises: Vec<_> = if let Some(ref target_difficulty) = difficulty {
-            all_exercises
-                .into_iter()
-                .filter(|e| &e.difficulty == target_difficulty)
-                .collect()
-        } else {
-            all_exercises
         };
 
-        let max_exercises = duration_minutes.map_or(6, |d| (d / 5).clamp(3, 12) as usize);
-        let suggestions: Vec<Value> = exercises
-            .iter()
-            .take(max_exercises)
-            .map(|e| {
-                json!({
-                    "id": e.id,
-                    "name": e.name,
-                    "category": e.category.as_str(),
-                    "difficulty": e.difficulty.as_str(),
-                    "duration_seconds": e.duration_seconds,
-                    "sets": e.sets,
-                    "primary_muscles": e.primary_muscles,
-                    "instructions": e.instructions,
+        tool_definition(
+            "suggest_stretches_for_activity",
+            "Get personalized stretching recommendations based on your recent activity type",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let activity_type = args
+                .get("activity_type")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("activity_type is required"))?;
+
+            let difficulty = args
+                .get("difficulty")
+                .and_then(Value::as_str)
+                .map(DifficultyLevel::parse);
+
+            #[allow(clippy::cast_possible_truncation)]
+            let duration_minutes = args
+                .get("duration_minutes")
+                .and_then(Value::as_u64)
+                .map(|d| d.min(240) as u32);
+
+            let repo = context.resources.repos().mobility.as_ref();
+            let all_exercises = repo
+                .get_stretches_for_activity(activity_type, Some(20))
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            let exercises: Vec<_> = if let Some(ref target_difficulty) = difficulty {
+                all_exercises
+                    .into_iter()
+                    .filter(|e| &e.difficulty == target_difficulty)
+                    .collect()
+            } else {
+                all_exercises
+            };
+
+            let max_exercises = duration_minutes.map_or(6, |d| (d / 5).clamp(3, 12) as usize);
+            let suggestions: Vec<Value> = exercises
+                .iter()
+                .take(max_exercises)
+                .map(|e| {
+                    json!({
+                        "id": e.id,
+                        "name": e.name,
+                        "category": e.category.as_str(),
+                        "difficulty": e.difficulty.as_str(),
+                        "duration_seconds": e.duration_seconds,
+                        "sets": e.sets,
+                        "primary_muscles": e.primary_muscles,
+                        "instructions": e.instructions,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let total_duration_seconds: u32 = exercises
-            .iter()
-            .take(max_exercises)
-            .map(|e| e.duration_seconds * e.sets)
-            .sum();
+            let total_duration_seconds: u32 = exercises
+                .iter()
+                .take(max_exercises)
+                .map(|e| e.duration_seconds * e.sets)
+                .sum();
 
-        Ok(ToolResult::ok(json!({
-            "activity_type": activity_type,
-            "exercises": suggestions,
-            "count": suggestions.len(),
-            "total_duration_seconds": total_duration_seconds,
-            "suggested_at": Utc::now().to_rfc3339(),
-        })))
+            Ok(ToolResult::ok(json!({
+                "activity_type": activity_type,
+                "exercises": suggestions,
+                "count": suggestions.len(),
+                "total_duration_seconds": total_duration_seconds,
+                "suggested_at": Utc::now().to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -383,16 +415,8 @@ impl McpTool for SuggestStretchesForActivityTool {
 pub struct ListYogaPosesTool;
 
 #[async_trait]
-impl McpTool for ListYogaPosesTool {
-    fn name(&self) -> &'static str {
-        "list_yoga_poses"
-    }
-
-    fn description(&self) -> &'static str {
-        "List yoga poses with optional filtering by category, difficulty, pose type, or recovery context"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "category".to_owned(),
@@ -455,83 +479,100 @@ impl McpTool for ListYogaPosesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(YogaCategory::parse);
-
-        let difficulty = args
-            .get("difficulty")
-            .and_then(Value::as_str)
-            .map(DifficultyLevel::parse);
-
-        let pose_type = args
-            .get("pose_type")
-            .and_then(Value::as_str)
-            .map(YogaPoseType::parse);
-
-        let recovery_context = args
-            .get("recovery_context")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|l| l.min(100) as u32);
-
-        let filter = ListYogaFilter {
-            category,
-            difficulty,
-            pose_type,
-            muscle_group: None,
-            activity_type: None,
-            recovery_context,
-            limit,
-            offset: None,
         };
 
-        let repo = context.resources.repos().mobility.as_ref();
-        let poses = repo
-            .list_yoga_poses(&filter)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+        tool_definition(
+            "list_yoga_poses",
+            "List yoga poses with optional filtering by category, difficulty, pose type, or recovery context",
+            schema,
+            None,
+        )
+    }
 
-        let poses_json: Vec<Value> = poses
-            .iter()
-            .map(|p| {
-                json!({
-                    "id": p.id,
-                    "english_name": p.english_name,
-                    "sanskrit_name": p.sanskrit_name,
-                    "description": p.description,
-                    "category": p.category.as_str(),
-                    "difficulty": p.difficulty.as_str(),
-                    "pose_type": p.pose_type.as_str(),
-                    "primary_muscles": p.primary_muscles,
-                    "hold_duration_seconds": p.hold_duration_seconds,
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let category = args
+                .get("category")
+                .and_then(Value::as_str)
+                .map(YogaCategory::parse);
+
+            let difficulty = args
+                .get("difficulty")
+                .and_then(Value::as_str)
+                .map(DifficultyLevel::parse);
+
+            let pose_type = args
+                .get("pose_type")
+                .and_then(Value::as_str)
+                .map(YogaPoseType::parse);
+
+            let recovery_context = args
+                .get("recovery_context")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+
+            #[allow(clippy::cast_possible_truncation)]
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|l| l.min(100) as u32);
+
+            let filter = ListYogaFilter {
+                category,
+                difficulty,
+                pose_type,
+                muscle_group: None,
+                activity_type: None,
+                recovery_context,
+                limit,
+                offset: None,
+            };
+
+            let repo = context.resources.repos().mobility.as_ref();
+            let poses = repo
+                .list_yoga_poses(&filter)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            let poses_json: Vec<Value> = poses
+                .iter()
+                .map(|p| {
+                    json!({
+                        "id": p.id,
+                        "english_name": p.english_name,
+                        "sanskrit_name": p.sanskrit_name,
+                        "description": p.description,
+                        "category": p.category.as_str(),
+                        "difficulty": p.difficulty.as_str(),
+                        "pose_type": p.pose_type.as_str(),
+                        "primary_muscles": p.primary_muscles,
+                        "hold_duration_seconds": p.hold_duration_seconds,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(ToolResult::ok(json!({
-            "poses": poses_json,
-            "count": poses_json.len(),
-            "timestamp": Utc::now().to_rfc3339(),
-        })))
+            Ok(ToolResult::ok(json!({
+                "poses": poses_json,
+                "count": poses_json.len(),
+                "timestamp": Utc::now().to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -543,16 +584,8 @@ impl McpTool for ListYogaPosesTool {
 pub struct GetYogaPoseTool;
 
 #[async_trait]
-impl McpTool for GetYogaPoseTool {
-    fn name(&self) -> &'static str {
-        "get_yoga_pose"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get detailed information about a specific yoga pose"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "pose_id".to_owned(),
@@ -562,61 +595,78 @@ impl McpTool for GetYogaPoseTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["pose_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let pose_id = args
-            .get("pose_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("pose_id is required"))?;
-
-        let repo = context.resources.repos().mobility.as_ref();
-        let pose_opt = repo
-            .get_yoga_pose(pose_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
-
-        let Some(pose) = pose_opt else {
-            return Ok(ToolResult::error(json!({
-                "error": format!("Yoga pose not found: {pose_id}")
-            })));
         };
 
-        Ok(ToolResult::ok(json!({
-            "id": pose.id,
-            "english_name": pose.english_name,
-            "sanskrit_name": pose.sanskrit_name,
-            "description": pose.description,
-            "benefits": pose.benefits,
-            "category": pose.category.as_str(),
-            "difficulty": pose.difficulty.as_str(),
-            "pose_type": pose.pose_type.as_str(),
-            "primary_muscles": pose.primary_muscles,
-            "secondary_muscles": pose.secondary_muscles,
-            "chakras": pose.chakras,
-            "hold_duration_seconds": pose.hold_duration_seconds,
-            "breath_guidance": pose.breath_guidance,
-            "recommended_for_activities": pose.recommended_for_activities,
-            "recommended_for_recovery": pose.recommended_for_recovery,
-            "contraindications": pose.contraindications,
-            "instructions": pose.instructions,
-            "modifications": pose.modifications,
-            "progressions": pose.progressions,
-            "cues": pose.cues,
-            "warmup_poses": pose.warmup_poses,
-            "followup_poses": pose.followup_poses,
-            "image_url": pose.image_url,
-            "video_url": pose.video_url,
-        })))
+        tool_definition(
+            "get_yoga_pose",
+            "Get detailed information about a specific yoga pose",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let pose_id = args
+                .get("pose_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("pose_id is required"))?;
+
+            let repo = context.resources.repos().mobility.as_ref();
+            let pose_opt = repo
+                .get_yoga_pose(pose_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            let Some(pose) = pose_opt else {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Yoga pose not found: {pose_id}")
+                })));
+            };
+
+            Ok(ToolResult::ok(json!({
+                "id": pose.id,
+                "english_name": pose.english_name,
+                "sanskrit_name": pose.sanskrit_name,
+                "description": pose.description,
+                "benefits": pose.benefits,
+                "category": pose.category.as_str(),
+                "difficulty": pose.difficulty.as_str(),
+                "pose_type": pose.pose_type.as_str(),
+                "primary_muscles": pose.primary_muscles,
+                "secondary_muscles": pose.secondary_muscles,
+                "chakras": pose.chakras,
+                "hold_duration_seconds": pose.hold_duration_seconds,
+                "breath_guidance": pose.breath_guidance,
+                "recommended_for_activities": pose.recommended_for_activities,
+                "recommended_for_recovery": pose.recommended_for_recovery,
+                "contraindications": pose.contraindications,
+                "instructions": pose.instructions,
+                "modifications": pose.modifications,
+                "progressions": pose.progressions,
+                "cues": pose.cues,
+                "warmup_poses": pose.warmup_poses,
+                "followup_poses": pose.followup_poses,
+                "image_url": pose.image_url,
+                "video_url": pose.video_url,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -628,16 +678,8 @@ impl McpTool for GetYogaPoseTool {
 pub struct SuggestYogaSequenceTool;
 
 #[async_trait]
-impl McpTool for SuggestYogaSequenceTool {
-    fn name(&self) -> &'static str {
-        "suggest_yoga_sequence"
-    }
-
-    fn description(&self) -> &'static str {
-        "Create a personalized yoga sequence for recovery based on your recent activities or goals"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "purpose".to_owned(),
@@ -680,18 +722,32 @@ impl McpTool for SuggestYogaSequenceTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["purpose".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "suggest_yoga_sequence",
+            "Create a personalized yoga sequence for recovery based on your recent activities or goals",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let purpose = args
             .get("purpose")
             .and_then(Value::as_str)
@@ -759,6 +815,9 @@ impl McpTool for SuggestYogaSequenceTool {
             ),
             "suggested_at": Utc::now().to_rfc3339(),
         })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -768,7 +827,7 @@ impl McpTool for SuggestYogaSequenceTool {
 
 /// Create all mobility tools for registration
 #[must_use]
-pub fn create_mobility_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_mobility_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ListStretchingExercisesTool),
         Box::new(GetStretchingExerciseTool),

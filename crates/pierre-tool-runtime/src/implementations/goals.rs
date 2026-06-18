@@ -15,6 +15,7 @@
 //! Uses the goal engine directly for clean, efficient goal management.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
@@ -24,10 +25,14 @@ use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
 use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
 use pierre_config::constants::limits::{
@@ -872,16 +877,8 @@ fn calculate_progress_metrics(
 pub struct SetGoalTool;
 
 #[async_trait]
-impl McpTool for SetGoalTool {
-    fn name(&self) -> &'static str {
-        "set_goal"
-    }
-
-    fn description(&self) -> &'static str {
-        "Create a new fitness goal with specified type, target value, and timeframe"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SetGoalTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "goal_type".to_owned(),
@@ -934,46 +931,62 @@ impl McpTool for SetGoalTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
+        };
+        tool_definition(
+            "set_goal",
+            "Create a new fitness goal with specified type, target value, and timeframe",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let params = extract_goal_params(&args)?;
+            let user_uuid = context.user_id;
+
+            let created_at = Utc::now();
+            let goal_data = json!({
+                "goal_type": params.goal_type,
+                "target_value": params.target_value,
+                "timeframe": params.timeframe,
+                "title": params.title,
+                "created_at": created_at.to_rfc3339()
+            });
+
+            let goal_id = context
+                .resources
+                .repos()
+                .profiles
+                .create_goal(user_uuid, goal_data)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+
+            Ok(ToolResult::ok(build_goal_creation_payload(
+                &goal_id,
+                &params.goal_type,
+                params.target_value,
+                &params.timeframe,
+                &params.title,
+                created_at,
+            )))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let params = extract_goal_params(&args)?;
-        let user_uuid = context.user_id;
-
-        let created_at = Utc::now();
-        let goal_data = json!({
-            "goal_type": params.goal_type,
-            "target_value": params.target_value,
-            "timeframe": params.timeframe,
-            "title": params.title,
-            "created_at": created_at.to_rfc3339()
-        });
-
-        let goal_id = context
-            .resources
-            .repos()
-            .profiles
-            .create_goal(user_uuid, goal_data)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
-
-        Ok(ToolResult::ok(build_goal_creation_payload(
-            &goal_id,
-            &params.goal_type,
-            params.target_value,
-            &params.timeframe,
-            &params.title,
-            created_at,
-        )))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -985,16 +998,8 @@ impl McpTool for SetGoalTool {
 pub struct SuggestGoalsTool;
 
 #[async_trait]
-impl McpTool for SuggestGoalsTool {
-    fn name(&self) -> &'static str {
-        "suggest_goals"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get AI-suggested fitness goals based on your activity history and fitness level"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -1006,45 +1011,61 @@ impl McpTool for SuggestGoalsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let provider_name = match resolve_provider_for_tool(&args, context).await {
-            Ok(p) => p,
-            Err(result) => return Ok(result),
         };
-        let user_uuid = context.user_id;
-
-        let activities = fetch_suggestion_activities(context, &provider_name, user_uuid).await;
-
-        let cageux_config = context.cageux_config();
-        let goal_engine = AdvancedGoalEngine::new(&cageux_config);
-        let user_profile = load_user_profile(
-            context.resources.repos().profiles.as_ref(),
-            user_uuid,
-            &user_uuid.to_string(),
-            &activities,
+        tool_definition(
+            "suggest_goals",
+            "Get AI-suggested fitness goals based on your activity history and fitness level",
+            schema,
+            None,
         )
-        .await;
+    }
 
-        match goal_engine.suggest_goals(&user_profile, &activities).await {
-            Ok(suggestions) => Ok(ToolResult::ok(json!({
-                "suggested_goals": format_goal_suggestions(suggestions),
-                "activities_analyzed": activities.len()
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to suggest goals: {e}")
-            }))),
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+                Ok(p) => p,
+                Err(result) => return Ok(result),
+            };
+            let user_uuid = context.user_id;
+
+            let activities = fetch_suggestion_activities(&context, &provider_name, user_uuid).await;
+
+            let cageux_config = context.cageux_config();
+            let goal_engine = AdvancedGoalEngine::new(&cageux_config);
+            let user_profile = load_user_profile(
+                context.resources.repos().profiles.as_ref(),
+                user_uuid,
+                &user_uuid.to_string(),
+                &activities,
+            )
+            .await;
+
+            match goal_engine.suggest_goals(&user_profile, &activities).await {
+                Ok(suggestions) => Ok(ToolResult::ok(json!({
+                    "suggested_goals": format_goal_suggestions(suggestions),
+                    "activities_analyzed": activities.len()
+                }))),
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Failed to suggest goals: {e}")
+                }))),
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1056,16 +1077,8 @@ impl McpTool for SuggestGoalsTool {
 pub struct TrackProgressTool;
 
 #[async_trait]
-impl McpTool for TrackProgressTool {
-    fn name(&self) -> &'static str {
-        "track_progress"
-    }
-
-    fn description(&self) -> &'static str {
-        "Track progress toward a specific fitness goal with milestone achievements and projections"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for TrackProgressTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "goal_id".to_owned(),
@@ -1085,74 +1098,93 @@ impl McpTool for TrackProgressTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["goal_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let goal_id = args
-            .get("goal_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::invalid_input("goal_id is required"))?
-            .to_owned();
-
-        let provider_name = match resolve_provider_for_tool(&args, context).await {
-            Ok(p) => p,
-            Err(result) => return Ok(result),
         };
-        let user_uuid = context.user_id;
-
-        let Some(details) = fetch_and_validate_goal(
-            context.resources.repos().profiles.as_ref(),
-            user_uuid,
-            &goal_id,
+        tool_definition(
+            "track_progress",
+            "Track progress toward a specific fitness goal with milestone achievements and projections",
+            schema,
+            None,
         )
-        .await?
-        else {
-            return Ok(ToolResult::error(json!({
-                "error": format!("Goal {goal_id} not found"),
-            })));
-        };
+    }
 
-        let days_remaining = calculate_days_remaining(details.created_at, &details.timeframe);
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
 
-        let activities = fetch_progress_activities(context, &provider_name, user_uuid).await?;
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let goal_id = args
+                .get("goal_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::invalid_input("goal_id is required"))?
+                .to_owned();
 
-        let relevant_activities = filter_relevant_activities(&activities, details.created_at);
-        let (current_value, unit, progress_percentage, on_track) = calculate_progress_metrics(
-            &details.goal_type,
-            &relevant_activities,
-            details.goal_target,
-        );
+            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+                Ok(p) => p,
+                Err(result) => return Ok(result),
+            };
+            let user_uuid = context.user_id;
 
-        let total_duration: u64 = relevant_activities
-            .iter()
-            .map(|a| a.duration_seconds())
-            .sum();
-        let projected_completion =
-            calculate_projected_completion(current_value, details.goal_target, details.created_at);
+            let Some(details) = fetch_and_validate_goal(
+                context.resources.repos().profiles.as_ref(),
+                user_uuid,
+                &goal_id,
+            )
+            .await?
+            else {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Goal {goal_id} not found"),
+                })));
+            };
 
-        Ok(ToolResult::ok(build_progress_payload(
-            &ProgressResponseParams {
-                goal_id: &goal_id,
-                details: &details,
+            let days_remaining = calculate_days_remaining(details.created_at, &details.timeframe);
+
+            let activities = fetch_progress_activities(&context, &provider_name, user_uuid).await?;
+
+            let relevant_activities = filter_relevant_activities(&activities, details.created_at);
+            let (current_value, unit, progress_percentage, on_track) = calculate_progress_metrics(
+                &details.goal_type,
+                &relevant_activities,
+                details.goal_target,
+            );
+
+            let total_duration: u64 = relevant_activities
+                .iter()
+                .map(|a| a.duration_seconds())
+                .sum();
+            let projected_completion = calculate_projected_completion(
                 current_value,
-                unit,
-                progress_percentage,
-                on_track,
-                days_remaining,
-                projected_completion,
-                relevant_activities: &relevant_activities,
-                total_duration,
-            },
-        )))
+                details.goal_target,
+                details.created_at,
+            );
+
+            Ok(ToolResult::ok(build_progress_payload(
+                &ProgressResponseParams {
+                    goal_id: &goal_id,
+                    details: &details,
+                    current_value,
+                    unit,
+                    progress_percentage,
+                    on_track,
+                    days_remaining,
+                    projected_completion,
+                    relevant_activities: &relevant_activities,
+                    total_duration,
+                },
+            )))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1164,16 +1196,8 @@ impl McpTool for TrackProgressTool {
 pub struct AnalyzeGoalFeasibilityTool;
 
 #[async_trait]
-impl McpTool for AnalyzeGoalFeasibilityTool {
-    fn name(&self) -> &'static str {
-        "analyze_goal_feasibility"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze whether a fitness goal is achievable based on your current fitness level and training history"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "goal_type".to_owned(),
@@ -1211,60 +1235,77 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["goal_type".to_owned(), "target_value".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let (goal_type, target_value, effective_timeframe) = extract_feasibility_params(&args)?;
-        let provider_name = match resolve_provider_for_tool(&args, context).await {
-            Ok(p) => p,
-            Err(result) => return Ok(result),
         };
-        let user_uuid = context.user_id;
+        tool_definition(
+            "analyze_goal_feasibility",
+            "Analyze whether a fitness goal is achievable based on your current fitness level and training history",
+            schema,
+            None,
+        )
+    }
 
-        let activities = fetch_feasibility_activities(context, &provider_name, user_uuid).await;
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
 
-        let (current_level, confidence_level, risk_factors, recommendations) =
-            analyze_goal_by_type(&goal_type, &activities, target_value, effective_timeframe);
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let (goal_type, target_value, effective_timeframe) = extract_feasibility_params(&args)?;
+            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+                Ok(p) => p,
+                Err(result) => return Ok(result),
+            };
+            let user_uuid = context.user_id;
 
-        let (feasibility_score, improvement_required, safe_improvement_capacity) =
-            calculate_feasibility_score(current_level, target_value, effective_timeframe);
-        let feasible = feasibility_score >= MODERATE_FEASIBILITY_THRESHOLD;
+            let activities =
+                fetch_feasibility_activities(&context, &provider_name, user_uuid).await;
 
-        let final_recommendations = generate_feasibility_recommendations(
-            recommendations,
-            feasible,
-            improvement_required,
-            safe_improvement_capacity,
-            current_level,
-            &goal_type,
-            activities.len(),
-        );
+            let (current_level, confidence_level, risk_factors, recommendations) =
+                analyze_goal_by_type(&goal_type, &activities, target_value, effective_timeframe);
 
-        Ok(ToolResult::ok(build_feasibility_payload(
-            &FeasibilityResponseParams {
-                feasibility_score,
+            let (feasibility_score, improvement_required, safe_improvement_capacity) =
+                calculate_feasibility_score(current_level, target_value, effective_timeframe);
+            let feasible = feasibility_score >= MODERATE_FEASIBILITY_THRESHOLD;
+
+            let final_recommendations = generate_feasibility_recommendations(
+                recommendations,
                 feasible,
-                confidence_level,
-                risk_factors,
-                recommendations: final_recommendations,
-                target_value,
-                current_level,
-                safe_improvement_capacity,
-                effective_timeframe,
                 improvement_required,
-                activities_len: activities.len(),
-                goal_type: &goal_type,
-            },
-        )))
+                safe_improvement_capacity,
+                current_level,
+                &goal_type,
+                activities.len(),
+            );
+
+            Ok(ToolResult::ok(build_feasibility_payload(
+                &FeasibilityResponseParams {
+                    feasibility_score,
+                    feasible,
+                    confidence_level,
+                    risk_factors,
+                    recommendations: final_recommendations,
+                    target_value,
+                    current_level,
+                    safe_improvement_capacity,
+                    effective_timeframe,
+                    improvement_required,
+                    activities_len: activities.len(),
+                    goal_type: &goal_type,
+                },
+            )))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1274,7 +1315,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
 
 /// Create all goal management tools for registration.
 #[must_use]
-pub fn create_goal_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_goal_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(SetGoalTool),
         Box::new(SuggestGoalsTool),

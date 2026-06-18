@@ -16,12 +16,17 @@ use pierre_intelligence::latest_snapshot::{
 use pierre_intelligence::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 use serde_json::Value;
 
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_routes_social::SocialRoutes;
+use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::conversions::{
+    capabilities_to_tronc, tool_definition, tool_result_to_response,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
 use pierre_tools_core::ToolResult;
 use tracing::warn;
 
@@ -104,22 +109,8 @@ async fn resolve_provider_for_user(
 pub struct ExportLatestSnapshotTool;
 
 #[async_trait]
-impl McpTool for ExportLatestSnapshotTool {
-    fn name(&self) -> &'static str {
-        "export_latest_snapshot"
-    }
-
-    fn description(&self) -> &'static str {
-        "Export the Endurance 'latest.json' snapshot for the authenticated user — \
-         per-activity intensity factor, efficiency factor, variability index, \
-         aerobic decoupling, and time-in-zone distribution aggregated over a \
-         sliding window. Default window is 7 days; pass `window` (1..=365) to \
-         change it. Use this when a coach needs a structured per-activity \
-         training-state snapshot grounded in the Endurance deterministic-output \
-         contract. The response shape mirrors `GET /api/v1/endurance/latest`."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "window".to_owned(),
@@ -131,50 +122,71 @@ impl McpTool for ExportLatestSnapshotTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(Vec::new()),
+        };
+        tool_definition(
+            "export_latest_snapshot",
+            "Export the Endurance 'latest.json' snapshot for the authenticated user — \
+             per-activity intensity factor, efficiency factor, variability index, \
+             aerobic decoupling, and time-in-zone distribution aggregated over a \
+             sliding window. Default window is 7 days; pass `window` (1..=365) to \
+             change it. Use this when a coach needs a structured per-activity \
+             training-state snapshot grounded in the Endurance deterministic-output \
+             contract. The response shape mirrors `GET /api/v1/endurance/latest`.",
+            schema,
+            Some(read_only_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let window = args
+                .get("window")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(DEFAULT_WINDOW_DAYS)
+                .clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
+
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+
+            let activities =
+                fetch_window_activities(&context.resources, user_id, tenant_id).await?;
+            let physiology = context
+                .resources
+                .repos()
+                .user_physiological_profile
+                .get_user_physiological_profile(tenant_id, user_id)
+                .await?;
+            let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
+            let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
+            let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones);
+
+            let payload = serde_json::to_value(&snapshot)
+                .map_err(|e| AppError::internal(format!("serialize latest snapshot: {e}")))?;
+            Ok(ToolResult::ok(payload))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let window = args
-            .get("window")
-            .and_then(Value::as_u64)
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(DEFAULT_WINDOW_DAYS)
-            .clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
-
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-
-        let activities = fetch_window_activities(&context.resources, user_id, tenant_id).await?;
-        let physiology = context
-            .resources
-            .repos()
-            .user_physiological_profile
-            .get_user_physiological_profile(tenant_id, user_id)
-            .await?;
-        let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
-        let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
-        let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones);
-
-        let payload = serde_json::to_value(&snapshot)
-            .map_err(|e| AppError::internal(format!("serialize latest snapshot: {e}")))?;
-        Ok(ToolResult::ok(payload))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -183,78 +195,84 @@ impl McpTool for ExportLatestSnapshotTool {
 pub struct ExportDossierTool;
 
 #[async_trait]
-impl McpTool for ExportDossierTool {
-    fn name(&self) -> &'static str {
-        "export_dossier"
-    }
-
-    fn description(&self) -> &'static str {
-        "Export the Endurance 'dossier.json' aggregate for the authenticated \
-         user — physiological profile (VO2max, FTP, threshold pace, fitness \
-         level), HR + power zones, goals, nutrition, and equipment slots — \
-         composed at read time from the underlying tables. Empty slots come \
-         back as `null` rather than 404, so coaches can rely on the shape. \
-         Mirrors `GET /api/v1/endurance/dossier`."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for ExportDossierTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: Some(Vec::new()),
+        };
+        tool_definition(
+            "export_dossier",
+            "Export the Endurance 'dossier.json' aggregate for the authenticated \
+             user — physiological profile (VO2max, FTP, threshold pace, fitness \
+             level), HR + power zones, goals, nutrition, and equipment slots — \
+             composed at read time from the underlying tables. Empty slots come \
+             back as `null` rather than 404, so coaches can rely on the shape. \
+             Mirrors `GET /api/v1/endurance/dossier`.",
+            schema,
+            Some(read_only_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            // ExportDossierTool takes no arguments — accept any object shape and
+            // discard. Forward-compat for future filter/include params.
+            drop(args);
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let dossier = context
+                .resources
+                .repos()
+                .dossier
+                .compose_dossier(tenant_id, user_id)
+                .await?;
+            let mut payload = serde_json::to_value(&dossier)
+                .map_err(|e| AppError::internal(format!("serialize dossier: {e}")))?;
+
+            // Surface estimated lactate thresholds (LT1/LT2 heart rate, power, and
+            // pace) derived from the athlete's physiological profile — Coggan
+            // (LT1 power = 0.75 * FTP) and Seiler-style pace anchors. This gives the
+            // dossier training-zone anchors even when the athlete hasn't measured
+            // them directly. Missing profile fields stay `None`; the estimate block
+            // is always present (empty when nothing is known) to keep the shape
+            // stable, matching the dossier's "empty slots, not 404" contract.
+            let physiology = context
+                .resources
+                .repos()
+                .user_physiological_profile
+                .get_user_physiological_profile(tenant_id, user_id)
+                .await?;
+            let estimate =
+                ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
+            if let Value::Object(map) = &mut payload {
+                map.insert(
+                    "threshold_estimate".to_owned(),
+                    serde_json::to_value(estimate).map_err(|e| {
+                        AppError::internal(format!("serialize threshold estimate: {e}"))
+                    })?,
+                );
+            }
+
+            Ok(ToolResult::ok(payload))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        // ExportDossierTool takes no arguments — accept any object shape and
-        // discard. Forward-compat for future filter/include params.
-        drop(args);
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let dossier = context
-            .resources
-            .repos()
-            .dossier
-            .compose_dossier(tenant_id, user_id)
-            .await?;
-        let mut payload = serde_json::to_value(&dossier)
-            .map_err(|e| AppError::internal(format!("serialize dossier: {e}")))?;
-
-        // Surface estimated lactate thresholds (LT1/LT2 heart rate, power, and
-        // pace) derived from the athlete's physiological profile — Coggan
-        // (LT1 power = 0.75 * FTP) and Seiler-style pace anchors. This gives the
-        // dossier training-zone anchors even when the athlete hasn't measured
-        // them directly. Missing profile fields stay `None`; the estimate block
-        // is always present (empty when nothing is known) to keep the shape
-        // stable, matching the dossier's "empty slots, not 404" contract.
-        let physiology = context
-            .resources
-            .repos()
-            .user_physiological_profile
-            .get_user_physiological_profile(tenant_id, user_id)
-            .await?;
-        let estimate =
-            ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
-        if let Value::Object(map) = &mut payload {
-            map.insert(
-                "threshold_estimate".to_owned(),
-                serde_json::to_value(estimate).map_err(|e| {
-                    AppError::internal(format!("serialize threshold estimate: {e}"))
-                })?,
-            );
-        }
-
-        Ok(ToolResult::ok(payload))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -275,7 +293,7 @@ fn threshold_inputs_from_profile(profile: Option<&UserPhysiologicalProfile>) -> 
 
 /// Build the Endurance export tool list for registry registration.
 #[must_use]
-pub fn create_endurance_export_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_endurance_export_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ExportLatestSnapshotTool),
         Box::new(ExportDossierTool),

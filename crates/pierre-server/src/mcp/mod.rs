@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// MCP request processing and routing
-pub mod mcp_request_processor;
-/// Multi-tenant MCP server implementation
+/// Platform host seams (auth/dispatch/method) wiring onto the tronc MCP engine
+pub mod host_seams;
+/// Tenant-aware tool helpers + Axum server orchestration
 pub mod multitenant;
 /// Curated, user-invokable analysis prompt templates (prompts/list + prompts/get)
 pub mod prompt_templates;
@@ -14,8 +14,6 @@ pub mod prompt_templates;
 pub mod resource_catalog;
 /// Resource management for MCP
 pub mod resources;
-/// Server lifecycle management
-pub mod server_lifecycle;
 /// MCP tool handler implementations
 pub mod tool_handlers;
 /// Server-startup catalog sync — bridges the live `ToolRegistry` to the `tool_catalog` table.
@@ -24,8 +22,6 @@ pub mod tool_handlers;
 /// `pierre_tool_runtime::tool_selection`; only the registry-coupled startup
 /// helpers remain here.
 pub mod tool_selection;
-/// Transport layer abstraction
-pub mod transport_manager;
 
 // Transport primitives moved to the `pierre-mcp-transport` leaf crate.
 // Callers now use the canonical path `pierre_mcp_transport::{progress,

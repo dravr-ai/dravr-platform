@@ -20,6 +20,7 @@ use pierre_intelligence::IntelligenceConfig;
 use std::fmt;
 use std::sync::Arc;
 
+use dravr_tronc::mcp::tool::ToolContext as TroncToolContext;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -60,6 +61,22 @@ impl AuthMethod {
             Self::OAuth2 => "oauth2",
             Self::McpClient => "mcp_client",
             Self::ChannelLink => "channel_link",
+        }
+    }
+
+    /// Parse the label produced by [`Self::as_str`] back into an `AuthMethod`,
+    /// falling back to [`Self::JwtBearer`] for an unknown or absent label.
+    ///
+    /// Used when rebuilding a [`ToolExecutionContext`] from the host-agnostic
+    /// `auth_method` string carried on a tronc `ToolContext`.
+    #[must_use]
+    pub fn from_label(label: &str) -> Self {
+        match label {
+            "api_key" => Self::ApiKey,
+            "oauth2" => Self::OAuth2,
+            "mcp_client" => Self::McpClient,
+            "channel_link" => Self::ChannelLink,
+            _ => Self::JwtBearer,
         }
     }
 }
@@ -121,6 +138,38 @@ impl ToolExecutionContext {
             resources,
             auth_method,
             is_admin: None,
+        }
+    }
+
+    /// Rebuild a context from the resource façade and a tronc per-call
+    /// [`TroncToolContext`] (the identity the MCP dispatch layer resolved).
+    ///
+    /// The tronc context carries identity as host-agnostic strings; this parses
+    /// them back into the platform's typed fields (`Uuid` ids, [`AuthMethod`]).
+    /// An unparsable/absent user id becomes the nil UUID, and the admin flag is
+    /// taken as already-resolved so tools don't re-query the database.
+    #[must_use]
+    pub fn from_tronc(resources: &Arc<dyn ToolRuntime>, ctx: &TroncToolContext) -> Self {
+        let user_id = ctx
+            .user_id
+            .as_deref()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .unwrap_or_default();
+        let tenant_id = ctx
+            .tenant_id
+            .as_deref()
+            .and_then(|s| Uuid::parse_str(s).ok());
+        let auth_method = ctx
+            .auth_method
+            .as_deref()
+            .map_or(AuthMethod::JwtBearer, AuthMethod::from_label);
+        Self {
+            user_id,
+            tenant_id,
+            request_id: ctx.request_id.clone(),
+            resources: resources.clone(),
+            auth_method,
+            is_admin: Some(ctx.is_admin),
         }
     }
 

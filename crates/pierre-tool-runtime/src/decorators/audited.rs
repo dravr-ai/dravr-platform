@@ -35,13 +35,11 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
-use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
-use pierre_core::errors::AppResult;
-use pierre_mcp_schema::JsonSchema;
-use pierre_tools_core::ToolResult;
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
 /// Audit decorator for MCP tools.
 ///
@@ -56,7 +54,7 @@ use pierre_tools_core::ToolResult;
 /// The decorator is `Send + Sync` and can be safely shared across async tasks.
 pub struct AuditedTool {
     /// The wrapped tool
-    inner: Arc<dyn McpTool>,
+    inner: Arc<dyn McpTool<dyn ToolRuntime>>,
     /// Whether to log arguments (may contain sensitive data)
     log_arguments: bool,
 }
@@ -64,7 +62,7 @@ pub struct AuditedTool {
 impl AuditedTool {
     /// Create a new audited tool with default settings (no argument logging)
     #[must_use]
-    pub fn new(inner: Arc<dyn McpTool>) -> Self {
+    pub fn new(inner: Arc<dyn McpTool<dyn ToolRuntime>>) -> Self {
         Self {
             inner,
             log_arguments: false,
@@ -78,7 +76,7 @@ impl AuditedTool {
     /// Only enable argument logging if you're sure the arguments don't
     /// contain sensitive data (passwords, tokens, PII, etc.)
     #[must_use]
-    pub const fn with_argument_logging(inner: Arc<dyn McpTool>) -> Self {
+    pub const fn with_argument_logging(inner: Arc<dyn McpTool<dyn ToolRuntime>>) -> Self {
         Self {
             inner,
             log_arguments: true,
@@ -87,7 +85,7 @@ impl AuditedTool {
 
     /// Get a reference to the inner tool
     #[must_use]
-    pub fn inner(&self) -> &Arc<dyn McpTool> {
+    pub fn inner(&self) -> &Arc<dyn McpTool<dyn ToolRuntime>> {
         &self.inner
     }
 
@@ -99,35 +97,25 @@ impl AuditedTool {
 }
 
 #[async_trait]
-impl McpTool for AuditedTool {
-    fn name(&self) -> &'static str {
-        self.inner.name()
-    }
-
-    fn description(&self) -> &'static str {
-        self.inner.description()
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        self.inner.input_schema()
+impl McpTool<dyn ToolRuntime> for AuditedTool {
+    fn definition(&self) -> Tool {
+        self.inner.definition()
     }
 
     fn capabilities(&self) -> ToolCapabilities {
         self.inner.capabilities()
     }
 
-    #[instrument(
-        skip(self, args, context),
-        fields(
-            tool = %self.name(),
-            user_id = %context.user_id,
-            tenant_id = ?context.tenant_id,
-        )
-    )]
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+    #[instrument(skip_all)]
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
         let start = Instant::now();
-        let tool_name = self.name();
-        let is_admin = self.capabilities().is_admin_only();
+        let tool_name = self.inner.definition().name;
+        let is_admin = self.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
 
         // Log the invocation
         if self.log_arguments {
@@ -146,30 +134,15 @@ impl McpTool for AuditedTool {
         }
 
         // Execute the inner tool
-        let result = self.inner.execute(args, context).await;
+        let result = self.inner.execute(state, ctx, args).await;
         let duration = start.elapsed();
 
-        // Log the result
-        match &result {
-            Ok(tool_result) => {
-                info!(
-                    tool = %tool_name,
-                    duration_ms = %duration.as_millis(),
-                    is_error = %tool_result.is_error,
-                    notification_count = %tool_result.notifications.len(),
-                    "Tool execution completed"
-                );
-            }
-            Err(error) => {
-                warn!(
-                    tool = %tool_name,
-                    duration_ms = %duration.as_millis(),
-                    error_code = ?error.code,
-                    error_message = %error.message,
-                    "Tool execution failed"
-                );
-            }
-        }
+        info!(
+            tool = %tool_name,
+            duration_ms = %duration.as_millis(),
+            is_error = %result.is_error,
+            "Tool execution completed"
+        );
 
         result
     }

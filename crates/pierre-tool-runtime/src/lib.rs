@@ -63,6 +63,8 @@ pub mod activity_backfill;
 pub mod activity_fetch;
 pub mod capabilities;
 pub mod context;
+/// Conversions wiring host tool types onto the tronc MCP tool trait surface.
+pub mod conversions;
 pub mod decorators;
 /// Unified tool execution engine
 pub mod engine;
@@ -76,6 +78,7 @@ pub mod protocol;
 pub mod protocols;
 pub mod registry;
 pub mod runtime;
+
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
 ///
 /// Three strategies share the same MCP executor infrastructure:
@@ -85,12 +88,11 @@ pub mod runtime;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
 pub mod tool_selection;
-pub mod traits;
 
 pub use capabilities::ToolCapabilities;
 pub use context::{AuthMethod, ToolExecutionContext};
 pub use decorators::AuditedTool;
+pub use dravr_tronc::mcp::tool::McpTool;
 pub use registry::ToolRegistry;
 pub use runtime::ToolRuntime;
 pub use tool_selection::ToolSelectionService;
-pub use traits::McpTool;

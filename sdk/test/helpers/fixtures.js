@@ -7,6 +7,16 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 // Copyright (c) 2026 dravr.ai
 
+const path = require('path');
+const os = require('os');
+
+// File-backed (not in-memory) SQLite DB so pierre-cli can promote the registered
+// test user to a global admin in the SAME database the server reads. tools/list
+// returns the full catalog only for a global admin (User.is_admin); a tenant
+// owner is correctly limited to their plan's tenant-filtered subset. An
+// in-memory DB is private to the server process and unreachable from the CLI.
+const TEST_DB_FILE = path.join(os.tmpdir(), 'pierre-sdk-test.db');
+
 /**
  * Sample MCP protocol messages
  */
@@ -172,7 +182,8 @@ const TestConfig = {
   defaultServerPort: parseInt(process.env.HTTP_PORT || process.env.MCP_PORT || '8081', 10),
   defaultServerUrl: `http://localhost:${parseInt(process.env.HTTP_PORT || process.env.MCP_PORT || '8081', 10)}`,
   testEncryptionKey: 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=',
-  testDatabase: 'sqlite::memory:',
+  testDatabase: `sqlite://${TEST_DB_FILE}`,
+  testDatabaseFile: TEST_DB_FILE,
   healthCheckTimeout: 30000,
   requestTimeout: 30000
 };

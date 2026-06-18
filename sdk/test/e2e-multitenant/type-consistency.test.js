@@ -116,16 +116,16 @@ describe('Multi-Tenant Type Consistency', () => {
 
         const serverToolNames = result.tools.map(t => t.name);
 
-        // Core tools must be present on the server
+        // Core tools every authenticated (non-admin) tenant must see. setupMultiTenantClients
+        // creates plain tenant users (not global admins), so tools gated above the non-admin
+        // tier (e.g. detect_patterns, analyze_weather_impact) are intentionally excluded.
         const coreServerTools = [
             'get_activities',
             'get_athlete',
             'get_stats',
-            'detect_patterns',
             'suggest_goals',
             'search_food',
             'calculate_daily_nutrition',
-            'analyze_weather_impact',
             'get_configuration_catalog',
             'validate_configuration',
         ];

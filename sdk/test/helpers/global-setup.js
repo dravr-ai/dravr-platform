@@ -12,6 +12,18 @@ const os = require('os');
 const PID_FILE = path.join(os.tmpdir(), 'pierre-test-server.pid');
 
 module.exports = async () => {
+  // Remove any stale file-backed test DB (and its WAL/SHM sidecars) from a prior
+  // run so each run starts hermetic — the catalog/admin state must not leak
+  // across runs. The DB is file-backed (not in-memory) so pierre-cli can promote
+  // the registered test user to a global admin in the same DB the server reads.
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
+    try {
+      fs.unlinkSync(TestConfig.testDatabaseFile + suffix);
+    } catch (error) {
+      // Missing file is the normal case on a clean run.
+    }
+  }
+
   // Starting one server up front means every suite's ensureServerRunning() finds
   // it healthy and reuses it, instead of spawning/killing a fresh server per
   // describe block — the source of port-reuse bind failures and cold-start

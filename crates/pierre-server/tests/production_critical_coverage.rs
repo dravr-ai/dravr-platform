@@ -17,7 +17,7 @@ use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_mcp_server::mcp::multitenant::MultiTenantMcpServer;
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -28,7 +28,7 @@ use common::*;
 #[tokio::test]
 async fn test_mcp_request_processing_flow() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let user_id = Uuid::new_v4();
@@ -187,7 +187,7 @@ async fn test_admin_auth_flow() -> Result<()> {
 #[tokio::test]
 async fn test_mcp_multitenant_request_routing() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create multiple test users to test tenant isolation
     let repos = server.database().repositories();

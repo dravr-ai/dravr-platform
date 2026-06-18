@@ -29,7 +29,7 @@ use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -523,7 +523,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create two users
     let user1_id =

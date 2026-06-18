@@ -16,12 +16,17 @@
 //! - `SearchRecipesTool` - Search recipes
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -36,16 +41,8 @@ mod inner;
 pub struct GetRecipeConstraintsTool;
 
 #[async_trait]
-impl McpTool for GetRecipeConstraintsTool {
-    fn name(&self) -> &'static str {
-        "get_recipe_constraints"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get macro targets and constraints for LLM recipe generation"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "calories".to_owned(),
@@ -100,19 +97,33 @@ impl McpTool for GetRecipeConstraintsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
+        };
+        tool_definition(
+            "get_recipe_constraints",
+            "Get macro targets and constraints for LLM recipe generation",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        Ok(inner::handle_get_recipe_constraints(context, &args))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { Ok(inner::handle_get_recipe_constraints(&context, &args)) }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -124,16 +135,8 @@ impl McpTool for GetRecipeConstraintsTool {
 pub struct ValidateRecipeTool;
 
 #[async_trait]
-impl McpTool for ValidateRecipeTool {
-    fn name(&self) -> &'static str {
-        "validate_recipe"
-    }
-
-    fn description(&self) -> &'static str {
-        "Validate recipe nutrition using USDA FoodData Central"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "name".to_owned(),
@@ -194,19 +197,33 @@ impl McpTool for ValidateRecipeTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["servings".to_owned(), "ingredients".to_owned()]),
-        }
+        };
+        tool_definition(
+            "validate_recipe",
+            "Validate recipe nutrition using USDA FoodData Central",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_validate_recipe(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_validate_recipe(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -218,16 +235,8 @@ impl McpTool for ValidateRecipeTool {
 pub struct SaveRecipeTool;
 
 #[async_trait]
-impl McpTool for SaveRecipeTool {
-    fn name(&self) -> &'static str {
-        "save_recipe"
-    }
-
-    fn description(&self) -> &'static str {
-        "Save a validated recipe to your collection"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "name".to_owned(),
@@ -330,7 +339,7 @@ impl McpTool for SaveRecipeTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![
@@ -339,15 +348,29 @@ impl McpTool for SaveRecipeTool {
                 "instructions".to_owned(),
                 "ingredients".to_owned(),
             ]),
-        }
+        };
+        tool_definition(
+            "save_recipe",
+            "Save a validated recipe to your collection",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_save_recipe(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_save_recipe(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -359,16 +382,8 @@ impl McpTool for SaveRecipeTool {
 pub struct ListRecipesTool;
 
 #[async_trait]
-impl McpTool for ListRecipesTool {
-    fn name(&self) -> &'static str {
-        "list_recipes"
-    }
-
-    fn description(&self) -> &'static str {
-        "List your saved recipes"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListRecipesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "meal_timing".to_owned(),
@@ -394,19 +409,28 @@ impl McpTool for ListRecipesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
+        };
+        tool_definition("list_recipes", "List your saved recipes", schema, None)
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_list_recipes(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_list_recipes(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -418,16 +442,8 @@ impl McpTool for ListRecipesTool {
 pub struct GetRecipeTool;
 
 #[async_trait]
-impl McpTool for GetRecipeTool {
-    fn name(&self) -> &'static str {
-        "get_recipe"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get details of a specific recipe"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetRecipeTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "recipe_id".to_owned(),
@@ -437,19 +453,33 @@ impl McpTool for GetRecipeTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["recipe_id".to_owned()]),
-        }
+        };
+        tool_definition(
+            "get_recipe",
+            "Get details of a specific recipe",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_get_recipe(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_get_recipe(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -461,16 +491,8 @@ impl McpTool for GetRecipeTool {
 pub struct DeleteRecipeTool;
 
 #[async_trait]
-impl McpTool for DeleteRecipeTool {
-    fn name(&self) -> &'static str {
-        "delete_recipe"
-    }
-
-    fn description(&self) -> &'static str {
-        "Delete a recipe from your collection"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DeleteRecipeTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "recipe_id".to_owned(),
@@ -480,19 +502,33 @@ impl McpTool for DeleteRecipeTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["recipe_id".to_owned()]),
-        }
+        };
+        tool_definition(
+            "delete_recipe",
+            "Delete a recipe from your collection",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_delete_recipe(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_delete_recipe(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -504,16 +540,8 @@ impl McpTool for DeleteRecipeTool {
 pub struct SearchRecipesTool;
 
 #[async_trait]
-impl McpTool for SearchRecipesTool {
-    fn name(&self) -> &'static str {
-        "search_recipes"
-    }
-
-    fn description(&self) -> &'static str {
-        "Search your recipes by name, tags, or description"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "query".to_owned(),
@@ -539,19 +567,33 @@ impl McpTool for SearchRecipesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["query".to_owned()]),
-        }
+        };
+        tool_definition(
+            "search_recipes",
+            "Search your recipes by name, tags, or description",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        inner::handle_search_recipes(context, args).await
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> =
+            async move { inner::handle_search_recipes(&context, args).await }.await;
+        tool_result_to_response(result)
     }
 }
 
@@ -561,7 +603,7 @@ impl McpTool for SearchRecipesTool {
 
 /// Create all recipe tools for registration
 #[must_use]
-pub fn create_recipe_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_recipe_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(GetRecipeConstraintsTool),
         Box::new(ValidateRecipeTool),

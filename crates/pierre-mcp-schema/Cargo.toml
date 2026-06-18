@@ -13,7 +13,7 @@ publish = false
 [dependencies]
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
-pierre-jsonrpc = { version = "0.3.0", path = "../pierre-jsonrpc" }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.5.2" }
 
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }

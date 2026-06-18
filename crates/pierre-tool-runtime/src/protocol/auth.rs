@@ -441,8 +441,8 @@ impl AuthService {
         _tenant_id: TenantId,
         _provider: &str,
     ) {
-        // No notification backend compiled in; this `.await` keeps it an honest
-        // async no-op so callers can await both variants uniformly.
+        // Nothing to dispatch without a backend; await a ready future so the
+        // signature stays `async` for the unconditional caller.
         ready(()).await;
     }
 

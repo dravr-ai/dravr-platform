@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the provider backend_resolver and connection-status coalescing
-// ABOUTME: Verifies sciotte* backends are hidden from LLM output and gate OAuth reconnect per provider
+// ABOUTME: Verifies sciotte* backends are hidden from LLM-visible output and block OAuth reconnect
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,10 +18,9 @@
 //!    with `backend: "mirror"`.
 //! 3. `get_connection_status` rejects an explicit query for "sciotte" so the
 //!    LLM cannot probe the internal backend name.
-//! 4. `connect_provider(garmin)` returns an error when the user has already
-//!    opted into the sciotte mirror (Garmin stays on the scraper), while
-//!    `connect_provider(strava)` is allowed through so a sciotte-Strava user
-//!    can migrate to OAuth.
+//! 4. `connect_provider(strava)` returns an error when the user has already
+//!    opted into the sciotte mirror — protecting the "stay with sciotte even
+//!    if expired" invariant.
 
 mod common;
 
@@ -32,16 +31,17 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
-use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, GetConnectionStatusTool,
 };
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::traits::McpTool;
-use serde_json::json;
+use serde_json::{json, Value};
 use uuid::Uuid;
+
+use dravr_tronc::mcp::schema::ToolResponse;
+use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 
 // ============================================================================
 // Test helpers
@@ -86,13 +86,28 @@ async fn user_primary_tenant(resources: &Arc<ServerContext>, user_id: Uuid) -> T
         .id
 }
 
-fn tool_context(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> ToolExecutionContext {
-    let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    ToolExecutionContext::new(user_id, Some(tenant_id), runtime, AuthMethod::JwtBearer)
+/// Shared runtime façade handed to a tool's `execute`.
+fn tool_state(resources: &Arc<ServerContext>) -> Arc<dyn ToolRuntime> {
+    resources.clone()
+}
+
+/// Per-call tronc context the MCP dispatch layer would resolve.
+fn tool_context(user_id: Uuid, tenant_id: TenantId) -> ToolContext {
+    ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_tenant(tenant_id.to_string())
+        .with_auth_method("jwt_bearer")
+}
+
+/// Extract the structured JSON payload a connection tool emits.
+///
+/// The connection tools build their result with `ToolResult::ok`/`error`,
+/// which `tool_result_to_response` carries through as `structuredContent`.
+fn structured(response: &ToolResponse) -> &Value {
+    response
+        .structured_content
+        .as_ref()
+        .expect("connection tool result carries structured content")
 }
 
 // ============================================================================
@@ -186,8 +201,8 @@ async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
     let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Both rows: for Strava the OAuth backend wins (Strava → OAuth-API
-    // migration). The sciotte row goes dormant; the user is served from the API.
+    // Both rows: for Strava the OAuth backend wins (Strava → OAuth-API migration).
+    // The sciotte row goes dormant; the user is served from the API.
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
@@ -267,10 +282,11 @@ async fn multi_provider_status_hides_sciotte_entries() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
-    let result = tool.execute(json!({}), &ctx).await.unwrap();
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool.execute(&state, &ctx, json!({})).await;
 
-    let data = result.content;
+    let data = structured(&result);
     let providers = data
         .get("providers")
         .and_then(|v| v.as_object())
@@ -319,11 +335,11 @@ async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
-    let result = tool.execute(json!({}), &ctx).await.unwrap();
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool.execute(&state, &ctx, json!({})).await;
 
-    let providers = result
-        .content
+    let providers = structured(&result)
         .get("providers")
         .and_then(|v| v.as_object())
         .unwrap()
@@ -349,11 +365,11 @@ async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
-    let result = tool.execute(json!({}), &ctx).await.unwrap();
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool.execute(&state, &ctx, json!({})).await;
 
-    let providers = result
-        .content
+    let providers = structured(&result)
         .get("providers")
         .and_then(|v| v.as_object())
         .unwrap()
@@ -388,11 +404,11 @@ async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
     .await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
-    let result = tool.execute(json!({}), &ctx).await.unwrap();
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool.execute(&state, &ctx, json!({})).await;
 
-    let providers = result
-        .content
+    let providers = structured(&result)
         .get("providers")
         .and_then(|v| v.as_object())
         .unwrap()
@@ -424,13 +440,13 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "sciotte" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "sciotte" }))
+        .await;
 
-    let data = result.content;
+    let data = structured(&result);
     assert_eq!(
         data.get("connected").and_then(serde_json::Value::as_bool),
         Some(false),
@@ -452,13 +468,13 @@ async fn single_provider_status_reports_mirror_backend_when_present() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "strava" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "strava" }))
+        .await;
 
-    let data = result.content;
+    let data = structured(&result);
     assert_eq!(
         data.get("connected").and_then(serde_json::Value::as_bool),
         Some(true)
@@ -499,13 +515,13 @@ async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
     .unwrap();
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "whoop" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "whoop" }))
+        .await;
 
-    let data = result.content;
+    let data = structured(&result);
     assert_eq!(
         data.get("status").and_then(|v| v.as_str()),
         Some("needs_reauth"),
@@ -545,11 +561,11 @@ async fn multi_provider_status_reports_needs_reauth() {
     .unwrap();
 
     let tool = GetConnectionStatusTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
-    let result = tool.execute(json!({}), &ctx).await.unwrap();
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool.execute(&state, &ctx, json!({})).await;
 
-    let providers = result
-        .content
+    let providers = structured(&result)
         .get("providers")
         .and_then(|v| v.as_object())
         .unwrap()
@@ -588,11 +604,11 @@ async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
     .await;
 
     let tool = ConnectProviderTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "garmin" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "garmin" }))
+        .await;
 
     // Garmin keeps the mirror block: its official API is partner-gated, so the
     // connector must refuse to mint an OAuth URL while the mirror is active.
@@ -600,8 +616,7 @@ async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
         result.is_error,
         "connect_provider(garmin) must fail rather than return an OAuth URL when the mirror is active"
     );
-    let err_text = result
-        .content
+    let err_text = structured(&result)
         .get("error")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -628,31 +643,26 @@ async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = ConnectProviderTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "strava" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "strava" }))
+        .await;
 
     // The mirror block must be lifted for Strava: the connector reaches the
     // OAuth-minting stage instead of steering the user back to the mirror flow.
     // (Minting itself may still fail downstream on tenant OAuth credentials —
     // an orthogonal concern — so we assert the block is gone, not end-to-end
-    // success.) If the block were still active the response would carry
-    // `requires_mirror_reauth` and a "direct login" steer.
+    // success.)
+    let content = structured(&result);
     assert!(
-        result.content.get("requires_mirror_reauth").is_none(),
-        "Strava connect must not return the mirror-reauth block: {:?}",
-        result.content
+        content.get("requires_mirror_reauth").is_none(),
+        "Strava connect must not return the mirror-reauth block: {content:?}"
     );
-    let err_text = result
-        .content
-        .get("error")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let err_text = content.get("error").and_then(|v| v.as_str()).unwrap_or("");
     assert!(
         !err_text.to_lowercase().contains("direct login"),
-        "Strava connect must not be steered back to the mirror flow: {err_text}"
+        "Strava connect must not steer to the mirror direct-login flow: {err_text}"
     );
 }
 
@@ -663,15 +673,14 @@ async fn connect_provider_rejects_explicit_sciotte_name() {
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     let tool = ConnectProviderTool;
-    let ctx = tool_context(&resources, user_id, tenant_id);
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
     let result = tool
-        .execute(json!({ "provider": "sciotte" }), &ctx)
-        .await
-        .unwrap();
+        .execute(&state, &ctx, json!({ "provider": "sciotte" }))
+        .await;
 
     assert!(result.is_error);
-    let err_text = result
-        .content
+    let err_text = structured(&result)
         .get("error")
         .and_then(|v| v.as_str())
         .unwrap_or("");

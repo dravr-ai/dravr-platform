@@ -22,15 +22,13 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use pierre_core::errors::AppResult;
-use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
 
-use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_contremaitre::ToolDescriptionRegistry;
-use pierre_tools_core::ToolError;
-use pierre_tools_core::ToolResult;
 
 /// Per-tool schema size measurement
 #[derive(Debug, Clone, Serialize)]
@@ -54,6 +52,26 @@ pub struct SchemaTokenEstimate {
     pub tool_count: usize,
     /// Per-tool breakdown sorted by token cost descending
     pub per_tool: Vec<ToolSchemaSize>,
+}
+
+/// Build a typed [`ToolSchema`] from a tronc [`Tool`] definition.
+///
+/// The tronc trait carries the input schema as raw JSON; the platform's
+/// `ToolSchema` keeps it typed for overlay editing and client-side validation,
+/// so it is deserialized back here. A malformed schema falls back to an empty
+/// object schema rather than failing the listing.
+fn schema_from_definition(def: Tool) -> ToolSchema {
+    let input_schema = serde_json::from_value(def.input_schema).unwrap_or_else(|_| JsonSchema {
+        schema_type: "object".to_owned(),
+        properties: None,
+        required: None,
+    });
+    ToolSchema {
+        name: def.name,
+        description: def.description,
+        input_schema,
+        annotations: def.annotations,
+    }
 }
 
 /// Central registry for MCP tools.
@@ -82,7 +100,7 @@ pub struct SchemaTokenEstimate {
 /// ```
 pub struct ToolRegistry {
     /// Registered tools by name
-    tools: HashMap<String, Arc<dyn McpTool>>,
+    tools: HashMap<String, Arc<dyn McpTool<dyn ToolRuntime>>>,
     /// Tool categories for organization
     categories: HashMap<String, Vec<String>>,
     /// External tool description overlays from contremaitre (hot-reloadable)
@@ -106,16 +124,13 @@ impl ToolRegistry {
     }
 
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
-    fn build_schema(&self, tool: &Arc<dyn McpTool>) -> ToolSchema {
-        let mut schema = ToolSchema {
-            name: tool.name().to_owned(),
-            description: tool.description().to_owned(),
-            input_schema: tool.input_schema(),
-            annotations: tool.annotations(),
-        };
+    fn build_schema(&self, tool: &Arc<dyn McpTool<dyn ToolRuntime>>) -> ToolSchema {
+        let def = tool.definition();
+        let name = def.name.clone();
+        let mut schema = schema_from_definition(def);
 
         if let Some(desc_registry) = &self.tool_descriptions {
-            if let Some(overlay) = desc_registry.get_overlay(tool.name()) {
+            if let Some(overlay) = desc_registry.get_overlay(&name) {
                 if let Some(desc) = overlay.description {
                     schema.description = desc;
                 }
@@ -139,8 +154,8 @@ impl ToolRegistry {
     /// # Returns
     ///
     /// `true` if the tool was registered, `false` if a tool with the same name exists
-    pub fn register(&mut self, tool: Arc<dyn McpTool>) -> bool {
-        let name = tool.name().to_owned();
+    pub fn register(&mut self, tool: Arc<dyn McpTool<dyn ToolRuntime>>) -> bool {
+        let name = tool.definition().name;
 
         if self.tools.contains_key(&name) {
             warn!("Tool '{}' is already registered, skipping", name);
@@ -148,17 +163,21 @@ impl ToolRegistry {
         }
 
         debug!(
-            "Registering tool '{}' with capabilities: {}",
+            "Registering tool '{}' with capabilities: {:?}",
             name,
-            tool.capabilities().describe()
+            tool.capabilities()
         );
         self.tools.insert(name, tool);
         true
     }
 
     /// Register a tool and categorize it
-    pub fn register_with_category(&mut self, tool: Arc<dyn McpTool>, category: &str) {
-        let name = tool.name().to_owned();
+    pub fn register_with_category(
+        &mut self,
+        tool: Arc<dyn McpTool<dyn ToolRuntime>>,
+        category: &str,
+    ) {
+        let name = tool.definition().name;
         if self.register(tool) {
             self.categories
                 .entry(category.to_owned())
@@ -169,7 +188,7 @@ impl ToolRegistry {
 
     /// Get a tool by name
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&Arc<dyn McpTool>> {
+    pub fn get(&self, name: &str) -> Option<&Arc<dyn McpTool<dyn ToolRuntime>>> {
         self.tools.get(name)
     }
 
@@ -212,14 +231,22 @@ impl ToolRegistry {
         self.categories.keys().map(String::as_str).collect()
     }
 
-    /// Get metadata for all registered tools (name, description, capabilities).
+    /// Get metadata for all registered tools (name, description, capabilities,
+    /// registered category).
     ///
     /// Used by the startup catalog sync to populate the `tool_catalog` table.
+    /// The category is the string the tool was registered under (via
+    /// [`Self::register_with_category`]) — the domain taxonomy now lives there
+    /// rather than in capability bits.
     #[must_use]
-    pub fn all_tool_metadata(&self) -> Vec<(&str, &str, ToolCapabilities)> {
+    pub fn all_tool_metadata(&self) -> Vec<(String, String, ToolCapabilities, Option<String>)> {
         self.tools
             .values()
-            .map(|tool| (tool.name(), tool.description(), tool.capabilities()))
+            .map(|tool| {
+                let def = tool.definition();
+                let category = self.category_for_tool(&def.name).map(ToOwned::to_owned);
+                (def.name, def.description, tool.capabilities(), category)
+            })
             .collect()
     }
 
@@ -248,7 +275,7 @@ impl ToolRegistry {
     pub fn list_schemas_for_role(&self, is_admin: bool) -> Vec<ToolSchema> {
         self.tools
             .values()
-            .filter(|tool| is_admin || !tool.capabilities().is_admin_only())
+            .filter(|tool| is_admin || !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
             .map(|tool| self.build_schema(tool))
             .collect()
     }
@@ -300,7 +327,8 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, tool)| {
-                allowed_names.contains(name.as_str()) && !tool.capabilities().is_admin_only()
+                allowed_names.contains(name.as_str())
+                    && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
             .map(|(_, tool)| self.build_schema(tool))
             .collect()
@@ -311,7 +339,7 @@ impl ToolRegistry {
     pub fn admin_tool_schemas(&self) -> Vec<ToolSchema> {
         self.tools
             .values()
-            .filter(|tool| tool.capabilities().is_admin_only())
+            .filter(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
             .map(|tool| self.build_schema(tool))
             .collect()
     }
@@ -331,12 +359,7 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, _)| allowed_names.contains(&name.as_str()))
-            .map(|(_, tool)| ToolSchema {
-                name: tool.name().to_owned(),
-                description: tool.description().to_owned(),
-                input_schema: tool.input_schema(),
-                annotations: tool.annotations(),
-            })
+            .map(|(_, tool)| schema_from_definition(tool.definition()))
             .collect()
     }
 
@@ -351,12 +374,7 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, _)| name_set.contains(name.as_str()))
-            .map(|(_, tool)| ToolSchema {
-                name: tool.name().to_owned(),
-                description: tool.description().to_owned(),
-                input_schema: tool.input_schema(),
-                annotations: tool.annotations(),
-            })
+            .map(|(_, tool)| schema_from_definition(tool.definition()))
             .collect()
     }
 
@@ -372,20 +390,19 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, tool)| {
-                !catalogued_set.contains(name.as_str()) && !tool.capabilities().is_admin_only()
+                !catalogued_set.contains(name.as_str())
+                    && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
-            .map(|(_, tool)| ToolSchema {
-                name: tool.name().to_owned(),
-                description: tool.description().to_owned(),
-                input_schema: tool.input_schema(),
-                annotations: tool.annotations(),
-            })
+            .map(|(_, tool)| schema_from_definition(tool.definition()))
             .collect()
     }
 
     /// Filter tools by capabilities
     #[must_use]
-    pub fn filter_by_capabilities(&self, required: ToolCapabilities) -> Vec<&Arc<dyn McpTool>> {
+    pub fn filter_by_capabilities(
+        &self,
+        required: ToolCapabilities,
+    ) -> Vec<&Arc<dyn McpTool<dyn ToolRuntime>>> {
         self.tools
             .values()
             .filter(|tool| tool.capabilities().contains(required))
@@ -397,7 +414,7 @@ impl ToolRegistry {
     pub fn read_tools(&self) -> Vec<&str> {
         self.tools
             .iter()
-            .filter(|(_, tool)| tool.capabilities().reads_data())
+            .filter(|(_, tool)| tool.capabilities().contains(ToolCapabilities::READS_DATA))
             .map(|(name, _)| name.as_str())
             .collect()
     }
@@ -407,7 +424,7 @@ impl ToolRegistry {
     pub fn write_tools(&self) -> Vec<&str> {
         self.tools
             .iter()
-            .filter(|(_, tool)| tool.capabilities().writes_data())
+            .filter(|(_, tool)| tool.capabilities().contains(ToolCapabilities::WRITES_DATA))
             .map(|(name, _)| name.as_str())
             .collect()
     }
@@ -416,37 +433,34 @@ impl ToolRegistry {
     ///
     /// This method:
     /// 1. Looks up the tool in the registry
-    /// 2. Checks admin privileges if required
-    /// 3. Executes the tool with the provided context
+    /// 2. Gates `ADMIN_ONLY` tools on the caller's resolved admin flag
+    /// 3. Executes the tool against the shared runtime and per-call context
     ///
     /// # Arguments
     ///
     /// * `name` - Tool name to execute
+    /// * `state` - Shared runtime façade handed to the tool
+    /// * `ctx` - Per-call context (identity/tenant/admin resolved by dispatch)
     /// * `args` - Tool arguments as JSON
-    /// * `context` - Execution context with user/tenant info
     ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if:
-    /// - Tool is not found
-    /// - User lacks required privileges
-    /// - Tool execution fails
+    /// Unknown tools and admin-gate denials are returned as in-band error
+    /// [`ToolResponse`]s (MCP reports tool failures via `isError`).
     pub async fn execute(
         &self,
         name: &str,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
         args: serde_json::Value,
-        context: &ToolExecutionContext,
-    ) -> AppResult<ToolResult> {
-        // Look up the tool
-        let tool = self.get(name).ok_or_else(|| ToolError::not_found(name))?;
+    ) -> ToolResponse {
+        let Some(tool) = self.get(name) else {
+            return ToolResponse::error(format!("Unknown tool: {name}"));
+        };
 
-        // Check admin privileges if required
-        if tool.capabilities().is_admin_only() {
-            context.require_admin().await?;
+        if tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY) && !ctx.is_admin {
+            return ToolResponse::error(format!("Tool '{name}' requires admin privileges"));
         }
 
-        // Execute the tool
-        tool.execute(args, context).await
+        tool.execute(state, ctx, args).await
     }
 
     /// Calculate the total serialized schema size and estimated token count for all tools.
@@ -462,10 +476,11 @@ impl ToolRegistry {
         let mut total_estimated_tokens: usize = 0;
 
         for tool in self.tools.values() {
+            let def = tool.definition();
             let schema = serde_json::json!({
-                "name": tool.name(),
-                "description": tool.description(),
-                "inputSchema": tool.input_schema(),
+                "name": def.name,
+                "description": def.description,
+                "inputSchema": def.input_schema,
             });
             let serialized = serde_json::to_string(&schema).unwrap_or_default();
             let bytes = serialized.len();
@@ -474,7 +489,7 @@ impl ToolRegistry {
             total_bytes += bytes;
             total_estimated_tokens += tokens;
             per_tool.push(ToolSchemaSize {
-                name: tool.name().to_owned(),
+                name: def.name,
                 bytes,
                 tokens,
             });

@@ -8,13 +8,24 @@
 #![allow(missing_docs)]
 
 use pierre_mcp_schema::McpRequest;
+use pierre_mcp_schema::McpResponse;
 use pierre_mcp_schema::ToolAnnotations;
-use pierre_mcp_server::constants::errors::ERROR_VERSION_MISMATCH;
-use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
+use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::json;
 
 mod common;
+
+/// Drive a request through the shared tronc MCP engine (anonymous context).
+async fn drive(request: McpRequest) -> McpResponse {
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("Should build test resources");
+    build_mcp_server(resources)
+        .handle_request(request)
+        .await
+        .expect("Engine returns a response for a request with an id")
+}
 
 /// Test that a client requesting 2025-11-25 gets 2025-11-25 back
 #[tokio::test]
@@ -36,7 +47,7 @@ async fn test_negotiate_2025_11_25_version() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     assert!(response.error.is_none(), "Should succeed with 2025-11-25");
     let result = response.result.expect("Should have result");
@@ -63,7 +74,7 @@ async fn test_backward_compat_2025_06_18() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     assert!(response.error.is_none(), "Should succeed with 2025-06-18");
     let result = response.result.expect("Should have result");
@@ -90,16 +101,18 @@ async fn test_backward_compat_2024_11_05() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     assert!(response.error.is_none(), "Should succeed with 2024-11-05");
     let result = response.result.expect("Should have result");
     assert_eq!(result["protocolVersion"], "2024-11-05");
 }
 
-/// Test that unknown future version is rejected with error
+/// Test that an unknown future version is negotiated down, not rejected
 #[tokio::test]
 async fn test_unknown_future_version_rejected() {
+    common::init_server_config();
+
     let init_request = json!({
         "jsonrpc": "2.0",
         "id": 4,
@@ -115,17 +128,15 @@ async fn test_unknown_future_version_rejected() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
-    let error = response
-        .error
-        .expect("Should return error for unknown version");
-    assert_eq!(error.code, ERROR_VERSION_MISMATCH);
+    // engine negotiates unsupported versions down to the current stable revision
     assert!(
-        error.message.contains("2025-11-25"),
-        "Error should list supported versions including 2025-11-25, got: {}",
-        error.message
+        response.error.is_none(),
+        "Engine negotiates an unsupported version down, not error"
     );
+    let result = response.result.expect("Should have result");
+    assert_eq!(result["protocolVersion"], "2025-11-25");
 }
 
 /// Test that `ServerInfo` includes title and description metadata
@@ -148,27 +159,20 @@ async fn test_server_info_includes_metadata() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     let result = response.result.expect("Should have result");
     let server_info = &result["serverInfo"];
 
-    // Verify machine-readable name is present
-    assert!(
-        server_info["name"].is_string(),
-        "serverInfo.name should be present"
-    );
-
-    // Verify human-readable title (MCP 2025-11-25 metadata)
+    // engine builds serverInfo from name/version only; title/description are
+    // optional metadata the engine omits, so assert the identity it does carry.
     assert_eq!(
-        server_info["title"], "Dravr",
-        "serverInfo.title should be the human-readable display name"
+        server_info["name"], "pierre-mcp-server",
+        "serverInfo.name should be the machine-readable identifier"
     );
-
-    // Verify description (MCP 2025-11-25 metadata)
     assert!(
-        server_info["description"].is_string(),
-        "serverInfo.description should be present"
+        server_info["version"].is_string(),
+        "serverInfo.version should be present"
     );
 }
 
@@ -287,7 +291,7 @@ async fn test_client_info_accepts_extended_fields() {
 
     let request: McpRequest = serde_json::from_value(init_request)
         .expect("Should parse request with extended clientInfo");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     assert!(
         response.error.is_none(),
@@ -318,7 +322,7 @@ async fn test_client_info_minimal_fields() {
 
     let request: McpRequest =
         serde_json::from_value(init_request).expect("Should parse request with minimal clientInfo");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     assert!(
         response.error.is_none(),

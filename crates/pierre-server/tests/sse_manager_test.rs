@@ -270,7 +270,7 @@ async fn test_send_notification_nonexistent_user() {
 
 #[tokio::test]
 async fn test_send_mcp_request_nonexistent_session() {
-    use pierre_jsonrpc::JsonRpcRequest;
+    use pierre_mcp_schema::McpRequest as JsonRpcRequest;
     use std::collections::HashMap;
 
     let manager = SseManager::new(10);

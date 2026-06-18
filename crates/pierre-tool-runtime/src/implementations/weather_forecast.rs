@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
@@ -14,8 +15,11 @@ use tracing::{info, warn};
 use pierre_intelligence::location::{ForwardGeocodeResult, LocationService};
 use pierre_weather::{OpenMeteoForecastProvider, WeatherProvider, WeatherQuery};
 
-use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::capabilities::ToolCapabilities;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -45,23 +49,8 @@ fn forecast_annotations() -> ToolAnnotations {
 pub struct GetWeatherForecastTool;
 
 #[async_trait]
-impl McpTool for GetWeatherForecastTool {
-    fn name(&self) -> &'static str {
-        "get_weather_forecast"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get the weather forecast (temperature in °C, conditions, humidity, wind) for a \
-         location and date, grounded in the Open-Meteo forecast API. Use this whenever the \
-         user asks you to base a session on the temperature or weather, or proposes an \
-         activity today or on an upcoming date. Pass either a place name via `place` \
-         (preferred — e.g. \"Prévost, QC\") or explicit `latitude`/`longitude`. Optionally \
-         pass `date` (YYYY-MM-DD, defaults to today UTC) and `hour` (0-23 UTC, defaults to \
-         12). Forecast coverage is up to ~16 days ahead. Never invent the temperature — \
-         call this tool to obtain it."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
 
         properties.insert(
@@ -118,26 +107,41 @@ impl McpTool for GetWeatherForecastTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             // `place` XOR (`latitude`+`longitude`) is enforced at runtime in
             // execute(); the schema presents all params as optional.
             required: None,
-        }
+        };
+        tool_definition(
+            "get_weather_forecast",
+            "Get the weather forecast (temperature in °C, conditions, humidity, wind) for a \
+             location and date, grounded in the Open-Meteo forecast API. Use this whenever the \
+             user asks you to base a session on the temperature or weather, or proposes an \
+             activity today or on an upcoming date. Pass either a place name via `place` \
+             (preferred — e.g. \"Prévost, QC\") or explicit `latitude`/`longitude`. Optionally \
+             pass `date` (YYYY-MM-DD, defaults to today UTC) and `hour` (0-23 UTC, defaults to \
+             12). Forecast coverage is up to ~16 days ahead. Never invent the temperature — \
+             call this tool to obtain it.",
+            schema,
+            Some(forecast_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
+    fn capabilities(&self) -> TroncCapabilities {
         // Auth-gated read tool: it's a coach feature used in authenticated chat,
         // so it requires a valid bearer token to both discover and call.
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(forecast_annotations())
-    }
-
-    async fn execute(&self, args: Value, _context: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let result: AppResult<ToolResult> = async move {
         let resolved = match resolve_location(&args).await {
             Ok(center) => center,
             Err(err) => return Ok(ToolResult::error(err)),
@@ -190,6 +194,9 @@ impl McpTool for GetWeatherForecastTool {
         }
 
         Ok(ToolResult::ok(response))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -288,6 +295,6 @@ fn resolve_timestamp(args: &Value) -> Result<DateTime<Utc>, Value> {
 
 /// Create weather-forecast tools for registration.
 #[must_use]
-pub fn create_weather_forecast_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_weather_forecast_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![Box::new(GetWeatherForecastTool)]
 }

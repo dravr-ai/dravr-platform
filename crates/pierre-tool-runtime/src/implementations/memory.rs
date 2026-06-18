@@ -12,6 +12,7 @@
 //! fact extractor in `services/memory_extraction.rs`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -22,8 +23,12 @@ use pierre_database::repositories::{
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use serde_json::{json, Value};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -76,16 +81,8 @@ fn ctx_user_id(context: &ToolExecutionContext) -> String {
 pub struct CoachNoteAddTool;
 
 #[async_trait]
-impl McpTool for CoachNoteAddTool {
-    fn name(&self) -> &'static str {
-        "coach_note_add"
-    }
-
-    fn description(&self) -> &'static str {
-        "Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "content".to_owned(),
@@ -117,58 +114,72 @@ impl McpTool for CoachNoteAddTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["content".to_owned(), "coach_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = TenantId::from(context.require_tenant()?);
-        let body = require_string_field(&args, "content")?;
-        if body.trim().is_empty() {
-            return Err(AppError::invalid_input("note content must not be empty"));
-        }
-        if body.len() > 2000 {
-            return Err(AppError::invalid_input(
-                "note content exceeds 2000 character limit",
-            ));
-        }
-        let coach_id = require_string_field(&args, "coach_id")?;
-        let conv_ref = optional_string_field(&args, "conversation_id");
-        let user_id = ctx_user_id(context);
-
-        let params = InsertCoachNoteParams {
-            tenant_id,
-            user_id: &user_id,
-            coach_id: &coach_id,
-            conversation_id: conv_ref.as_deref(),
-            scope: MemoryScope::User,
-            content: &body,
-            embedding: None,
         };
-        let note = context
-            .resources
-            .repos()
-            .memory
-            .insert_coach_note(&params)
-            .await?;
+        tool_definition(
+            "coach_note_add",
+            "Persist a private coach note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
+            schema,
+            Some(write_annotations()),
+        )
+    }
 
-        Ok(ToolResult::ok(json!({
-            "note_id": note.id,
-            "created_at": note.created_at.to_rfc3339(),
-        })))
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = TenantId::from(context.require_tenant()?);
+            let body = require_string_field(&args, "content")?;
+            if body.trim().is_empty() {
+                return Err(AppError::invalid_input("note content must not be empty"));
+            }
+            if body.len() > 2000 {
+                return Err(AppError::invalid_input(
+                    "note content exceeds 2000 character limit",
+                ));
+            }
+            let coach_id = require_string_field(&args, "coach_id")?;
+            let conv_ref = optional_string_field(&args, "conversation_id");
+            let user_id = ctx_user_id(&context);
+
+            let params = InsertCoachNoteParams {
+                tenant_id,
+                user_id: &user_id,
+                coach_id: &coach_id,
+                conversation_id: conv_ref.as_deref(),
+                scope: MemoryScope::User,
+                content: &body,
+                embedding: None,
+            };
+            let note = context
+                .resources
+                .repos()
+                .memory
+                .insert_coach_note(&params)
+                .await?;
+
+            Ok(ToolResult::ok(json!({
+                "note_id": note.id,
+                "created_at": note.created_at.to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -184,16 +195,8 @@ impl McpTool for CoachNoteAddTool {
 pub struct CoachFollowupScheduleTool;
 
 #[async_trait]
-impl McpTool for CoachFollowupScheduleTool {
-    fn name(&self) -> &'static str {
-        "coach_followup_schedule"
-    }
-
-    fn description(&self) -> &'static str {
-        "Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "content".to_owned(),
@@ -233,67 +236,83 @@ impl McpTool for CoachFollowupScheduleTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["content".to_owned(), "coach_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = TenantId::from(context.require_tenant()?);
-        let body = require_string_field(&args, "content")?;
-        if body.trim().is_empty() {
-            return Err(AppError::invalid_input(
-                "followup content must not be empty",
-            ));
-        }
-        if body.len() > 500 {
-            return Err(AppError::invalid_input(
-                "followup content exceeds 500 character limit",
-            ));
-        }
-        let coach_id = require_string_field(&args, "coach_id")?;
-        let conv_ref = optional_string_field(&args, "conversation_id");
-        let due_at = optional_string_field(&args, "due_at")
-            .map(|s| {
-                DateTime::parse_from_rfc3339(&s)
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-                    .map_err(|e| AppError::invalid_input(format!("due_at must be RFC3339: {e}")))
-            })
-            .transpose()?;
-        let user_id = ctx_user_id(context);
-
-        let params = InsertCoachFollowupParams {
-            tenant_id,
-            user_id: &user_id,
-            coach_id: &coach_id,
-            conversation_id: conv_ref.as_deref(),
-            content: &body,
-            due_at,
         };
-        let followup = context
-            .resources
-            .repos()
-            .memory
-            .insert_coach_followup(&params)
-            .await?;
+        tool_definition(
+            "coach_followup_schedule",
+            "Schedule a future check-in the coach should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
+            schema,
+            Some(write_annotations()),
+        )
+    }
 
-        Ok(ToolResult::ok(json!({
-            "followup_id": followup.id,
-            "status": "pending",
-            "due_at": followup.due_at.map(|d| d.to_rfc3339()),
-        })))
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = TenantId::from(context.require_tenant()?);
+            let body = require_string_field(&args, "content")?;
+            if body.trim().is_empty() {
+                return Err(AppError::invalid_input(
+                    "followup content must not be empty",
+                ));
+            }
+            if body.len() > 500 {
+                return Err(AppError::invalid_input(
+                    "followup content exceeds 500 character limit",
+                ));
+            }
+            let coach_id = require_string_field(&args, "coach_id")?;
+            let conv_ref = optional_string_field(&args, "conversation_id");
+            let due_at = optional_string_field(&args, "due_at")
+                .map(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .map_err(|e| {
+                            AppError::invalid_input(format!("due_at must be RFC3339: {e}"))
+                        })
+                })
+                .transpose()?;
+            let user_id = ctx_user_id(&context);
+
+            let params = InsertCoachFollowupParams {
+                tenant_id,
+                user_id: &user_id,
+                coach_id: &coach_id,
+                conversation_id: conv_ref.as_deref(),
+                content: &body,
+                due_at,
+            };
+            let followup = context
+                .resources
+                .repos()
+                .memory
+                .insert_coach_followup(&params)
+                .await?;
+
+            Ok(ToolResult::ok(json!({
+                "followup_id": followup.id,
+                "status": "pending",
+                "due_at": followup.due_at.map(|d| d.to_rfc3339()),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -309,16 +328,8 @@ impl McpTool for CoachFollowupScheduleTool {
 pub struct RememberFactTool;
 
 #[async_trait]
-impl McpTool for RememberFactTool {
-    fn name(&self) -> &'static str {
-        "remember_fact"
-    }
-
-    fn description(&self) -> &'static str {
-        "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for RememberFactTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "kind".to_owned(),
@@ -376,7 +387,7 @@ impl McpTool for RememberFactTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![
@@ -386,62 +397,76 @@ impl McpTool for RememberFactTool {
                 "object".to_owned(),
                 "confidence".to_owned(),
             ]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = TenantId::from(context.require_tenant()?);
-        let kind_str = require_string_field(&args, "kind")?;
-        let subject = require_string_field(&args, "subject")?;
-        let predicate = require_string_field(&args, "predicate")?;
-        let object = require_string_field(&args, "object")?;
-        #[allow(clippy::cast_possible_truncation)]
-        let confidence_f64 = args
-            .get("confidence")
-            .and_then(Value::as_f64)
-            .ok_or_else(|| AppError::invalid_input("confidence must be a number"))?;
-        let confidence = (confidence_f64 as f32).clamp(0.0, 1.0);
-        let coach_id = optional_string_field(&args, "coach_id");
-        let user_id = ctx_user_id(context);
-
-        let params = UpsertUserFactParams {
-            tenant_id,
-            user_id: &user_id,
-            coach_id: coach_id.as_deref(),
-            scope: MemoryScope::User,
-            kind: FactKind::parse_lenient(&kind_str),
-            pillar: None,
-            subject: &subject,
-            predicate: &predicate,
-            object: &object,
-            confidence,
-            source: FactSource::Coach,
-            valid_until: None,
-            source_msg_id: None,
-            embedding: None,
         };
-        let fact = context
-            .resources
-            .repos()
-            .memory
-            .upsert_user_fact(&params)
-            .await?;
+        tool_definition(
+            "remember_fact",
+            "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the coach should remember next time.",
+            schema,
+            Some(write_annotations()),
+        )
+    }
 
-        Ok(ToolResult::ok(json!({
-            "fact_id": fact.id,
-            "kind": fact.kind.as_str(),
-            "confidence": fact.confidence,
-        })))
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = TenantId::from(context.require_tenant()?);
+            let kind_str = require_string_field(&args, "kind")?;
+            let subject = require_string_field(&args, "subject")?;
+            let predicate = require_string_field(&args, "predicate")?;
+            let object = require_string_field(&args, "object")?;
+            #[allow(clippy::cast_possible_truncation)]
+            let confidence_f64 = args
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| AppError::invalid_input("confidence must be a number"))?;
+            let confidence = (confidence_f64 as f32).clamp(0.0, 1.0);
+            let coach_id = optional_string_field(&args, "coach_id");
+            let user_id = ctx_user_id(&context);
+
+            let params = UpsertUserFactParams {
+                tenant_id,
+                user_id: &user_id,
+                coach_id: coach_id.as_deref(),
+                scope: MemoryScope::User,
+                kind: FactKind::parse_lenient(&kind_str),
+                pillar: None,
+                subject: &subject,
+                predicate: &predicate,
+                object: &object,
+                confidence,
+                source: FactSource::Coach,
+                valid_until: None,
+                source_msg_id: None,
+                embedding: None,
+            };
+            let fact = context
+                .resources
+                .repos()
+                .memory
+                .upsert_user_fact(&params)
+                .await?;
+
+            Ok(ToolResult::ok(json!({
+                "fact_id": fact.id,
+                "kind": fact.kind.as_str(),
+                "confidence": fact.confidence,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -452,23 +477,14 @@ impl McpTool for RememberFactTool {
 /// Memory recall read tool.
 ///
 /// Returns the most recently updated stored facts for the user, optionally
-/// scoped to a coach or fact kind. The orchestrator injects facts into the
-/// system prompt via the per-user OKF bundle (`services/okf.rs`); this tool
-/// exposes the same underlying facts so the coach can query them explicitly
-/// during a turn.
+/// scoped to a coach or fact kind. Mirrors the `services/memory_recall.rs`
+/// retrieval the orchestrator uses to inject facts into the system prompt,
+/// exposed as a tool so the coach can also query it explicitly during a turn.
 pub struct RecallUserMemoryTool;
 
 #[async_trait]
-impl McpTool for RecallUserMemoryTool {
-    fn name(&self) -> &'static str {
-        "recall_user_memory"
-    }
-
-    fn description(&self) -> &'static str {
-        "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -498,67 +514,81 @@ impl McpTool for RecallUserMemoryTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
+        };
+        tool_definition(
+            "recall_user_memory",
+            "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering.",
+            schema,
+            Some(read_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = TenantId::from(context.require_tenant()?);
+            let coach_id = optional_string_field(&args, "coach_id");
+            let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_i64)
+                .unwrap_or(12)
+                .clamp(1, 50);
+            let user_id = ctx_user_id(&context);
 
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = TenantId::from(context.require_tenant()?);
-        let coach_id = optional_string_field(&args, "coach_id");
-        let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_i64)
-            .unwrap_or(12)
-            .clamp(1, 50);
-        let user_id = ctx_user_id(context);
+            let facts = context
+                .resources
+                .repos()
+                .memory
+                .list_user_facts(tenant_id, &user_id, coach_id.as_deref(), kind, limit)
+                .await?;
 
-        let facts = context
-            .resources
-            .repos()
-            .memory
-            .list_user_facts(tenant_id, &user_id, coach_id.as_deref(), kind, limit)
-            .await?;
-
-        let payload: Vec<_> = facts
-            .into_iter()
-            .map(|f| {
-                json!({
-                    "id": f.id,
-                    "kind": f.kind.as_str(),
-                    "subject": f.subject,
-                    "predicate": f.predicate,
-                    "object": f.object,
-                    "confidence": f.confidence,
-                    "source_msg_id": f.source_msg_id,
-                    "updated_at": f.updated_at.to_rfc3339(),
+            let payload: Vec<_> = facts
+                .into_iter()
+                .map(|f| {
+                    json!({
+                        "id": f.id,
+                        "kind": f.kind.as_str(),
+                        "subject": f.subject,
+                        "predicate": f.predicate,
+                        "object": f.object,
+                        "confidence": f.confidence,
+                        "source_msg_id": f.source_msg_id,
+                        "updated_at": f.updated_at.to_rfc3339(),
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(ToolResult::ok(json!({
-            "facts": payload,
-            "count": payload.len(),
-        })))
+            Ok(ToolResult::ok(json!({
+                "facts": payload,
+                "count": payload.len(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
 /// Build the full set of Tier 3 memory tools for registration.
 #[must_use]
-pub fn create_memory_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_memory_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(CoachNoteAddTool),
         Box::new(CoachFollowupScheduleTool),

@@ -14,8 +14,8 @@ use dravr_aiguilleur::{
     CategoryKeywordRules, DeterministicSelector, SelectionOutcome, SelectionRequest, ToolCandidate,
     ToolCapabilityHints, ToolSelector,
 };
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_config::tool_intent_prefilter::ToolIntentPrefilterConfig;
-use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::registry::ToolRegistry;
 
 /// Tools kept on every turn regardless of intent — the universal fitness reads
@@ -260,10 +260,10 @@ impl ToolPrefilter {
 /// Build aiguilleur candidates from the registry's chat-callable tools, carrying
 /// each tool's category and the routing-relevant capability hints.
 fn build_candidates(registry: &ToolRegistry) -> Vec<ToolCandidate> {
-    let caps_by_name: HashMap<&str, ToolCapabilities> = registry
+    let caps_by_name: HashMap<String, ToolCapabilities> = registry
         .all_tool_metadata()
         .into_iter()
-        .map(|(name, _description, caps)| (name, caps))
+        .map(|(name, _description, caps, _category)| (name, caps))
         .collect();
 
     registry

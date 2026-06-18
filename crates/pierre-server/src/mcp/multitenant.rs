@@ -13,7 +13,6 @@
 //! secure token storage, and user-scoped data access.
 
 use super::{
-    mcp_request_processor::McpRequestProcessor,
     resources::ServerContext,
     tool_handlers::{McpOAuthCredentials, ToolRoutingContext},
 };
@@ -27,7 +26,7 @@ use crate::constants::{
 use crate::routes::onboarding::OnboardingRoutes;
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
-use pierre_auth::auth::{AuthManager, AuthResult};
+use pierre_auth::auth::AuthManager;
 use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
@@ -35,7 +34,7 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
-use pierre_mcp_schema::{McpError, McpRequest, McpResponse, ProgressNotification};
+use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
 use pierre_providers::registry::ProviderRegistry;
 use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -97,11 +96,11 @@ struct OAuthProviderParams<'a> {
 
 /// MCP server supporting user authentication and isolated data access
 #[derive(Clone)]
-pub struct MultiTenantMcpServer {
+pub struct ProviderToolRouter {
     resources: Arc<ServerContext>,
 }
 
-impl MultiTenantMcpServer {
+impl ProviderToolRouter {
     /// Create a new MCP server with pre-built resources (dependency injection)
     #[must_use]
     pub const fn new(resources: Arc<ServerContext>) -> Self {
@@ -125,26 +124,6 @@ impl MultiTenantMcpServer {
         security_config
     }
 
-    /// Handle incoming MCP request and route to appropriate processor
-    ///
-    /// # Errors
-    /// Returns `None` if the request cannot be processed
-    #[tracing::instrument(
-        skip(request, resources),
-        fields(
-            method = %request.method,
-            request_id = ?request.id,
-        )
-    )]
-    pub async fn handle_request(
-        request: McpRequest,
-        resources: &Arc<ServerContext>,
-    ) -> Option<McpResponse> {
-        let processor = McpRequestProcessor::new(resources.clone());
-        processor.handle_request(request).await
-    }
-
-    /// Extract tenant context from MCP request headers
     /// Route disconnect tool request to appropriate provider handler
     ///
     /// # Errors
@@ -187,6 +166,7 @@ impl MultiTenantMcpServer {
         tool_name: &str,
         args: &Value,
         request_id: Value,
+        user_id: Uuid,
         ctx: &ToolRoutingContext<'_>,
     ) -> McpResponse {
         // Tenant context is always available since tool execution requires it
@@ -196,7 +176,7 @@ impl MultiTenantMcpServer {
             request_id,
             ctx.tenant_context,
             ctx.resources,
-            ctx.auth_result,
+            user_id,
         )
         .await
     }
@@ -710,7 +690,7 @@ impl MultiTenantMcpServer {
         request_id: Value,
         tenant_context: &TenantContext,
         resources: &Arc<ServerContext>,
-        auth_result: &AuthResult,
+        user_id: Uuid,
     ) -> McpResponse {
         // Validate tool is known
         if let Some(error_response) =
@@ -745,7 +725,7 @@ impl MultiTenantMcpServer {
         let universal_request = Self::create_universal_request(
             tool_name,
             args,
-            auth_result,
+            user_id,
             tenant_context,
             resources,
             &request_id,
@@ -793,7 +773,7 @@ impl MultiTenantMcpServer {
     fn create_universal_request(
         tool_name: &str,
         args: &Value,
-        auth_result: &AuthResult,
+        user_id: Uuid,
         tenant_context: &TenantContext,
         resources: &Arc<ServerContext>,
         request_id: &Value,
@@ -824,7 +804,7 @@ impl MultiTenantMcpServer {
         UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: args.clone(),
-            user_id: auth_result.user_id.to_string(),
+            user_id: user_id.to_string(),
             protocol: "mcp".to_owned(),
             tenant_id: Some(tenant_context.tenant_id.to_string()),
             progress_token: progress_reporter.as_ref().map(|r| r.progress_token.clone()),
@@ -895,7 +875,7 @@ impl MultiTenantMcpServer {
 // AXUM SERVER ORCHESTRATION
 // ============================================================================
 
-impl MultiTenantMcpServer {
+impl ProviderToolRouter {
     /// Run HTTP server (convenience method)
     ///
     /// Starts the Axum HTTP server on the specified port using the embedded resources.

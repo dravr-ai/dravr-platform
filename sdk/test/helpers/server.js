@@ -9,6 +9,7 @@
 
 const { spawn } = require('child_process');
 const path = require('path');
+const { TestConfig } = require('./fixtures');
 
 // Use native fetch (Node 18+) or dynamic import for node-fetch
 const fetch = global.fetch || (async (...args) => {
@@ -37,7 +38,11 @@ async function ensureServerRunning(config = {}) {
 
     if (response.ok) {
       console.log('✅ Using running Pierre server');
-      const testToken = await registerAndGetToken(port);
+      const databaseUrl = config.database || TestConfig.testDatabase;
+      // The encryption key MUST match the running server's; otherwise pierre-cli
+      // refuses to open the DB ("Encryption key mismatch") and promotion fails.
+      const encryptionKey = config.encryptionKey || TestConfig.testEncryptionKey;
+      const testToken = await registerAndGetToken(port, databaseUrl, encryptionKey);
       return { process: null, port, logs: [], testToken, cleanup: null };
     }
   } catch (error) {
@@ -76,19 +81,34 @@ async function startServer(config) {
     throw new Error('Pierre server binary not found. Please run: cargo build --bin pierre-mcp-server');
   }
 
+  // Default to the shared file-backed test DB (NOT in-memory): the global-admin
+  // promotion runs pierre-cli as a SEPARATE process, which can only reach a
+  // file-backed DB. An in-memory default silently skips promotion → the test
+  // user stays non-admin → tools/list returns the tenant-filtered subset.
+  const databaseUrl = config.database || TestConfig.testDatabase;
+  const encryptionKey = config.encryptionKey || 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=';
   const env = {
     ...process.env,
     HTTP_PORT: port.toString(),
-    DATABASE_URL: config.database || 'sqlite::memory:',
+    DATABASE_URL: databaseUrl,
     // Integration tests register users over HTTP, which default to "Pending" (admin
     // approval). Auto-approve so the issued token belongs to an Active user and
     // authenticates against /mcp (which rejects non-Active users with 401, RFC 9728).
     AUTO_APPROVE_USERS: 'true',
-    PIERRE_MASTER_ENCRYPTION_KEY: config.encryptionKey || 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=',
+    PIERRE_MASTER_ENCRYPTION_KEY: encryptionKey,
     PIERRE_JWT_SECRET: config.jwtSecret || 'test_jwt_secret_for_automated_tests_only',
     PIERRE_RSA_KEY_SIZE: '2048', // Use smaller key size for faster test startup
     RUST_LOG: config.logLevel || 'info'
   };
+
+  // CRITICAL: UNSET the Resend config so the auto-approval "account approved" email
+  // is never actually sent. AUTO_APPROVE_USERS above approves each registered
+  // sdk-test-*@example.com user, which would otherwise fire a real Resend email
+  // (bouncing/delaying and flooding the Resend dashboard). The server builds its
+  // email service only when RESEND_API_KEY is set, and `env::var().ok()` treats an
+  // empty string as Some("") — so we must DELETE the inherited vars, not blank them.
+  delete env.RESEND_API_KEY;
+  delete env.RESEND_FROM_EMAIL;
 
   const serverProcess = spawn(serverPath, [], {
     env,
@@ -130,7 +150,7 @@ async function startServer(config) {
   }
 
   // Register a test user and get a real RS256 JWT token for authenticated tests
-  const testToken = await registerAndGetToken(port);
+  const testToken = await registerAndGetToken(port, databaseUrl, encryptionKey);
 
   return {
     process: serverProcess,
@@ -153,11 +173,87 @@ async function startServer(config) {
 }
 
 /**
- * Register a test user and login to get a real RS256 JWT token.
- * The server uses RS256 (RSA) JWT validation, so test tokens must come from
- * the actual server login endpoint rather than being locally generated.
+ * Promote an already-registered user to a GLOBAL admin via pierre-cli.
+ *
+ * tools/list returns the complete tool catalog only for a global admin
+ * (`User.is_admin`); a plain tenant owner is correctly limited to their plan's
+ * tenant-filtered subset (e.g. starter-tier tenants don't see professional-gated
+ * analytics tools). Catalog-completeness assertions therefore require a global
+ * admin. The CLI writes directly to the shared file-backed SQLite DB the server
+ * reads, and the server resolves is_admin on every request, so the next login's
+ * token authenticates as admin without a server restart.
+ *
+ * No-op for in-memory databases, which are private to the server process and
+ * unreachable from a separate CLI invocation.
  */
-async function registerAndGetToken(port) {
+async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryptionKey) {
+  if (!databaseUrl || databaseUrl.includes(':memory:')) {
+    console.warn(
+      `⚠️ DATABASE_URL is in-memory (${databaseUrl}); cannot promote ${email} to global admin from CLI`
+    );
+    return false;
+  }
+
+  const fs = require('fs');
+  const cliCandidates = [
+    process.env.PIERRE_CLI_BINARY,
+    path.join(__dirname, '../../../target/debug/pierre-cli'),
+    path.join(__dirname, '../../../target/release/pierre-cli')
+  ].filter(Boolean);
+  const cliPath = cliCandidates.find((p) => fs.existsSync(p));
+  if (!cliPath) {
+    throw new Error('pierre-cli binary not found. Please run: cargo build --bin pierre-cli');
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      cliPath,
+      [
+        'user',
+        'create',
+        '--email',
+        email,
+        '--password',
+        password,
+        '--force',
+        '--super-admin'
+      ],
+      {
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          PIERRE_MASTER_ENCRYPTION_KEY:
+            encryptionKey || process.env.PIERRE_MASTER_ENCRYPTION_KEY,
+          RUST_LOG: 'warn'
+        },
+        stdio: 'pipe'
+      }
+    );
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) {
+        console.log(`🔑 Promoted ${email} to global admin (full tool catalog)`);
+        resolve(true);
+      } else {
+        reject(new Error(`pierre-cli promotion failed (code ${code}):\n${stderr}`));
+      }
+    });
+  });
+}
+
+/**
+ * Register a test user, promote it to a global admin, and login to get a real
+ * RS256 JWT token. The server uses RS256 (RSA) JWT validation, so test tokens
+ * must come from the actual server login endpoint rather than being locally
+ * generated. The global-admin promotion makes tools/list return the full tool
+ * catalog (see promoteUserToGlobalAdmin).
+ */
+async function registerAndGetToken(port, databaseUrl, encryptionKey) {
   const baseUrl = `http://localhost:${port}`;
   const testEmail = `sdk-test-${Date.now()}@example.com`;
   const testPassword = 'SdkTestPassword123!';
@@ -184,6 +280,9 @@ async function registerAndGetToken(port) {
   } catch (error) {
     console.warn(`⚠️ Registration failed: ${error.message}`);
   }
+
+  // Promote to a global admin so tools/list returns the full catalog.
+  await promoteUserToGlobalAdmin(testEmail, testPassword, databaseUrl, encryptionKey);
 
   // Login via OAuth2 ROPC (RFC 6749 §4.3) to get RS256 JWT
   try {
@@ -260,6 +359,7 @@ module.exports = {
   ensureServerRunning,
   startServer,
   registerAndGetToken,
+  promoteUserToGlobalAdmin,
   waitForHealth,
   sleep
 };

@@ -16,8 +16,12 @@ use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 
 /// Annotations for the refresh tool — writes data (triggers sync), open world (external APIs)
 fn refresh_annotations() -> ToolAnnotations {
@@ -51,18 +55,8 @@ fn freshness_annotations() -> ToolAnnotations {
 pub struct RefreshProviderDataTool;
 
 #[async_trait]
-impl McpTool for RefreshProviderDataTool {
-    fn name(&self) -> &'static str {
-        "refresh_provider_data"
-    }
-
-    fn description(&self) -> &'static str {
-        "Trigger a data refresh from a connected fitness provider. Use when the user's data \
-         seems outdated, when they ask about recent activities that aren't showing, or when \
-         they explicitly request a sync. Set wait=true to block until sync completes."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
 
         properties.insert(
@@ -105,85 +99,101 @@ impl McpTool for RefreshProviderDataTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned()]),
+        };
+        tool_definition(
+            "refresh_provider_data",
+            "Trigger a data refresh from a connected fitness provider. Use when the user's data \
+             seems outdated, when they ask about recent activities that aren't showing, or when \
+             they explicitly request a sync. Set wait=true to block until sync completes.",
+            schema,
+            Some(refresh_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let provider = args
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or("all");
+
+            let reason = args
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("coach-initiated refresh");
+
+            let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(false);
+
+            let tenant_id = context
+                .tenant_id
+                .map(TenantId::from)
+                .ok_or_else(|| AppError::auth_invalid("Tenant context required for refresh"))?;
+
+            info!(
+                user_id = %context.user_id,
+                provider = %provider,
+                reason = %reason,
+                wait = %wait,
+                "Coach-initiated provider data refresh"
+            );
+
+            let refresh_service = build_refresh_service(&context);
+
+            if provider == "all" {
+                let config = RefreshConfig {
+                    on_chat_enabled: true,
+                    // Use zero max age to force refresh for all providers
+                    on_chat_max_age_secs: 0,
+                    wait_for_refresh: wait,
+                    wait_for_refresh_timeout_secs: RefreshConfig::default()
+                        .wait_for_refresh_timeout_secs,
+                    inject_coach_hint: false,
+                    providers: Vec::new(),
+                };
+                let status = refresh_service
+                    .check_and_refresh(context.user_id, tenant_id, &config)
+                    .await;
+
+                Ok(ToolResult::ok(json!({
+                    "status": "refresh_triggered",
+                    "refreshing": status.refreshing,
+                    "already_fresh": status.fresh,
+                    "details": status.details,
+                })))
+            } else {
+                let result = refresh_service
+                    .refresh_provider(context.user_id, tenant_id, provider, wait)
+                    .await;
+
+                Ok(ToolResult::ok(json!({
+                    "provider": result.provider,
+                    "success": result.success,
+                    "message": result.message,
+                    "records_synced": result.records_synced,
+                })))
+            }
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(refresh_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let provider = args
-            .get("provider")
-            .and_then(Value::as_str)
-            .unwrap_or("all");
-
-        let reason = args
-            .get("reason")
-            .and_then(Value::as_str)
-            .unwrap_or("coach-initiated refresh");
-
-        let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(false);
-
-        let tenant_id = context
-            .tenant_id
-            .map(TenantId::from)
-            .ok_or_else(|| AppError::auth_invalid("Tenant context required for refresh"))?;
-
-        info!(
-            user_id = %context.user_id,
-            provider = %provider,
-            reason = %reason,
-            wait = %wait,
-            "Coach-initiated provider data refresh"
-        );
-
-        let refresh_service = build_refresh_service(context);
-
-        if provider == "all" {
-            let config = RefreshConfig {
-                on_chat_enabled: true,
-                // Use zero max age to force refresh for all providers
-                on_chat_max_age_secs: 0,
-                wait_for_refresh: wait,
-                wait_for_refresh_timeout_secs: RefreshConfig::default()
-                    .wait_for_refresh_timeout_secs,
-                inject_coach_hint: false,
-                providers: Vec::new(),
-            };
-            let status = refresh_service
-                .check_and_refresh(context.user_id, tenant_id, &config)
-                .await;
-
-            Ok(ToolResult::ok(json!({
-                "status": "refresh_triggered",
-                "refreshing": status.refreshing,
-                "already_fresh": status.fresh,
-                "details": status.details,
-            })))
-        } else {
-            let result = refresh_service
-                .refresh_provider(context.user_id, tenant_id, provider, wait)
-                .await;
-
-            Ok(ToolResult::ok(json!({
-                "provider": result.provider,
-                "success": result.success,
-                "message": result.message,
-                "records_synced": result.records_synced,
-            })))
-        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -198,52 +208,58 @@ impl McpTool for RefreshProviderDataTool {
 pub struct GetDataFreshnessTool;
 
 #[async_trait]
-impl McpTool for GetDataFreshnessTool {
-    fn name(&self) -> &'static str {
-        "get_data_freshness"
-    }
-
-    fn description(&self) -> &'static str {
-        "Check how fresh the user's fitness data is across all connected providers. \
-         Returns last sync time and freshness level for each provider. Use this to \
-         decide if a refresh is needed before answering data-dependent questions."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: None,
             required: None,
+        };
+        tool_definition(
+            "get_data_freshness",
+            "Check how fresh the user's fitness data is across all connected providers. \
+             Returns last sync time and freshness level for each provider. Use this to \
+             decide if a refresh is needed before answering data-dependent questions.",
+            schema,
+            Some(freshness_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = context
+                .tenant_id
+                .map(TenantId::from)
+                .ok_or_else(|| AppError::auth_invalid("Tenant context required"))?;
+
+            let refresh_service = build_refresh_service(&context);
+            let freshness = refresh_service
+                .get_provider_freshness(context.user_id, tenant_id)
+                .await;
+
+            let metrics = SyncMetrics::snapshot();
+
+            Ok(ToolResult::ok(json!({
+                "providers": freshness,
+                "sync_metrics": metrics,
+            })))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(freshness_annotations())
-    }
-
-    async fn execute(&self, _args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = context
-            .tenant_id
-            .map(TenantId::from)
-            .ok_or_else(|| AppError::auth_invalid("Tenant context required"))?;
-
-        let refresh_service = build_refresh_service(context);
-        let freshness = refresh_service
-            .get_provider_freshness(context.user_id, tenant_id)
-            .await;
-
-        let metrics = SyncMetrics::snapshot();
-
-        Ok(ToolResult::ok(json!({
-            "providers": freshness,
-            "sync_metrics": metrics,
-        })))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -253,7 +269,7 @@ impl McpTool for GetDataFreshnessTool {
 
 /// Create sync/refresh tools for registration.
 #[must_use]
-pub fn create_sync_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_sync_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(RefreshProviderDataTool),
         Box::new(GetDataFreshnessTool),

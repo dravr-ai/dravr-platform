@@ -8,7 +8,8 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::billing::BillingProvider;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
-use pierre_tool_runtime::traits::McpTool;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::McpTool;
 use std::sync::Arc;
 
 /// Optional initialization parameters for `ServerContext`
@@ -45,7 +46,7 @@ pub struct ServerContextOptions {
     /// end-to-end without requiring a real provider connection.
     /// Production callers leave this empty — the default registry
     /// already holds every user-facing tool.
-    pub extra_tools: Vec<Arc<dyn McpTool>>,
+    pub extra_tools: Vec<Arc<dyn McpTool<dyn ToolRuntime>>>,
     /// Billing provider backing `/api/billing/*` and `/webhooks/{provider}`.
     ///
     /// The production binary wires a real provider (`StripeProvider`) when

@@ -19,11 +19,11 @@ use pierre_config::environment::{
     SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use rand::Rng;
@@ -111,7 +111,7 @@ impl TestServer {
             .await,
         );
 
-        let server = MultiTenantMcpServer::new(resources);
+        let server = ProviderToolRouter::new(resources);
         let port = self.port;
 
         let handle = tokio::spawn(async move {
@@ -212,7 +212,26 @@ impl TestServer {
             timezone: None,
         };
 
-        self.database.repositories().users.create(&user).await?;
+        let repos = self.database.repositories();
+        repos.users.create(&user).await?;
+
+        // E3: the tronc-backed `PierreAuthHook` resolves a tenant context for
+        // every MCP request and rejects a tenant-less caller with 403. Create the
+        // tenant with this user as owner (which also inserts the owner into
+        // `tenant_users`) so the auth hook can resolve the default tenant.
+        let tenant_id = TenantId::new();
+        let tenant = Tenant {
+            id: tenant_id,
+            name: "Test Tenant".to_owned(),
+            slug: format!("test-tenant-{tenant_id}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: user_id,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        repos.tenants.create(&tenant).await?;
+        repos.users.update_tenant_id(user_id, tenant_id).await?;
 
         // Generate JWT token
         let jwt_token = self
@@ -542,17 +561,25 @@ async fn test_mcp_authentication_required() -> Result<()> {
     );
 
     let json: Value = response2.json().await?;
+    // E3: the tronc transport renders the 401 as a JSON-RPC auth error object
+    // with code -32001 and the generic message "Unauthorized" (the descriptive
+    // platform-specific "Authentication required" message was retired). Assert the
+    // structured auth-error shape: an error object with the auth error code and a
+    // message that still signals auth ("unauthorized" satisfies a case-insensitive
+    // "auth" check).
     assert!(json["error"].is_object(), "Should have error object");
+    assert_eq!(
+        json["error"]["code"], -32001,
+        "401 body must carry the JSON-RPC auth error code -32001: {:?}",
+        json["error"]
+    );
     assert!(
         json["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("Authentication")
-            || json["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("authentication"),
-        "Error should mention authentication: {:?}",
+            .to_lowercase()
+            .contains("auth"),
+        "Error message should signal authentication: {:?}",
         json["error"]
     );
 
