@@ -15,13 +15,18 @@
 //! All tools use direct database access via `FitnessConfigurationManager`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::FitnessConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -47,16 +52,8 @@ fn require_tenant_id(ctx: &ToolExecutionContext) -> AppResult<TenantId> {
 pub struct GetFitnessConfigTool;
 
 #[async_trait]
-impl McpTool for GetFitnessConfigTool {
-    fn name(&self) -> &'static str {
-        "get_fitness_config"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get fitness configuration for the current user (falls back to tenant default)"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "configuration_name".to_owned(),
@@ -68,38 +65,51 @@ impl McpTool for GetFitnessConfigTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![]),
-        }
+        };
+        tool_definition(
+            "get_fitness_config",
+            "Get fitness configuration for the current user (falls back to tenant default)",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let configuration_name = args
-            .get("configuration_name")
-            .and_then(Value::as_str)
-            .unwrap_or("default");
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let configuration_name = args
+                .get("configuration_name")
+                .and_then(Value::as_str)
+                .unwrap_or("default");
 
-        tracing::debug!(
-            user_id = %ctx.user_id,
-            config_name = %configuration_name,
-            "Getting fitness configuration"
-        );
+            tracing::debug!(
+                user_id = %ctx.user_id,
+                config_name = %configuration_name,
+                "Getting fitness configuration"
+            );
 
-        let repo = ctx.resources.repos().fitness_config.as_ref();
-        let user_id_str = ctx.user_id.to_string();
-        let tenant_id = require_tenant_id(ctx)?;
+            let repo = ctx.resources.repos().fitness_config.as_ref();
+            let user_id_str = ctx.user_id.to_string();
+            let tenant_id = require_tenant_id(&ctx)?;
 
-        let config = repo
-            .get_user_config(tenant_id, &user_id_str, configuration_name)
-            .await?;
+            let config = repo
+                .get_user_config(tenant_id, &user_id_str, configuration_name)
+                .await?;
 
-        config.map_or_else(
+            config.map_or_else(
             || {
                 Ok(ToolResult::ok(json!({
                     "configuration_name": configuration_name,
@@ -118,6 +128,9 @@ impl McpTool for GetFitnessConfigTool {
                 })))
             },
         )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -129,16 +142,8 @@ impl McpTool for GetFitnessConfigTool {
 pub struct SetFitnessConfigTool;
 
 #[async_trait]
-impl McpTool for SetFitnessConfigTool {
-    fn name(&self) -> &'static str {
-        "set_fitness_config"
-    }
-
-    fn description(&self) -> &'static str {
-        "Save or update fitness configuration for the current user or tenant"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "configuration_name".to_owned(),
@@ -169,65 +174,83 @@ impl McpTool for SetFitnessConfigTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["config".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let configuration_name = args
-            .get("configuration_name")
-            .and_then(Value::as_str)
-            .unwrap_or("default");
-
-        let config_json = args
-            .get("config")
-            .ok_or_else(|| AppError::invalid_input("config object is required"))?;
-
-        let user_level = args
-            .get("user_level")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-
-        tracing::debug!(
-            user_id = %ctx.user_id,
-            config_name = %configuration_name,
-            user_level = %user_level,
-            "Setting fitness configuration"
-        );
-
-        // Parse the config to validate it
-        let fitness_config: FitnessConfig = serde_json::from_value(config_json.clone())
-            .map_err(|e| AppError::invalid_input(format!("Invalid fitness config format: {e}")))?;
-
-        let repo = ctx.resources.repos().fitness_config.as_ref();
-        let user_id_str = ctx.user_id.to_string();
-        let tenant_id = require_tenant_id(ctx)?;
-
-        let config_id: String = if user_level {
-            repo.save_user_config(tenant_id, &user_id_str, configuration_name, &fitness_config)
-                .await?
-        } else {
-            // Tenant-level config requires admin privileges
-            ctx.require_admin().await?;
-            repo.save_tenant_config(tenant_id, configuration_name, &fitness_config)
-                .await?
         };
+        tool_definition(
+            "set_fitness_config",
+            "Save or update fitness configuration for the current user or tenant",
+            schema,
+            None,
+        )
+    }
 
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "config_id": config_id,
-            "configuration_name": configuration_name,
-            "user_level": user_level,
-            "message": format!("Configuration '{}' saved successfully", configuration_name),
-            "saved_at": Utc::now().to_rfc3339(),
-        })))
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let configuration_name = args
+                .get("configuration_name")
+                .and_then(Value::as_str)
+                .unwrap_or("default");
+
+            let config_json = args
+                .get("config")
+                .ok_or_else(|| AppError::invalid_input("config object is required"))?;
+
+            let user_level = args
+                .get("user_level")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+
+            tracing::debug!(
+                user_id = %ctx.user_id,
+                config_name = %configuration_name,
+                user_level = %user_level,
+                "Setting fitness configuration"
+            );
+
+            // Parse the config to validate it
+            let fitness_config: FitnessConfig = serde_json::from_value(config_json.clone())
+                .map_err(|e| {
+                    AppError::invalid_input(format!("Invalid fitness config format: {e}"))
+                })?;
+
+            let repo = ctx.resources.repos().fitness_config.as_ref();
+            let user_id_str = ctx.user_id.to_string();
+            let tenant_id = require_tenant_id(&ctx)?;
+
+            let config_id: String = if user_level {
+                repo.save_user_config(tenant_id, &user_id_str, configuration_name, &fitness_config)
+                    .await?
+            } else {
+                // Tenant-level config requires admin privileges
+                ctx.require_admin().await?;
+                repo.save_tenant_config(tenant_id, configuration_name, &fitness_config)
+                    .await?
+            };
+
+            Ok(ToolResult::ok(json!({
+                "success": true,
+                "config_id": config_id,
+                "configuration_name": configuration_name,
+                "user_level": user_level,
+                "message": format!("Configuration '{}' saved successfully", configuration_name),
+                "saved_at": Utc::now().to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -239,16 +262,8 @@ impl McpTool for SetFitnessConfigTool {
 pub struct ListFitnessConfigsTool;
 
 #[async_trait]
-impl McpTool for ListFitnessConfigsTool {
-    fn name(&self) -> &'static str {
-        "list_fitness_configs"
-    }
-
-    fn description(&self) -> &'static str {
-        "List all available fitness configuration names for the user and tenant"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "include_tenant".to_owned(),
@@ -258,61 +273,77 @@ impl McpTool for ListFitnessConfigsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec![]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let include_tenant = args
-            .get("include_tenant")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-
-        tracing::debug!(
-            user_id = %ctx.user_id,
-            include_tenant = %include_tenant,
-            "Listing fitness configurations"
-        );
-
-        let repo = ctx.resources.repos().fitness_config.as_ref();
-        let user_id_str = ctx.user_id.to_string();
-        let tenant_id = require_tenant_id(ctx)?;
-
-        // Get user-specific configurations
-        let user_configs: Vec<String> = repo
-            .list_user_configurations(tenant_id, &user_id_str)
-            .await?;
-
-        // Get tenant-level configurations if requested
-        let tenant_configs: Vec<String> = if include_tenant {
-            repo.list_tenant_configurations(tenant_id).await?
-        } else {
-            Vec::new()
         };
+        tool_definition(
+            "list_fitness_configs",
+            "List all available fitness configuration names for the user and tenant",
+            schema,
+            None,
+        )
+    }
 
-        // Combine and deduplicate
-        let mut all_configs: Vec<String> = user_configs.clone();
-        for tc in &tenant_configs {
-            if !all_configs.contains(tc) {
-                all_configs.push(tc.clone());
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let include_tenant = args
+                .get("include_tenant")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+
+            tracing::debug!(
+                user_id = %ctx.user_id,
+                include_tenant = %include_tenant,
+                "Listing fitness configurations"
+            );
+
+            let repo = ctx.resources.repos().fitness_config.as_ref();
+            let user_id_str = ctx.user_id.to_string();
+            let tenant_id = require_tenant_id(&ctx)?;
+
+            // Get user-specific configurations
+            let user_configs: Vec<String> = repo
+                .list_user_configurations(tenant_id, &user_id_str)
+                .await?;
+
+            // Get tenant-level configurations if requested
+            let tenant_configs: Vec<String> = if include_tenant {
+                repo.list_tenant_configurations(tenant_id).await?
+            } else {
+                Vec::new()
+            };
+
+            // Combine and deduplicate
+            let mut all_configs: Vec<String> = user_configs.clone();
+            for tc in &tenant_configs {
+                if !all_configs.contains(tc) {
+                    all_configs.push(tc.clone());
+                }
             }
-        }
-        all_configs.sort();
+            all_configs.sort();
 
-        Ok(ToolResult::ok(json!({
-            "configurations": all_configs,
-            "user_specific": user_configs,
-            "tenant_level": tenant_configs,
-            "total_count": all_configs.len(),
-            "retrieved_at": Utc::now().to_rfc3339(),
-        })))
+            Ok(ToolResult::ok(json!({
+                "configurations": all_configs,
+                "user_specific": user_configs,
+                "tenant_level": tenant_configs,
+                "total_count": all_configs.len(),
+                "retrieved_at": Utc::now().to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -324,16 +355,8 @@ impl McpTool for ListFitnessConfigsTool {
 pub struct DeleteFitnessConfigTool;
 
 #[async_trait]
-impl McpTool for DeleteFitnessConfigTool {
-    fn name(&self) -> &'static str {
-        "delete_fitness_config"
-    }
-
-    fn description(&self) -> &'static str {
-        "Delete a fitness configuration by name"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "configuration_name".to_owned(),
@@ -353,18 +376,31 @@ impl McpTool for DeleteFitnessConfigTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["configuration_name".to_owned()]),
-        }
+        };
+        tool_definition(
+            "delete_fitness_config",
+            "Delete a fitness configuration by name",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let configuration_name = args
             .get("configuration_name")
             .and_then(Value::as_str)
@@ -384,7 +420,7 @@ impl McpTool for DeleteFitnessConfigTool {
 
         let repo = ctx.resources.repos().fitness_config.as_ref();
         let user_id_str = ctx.user_id.to_string();
-        let tenant_id = require_tenant_id(ctx)?;
+        let tenant_id = require_tenant_id(&ctx)?;
 
         let user_id_option = if user_level {
             Some(user_id_str.as_str())
@@ -414,6 +450,9 @@ impl McpTool for DeleteFitnessConfigTool {
                 "message": format!("Configuration '{}' not found", configuration_name),
             })))
         }
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -423,7 +462,7 @@ impl McpTool for DeleteFitnessConfigTool {
 
 /// Create all fitness config tools for registration
 #[must_use]
-pub fn create_fitness_config_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_fitness_config_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(GetFitnessConfigTool),
         Box::new(SetFitnessConfigTool),

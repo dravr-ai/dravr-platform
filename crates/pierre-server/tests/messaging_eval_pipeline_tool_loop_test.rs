@@ -47,9 +47,11 @@ mod pipeline_tool_loop {
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use futures_util::stream;
     use hmac::{Hmac, Mac};
-    use pierre_core::errors::{AppError, AppResult};
+    use pierre_core::errors::AppError;
     use pierre_core::llm::{
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
@@ -60,13 +62,10 @@ mod pipeline_tool_loop {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_mcp_schema::JsonSchema;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_routes_admin::LlmConsumptionRoutes;
-    use pierre_tool_runtime::context::ToolExecutionContext;
-    use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
-    use pierre_tools_core::ToolResult;
+    use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
     use serial_test::serial;
     use sha2::Sha256;
@@ -89,20 +88,13 @@ mod pipeline_tool_loop {
     struct StubTool;
 
     #[async_trait]
-    impl McpTool for StubTool {
-        fn name(&self) -> &'static str {
-            STUB_TOOL_NAME
-        }
-
-        fn description(&self) -> &'static str {
-            "Messaging-eval stub tool — returns canned data so the tool loop completes without provider/auth setup."
-        }
-
-        fn input_schema(&self) -> JsonSchema {
-            JsonSchema {
-                schema_type: "object".to_owned(),
-                properties: None,
-                required: None,
+    impl McpTool<dyn ToolRuntime> for StubTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: STUB_TOOL_NAME.to_owned(),
+                description: "Messaging-eval stub tool — returns canned data so the tool loop completes without provider/auth setup.".to_owned(),
+                input_schema: json!({"type": "object"}),
+                annotations: None,
             }
         }
 
@@ -115,13 +107,21 @@ mod pipeline_tool_loop {
 
         async fn execute(
             &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &ToolContext,
             _args: Value,
-            _context: &ToolExecutionContext,
-        ) -> AppResult<ToolResult> {
-            Ok(ToolResult::ok(json!({
+        ) -> ToolResponse {
+            let payload = json!({
                 "stub": true,
                 "data": "canned tool result for messaging-eval pipeline test"
-            })))
+            });
+            ToolResponse {
+                content: vec![Content::Text {
+                    text: payload.to_string(),
+                }],
+                is_error: false,
+                structured_content: Some(payload),
+            }
         }
     }
 
@@ -341,7 +341,7 @@ mod pipeline_tool_loop {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
 
         let mock = Arc::new(MockLlmProviderWithToolCalls::new());
-        let stub_tool: Arc<dyn McpTool> = Arc::new(StubTool);
+        let stub_tool: Arc<dyn McpTool<dyn ToolRuntime>> = Arc::new(StubTool);
         let resources = create_test_server_resources_with_llm_and_tools(mock, vec![stub_tool])
             .await
             .unwrap();

@@ -725,13 +725,17 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions
-/// in all `.rs` files under the given directory (recursive).
+/// Extract tool names from each tool's `McpTool::definition` body in all `.rs`
+/// files under the given directory (recursive).
+///
+/// Every `McpTool` impl declares its name as the first argument to the
+/// `tool_definition("<name>", ...)` helper (see
+/// `pierre_tool_runtime::conversions::tool_definition`), so the registered tool
+/// name is exactly that first string literal. The name may sit on the same line
+/// as the call or on the following line, so `\s*` (which matches newlines)
+/// bridges the gap between `(` and the literal.
 fn extract_tool_names_from_source(dir: &Path) -> HashSet<String> {
-    let re = regex::Regex::new(
-        r#"fn\s+name\s*\(\s*&\s*self\s*\)\s*->\s*&\s*'static\s+str\s*\{\s*"([a-z_][a-z0-9_]*)"\s*\}"#,
-    )
-    .expect("valid regex");
+    let re = regex::Regex::new(r#"tool_definition\(\s*"([a-z_][a-z0-9_]*)""#).expect("valid regex");
 
     let mut files = Vec::new();
     collect_rs_files(dir, &mut files);

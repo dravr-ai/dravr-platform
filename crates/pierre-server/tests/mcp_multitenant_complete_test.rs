@@ -27,7 +27,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use rand::Rng;
@@ -564,7 +564,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run(server_port) => {
@@ -703,8 +703,9 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     let invalid_tool_response = client.call_tool("invalid_tool", json!({})).await?;
 
     assert_eq!(invalid_tool_response["jsonrpc"], "2.0");
-    assert!(!invalid_tool_response["error"].is_null());
-    assert_eq!(invalid_tool_response["error"]["code"], -32601); // Method not found
+    // An unknown tool is reported as a tool result with isError=true (the tronc
+    // ToolDispatcher contract adopted in the E3 migration), not a -32601 error.
+    assert_eq!(invalid_tool_response["result"]["isError"], true);
 
     println!("All multi-tenant MCP server tests passed!");
 
@@ -750,7 +751,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run(server_port) => {
@@ -851,7 +852,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run(server_port) => {
@@ -940,7 +941,7 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run(server_port) => {
@@ -1034,7 +1035,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run(server_port) => {
@@ -1150,7 +1151,7 @@ async fn test_multitenant_server_config() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Verify configuration (port is dynamically allocated)
     assert!(config.http_port >= 30000 && config.http_port < 65535);

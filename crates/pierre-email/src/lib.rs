@@ -13,14 +13,75 @@
 /// HTML email templates for transactional and lifecycle emails
 pub mod templates;
 
+use std::time::Duration;
+
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
 use pierre_core::http_client::SharedHttpClient;
+use reqwest::header::HeaderMap;
+use reqwest::StatusCode;
 use serde::Serialize;
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 /// Resend API base URL
 const RESEND_API_URL: &str = "https://api.resend.com/emails";
+
+/// Maximum number of automatic retries after a `429 Too Many Requests`.
+const MAX_RETRIES: u32 = 3;
+
+/// Upper bound on how long a caller is blocked waiting for a rate-limit reset.
+/// Resend's per-second limit resets within `1s`; a reset window longer than
+/// this signals a daily/monthly cap, where blocking the request path (e.g. the
+/// inline password-reset handler) is worse than dropping the send.
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// Backoff used when a `429` arrives without a usable reset header.
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// Floor applied to every retry so a `0`-second reset cannot become a tight loop.
+const RETRY_DELAY_FLOOR: Duration = Duration::from_millis(200);
+
+/// Parse Resend's rate-limit reset hint into a backoff [`Duration`].
+///
+/// Prefers the standard `Retry-After` header (delta-seconds), falling back to
+/// Resend's `RateLimit-Reset` (whole seconds until the window resets). Returns
+/// `None` when neither header carries a parseable non-negative integer.
+#[must_use]
+pub fn parse_retry_delay(
+    retry_after: Option<&str>,
+    ratelimit_reset: Option<&str>,
+) -> Option<Duration> {
+    let secs = |v: Option<&str>| v.and_then(|s| s.trim().parse::<u64>().ok());
+    secs(retry_after)
+        .or_else(|| secs(ratelimit_reset))
+        .map(Duration::from_secs)
+}
+
+/// Decide whether a `429` should be retried, and how long to wait first.
+///
+/// Returns `Some(delay)` to sleep then retry, or `None` to give up. Gives up
+/// once `attempt` reaches `MAX_RETRIES`, or when the reset window exceeds
+/// `MAX_RETRY_DELAY` (a long window means a daily/monthly cap, not a momentary
+/// burst). A missing `hint` falls back to `DEFAULT_RETRY_DELAY`; every retry
+/// waits at least `RETRY_DELAY_FLOOR`.
+#[must_use]
+pub fn plan_retry(attempt: u32, hint: Option<Duration>) -> Option<Duration> {
+    if attempt >= MAX_RETRIES {
+        return None;
+    }
+    let delay = hint.unwrap_or(DEFAULT_RETRY_DELAY);
+    if delay > MAX_RETRY_DELAY {
+        return None;
+    }
+    Some(delay.max(RETRY_DELAY_FLOOR))
+}
+
+/// Extract a retry backoff from a Resend response's rate-limit headers.
+fn retry_delay_from_headers(headers: &HeaderMap) -> Option<Duration> {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    parse_retry_delay(get("retry-after"), get("ratelimit-reset"))
+}
 
 /// Email payload for the Resend API
 #[derive(Serialize)]
@@ -65,24 +126,45 @@ impl ResendEmailService {
             html: html_body.to_owned(),
         };
 
-        let response = self
-            .client
-            .post(RESEND_API_URL)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to send email via Resend: {e}")))?;
+        let mut attempt: u32 = 0;
+        loop {
+            let response = self
+                .client
+                .post(RESEND_API_URL)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to send email via Resend: {e}")))?;
 
-        if response.status().is_success() {
-            info!(
-                to = to,
-                subject = subject,
-                "Email sent successfully via Resend"
-            );
-            Ok(())
-        } else {
             let status = response.status();
+            if status.is_success() {
+                info!(
+                    to = to,
+                    subject = subject,
+                    "Email sent successfully via Resend"
+                );
+                return Ok(());
+            }
+
+            // Honor Resend's rate-limit reset window: on a 429, wait out the
+            // advertised reset (capped) and retry, rather than dropping the send.
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                if let Some(delay) =
+                    plan_retry(attempt, retry_delay_from_headers(response.headers()))
+                {
+                    attempt += 1;
+                    warn!(
+                        to = to,
+                        attempt = attempt,
+                        delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+                        "Resend rate limit (HTTP 429) — waiting for reset, then retrying"
+                    );
+                    sleep(delay).await;
+                    continue;
+                }
+            }
+
             let body = response
                 .text()
                 .await
@@ -93,9 +175,9 @@ impl ResendEmailService {
                 body = body,
                 "Resend API returned non-success status"
             );
-            Err(AppError::internal(format!(
+            return Err(AppError::internal(format!(
                 "Resend API error (HTTP {status}): {body}"
-            )))
+            )));
         }
     }
 

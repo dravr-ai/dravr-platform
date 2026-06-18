@@ -261,6 +261,7 @@ impl ProtocolConverter {
                 "properties": {},
                 "required": []
             }),
+            annotations: None,
         }
     }
 }

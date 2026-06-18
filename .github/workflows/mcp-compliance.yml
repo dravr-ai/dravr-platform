@@ -61,17 +61,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Reuse the backend workflows' WARM release cache (shared-key: release) so the
+      # server build below is incremental, not a cold from-scratch build. The prior
+      # raw actions/cache of the full debug target/ blew the 10GB limit (save silently
+      # failed) and the inline cold debug build OOM-thrashed the 2-core runner (~90min+).
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-1.96.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-1.96.0-v2-
+          shared-key: release
 
       - name: Install MCP Validator
         run: |
@@ -108,6 +105,12 @@ jobs:
           fi
           echo "✅ SDK types validated successfully"
 
+      # Build the server here (release, incremental off the warm shared release
+      # cache) so the validation script reuses target/release/pierre-mcp-server
+      # instead of cold-building it inline (which OOM-thrashed the runner ~90min+).
+      - name: Build server (release)
+        run: cargo build --release --bin pierre-mcp-server
+
       - name: Check disk space before validation
         run: |
           echo "Disk space before validation:"
@@ -116,6 +119,9 @@ jobs:
       - name: Run MCP compliance validation
         run: ./scripts/ci/ensure-mcp-compliance.sh
         env:
+          # Use the release binary built above (off the warm cache) — the script
+          # otherwise checks target/debug first and cold-builds inline (OOM).
+          PIERRE_SERVER_BINARY: ${{ github.workspace }}/target/release/pierre-mcp-server
           # CI detection variables for bridge
           CI: "true"
           GITHUB_ACTIONS: "true"

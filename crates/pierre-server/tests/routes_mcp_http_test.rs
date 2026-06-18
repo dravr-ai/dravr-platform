@@ -21,6 +21,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::mcp::McpRoutes,
@@ -277,14 +278,26 @@ async fn test_mcp_request_invalid_json() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
+    // Empty/non-JSON body fails to parse into a JSON-RPC envelope.
     let response = AxumTestRequest::post("/mcp")
         .header("authorization", &setup.auth_header())
         .header("content-type", "application/json")
         .send(routes)
         .await;
 
-    // Should fail with bad request
-    assert_eq!(response.status(), 400);
+    // The tronc Streamable-HTTP transport renders a parse failure as a JSON-RPC
+    // error object (code -32700) carried in the HTTP body, returned with a 200
+    // status. This is JSON-RPC-conformant: the MCP Streamable-HTTP spec mandates
+    // HTTP 400 only for an invalid `MCP-Protocol-Version`, a required-but-missing
+    // session id, or a notification/response the server cannot accept — not for a
+    // malformed request body, which is surfaced as a JSON-RPC error response.
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32700,
+        "parse failure must carry the JSON-RPC parse-error code: {:?}",
+        body["error"]
+    );
 }
 
 #[tokio::test]
@@ -302,8 +315,18 @@ async fn test_mcp_request_invalid_jsonrpc_format() {
         .send(routes)
         .await;
 
-    // Should fail validation
-    assert_eq!(response.status(), 400);
+    // A body that is valid JSON but not a JSON-RPC envelope is missing the
+    // required `jsonrpc`/`method` fields, so it fails to deserialize into the
+    // request type. The tronc transport surfaces that as a JSON-RPC parse error
+    // (-32700) in the HTTP body with a 200 status — the same JSON-RPC-conformant
+    // posture as a syntactically malformed body (see test_mcp_request_invalid_json).
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32700,
+        "invalid JSON-RPC envelope must carry the parse-error code: {:?}",
+        body["error"]
+    );
 }
 
 #[tokio::test]
@@ -338,8 +361,12 @@ async fn test_mcp_request_with_notification() {
         .send(routes)
         .await;
 
-    // Notifications may return 202 Accepted or 200
-    assert!(response.status() == 200 || response.status() == 202);
+    // A notification (no `id`) yields no JSON-RPC response, so the tronc transport
+    // returns an empty-body success. tronc renders this as 204 No Content; the MCP
+    // Streamable-HTTP spec's letter is 202 Accepted for an accepted notification.
+    // Both are empty-body 2xx accept codes; the 204-vs-202 gap is a tronc transport
+    // detail (it cannot be changed from the platform — flagged for the tronc engine).
+    assert_eq!(response.status(), 204);
 }
 
 #[tokio::test]
@@ -484,9 +511,11 @@ async fn test_mcp_session_persistence() {
         "params": {}
     });
 
-    // First request with auth establishes a server-issued session. The server
-    // generates its own session id (session-fixation prevention) and returns it
-    // in the Mcp-Session-Id response header, ignoring any client-provided id.
+    // The tronc Streamable-HTTP transport is stateless: it carries no session
+    // store and never issues an `Mcp-Session-Id`. The MCP spec makes session ids
+    // OPTIONAL — a server MAY assign one only in the `InitializeResult` response,
+    // and a stateless server simply omits it. Each request therefore stands on
+    // its own bearer; there is no server-issued session to persist or replay.
     let response1 = AxumTestRequest::post("/mcp")
         .header("authorization", &setup.auth_header())
         .json(&mcp_request)
@@ -494,21 +523,19 @@ async fn test_mcp_session_persistence() {
         .await;
 
     assert_eq!(response1.status(), 200);
-    let server_session_id = response1
-        .header("mcp-session-id")
-        .expect("authenticated request must return an Mcp-Session-Id")
-        .to_owned();
+    assert!(
+        response1.header("mcp-session-id").is_none(),
+        "the stateless transport must not issue an Mcp-Session-Id header"
+    );
 
-    // Second request reuses the server-issued session id with no auth header.
-    // The stored session supplies the bearer, so the transport gate authenticates
-    // it — proving session-based auth actually works (not a public-tools fallback).
+    // A second request without its own bearer is rejected: there is no stored
+    // session to supply the credential. Auth is per-request, not session-based.
     let response2 = AxumTestRequest::post("/mcp")
-        .header("mcp-session-id", &server_session_id)
         .json(&mcp_request)
         .send(routes)
         .await;
 
-    assert_eq!(response2.status(), 200);
+    assert_eq!(response2.status(), 401);
 }
 
 // ============================================================================
@@ -645,10 +672,14 @@ async fn test_tools_list_invalid_token_returns_401() {
 
 #[tokio::test]
 async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
-    let setup = McpTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
+    // Admin tool visibility is gated on the GLOBAL `User.is_admin` flag, not the
+    // per-tenant Owner/Admin role — so this needs a genuine global admin, which
+    // the default tenant-owner test user is not.
+    let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
+        .await
+        .expect("Setup failed");
+    let routes = McpRoutes::routes(resources.clone());
 
-    // McpTestSetup creates an owner user, which has admin privileges
     let mcp_request = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -657,7 +688,7 @@ async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
     });
 
     let response = AxumTestRequest::post("/mcp")
-        .header("authorization", &setup.auth_header())
+        .header("authorization", &format!("Bearer {jwt}"))
         .json(&mcp_request)
         .send(routes)
         .await;
@@ -697,11 +728,16 @@ async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
 }
 
 #[tokio::test]
-async fn test_tools_list_params_token_auth_path() {
+async fn test_tools_list_params_token_in_body_is_not_an_auth_path() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    // Send token via params.token instead of Authorization header
+    // Carrying the bearer in the JSON-RPC `params.token` field — instead of the
+    // `Authorization` header — was a non-spec platform extension. The MCP
+    // authorization spec (RFC 9728) defines bearer auth via the `Authorization`
+    // header only, which the tronc transport's auth hook reads. `params.token` is
+    // not honored on the `/mcp` HTTP route, and no production HTTP client sends it
+    // (the SDK authenticates via the OAuth `authProvider` Authorization header).
     let mcp_request = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -711,29 +747,208 @@ async fn test_tools_list_params_token_auth_path() {
         }
     });
 
-    // No Authorization header - token is in params
+    // No Authorization header — the body-embedded token is ignored, so the request
+    // is unauthenticated and rejected with a 401 + WWW-Authenticate challenge.
     let response = AxumTestRequest::post("/mcp")
         .json(&mcp_request)
         .send(routes)
         .await;
 
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    let tools = body["result"]["tools"]
-        .as_array()
-        .expect("tools should be an array");
-
-    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-
-    // params.token auth should return the authenticated tool set, including
-    // auth-gated tools such as connection management.
-    assert!(
-        !tool_names.is_empty(),
-        "params.token auth should return tools"
+    assert_eq!(
+        response.status(),
+        401,
+        "params.token must not authenticate the request; auth requires the Authorization header"
     );
     assert!(
-        tool_names.contains(&"connect_provider"),
-        "params.token auth should include connect_provider"
+        response.header("www-authenticate").is_some(),
+        "the 401 must carry a WWW-Authenticate challenge"
     );
+}
+
+// ============================================================================
+// ADMIN_ONLY gate — global User.is_admin, NOT tenant Owner/Admin role
+// ============================================================================
+
+/// Build a `ServerContext` and create a tenant-owning user with an explicit
+/// global-admin flag, returning a tenant-scoped JWT for the wire.
+///
+/// `global_admin` controls only `User.is_admin`; the user is always created as
+/// the **owner** of its own tenant. This separates the two privilege axes the
+/// `ADMIN_ONLY` gate must distinguish: a tenant owner (`TenantContext::is_admin`)
+/// is admin *of their tenant*, which must not grant system-wide admin powers —
+/// only the global `User.is_admin` flag does.
+async fn setup_with_admin_flag(
+    email: &str,
+    global_admin: bool,
+) -> anyhow::Result<(Arc<ServerContext>, String)> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+    let auth_manager = common::create_test_auth_manager();
+    let cache = common::create_test_cache().await?;
+
+    let temp_dir = tempfile::tempdir()?;
+    let config = Arc::new(ServerConfig {
+        http_port: 8081,
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            backup: BackupConfig {
+                directory: temp_dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            ci_mode: true,
+            auto_approve_users: false,
+            ..Default::default()
+        },
+        security: SecurityConfig {
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    let resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            (*auth_manager).clone(),
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+            },
+        )
+        .await,
+    );
+
+    let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+    let mut user = User::new(
+        email.to_owned(),
+        password_hash,
+        Some("Wire Test User".to_owned()),
+    );
+    user.user_status = UserStatus::Active;
+    user.approved_by = Some(user.id);
+    user.approved_at = Some(chrono::Utc::now());
+    user.is_admin = global_admin;
+    let user_id = user.id;
+
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
+
+    // Always create the user as the OWNER of its own tenant.
+    let tenant_id = TenantId::new();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: format!("Wire Tenant for {email}"),
+        slug: format!("wire-tenant-{tenant_id}"),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: user_id,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    repos.tenants.create(&tenant).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
+
+    let jwt_token = auth_manager
+        .generate_token_with_tenant(
+            &user,
+            &resources.auth.jwks_manager,
+            Some(tenant_id.to_string()),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
+
+    Ok((resources, jwt_token))
+}
+
+/// Issue a `tools/call` for an `ADMIN_ONLY` tool over the `/mcp` wire and return
+/// the parsed JSON-RPC response body.
+async fn call_admin_only_tool(
+    resources: &Arc<ServerContext>,
+    jwt_token: &str,
+) -> serde_json::Value {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "admin_list_system_coaches",
+            "arguments": {}
+        }
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {jwt_token}"))
+        .json(&request)
+        .send(McpRoutes::routes(resources.clone()))
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "an authenticated tools/call returns the JSON-RPC result in-band"
+    );
+    response.json()
+}
+
+/// Regression guard for the `/mcp` wire privilege-escalation: a tenant OWNER who
+/// is NOT a global admin must be DENIED an `ADMIN_ONLY` tool. The auth hook
+/// resolves the gate flag from the global `User.is_admin`, not the per-tenant
+/// `TenantContext::is_admin` (which is true for any Owner/Admin role).
+#[tokio::test]
+async fn test_tenant_owner_without_global_admin_is_denied_admin_tool() {
+    let (resources, jwt) = setup_with_admin_flag("wire_owner_not_admin@example.com", false)
+        .await
+        .expect("setup failed");
+
+    let body = call_admin_only_tool(&resources, &jwt).await;
+
+    assert_eq!(
+        body["result"]["isError"],
+        json!(true),
+        "tenant owner without global admin must be denied the ADMIN_ONLY tool, got: {body}"
+    );
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("error result must carry text content");
+    assert!(
+        text.contains("requires admin privileges"),
+        "denial must come from the ADMIN_ONLY gate, got: {text}"
+    );
+}
+
+/// Companion to the escalation guard: a user with the global `User.is_admin`
+/// flag set IS allowed past the `ADMIN_ONLY` gate (reaches the tool body), so
+/// the fix denies tenant owners without over-denying genuine system admins.
+#[tokio::test]
+async fn test_global_admin_user_is_allowed_admin_tool() {
+    let (resources, jwt) = setup_with_admin_flag("wire_global_admin@example.com", true)
+        .await
+        .expect("setup failed");
+
+    let body = call_admin_only_tool(&resources, &jwt).await;
+
+    // The global admin clears the gate and runs the tool body, which lists the
+    // (empty) system-coach set — a successful, non-error result.
+    assert_eq!(
+        body["result"]["isError"],
+        json!(false),
+        "global admin must clear the ADMIN_ONLY gate, got: {body}"
+    );
+    if let Some(text) = body["result"]["content"][0]["text"].as_str() {
+        assert!(
+            !text.contains("requires admin privileges"),
+            "global admin must not hit the admin-privileges denial, got: {text}"
+        );
+    }
 }

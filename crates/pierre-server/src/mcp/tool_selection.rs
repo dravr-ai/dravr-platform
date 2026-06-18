@@ -5,11 +5,11 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::Utc;
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory};
 use pierre_database::repositories::ToolSelectionRepository;
 use pierre_tool_runtime::registry::ToolRegistry;
-use pierre_tool_runtime::traits::ToolCapabilities;
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -18,29 +18,28 @@ use uuid::Uuid;
 // Startup catalog sync
 // =============================================================================
 
-/// Derive `ToolCategory` from `ToolCapabilities` flags.
+/// Derive `ToolCategory` from a tool's registered category string and its
+/// generic capability flags.
 ///
-/// Uses the most specific capability flag available. Falls back to `Fitness`
-/// for tools that only declare `READS_DATA` / `WRITES_DATA` without a domain flag.
-fn category_from_capabilities(caps: ToolCapabilities) -> ToolCategory {
+/// The domain taxonomy now lives in the registry's string category (the tronc
+/// capability set carries only host-agnostic flags). Admin tools map to `Admin`
+/// regardless of category; a tool with no category falls back to `Connections`
+/// when it requires a provider, else `Fitness`.
+fn category_from_registry(category: Option<&str>, caps: ToolCapabilities) -> ToolCategory {
     if caps.contains(ToolCapabilities::ADMIN_ONLY) {
-        ToolCategory::Admin
-    } else if caps.contains(ToolCapabilities::COACHES) {
-        ToolCategory::Coaches
-    } else if caps.contains(ToolCapabilities::ANALYTICS) {
-        ToolCategory::Analysis
-    } else if caps.contains(ToolCapabilities::GOALS) {
-        ToolCategory::Goals
-    } else if caps.contains(ToolCapabilities::CONFIGURATION) {
-        ToolCategory::Configuration
-    } else if caps.contains(ToolCapabilities::RECIPES) {
-        ToolCategory::Recipes
-    } else if caps.contains(ToolCapabilities::SLEEP_RECOVERY) {
-        ToolCategory::Sleep
-    } else if caps.contains(ToolCapabilities::REQUIRES_PROVIDER) {
-        ToolCategory::Connections
-    } else {
-        ToolCategory::Fitness
+        return ToolCategory::Admin;
+    }
+    match category {
+        Some("coaches") => ToolCategory::Coaches,
+        Some("analytics") => ToolCategory::Analysis,
+        Some("goals") => ToolCategory::Goals,
+        Some("configuration" | "fitness_config") => ToolCategory::Configuration,
+        Some("recipes") => ToolCategory::Recipes,
+        Some("sleep") => ToolCategory::Sleep,
+        Some("admin") => ToolCategory::Admin,
+        Some("connection") => ToolCategory::Connections,
+        _ if caps.contains(ToolCapabilities::REQUIRES_PROVIDER) => ToolCategory::Connections,
+        _ => ToolCategory::Fitness,
     }
 }
 
@@ -84,7 +83,10 @@ pub async fn sync_tool_catalog(
         .collect();
 
     let registry_tools = tool_registry.all_tool_metadata();
-    let registry_names: HashSet<&str> = registry_tools.iter().map(|(name, _, _)| *name).collect();
+    let registry_names: HashSet<&str> = registry_tools
+        .iter()
+        .map(|(name, _, _, _)| name.as_str())
+        .collect();
 
     let inserted = insert_missing_tools(&registry_tools, &catalog_names, repo).await;
     let removed = remove_phantom_tools(&catalog_entries, &registry_names, repo).await;
@@ -103,24 +105,24 @@ pub async fn sync_tool_catalog(
 
 /// Insert tools present in the registry but missing from the catalog.
 async fn insert_missing_tools(
-    registry_tools: &[(&str, &str, ToolCapabilities)],
+    registry_tools: &[(String, String, ToolCapabilities, Option<String>)],
     catalog_names: &HashSet<String>,
     repo: &dyn ToolSelectionRepository,
 ) -> usize {
     let mut inserted = 0usize;
-    for &(name, description, capabilities) in registry_tools {
-        if catalog_names.contains(name) {
+    for (name, description, capabilities, category) in registry_tools {
+        if catalog_names.contains(name.as_str()) {
             continue;
         }
 
         let entry = ToolCatalogEntry {
             id: format!("tc-auto-{}", Uuid::new_v4().as_simple()),
-            tool_name: name.to_owned(),
+            tool_name: name.clone(),
             display_name: display_name_from_tool_name(name),
-            description: description.to_owned(),
-            category: category_from_capabilities(capabilities),
+            description: description.clone(),
+            category: category_from_registry(category.as_deref(), *capabilities),
             is_enabled_by_default: true,
-            requires_provider: if capabilities.requires_provider() {
+            requires_provider: if capabilities.contains(ToolCapabilities::REQUIRES_PROVIDER) {
                 Some("any".to_owned())
             } else {
                 None

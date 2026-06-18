@@ -15,13 +15,18 @@
 //! - `ValidateConfigurationTool` - Validate configuration values
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::warn;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
 use pierre_config::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
@@ -397,30 +402,38 @@ fn validate_parameter_relationships(
 pub struct GetConfigurationCatalogTool;
 
 #[async_trait]
-impl McpTool for GetConfigurationCatalogTool {
-    fn name(&self) -> &'static str {
-        "get_configuration_catalog"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get the complete catalog of available configuration options"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+        };
+
+        tool_definition(
+            "get_configuration_catalog",
+            "Get the complete catalog of available configuration options",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        let result: AppResult<ToolResult> = async move {
+            let catalog = CatalogBuilder::build();
+            Ok(ToolResult::ok(json!({ "catalog": catalog })))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, _args: Value, _ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let catalog = CatalogBuilder::build();
-        Ok(ToolResult::ok(json!({ "catalog": catalog })))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -432,45 +445,53 @@ impl McpTool for GetConfigurationCatalogTool {
 pub struct GetConfigurationProfilesTool;
 
 #[async_trait]
-impl McpTool for GetConfigurationProfilesTool {
-    fn name(&self) -> &'static str {
-        "get_configuration_profiles"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get available configuration profile templates"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "get_configuration_profiles",
+            "Get available configuration profile templates",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, _args: Value, _ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let profile_templates = ProfileTemplates::all();
-        let profiles: Vec<Value> = profile_templates
-            .into_iter()
-            .map(|(name, profile)| {
-                json!({
-                    "name": name,
-                    "profile": profile,
-                    "description": format!("Configuration profile: {name}")
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        let result: AppResult<ToolResult> = async move {
+            let profile_templates = ProfileTemplates::all();
+            let profiles: Vec<Value> = profile_templates
+                .into_iter()
+                .map(|(name, profile)| {
+                    json!({
+                        "name": name,
+                        "profile": profile,
+                        "description": format!("Configuration profile: {name}")
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let total_count = profiles.len();
-        Ok(ToolResult::ok(json!({
-            "profiles": profiles,
-            "total_count": total_count
-        })))
+            let total_count = profiles.len();
+            Ok(ToolResult::ok(json!({
+                "profiles": profiles,
+                "total_count": total_count
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -482,28 +503,34 @@ impl McpTool for GetConfigurationProfilesTool {
 pub struct GetUserConfigurationTool;
 
 #[async_trait]
-impl McpTool for GetUserConfigurationTool {
-    fn name(&self) -> &'static str {
-        "get_user_configuration"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get your current training configuration settings"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "get_user_configuration",
+            "Get your current training configuration settings",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let user_uuid = ctx.user_id;
 
         match ctx
@@ -550,6 +577,9 @@ impl McpTool for GetUserConfigurationTool {
                 "error": format!("Failed to get user configuration: {e}")
             }))),
         }
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -561,16 +591,8 @@ impl McpTool for GetUserConfigurationTool {
 pub struct UpdateUserConfigurationTool;
 
 #[async_trait]
-impl McpTool for UpdateUserConfigurationTool {
-    fn name(&self) -> &'static str {
-        "update_user_configuration"
-    }
-
-    fn description(&self) -> &'static str {
-        "Update your training configuration settings"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "profile".to_owned(),
@@ -588,61 +610,78 @@ impl McpTool for UpdateUserConfigurationTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "update_user_configuration",
+            "Update your training configuration settings",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_uuid = ctx.user_id;
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_uuid = ctx.user_id;
 
-        let profile = args
-            .get("profile")
-            .and_then(Value::as_str)
-            .unwrap_or("custom");
-        let parameters = args.get("parameters").cloned().unwrap_or_else(|| json!({}));
+            let profile = args
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("custom");
+            let parameters = args.get("parameters").cloned().unwrap_or_else(|| json!({}));
 
-        let configuration = json!({
-            "active_profile": profile,
-            "profile": {
-                "name": profile,
-                "sport_type": "general",
-                "training_focus": "custom"
-            },
-            "session_overrides": parameters,
-            "applied_overrides": parameters.as_object().map_or(0, serde_json::Map::len),
-            "last_modified": chrono::Utc::now().to_rfc3339()
-        });
+            let configuration = json!({
+                "active_profile": profile,
+                "profile": {
+                    "name": profile,
+                    "sport_type": "general",
+                    "training_focus": "custom"
+                },
+                "session_overrides": parameters,
+                "applied_overrides": parameters.as_object().map_or(0, serde_json::Map::len),
+                "last_modified": chrono::Utc::now().to_rfc3339()
+            });
 
-        let config_json = serde_json::to_string(&configuration)
-            .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
+            let config_json = serde_json::to_string(&configuration)
+                .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
 
-        match ctx
-            .resources
-            .repos()
-            .profiles
-            .save_configuration(&user_uuid.to_string(), &config_json)
-            .await
-        {
-            Ok(()) => {
-                let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
-                Ok(ToolResult::ok(json!({
-                    "user_id": user_uuid.to_string(),
-                    "updated_configuration": configuration,
-                    "changes_applied": param_count,
-                    "message": "Configuration updated successfully"
-                })))
+            match ctx
+                .resources
+                .repos()
+                .profiles
+                .save_configuration(&user_uuid.to_string(), &config_json)
+                .await
+            {
+                Ok(()) => {
+                    let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
+                    Ok(ToolResult::ok(json!({
+                        "user_id": user_uuid.to_string(),
+                        "updated_configuration": configuration,
+                        "changes_applied": param_count,
+                        "message": "Configuration updated successfully"
+                    })))
+                }
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Failed to update configuration: {e}")
+                }))),
             }
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to update configuration: {e}")
-            }))),
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -654,16 +693,8 @@ impl McpTool for UpdateUserConfigurationTool {
 pub struct CalculatePersonalizedZonesTool;
 
 #[async_trait]
-impl McpTool for CalculatePersonalizedZonesTool {
-    fn name(&self) -> &'static str {
-        "calculate_personalized_zones"
-    }
-
-    fn description(&self) -> &'static str {
-        "Calculate personalized training zones based on your fitness metrics"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "vo2_max".to_owned(),
@@ -713,46 +744,63 @@ impl McpTool for CalculatePersonalizedZonesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["vo2_max".to_owned()]),
+        };
+
+        tool_definition(
+            "calculate_personalized_zones",
+            "Calculate personalized training zones based on your fitness metrics",
+            schema,
+            None,
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let params = extract_zone_parameters(&args)?;
+            let user_profile = create_user_profile(&params);
+            let (zones, zone_calculations) = calculate_heart_rate_zones(&params);
+
+            let pace_zones = calculate_pace_zones_from_vo2max(
+                params.vo2_max,
+                &ctx.resources.config().training_zones,
+            );
+
+            let ftp = args
+                .get("ftp")
+                .and_then(Value::as_u64)
+                .and_then(|f| u32::try_from(f).ok())
+                .unwrap_or(DEFAULT_ESTIMATED_FTP);
+
+            let power_zones_result =
+                calculate_power_zones_from_ftp(ftp, &ctx.resources.config().training_zones);
+
+            Ok(ToolResult::ok(json!({
+                "user_profile": user_profile,
+                "personalized_zones": {
+                    "heart_rate_zones": zones,
+                    "pace_zones": pace_zones,
+                    "power_zones": power_zones_result,
+                    "estimated_ftp": ftp
+                },
+                "zone_calculations": zone_calculations
+            })))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let params = extract_zone_parameters(&args)?;
-        let user_profile = create_user_profile(&params);
-        let (zones, zone_calculations) = calculate_heart_rate_zones(&params);
-
-        let pace_zones = calculate_pace_zones_from_vo2max(
-            params.vo2_max,
-            &ctx.resources.config().training_zones,
-        );
-
-        let ftp = args
-            .get("ftp")
-            .and_then(Value::as_u64)
-            .and_then(|f| u32::try_from(f).ok())
-            .unwrap_or(DEFAULT_ESTIMATED_FTP);
-
-        let power_zones_result =
-            calculate_power_zones_from_ftp(ftp, &ctx.resources.config().training_zones);
-
-        Ok(ToolResult::ok(json!({
-            "user_profile": user_profile,
-            "personalized_zones": {
-                "heart_rate_zones": zones,
-                "pace_zones": pace_zones,
-                "power_zones": power_zones_result,
-                "estimated_ftp": ftp
-            },
-            "zone_calculations": zone_calculations
-        })))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -764,16 +812,8 @@ impl McpTool for CalculatePersonalizedZonesTool {
 pub struct ValidateConfigurationTool;
 
 #[async_trait]
-impl McpTool for ValidateConfigurationTool {
-    fn name(&self) -> &'static str {
-        "validate_configuration"
-    }
-
-    fn description(&self) -> &'static str {
-        "Validate configuration parameters for physiological correctness"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "parameters".to_owned(),
@@ -783,71 +823,87 @@ impl McpTool for ValidateConfigurationTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["parameters".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "validate_configuration",
+            "Validate configuration parameters for physiological correctness",
+            schema,
+            None,
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let parameters = args
-            .get("parameters")
-            .ok_or_else(|| AppError::invalid_input("parameters field required"))?;
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let result: AppResult<ToolResult> = async move {
+            let parameters = args
+                .get("parameters")
+                .ok_or_else(|| AppError::invalid_input("parameters field required"))?;
 
-        if parameters.is_object() {
-            let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
-            let mut errors = Vec::new();
+            if parameters.is_object() {
+                let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
+                let mut errors = Vec::new();
 
-            if let Some(obj) = parameters.as_object() {
-                let ranges_valid = validate_parameter_ranges(obj, &mut errors);
-                let relationships_valid = validate_parameter_relationships(obj, &mut errors);
+                if let Some(obj) = parameters.as_object() {
+                    let ranges_valid = validate_parameter_ranges(obj, &mut errors);
+                    let relationships_valid = validate_parameter_relationships(obj, &mut errors);
 
-                let mut pattern_valid = true;
-                for (key, value) in obj {
-                    if key.contains("invalid") || key.starts_with("invalid.") {
-                        pattern_valid = false;
-                        errors.push(format!("Invalid parameter name: {key}"));
+                    let mut pattern_valid = true;
+                    for (key, value) in obj {
+                        if key.contains("invalid") || key.starts_with("invalid.") {
+                            pattern_valid = false;
+                            errors.push(format!("Invalid parameter name: {key}"));
+                        }
+
+                        if value.is_string() && value.as_str() == Some("invalid_value") {
+                            pattern_valid = false;
+                            errors.push(format!("Invalid value for parameter: {key}"));
+                        }
                     }
 
-                    if value.is_string() && value.as_str() == Some("invalid_value") {
-                        pattern_valid = false;
-                        errors.push(format!("Invalid value for parameter: {key}"));
-                    }
+                    let validation_passed = ranges_valid && relationships_valid && pattern_valid;
+
+                    return Ok(ToolResult::ok(json!({
+                        "validation_passed": validation_passed,
+                        "parameters_validated": param_count,
+                        "message": if validation_passed {
+                            "Configuration parameters are valid"
+                        } else {
+                            "Configuration validation failed"
+                        },
+                        "errors": if errors.is_empty() { Value::Null } else { json!(errors) }
+                    })));
                 }
 
-                let validation_passed = ranges_valid && relationships_valid && pattern_valid;
-
-                return Ok(ToolResult::ok(json!({
-                    "validation_passed": validation_passed,
+                Ok(ToolResult::ok(json!({
+                    "validation_passed": true,
                     "parameters_validated": param_count,
-                    "message": if validation_passed {
-                        "Configuration parameters are valid"
-                    } else {
-                        "Configuration validation failed"
-                    },
-                    "errors": if errors.is_empty() { Value::Null } else { json!(errors) }
-                })));
+                    "message": "Configuration parameters are valid",
+                    "errors": Value::Null
+                })))
+            } else {
+                Ok(ToolResult::error(json!({
+                    "validation_passed": false,
+                    "parameters_validated": 0,
+                    "errors": ["Parameters must be a JSON object"],
+                    "error": "Validation failed: Parameters must be a JSON object"
+                })))
             }
-
-            Ok(ToolResult::ok(json!({
-                "validation_passed": true,
-                "parameters_validated": param_count,
-                "message": "Configuration parameters are valid",
-                "errors": Value::Null
-            })))
-        } else {
-            Ok(ToolResult::error(json!({
-                "validation_passed": false,
-                "parameters_validated": 0,
-                "errors": ["Parameters must be a JSON object"],
-                "error": "Validation failed: Parameters must be a JSON object"
-            })))
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -857,7 +913,7 @@ impl McpTool for ValidateConfigurationTool {
 
 /// Create all configuration tools for registration.
 #[must_use]
-pub fn create_configuration_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_configuration_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(GetConfigurationCatalogTool),
         Box::new(GetConfigurationProfilesTool),

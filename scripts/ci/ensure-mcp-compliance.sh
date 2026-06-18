@@ -69,7 +69,14 @@ cleanup_mcp_server() {
         echo ""
         echo -e "${BLUE}==== Shutting down Pierre MCP server (PID: $MCP_SERVER_PID)... ====${NC}"
         kill "$MCP_SERVER_PID" 2>/dev/null || true
-        wait "$MCP_SERVER_PID" 2>/dev/null || true
+        # Bounded graceful-shutdown wait, then SIGKILL. An unbounded `wait` here
+        # hangs the entire step forever if the server ignores SIGTERM — give it
+        # 10s to exit cleanly, then force-kill so the step always terminates.
+        for _ in $(seq 1 10); do
+            kill -0 "$MCP_SERVER_PID" 2>/dev/null || break
+            sleep 1
+        done
+        kill -KILL "$MCP_SERVER_PID" 2>/dev/null || true
         echo -e "${GREEN}[OK] Pierre MCP server stopped${NC}"
         MCP_SERVER_PID=""
     fi
@@ -183,17 +190,23 @@ else
     # Check if we have a debug or release binary already (use absolute paths since we're in sdk/)
     # Prioritize debug binary to ensure latest code is tested
     SERVER_BINARY=""
-    if [ -f "$PROJECT_ROOT/target/debug/pierre-mcp-server" ]; then
+    if [ -n "${PIERRE_SERVER_BINARY:-}" ] && [ -f "${PIERRE_SERVER_BINARY}" ]; then
+        # CI pre-builds the server (off the warm release cache) and points here, so
+        # the validation step never cold-builds inline (which OOM-thrashed the runner).
+        SERVER_BINARY="${PIERRE_SERVER_BINARY}"
+        echo -e "${GREEN}[OK] Using pre-built binary: ${PIERRE_SERVER_BINARY}${NC}"
+    elif [ -f "$PROJECT_ROOT/target/debug/pierre-mcp-server" ]; then
         SERVER_BINARY="$PROJECT_ROOT/target/debug/pierre-mcp-server"
         echo -e "${GREEN}[OK] Using existing debug binary${NC}"
     elif [ -f "$PROJECT_ROOT/target/release/pierre-mcp-server" ]; then
         SERVER_BINARY="$PROJECT_ROOT/target/release/pierre-mcp-server"
         echo -e "${GREEN}[OK] Using existing release binary${NC}"
     else
-        echo -e "${BLUE}Building pierre-mcp-server (this may take a moment)...${NC}"
-        # Build from project root, not from sdk/
-        if (cd "$PROJECT_ROOT" && cargo build --bin pierre-mcp-server --quiet 2>&1); then
-            SERVER_BINARY="$PROJECT_ROOT/target/debug/pierre-mcp-server"
+        echo -e "${BLUE}Building pierre-mcp-server (release)...${NC}"
+        # Build from project root, not from sdk/ — release reuses the warm CI cache
+        # and avoids the debug build's debuginfo OOM on small runners.
+        if (cd "$PROJECT_ROOT" && cargo build --release --bin pierre-mcp-server --quiet 2>&1); then
+            SERVER_BINARY="$PROJECT_ROOT/target/release/pierre-mcp-server"
             echo -e "${GREEN}[OK] Binary built successfully${NC}"
         else
             echo -e "${RED}[FAIL] Failed to build pierre-mcp-server${NC}"
@@ -211,6 +224,7 @@ else
         PIERRE_MASTER_ENCRYPTION_KEY=rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo= \
         PIERRE_ALLOW_INTERACTIVE_OAUTH=false \
         PIERRE_RSA_KEY_SIZE=2048 \
+        RUST_LOG="${RUST_LOG:-info,pierre_mcp_server::mcp=debug,pierre_tool_runtime=debug}" \
         "$SERVER_BINARY" >"$SERVER_LOG" 2>&1 &
         MCP_SERVER_PID=$!
 
@@ -268,12 +282,16 @@ export PYTHONPATH="$MCP_VALIDATOR_DIR"
 echo -e "${BLUE}     Testing bridge: $BUN_PATH $BRIDGE_PATH${NC}"
 echo -e "${BLUE}     Protocol version: 2025-06-18${NC}"
 
-# Detect available timeout command (Linux: timeout, macOS: gtimeout)
+# Detect available timeout command (Linux: timeout, macOS: gtimeout).
+# --kill-after sends SIGKILL 60s after the initial SIGTERM: the python validator
+# blocks in a read on the bridge subprocess and ignores SIGTERM, so without the
+# follow-up SIGKILL a stuck validator runs unbounded (the job has no
+# timeout-minutes). With it, the step always terminates by ~11min.
 TIMEOUT_CMD=""
 if command -v timeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="timeout 600"
+    TIMEOUT_CMD="timeout --kill-after=60 600"
 elif command -v gtimeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="gtimeout 600"
+    TIMEOUT_CMD="gtimeout --kill-after=60 600"
 else
     echo -e "${YELLOW}[WARN] timeout command not available - running without timeout${NC}"
     echo -e "${YELLOW}       Install coreutils for timeout support: brew install coreutils${NC}"
@@ -283,7 +301,9 @@ echo -e "${BLUE}     Timeout: ${TIMEOUT_CMD:-none}${NC}"
 
 # Run validator in background to capture PID for signal handling
 # Set CI=true so SDK bridge uses encrypted file storage instead of keytar (prevents hang)
-CI=true $TIMEOUT_CMD $PYTHON_CMD -m mcp_testing.scripts.compliance_report \
+# PYTHONUNBUFFERED=1 forces the per-test verbose lines to flush immediately, so if the
+# validator is SIGKILLed mid-run the CI log still shows the last test it attempted.
+CI=true PYTHONUNBUFFERED=1 $TIMEOUT_CMD $PYTHON_CMD -m mcp_testing.scripts.compliance_report \
     --server-command "$BUN_PATH $BRIDGE_PATH --no-browser" \
     --protocol-version 2025-06-18 \
     --test-timeout 30 \
@@ -302,8 +322,13 @@ else
     # Find the most recent compliance report
     LATEST_REPORT=$(ls -t "$MCP_VALIDATOR_DIR"/reports/cr_*.md 2>/dev/null | head -1)
 
-    if [ $EXIT_CODE -eq 124 ]; then
-        echo -e "${RED}[FAIL] MCP compliance tests timed out after 10 minutes${NC}"
+    if [ $EXIT_CODE -eq 124 ] || [ $EXIT_CODE -eq 137 ]; then
+        echo -e "${RED}[FAIL] MCP compliance tests timed out (validator did not finish; exit $EXIT_CODE)${NC}"
+        # The verbose validator output above shows the last test attempted (the
+        # one it stalled on). Dump the server log too so we can see which request
+        # the server was still processing when the validator hung.
+        echo -e "${RED}       ==== Last 150 lines of server log ($SERVER_LOG) ====${NC}"
+        tail -150 "$SERVER_LOG" 2>/dev/null || echo "       (no server log captured)"
         cd - >/dev/null
         COMPLIANCE_PASSED=false
     else

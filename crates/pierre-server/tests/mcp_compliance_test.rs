@@ -163,9 +163,11 @@ fn test_initialize_response_format() {
 
     let response = InitializeResponse::new(
         "2025-11-25".to_owned(),
-        "pierre-mcp-server".to_owned(),
-        "1.0.0".to_owned(),
-        "http://localhost:8081",
+        ServerInfo::new("pierre-mcp-server", "1.0.0"),
+        ServerCapabilities::tools_only(),
+        Some(
+            "This server provides fitness data tools for Strava and Fitbit integration.".to_owned(),
+        ),
     );
 
     // Serialize to JSON and verify structure
@@ -394,11 +396,14 @@ fn test_client_capabilities_parsing() {
 fn test_round_trip_serialization() {
     common::init_server_config();
 
+    // E3: the tronc `InitializeResponse::new` stores the `instructions` arg
+    // faithfully (the retired platform-local constructor injected a default when
+    // given `None`). To round-trip the optional field, construct it populated.
     let original_response = InitializeResponse::new(
         "2025-11-25".to_owned(),
-        "pierre-mcp-server".to_owned(),
-        "1.0.0".to_owned(),
-        "http://localhost:8081",
+        ServerInfo::new("pierre-mcp-server", "1.0.0"),
+        ServerCapabilities::tools_only(),
+        Some("Pierre MCP Server ready for fitness data queries".to_owned()),
     );
 
     // Serialize

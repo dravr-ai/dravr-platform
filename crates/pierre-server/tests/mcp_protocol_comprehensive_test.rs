@@ -18,7 +18,7 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::models::User;
 use pierre_mcp_server::{
     mcp::{
-        multitenant::MultiTenantMcpServer,
+        multitenant::ProviderToolRouter,
         resources::{ServerContext, ServerContextOptions},
     },
     tools::registry_builtin::get_tools,
@@ -77,7 +77,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Test initialize request
     let _request = create_mcp_request("initialize", None, Some(json!("init-1")));
@@ -116,7 +116,7 @@ async fn test_mcp_ping_request() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test ping request structure
     let request = create_mcp_request("ping", None, Some(json!(123)));
@@ -152,7 +152,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test tools/list request
     let request = create_mcp_request("tools/list", None, Some(json!("list-1")));
@@ -192,7 +192,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user
     let user = User::new(
@@ -241,7 +241,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test tools/call without authentication
     let params = json!({
@@ -285,7 +285,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create an expired token scenario
     let expired_token = "expired.jwt.token";
@@ -335,7 +335,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test with malformed token
     let malformed_token = "not.a.valid.jwt";
@@ -385,7 +385,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test unknown method
     let request = create_mcp_request("unknown/method", None, Some(json!("unknown-1")));
@@ -421,7 +421,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user and generate valid token
     let user = User::new(
@@ -519,7 +519,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user
     let user = User::new(
@@ -592,7 +592,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user
     let user = User::new(
@@ -676,7 +676,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user
     let user = User::new(
@@ -734,7 +734,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Create test user and API key
     let user = User::new(
@@ -792,7 +792,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test different ID types
     let id_variations = vec![
@@ -837,7 +837,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test various error scenarios
 
@@ -893,7 +893,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
         )
         .await,
     );
-    let _server = Arc::new(MultiTenantMcpServer::new(resources));
+    let _server = Arc::new(ProviderToolRouter::new(resources));
 
     // Create test user
     let user = User::new(

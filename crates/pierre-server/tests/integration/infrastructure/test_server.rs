@@ -20,7 +20,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use rand::Rng;
@@ -103,7 +103,7 @@ impl IntegrationTestServer {
         let port = self.port;
 
         let handle = tokio::spawn(async move {
-            let server = MultiTenantMcpServer::new(resources);
+            let server = ProviderToolRouter::new(resources);
             let _ = server.run(port).await;
         });
 

@@ -263,9 +263,9 @@ fn test_initialize_response() {
     common::init_server_config();
     let response = InitializeResponse::new(
         "2025-06-18".to_owned(),
-        "pierre-mcp-server-multitenant".to_owned(),
-        "0.1.0".to_owned(),
-        "http://localhost:8081",
+        ServerInfo::new("pierre-mcp-server-multitenant", "0.1.0"),
+        ServerCapabilities::tools_only(),
+        None,
     );
 
     assert_eq!(response.protocol_version, "2025-06-18");

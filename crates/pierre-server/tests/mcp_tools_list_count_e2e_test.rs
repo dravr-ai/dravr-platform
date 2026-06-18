@@ -239,10 +239,12 @@ async fn test_tools_list_invalid_token_returns_401() -> Result<()> {
     Ok(())
 }
 
-/// Authenticated tenant owner MUST see the full authenticated tool set including admin tools.
+/// Authenticated tenant owner sees the full *non-admin* authenticated tool set.
 ///
-/// This covers the regression path: when the `tenant_filtered`/admin branch returned a
-/// depleted set (e.g. 15 tools from an empty catalog), this assertion would fail.
+/// A tenant owner is admin *of their tenant* but is NOT a global admin, so the wire gate
+/// (global `User.is_admin`) correctly withholds `admin_*` tools. The floor assertion still
+/// covers the tool-loss regression path: when the `tenant_filtered` branch returned a
+/// depleted set (e.g. 15 tools from an empty catalog), it fails.
 #[tokio::test]
 async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
@@ -268,14 +270,15 @@ async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
         returned
     );
 
-    // Admin users (tenant owner) must see admin_* tools.
+    // A tenant owner is NOT a global admin: the wire gate (global `User.is_admin`) must
+    // withhold `admin_*` tools. A tenant-role Owner must not escalate to system admin.
     let admin_tools: Vec<&String> = returned
         .iter()
         .filter(|n| n.starts_with("admin_"))
         .collect();
     assert!(
-        !admin_tools.is_empty(),
-        "Tenant owner must see admin_* tools in tools/list, got none"
+        admin_tools.is_empty(),
+        "Tenant owner (not a global admin) must NOT see admin_* tools, leaked: {admin_tools:?}"
     );
 
     // Core read tools must be present for an authenticated user.
@@ -302,9 +305,8 @@ async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
     assert_every_tool_has_valid_schema(&body);
 
     println!(
-        "✓ Authenticated owner tools/list: {} tools ({} admin_*)",
-        returned.len(),
-        admin_tools.len()
+        "✓ Authenticated owner tools/list: {} tools (0 admin_*, wire gate withholds them)",
+        returned.len()
     );
     Ok(())
 }
@@ -318,7 +320,21 @@ async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
 #[tokio::test]
 async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (_user, token) = common::create_test_tenant(&resources, "parity-owner@example.com").await?;
+    let (mut user, token) =
+        common::create_test_tenant(&resources, "parity-admin@example.com").await?;
+    // The discovery endpoint returns the unfiltered registry, so the JSON-RPC caller must
+    // be a genuine GLOBAL admin (`User.is_admin`) — not just a tenant owner — for parity.
+    // The wire gate resolves the flag from the DB at request time, and create() upserts the
+    // existing user, so flipping it here makes the already-issued token an admin caller.
+    user.is_admin = true;
+    resources
+        .coach
+        .database
+        .repositories()
+        .users
+        .create(&user)
+        .await
+        .map_err(|e| anyhow::anyhow!("promote parity user to global admin failed: {e}"))?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 
@@ -369,7 +385,20 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
 #[tokio::test]
 async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (_user, token) = common::create_test_tenant(&resources, "wire-parity@example.com").await?;
+    let (mut user, token) =
+        common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
+    // The wire response must match the FULL in-process registry, which only a global admin
+    // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. create()
+    // upserts the existing user, so the already-issued token authenticates as an admin.
+    user.is_admin = true;
+    resources
+        .coach
+        .database
+        .repositories()
+        .users
+        .create(&user)
+        .await
+        .map_err(|e| anyhow::anyhow!("promote wire-parity user to global admin failed: {e}"))?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 

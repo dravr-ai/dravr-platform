@@ -30,13 +30,17 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::info;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::UniversalExecutor;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -88,16 +92,8 @@ async fn create_provider(
 pub struct AnalyzeTrainingLoadTool;
 
 #[async_trait]
-impl McpTool for AnalyzeTrainingLoadTool {
-    fn name(&self) -> &'static str {
-        "analyze_training_load"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -130,29 +126,41 @@ impl McpTool for AnalyzeTrainingLoadTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(context, args, "analyze_training_load");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "analyze_training_load",
-            inner::handle_analyze_training_load(&executor, request).await,
+            "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "analyze_training_load");
+            handler_bridge::map_universal_response(
+                "analyze_training_load",
+                inner::handle_analyze_training_load(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -164,16 +172,8 @@ impl McpTool for AnalyzeTrainingLoadTool {
 pub struct DetectPatternsTool;
 
 #[async_trait]
-impl McpTool for DetectPatternsTool {
-    fn name(&self) -> &'static str {
-        "detect_patterns"
-    }
-
-    fn description(&self) -> &'static str {
-        "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -195,28 +195,41 @@ impl McpTool for DetectPatternsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = handler_bridge::build_universal_request(context, args, "detect_patterns");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "detect_patterns",
-            inner::handle_detect_patterns(&executor, request).await,
+            "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "detect_patterns");
+            handler_bridge::map_universal_response(
+                "detect_patterns",
+                inner::handle_detect_patterns(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -228,16 +241,8 @@ impl McpTool for DetectPatternsTool {
 pub struct CalculateFitnessScoreTool;
 
 #[async_trait]
-impl McpTool for CalculateFitnessScoreTool {
-    fn name(&self) -> &'static str {
-        "calculate_fitness_score"
-    }
-
-    fn description(&self) -> &'static str {
-        "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -259,29 +264,41 @@ impl McpTool for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(context, args, "calculate_fitness_score");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "calculate_fitness_score",
-            inner::handle_calculate_fitness_score(&executor, request).await,
+            "Calculate an overall fitness score (0-100) based on training consistency, CTL, training volume, and recovery balance",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "calculate_fitness_score");
+            handler_bridge::map_universal_response(
+                "calculate_fitness_score",
+                inner::handle_calculate_fitness_score(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -300,16 +317,8 @@ const KMH_TO_MPH_FACTOR: f32 = 0.621_371;
 pub struct AnalyzeWeatherImpactTool;
 
 #[async_trait]
-impl McpTool for AnalyzeWeatherImpactTool {
-    fn name(&self) -> &'static str {
-        "analyze_weather_impact"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "activity_id".to_owned(),
@@ -340,22 +349,31 @@ impl McpTool for AnalyzeWeatherImpactTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["activity_id".to_owned()]),
-        }
+        };
+        tool_definition(
+            "analyze_weather_impact",
+            "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact",
+            schema,
+            Some(analytics_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
             return Ok(ToolResult::error(json!({
                 "error": "activity_id is required"
@@ -394,7 +412,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
             .and_then(Value::as_str)
             .unwrap_or("metric");
 
-        let provider = match create_provider(context, &provider_name).await {
+        let provider = match create_provider(&context, &provider_name).await {
             Ok(p) => p,
             Err(result) => return Ok(result),
         };
@@ -490,6 +508,9 @@ impl McpTool for AnalyzeWeatherImpactTool {
             },
             "units": units
         })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -501,16 +522,8 @@ impl McpTool for AnalyzeWeatherImpactTool {
 pub struct AnalyzeActivityTool;
 
 #[async_trait]
-impl McpTool for AnalyzeActivityTool {
-    fn name(&self) -> &'static str {
-        "analyze_activity"
-    }
-
-    fn description(&self) -> &'static str {
-        "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -528,104 +541,123 @@ impl McpTool for AnalyzeActivityTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        // Resolve provider + required activity_id from args. The schema lists
-        // `activity_id` as required so this branch surfaces invalid_input back
-        // to the loop when the LLM forgets it.
-        let provider_name = match resolve_provider_for_tool(&args, context).await {
-            Ok(p) => p,
-            Err(result) => return Ok(result),
         };
-
-        let activity_id = args
-            .get("activity_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| AppError::invalid_input("activity_id parameter required"))?;
-
-        // Authenticated provider fetch — the auth layer lives on UniversalExecutor
-        // for now (its lifecycle owns OAuth refresh + token caching). Build one
-        // per-call to keep the McpTool body free of explicit auth plumbing; cheap
-        // enough on warm provider registries since the inner services share
-        // `Arc<dyn ToolRuntime>` with the request context.
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let tenant_id_str = context.tenant_id.map(|t| t.to_string());
-
-        let provider: Box<dyn FitnessProvider> = match executor
-            .auth_service
-            .create_authenticated_provider(
-                &provider_name,
-                context.user_id,
-                tenant_id_str.as_deref(),
-            )
-            .await
-        {
-            Ok(provider) => provider,
-            // create_authenticated_provider hands back a fully-formed
-            // UniversalResponse on auth failure (e.g. missing OAuth token).
-            // Mirror map_universal_response's behaviour: surface as a
-            // ToolResult::error payload so the chat loop can render the
-            // hosted-login URL embedded in the response.
-            Err(response) => {
-                let fallback_error = response
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "analyze_activity authentication failed".to_owned());
-                let error_payload = response.result.unwrap_or_else(|| {
-                    json!({
-                        "error": fallback_error,
-                    })
-                });
-                return Ok(ToolResult::error(error_payload));
-            }
-        };
-
-        // Single-activity fetch — bails early when the provider can't resolve
-        // the id (e.g. deleted activity or wrong-provider id from the LLM).
-        if let Err(e) = provider.get_activity(&activity_id).await {
-            return Ok(ToolResult::error(json!({
-                "error": format!("Activity {activity_id} not found: {e}"),
-                "activity_id": activity_id,
-                "provider": provider_name,
-            })));
-        }
-
-        // Dispatch into `get_activity_intelligence` through the shared registry.
-        // process_activity_analysis takes ownership of the request and rewrites
-        // its tool_name; build a fresh envelope here so the registry sees the
-        // analytics tool name rather than `analyze_activity`.
-        let dispatch_request = handler_bridge::build_universal_request(
-            context,
-            json!({
-                "provider": &provider_name,
-                "activity_id": &activity_id,
-            }),
-            "get_activity_intelligence",
-        );
-
-        handler_bridge::map_universal_response(
+        tool_definition(
             "analyze_activity",
-            process_activity_analysis(&executor, dispatch_request, &activity_id, context.user_id)
-                .await,
+            "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            // Resolve provider + required activity_id from args. The schema lists
+            // `activity_id` as required so this branch surfaces invalid_input back
+            // to the loop when the LLM forgets it.
+            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+                Ok(p) => p,
+                Err(result) => return Ok(result),
+            };
+
+            let activity_id = args
+                .get("activity_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| AppError::invalid_input("activity_id parameter required"))?;
+
+            // Authenticated provider fetch — the auth layer lives on UniversalExecutor
+            // for now (its lifecycle owns OAuth refresh + token caching). Build one
+            // per-call to keep the McpTool body free of explicit auth plumbing; cheap
+            // enough on warm provider registries since the inner services share
+            // `Arc<dyn ToolRuntime>` with the request context.
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
+
+            let provider: Box<dyn FitnessProvider> = match executor
+                .auth_service
+                .create_authenticated_provider(
+                    &provider_name,
+                    context.user_id,
+                    tenant_id_str.as_deref(),
+                )
+                .await
+            {
+                Ok(provider) => provider,
+                // create_authenticated_provider hands back a fully-formed
+                // UniversalResponse on auth failure (e.g. missing OAuth token).
+                // Mirror map_universal_response's behaviour: surface as a
+                // ToolResult::error payload so the chat loop can render the
+                // hosted-login URL embedded in the response.
+                Err(response) => {
+                    let fallback_error = response
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "analyze_activity authentication failed".to_owned());
+                    let error_payload = response.result.unwrap_or_else(|| {
+                        json!({
+                            "error": fallback_error,
+                        })
+                    });
+                    return Ok(ToolResult::error(error_payload));
+                }
+            };
+
+            // Single-activity fetch — bails early when the provider can't resolve
+            // the id (e.g. deleted activity or wrong-provider id from the LLM).
+            if let Err(e) = provider.get_activity(&activity_id).await {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Activity {activity_id} not found: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name,
+                })));
+            }
+
+            // Dispatch into `get_activity_intelligence` through the shared registry.
+            // process_activity_analysis takes ownership of the request and rewrites
+            // its tool_name; build a fresh envelope here so the registry sees the
+            // analytics tool name rather than `analyze_activity`.
+            let dispatch_request = handler_bridge::build_universal_request(
+                &context,
+                json!({
+                    "provider": &provider_name,
+                    "activity_id": &activity_id,
+                }),
+                "get_activity_intelligence",
+            );
+
+            handler_bridge::map_universal_response(
+                "analyze_activity",
+                process_activity_analysis(
+                    &executor,
+                    dispatch_request,
+                    &activity_id,
+                    context.user_id,
+                )
+                .await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -637,16 +669,8 @@ impl McpTool for AnalyzeActivityTool {
 pub struct GetActivityIntelligenceTool;
 
 #[async_trait]
-impl McpTool for GetActivityIntelligenceTool {
-    fn name(&self) -> &'static str {
-        "get_activity_intelligence"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get AI-powered intelligence insights and recommendations for a specific activity"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -667,32 +691,49 @@ impl McpTool for GetActivityIntelligenceTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(context, args, "get_activity_intelligence");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "get_activity_intelligence",
-            inner::handle_get_activity_intelligence(&executor, request).await,
+            "Get AI-powered intelligence insights and recommendations for a specific activity",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request = handler_bridge::build_universal_request(
+                &context,
+                args,
+                "get_activity_intelligence",
+            );
+            handler_bridge::map_universal_response(
+                "get_activity_intelligence",
+                inner::handle_get_activity_intelligence(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -704,16 +745,8 @@ impl McpTool for GetActivityIntelligenceTool {
 pub struct CalculateMetricsTool;
 
 #[async_trait]
-impl McpTool for CalculateMetricsTool {
-    fn name(&self) -> &'static str {
-        "calculate_metrics"
-    }
-
-    fn description(&self) -> &'static str {
-        "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -752,31 +785,46 @@ impl McpTool for CalculateMetricsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = handler_bridge::build_universal_request(context, args, "calculate_metrics");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "calculate_metrics",
-            inner::handle_calculate_metrics(&executor, request).await,
+            "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "calculate_metrics");
+            handler_bridge::map_universal_response(
+                "calculate_metrics",
+                inner::handle_calculate_metrics(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -788,16 +836,8 @@ impl McpTool for CalculateMetricsTool {
 pub struct AnalyzePerformanceTrendsTool;
 
 #[async_trait]
-impl McpTool for AnalyzePerformanceTrendsTool {
-    fn name(&self) -> &'static str {
-        "analyze_performance_trends"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze performance trends over time with statistical analysis and insights for a specific metric"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -828,32 +868,49 @@ impl McpTool for AnalyzePerformanceTrendsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned(), "metric".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(context, args, "analyze_performance_trends");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "analyze_performance_trends",
-            inner::handle_analyze_performance_trends(&executor, request).await,
+            "Analyze performance trends over time with statistical analysis and insights for a specific metric",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request = handler_bridge::build_universal_request(
+                &context,
+                args,
+                "analyze_performance_trends",
+            );
+            handler_bridge::map_universal_response(
+                "analyze_performance_trends",
+                inner::handle_analyze_performance_trends(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -865,16 +922,8 @@ impl McpTool for AnalyzePerformanceTrendsTool {
 pub struct CompareActivitiesTool;
 
 #[async_trait]
-impl McpTool for CompareActivitiesTool {
-    fn name(&self) -> &'static str {
-        "compare_activities"
-    }
-
-    fn description(&self) -> &'static str {
-        "Compare an activity against similar activities, personal bests, or a specific other activity"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -914,31 +963,46 @@ impl McpTool for CompareActivitiesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = handler_bridge::build_universal_request(context, args, "compare_activities");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "compare_activities",
-            inner::handle_compare_activities(&executor, request).await,
+            "Compare an activity against similar activities, personal bests, or a specific other activity",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "compare_activities");
+            handler_bridge::map_universal_response(
+                "compare_activities",
+                inner::handle_compare_activities(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -950,16 +1014,8 @@ impl McpTool for CompareActivitiesTool {
 pub struct GenerateRecommendationsTool;
 
 #[async_trait]
-impl McpTool for GenerateRecommendationsTool {
-    fn name(&self) -> &'static str {
-        "generate_recommendations"
-    }
-
-    fn description(&self) -> &'static str {
-        "Generate personalized training recommendations"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -982,29 +1038,41 @@ impl McpTool for GenerateRecommendationsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(context, args, "generate_recommendations");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "generate_recommendations",
-            inner::handle_generate_recommendations(&executor, request).await,
+            "Generate personalized training recommendations",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "generate_recommendations");
+            handler_bridge::map_universal_response(
+                "generate_recommendations",
+                inner::handle_generate_recommendations(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1016,16 +1084,8 @@ impl McpTool for GenerateRecommendationsTool {
 pub struct PredictPerformanceTool;
 
 #[async_trait]
-impl McpTool for PredictPerformanceTool {
-    fn name(&self) -> &'static str {
-        "predict_performance"
-    }
-
-    fn description(&self) -> &'static str {
-        "Predict future performance based on training"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -1048,34 +1108,47 @@ impl McpTool for PredictPerformanceTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(analytics_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = handler_bridge::build_universal_request(context, args, "predict_performance");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "predict_performance",
-            inner::handle_predict_performance(&executor, request).await,
+            "Predict future performance based on training",
+            schema,
+            Some(analytics_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&context, args, "predict_performance");
+            handler_bridge::map_universal_response(
+                "predict_performance",
+                inner::handle_predict_performance(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
 /// Create all analytics tools for registration
 #[must_use]
-pub fn create_analytics_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_analytics_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(AnalyzeActivityTool),
         Box::new(GetActivityIntelligenceTool),

@@ -28,9 +28,11 @@ use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::traits::ToolCapabilities;
 use serde_json::json;
 use uuid::Uuid;
+
+use dravr_tronc::mcp::schema::{Content, ToolResponse};
+use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 
 // ============================================================================
 // Test Helper Functions
@@ -46,6 +48,32 @@ fn create_test_context(
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     ToolExecutionContext::new(user_id, tenant_id, runtime, AuthMethod::JwtBearer)
         .with_admin_status(is_admin)
+}
+
+/// Shared runtime façade handed to `ToolRegistry::execute`.
+fn tool_state(resources: &Arc<ServerContext>) -> Arc<dyn ToolRuntime> {
+    resources.clone()
+}
+
+/// Per-call tronc context the MCP dispatch layer would resolve for a tool call.
+fn tronc_context(user_id: Uuid, tenant_id: Option<TenantId>, is_admin: bool) -> ToolContext {
+    let mut ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_auth_method("jwt_bearer")
+        .as_admin(is_admin);
+    if let Some(tenant_id) = tenant_id {
+        ctx = ctx.with_tenant(tenant_id.to_string());
+    }
+    ctx
+}
+
+/// First text content block of a tool response (the in-band error/result text).
+fn response_text(response: &ToolResponse) -> &str {
+    response
+        .content
+        .first()
+        .and_then(Content::as_text)
+        .unwrap_or("")
 }
 
 // ============================================================================
@@ -134,15 +162,15 @@ async fn test_list_schemas_for_role_user() {
     assert!(!user_schemas.is_empty(), "User should see some tools");
 
     // Verify no admin-only tools are included
-    let admin_tool_names: Vec<&str> = registry
+    let admin_tool_names: Vec<String> = registry
         .filter_by_capabilities(ToolCapabilities::ADMIN_ONLY)
         .iter()
-        .map(|t| t.name())
+        .map(|t| t.definition().name)
         .collect();
 
     for schema in &user_schemas {
         assert!(
-            !admin_tool_names.contains(&schema.name.as_str()),
+            !admin_tool_names.contains(&schema.name),
             "User should not see admin-only tool: {}",
             schema.name
         );
@@ -175,7 +203,7 @@ async fn test_admin_tool_schemas_only_admin() {
     for schema in &admin_only_schemas {
         let tool = registry.get(&schema.name).expect("Tool should exist");
         assert!(
-            tool.capabilities().is_admin_only(),
+            tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY),
             "Tool {} should be admin-only",
             schema.name
         );
@@ -193,7 +221,7 @@ async fn test_user_visible_schemas_no_admin() {
     for schema in &user_schemas {
         let tool = registry.get(&schema.name).expect("Tool should exist");
         assert!(
-            !tool.capabilities().is_admin_only(),
+            !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY),
             "Tool {} should not be admin-only",
             schema.name
         );
@@ -217,9 +245,9 @@ async fn test_filter_by_capabilities_reads_data() {
     // All filtered tools should have READS_DATA capability
     for tool in &read_tools {
         assert!(
-            tool.capabilities().reads_data(),
+            tool.capabilities().contains(ToolCapabilities::READS_DATA),
             "Tool {} should have READS_DATA capability",
-            tool.name()
+            tool.definition().name
         );
     }
 }
@@ -234,9 +262,9 @@ async fn test_filter_by_capabilities_writes_data() {
     // All filtered tools should have WRITES_DATA capability
     for tool in &write_tools {
         assert!(
-            tool.capabilities().writes_data(),
+            tool.capabilities().contains(ToolCapabilities::WRITES_DATA),
             "Tool {} should have WRITES_DATA capability",
-            tool.name()
+            tool.definition().name
         );
     }
 }
@@ -252,7 +280,7 @@ async fn test_read_tools_method() {
     for name in &read_tool_names {
         let tool = registry.get(name).expect("Tool should exist");
         assert!(
-            tool.capabilities().reads_data(),
+            tool.capabilities().contains(ToolCapabilities::READS_DATA),
             "Tool {name} should read data"
         );
     }
@@ -269,7 +297,7 @@ async fn test_write_tools_method() {
     for name in &write_tool_names {
         let tool = registry.get(name).expect("Tool should exist");
         assert!(
-            tool.capabilities().writes_data(),
+            tool.capabilities().contains(ToolCapabilities::WRITES_DATA),
             "Tool {name} should write data"
         );
     }
@@ -291,17 +319,18 @@ async fn test_execute_nonexistent_tool() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let context = create_test_context(&resources, user_id, None, false);
+    let state = tool_state(&resources);
+    let context = tronc_context(user_id, None, false);
 
     // Execute a tool that doesn't exist
-    let result = registry
-        .execute("nonexistent_tool_xyz", json!({}), &context)
+    let response = registry
+        .execute("nonexistent_tool_xyz", &state, &context, json!({}))
         .await;
 
-    assert!(result.is_err(), "Should fail for nonexistent tool");
-    let err_msg = result.unwrap_err().to_string();
+    assert!(response.is_error, "Should fail for nonexistent tool");
+    let err_msg = response_text(&response);
     assert!(
-        err_msg.contains("not found") || err_msg.contains("nonexistent"),
+        err_msg.contains("Unknown") || err_msg.contains("nonexistent"),
         "Error should indicate tool not found: {err_msg}"
     );
 }
@@ -325,21 +354,24 @@ async fn test_execute_admin_tool_as_non_admin_denied() {
         return;
     }
 
-    let admin_tool_name = admin_tools[0].name();
+    let admin_tool_name = admin_tools[0].definition().name;
 
     // Create non-admin context
-    let context = create_test_context(&resources, user_id, None, false);
+    let state = tool_state(&resources);
+    let context = tronc_context(user_id, None, false);
 
     // Execute admin-only tool as non-admin
-    let result = registry.execute(admin_tool_name, json!({}), &context).await;
+    let response = registry
+        .execute(&admin_tool_name, &state, &context, json!({}))
+        .await;
 
     assert!(
-        result.is_err(),
+        response.is_error,
         "Admin tool should be denied for non-admin user"
     );
-    let err_msg = result.unwrap_err().to_string();
+    let err_msg = response_text(&response).to_lowercase();
     assert!(
-        err_msg.contains("Admin") || err_msg.contains("permission") || err_msg.contains("denied"),
+        err_msg.contains("admin") || err_msg.contains("permission") || err_msg.contains("denied"),
         "Error should indicate permission denied: {err_msg}"
     );
 }
@@ -364,22 +396,25 @@ async fn test_execute_admin_tool_as_admin_allowed() {
         return;
     }
 
-    let admin_tool_name = admin_tools[0].name();
+    let admin_tool_name = admin_tools[0].definition().name;
 
     // Create admin context
-    let context = create_test_context(&resources, user_id, None, true);
+    let state = tool_state(&resources);
+    let context = tronc_context(user_id, None, true);
 
     // Execute admin-only tool as admin - should pass the permission check
     // Note: The actual tool execution may still fail due to missing arguments,
     // but the admin check should pass
-    let result = registry.execute(admin_tool_name, json!({}), &context).await;
+    let response = registry
+        .execute(&admin_tool_name, &state, &context, json!({}))
+        .await;
 
     // If it errors, it should NOT be a permission error
-    if let Err(e) = &result {
-        let err_msg = e.to_string().to_lowercase();
+    if response.is_error {
+        let err_msg = response_text(&response).to_lowercase();
         assert!(
             !err_msg.contains("admin") || err_msg.contains("required"),
-            "Admin should pass permission check, got: {e}"
+            "Admin should pass permission check, got: {err_msg}"
         );
     }
 }
@@ -397,7 +432,7 @@ async fn test_get_existing_tool() {
     assert!(tool.is_some(), "list_coaches should exist");
 
     let tool = tool.unwrap();
-    assert_eq!(tool.name(), "list_coaches");
+    assert_eq!(tool.definition().name, "list_coaches");
 }
 
 #[tokio::test]
@@ -590,27 +625,21 @@ async fn test_different_users_separate_contexts() {
 #[tokio::test]
 async fn test_register_external_tool() {
     use async_trait::async_trait;
-    use pierre_core::errors::AppResult;
-    use pierre_mcp_schema::JsonSchema;
-    use pierre_tool_runtime::traits::McpTool;
-    use pierre_tools_core::ToolResult;
+    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+    use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::Value;
 
     struct ExternalTestTool;
 
     #[async_trait]
-    impl McpTool for ExternalTestTool {
-        fn name(&self) -> &'static str {
-            "external_test_tool"
-        }
-        fn description(&self) -> &'static str {
-            "Test external tool registration"
-        }
-        fn input_schema(&self) -> JsonSchema {
-            JsonSchema {
-                schema_type: "object".to_owned(),
-                properties: None,
-                required: None,
+    impl McpTool<dyn ToolRuntime> for ExternalTestTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "external_test_tool".to_owned(),
+                description: "Test external tool registration".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {
@@ -618,10 +647,17 @@ async fn test_register_external_tool() {
         }
         async fn execute(
             &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &ToolContext,
             _args: Value,
-            _context: &ToolExecutionContext,
-        ) -> AppResult<ToolResult> {
-            Ok(ToolResult::ok(serde_json::json!({"external": true})))
+        ) -> ToolResponse {
+            ToolResponse {
+                content: vec![Content::Text {
+                    text: "{\"external\":true}".to_owned(),
+                }],
+                is_error: false,
+                structured_content: Some(serde_json::json!({"external": true})),
+            }
         }
     }
 
@@ -632,33 +668,30 @@ async fn test_register_external_tool() {
     assert_eq!(registry.len(), 1);
 
     let tool = registry.get("external_test_tool").unwrap();
-    assert_eq!(tool.description(), "Test external tool registration");
+    assert_eq!(
+        tool.definition().description,
+        "Test external tool registration"
+    );
 }
 
 #[tokio::test]
 async fn test_external_tool_with_builtin_tools() {
     use async_trait::async_trait;
-    use pierre_core::errors::AppResult;
-    use pierre_mcp_schema::JsonSchema;
-    use pierre_tool_runtime::traits::McpTool;
-    use pierre_tools_core::ToolResult;
+    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+    use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::Value;
 
     struct CustomTool;
 
     #[async_trait]
-    impl McpTool for CustomTool {
-        fn name(&self) -> &'static str {
-            "custom_integration_tool"
-        }
-        fn description(&self) -> &'static str {
-            "Custom integration tool"
-        }
-        fn input_schema(&self) -> JsonSchema {
-            JsonSchema {
-                schema_type: "object".to_owned(),
-                properties: None,
-                required: None,
+    impl McpTool<dyn ToolRuntime> for CustomTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "custom_integration_tool".to_owned(),
+                description: "Custom integration tool".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
             }
         }
         fn capabilities(&self) -> ToolCapabilities {
@@ -666,10 +699,17 @@ async fn test_external_tool_with_builtin_tools() {
         }
         async fn execute(
             &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &ToolContext,
             _args: Value,
-            _context: &ToolExecutionContext,
-        ) -> AppResult<ToolResult> {
-            Ok(ToolResult::ok(serde_json::json!({"custom": true})))
+        ) -> ToolResponse {
+            ToolResponse {
+                content: vec![Content::Text {
+                    text: "{\"custom\":true}".to_owned(),
+                }],
+                is_error: false,
+                structured_content: Some(serde_json::json!({"custom": true})),
+            }
         }
     }
 

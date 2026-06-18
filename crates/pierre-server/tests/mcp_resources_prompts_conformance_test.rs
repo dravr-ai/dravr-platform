@@ -16,7 +16,7 @@ use pierre_database::database::coaches::{
 };
 use pierre_database::database::StoreListingsManager;
 use pierre_mcp_schema::{McpRequest, McpResponse};
-use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
+use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -99,13 +99,13 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 
     publish_coach(&resources, user_id, tenant_id, "Marathon Coach").await;
 
-    let processor = McpRequestProcessor::new(Arc::clone(&resources));
+    let server = build_mcp_server(Arc::clone(&resources));
 
     // initialize must advertise both resources and prompts capabilities.
     // A spec-conformant initialize request carries protocolVersion, clientInfo,
     // and capabilities; the handler rejects a paramless request with -32602.
     let init = ok_result(
-        processor
+        server
             .handle_request(request(
                 1,
                 "initialize",
@@ -137,7 +137,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 
     // Advertised resources => resources/list returns >= 1 entry.
     let list = ok_result(
-        processor
+        server
             .handle_request(request(2, "resources/list", None))
             .await
             .expect("resources/list returns a response"),
@@ -158,7 +158,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 
     // resources/read returns the coach markdown for that uri.
     let read = ok_result(
-        processor
+        server
             .handle_request(request(
                 3,
                 "resources/read",
@@ -180,7 +180,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 
     // Advertised prompts => prompts/list returns >= 1 entry with arguments.
     let prompts = ok_result(
-        processor
+        server
             .handle_request(request(4, "prompts/list", None))
             .await
             .expect("prompts/list returns a response"),
@@ -206,7 +206,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 
     // prompts/get assembles the prompt messages for supplied args.
     let assembled = ok_result(
-        processor
+        server
             .handle_request(request(
                 5,
                 "prompts/get",
@@ -234,9 +234,9 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
 #[tokio::test]
 async fn test_resources_read_rejects_unknown_uri() {
     let resources = create_test_server_resources().await.unwrap();
-    let processor = McpRequestProcessor::new(Arc::clone(&resources));
+    let server = build_mcp_server(Arc::clone(&resources));
 
-    let response = processor
+    let response = server
         .handle_request(request(
             1,
             "resources/read",
@@ -253,9 +253,9 @@ async fn test_resources_read_rejects_unknown_uri() {
 #[tokio::test]
 async fn test_prompts_get_missing_required_argument_errors() {
     let resources = create_test_server_resources().await.unwrap();
-    let processor = McpRequestProcessor::new(Arc::clone(&resources));
+    let server = build_mcp_server(Arc::clone(&resources));
 
-    let response = processor
+    let response = server
         .handle_request(request(
             1,
             "prompts/get",

@@ -22,12 +22,17 @@
 //! - `ListHiddenCoachesTool` - List hidden coaches
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
     CoachCategory, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
@@ -110,16 +115,8 @@ fn read_only_annotations() -> ToolAnnotations {
 pub struct ListCoachesTool;
 
 #[async_trait]
-impl McpTool for ListCoachesTool {
-    fn name(&self) -> &'static str {
-        "list_coaches"
-    }
-
-    fn description(&self) -> &'static str {
-        "List available AI coaches for personalized training guidance"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListCoachesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "category".to_owned(),
@@ -161,107 +158,124 @@ impl McpTool for ListCoachesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let format = extract_format(&args);
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(CoachCategory::parse);
-        let favorites_only = args
-            .get("favorites_only")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|v| v.min(100) as u32);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let offset = args.get("offset").and_then(|v| {
-            v.as_u64()
-                .map(|n| n.min(u64::from(u32::MAX)) as u32)
-                .or_else(|| v.as_f64().map(|f| f as u32))
-        });
-        let include_system = args
-            .get("include_system")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        let include_hidden = args
-            .get("include_hidden")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        let filter = ListCoachesFilter {
-            category,
-            favorites_only,
-            limit,
-            offset,
-            include_system,
-            include_hidden,
         };
 
-        let manager = ctx.resources.coaches_manager();
-        let coaches = manager
-            .list(user_id, tenant_id, &filter)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to list coaches: {e}")))?;
-        let total = manager
-            .count(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to count coaches: {e}")))?;
+        tool_definition(
+            "list_coaches",
+            "List available AI coaches for personalized training guidance",
+            schema,
+            Some(read_only_annotations()),
+        )
+    }
 
-        let coach_summaries: Vec<Value> = coaches
-            .iter()
-            .map(|item| {
-                json!({
-                    "id": item.coach.id.to_string(),
-                    "title": item.coach.title,
-                    "description": item.coach.description,
-                    "category": item.coach.category.as_str(),
-                    "tags": item.coach.tags,
-                    "token_count": item.coach.token_count,
-                    "is_favorite": item.is_favorite,
-                    "is_system": item.coach.is_system,
-                    "is_assigned": item.is_assigned,
-                    "use_count": item.use_count,
-                    "last_used_at": item.last_used_at.map(|dt| dt.to_rfc3339()),
-                    "updated_at": item.coach.updated_at.to_rfc3339(),
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::READS_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let format = extract_format(&args);
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let category = args
+                .get("category")
+                .and_then(Value::as_str)
+                .map(CoachCategory::parse);
+            let favorites_only = args
+                .get("favorites_only")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            #[allow(clippy::cast_possible_truncation)]
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|v| v.min(100) as u32);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let offset = args.get("offset").and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.min(u64::from(u32::MAX)) as u32)
+                    .or_else(|| v.as_f64().map(|f| f as u32))
+            });
+            let include_system = args
+                .get("include_system")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let include_hidden = args
+                .get("include_hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+
+            let filter = ListCoachesFilter {
+                category,
+                favorites_only,
+                limit,
+                offset,
+                include_system,
+                include_hidden,
+            };
+
+            let manager = ctx.resources.coaches_manager();
+            let coaches = manager
+                .list(user_id, tenant_id, &filter)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to list coaches: {e}")))?;
+            let total = manager
+                .count(user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to count coaches: {e}")))?;
+
+            let coach_summaries: Vec<Value> = coaches
+                .iter()
+                .map(|item| {
+                    json!({
+                        "id": item.coach.id.to_string(),
+                        "title": item.coach.title,
+                        "description": item.coach.description,
+                        "category": item.coach.category.as_str(),
+                        "tags": item.coach.tags,
+                        "token_count": item.coach.token_count,
+                        "is_favorite": item.is_favorite,
+                        "is_system": item.coach.is_system,
+                        "is_assigned": item.is_assigned,
+                        "use_count": item.use_count,
+                        "last_used_at": item.last_used_at.map(|dt| dt.to_rfc3339()),
+                        "updated_at": item.coach.updated_at.to_rfc3339(),
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let returned_count = coach_summaries.len();
-        #[allow(clippy::cast_possible_truncation)]
-        let has_more = limit.is_some_and(|l| returned_count == l as usize);
+            let returned_count = coach_summaries.len();
+            #[allow(clippy::cast_possible_truncation)]
+            let has_more = limit.is_some_and(|l| returned_count == l as usize);
 
-        let payload = json!({
-            "coaches": coach_summaries,
-            "count": returned_count,
-            "total": total,
-            "offset": offset.unwrap_or(0),
-            "limit": limit.unwrap_or(50),
-            "has_more": has_more,
-        });
+            let payload = json!({
+                "coaches": coach_summaries,
+                "count": returned_count,
+                "total": total,
+                "offset": offset.unwrap_or(0),
+                "limit": limit.unwrap_or(50),
+                "has_more": has_more,
+            });
 
-        Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -273,16 +287,8 @@ impl McpTool for ListCoachesTool {
 pub struct CreateCoachTool;
 
 #[async_trait]
-impl McpTool for CreateCoachTool {
-    fn name(&self) -> &'static str {
-        "create_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Create a custom AI coach with personalized training guidance"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CreateCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "title".to_owned(),
@@ -344,97 +350,116 @@ impl McpTool for CreateCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let title = args
-            .get("title")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: title"))?;
-        let system_prompt = args
-            .get("system_prompt")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: system_prompt"))?;
-        let description = args
-            .get("description")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(CoachCategory::parse)
-            .unwrap_or_default();
-        let tags: Vec<String> = args
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let sample_prompts: Vec<String> = args
-            .get("sample_prompts")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let create_request = CreateCoachRequest {
-            title,
-            description,
-            system_prompt,
-            category,
-            tags,
-            sample_prompts,
-            startup_query: None,
-            data_requirements: None,
-            purpose: None,
-            when_to_use: None,
-            instructions: None,
-            example_inputs: None,
-            example_outputs: None,
-            success_criteria: None,
         };
 
-        let manager = ctx.resources.coaches_manager();
-        let coach = manager
-            .create(user_id, tenant_id, &create_request)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to create coach: {e}")))?;
+        tool_definition(
+            "create_coach",
+            "Create a custom AI coach with personalized training guidance",
+            schema,
+            Some(write_annotations()),
+        )
+    }
 
-        Ok(ToolResult::ok(json!({
-            "id": coach.id.to_string(),
-            "title": coach.title,
-            "description": coach.description,
-            "category": coach.category.as_str(),
-            "tags": coach.tags,
-            "token_count": coach.token_count,
-            "created_at": coach.created_at.to_rfc3339(),
-        })))
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let title = args
+                .get("title")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: title"))?;
+            let system_prompt = args
+                .get("system_prompt")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| {
+                    AppError::invalid_input("Missing required parameter: system_prompt")
+                })?;
+            let description = args
+                .get("description")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            let category = args
+                .get("category")
+                .and_then(Value::as_str)
+                .map(CoachCategory::parse)
+                .unwrap_or_default();
+            let tags: Vec<String> = args
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let sample_prompts: Vec<String> = args
+                .get("sample_prompts")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let create_request = CreateCoachRequest {
+                title,
+                description,
+                system_prompt,
+                category,
+                tags,
+                sample_prompts,
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+            };
+
+            let manager = ctx.resources.coaches_manager();
+            let coach = manager
+                .create(user_id, tenant_id, &create_request)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to create coach: {e}")))?;
+
+            Ok(ToolResult::ok(json!({
+                "id": coach.id.to_string(),
+                "title": coach.title,
+                "description": coach.description,
+                "category": coach.category.as_str(),
+                "tags": coach.tags,
+                "token_count": coach.token_count,
+                "created_at": coach.created_at.to_rfc3339(),
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -446,16 +471,8 @@ impl McpTool for CreateCoachTool {
 pub struct GetCoachTool;
 
 #[async_trait]
-impl McpTool for GetCoachTool {
-    fn name(&self) -> &'static str {
-        "get_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get detailed information about a specific coach"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -465,59 +482,76 @@ impl McpTool for GetCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "get_coach",
+            "Get detailed information about a specific coach",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let format = extract_format(&args);
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let format = extract_format(&args);
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+            let manager = ctx.resources.coaches_manager();
+            let coach = manager
+                .get_by_id(coach_id, user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to get coach: {e}")))?;
 
-        let manager = ctx.resources.coaches_manager();
-        let coach = manager
-            .get_by_id(coach_id, user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to get coach: {e}")))?;
-
-        match coach {
-            Some(c) => {
-                let payload = json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "system_prompt": c.system_prompt,
-                    "category": c.category.as_str(),
-                    "tags": c.tags,
-                    "token_count": c.token_count,
-                    "is_favorite": false,
-                    "use_count": 0,
-                    "last_used_at": Option::<String>::None,
-                    "created_at": c.created_at.to_rfc3339(),
-                    "updated_at": c.updated_at.to_rfc3339(),
-                });
-                Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+            match coach {
+                Some(c) => {
+                    let payload = json!({
+                        "id": c.id.to_string(),
+                        "title": c.title,
+                        "description": c.description,
+                        "system_prompt": c.system_prompt,
+                        "category": c.category.as_str(),
+                        "tags": c.tags,
+                        "token_count": c.token_count,
+                        "is_favorite": false,
+                        "use_count": 0,
+                        "last_used_at": Option::<String>::None,
+                        "created_at": c.created_at.to_rfc3339(),
+                        "updated_at": c.updated_at.to_rfc3339(),
+                    });
+                    Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                }
+                None => Ok(ToolResult::error(json!({
+                    "error": format!("Coach not found: {coach_id}"),
+                }))),
             }
-            None => Ok(ToolResult::error(json!({
-                "error": format!("Coach not found: {coach_id}"),
-            }))),
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -529,16 +563,8 @@ impl McpTool for GetCoachTool {
 pub struct UpdateCoachTool;
 
 #[async_trait]
-impl McpTool for UpdateCoachTool {
-    fn name(&self) -> &'static str {
-        "update_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Update an existing coach's settings"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -593,93 +619,110 @@ impl McpTool for UpdateCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "update_coach",
+            "Update an existing coach's settings",
+            schema,
+            Some(write_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
 
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
-
-        let update_request = UpdateCoachRequest {
-            title: args
-                .get("title")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned),
-            description: args
-                .get("description")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned),
-            system_prompt: args
-                .get("system_prompt")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned),
-            category: args
-                .get("category")
-                .and_then(Value::as_str)
-                .map(CoachCategory::parse),
-            tags: args.get("tags").and_then(Value::as_array).map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect()
-            }),
-            sample_prompts: args
-                .get("sample_prompts")
-                .and_then(Value::as_array)
-                .map(|arr| {
+            let update_request = UpdateCoachRequest {
+                title: args
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                description: args
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                system_prompt: args
+                    .get("system_prompt")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                category: args
+                    .get("category")
+                    .and_then(Value::as_str)
+                    .map(CoachCategory::parse),
+                tags: args.get("tags").and_then(Value::as_array).map(|arr| {
                     arr.iter()
                         .filter_map(Value::as_str)
                         .map(ToOwned::to_owned)
                         .collect()
                 }),
-            startup_query: None,
-            data_requirements: None,
-            purpose: None,
-            when_to_use: None,
-            instructions: None,
-            example_inputs: None,
-            example_outputs: None,
-            success_criteria: None,
-        };
+                sample_prompts: args
+                    .get("sample_prompts")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect()
+                    }),
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+            };
 
-        let manager = ctx.resources.coaches_manager();
-        let coach = manager
-            .update(coach_id, user_id, tenant_id, &update_request)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to update coach: {e}")))?;
+            let manager = ctx.resources.coaches_manager();
+            let coach = manager
+                .update(coach_id, user_id, tenant_id, &update_request)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to update coach: {e}")))?;
 
-        match coach {
-            Some(c) => Ok(ToolResult::ok(json!({
-                "id": c.id.to_string(),
-                "title": c.title,
-                "description": c.description,
-                "system_prompt": c.system_prompt,
-                "category": c.category.as_str(),
-                "tags": c.tags,
-                "token_count": c.token_count,
-                "updated_at": c.updated_at.to_rfc3339(),
-            }))),
-            None => Ok(ToolResult::error(json!({
-                "error": format!("Coach not found: {coach_id}"),
-            }))),
+            match coach {
+                Some(c) => Ok(ToolResult::ok(json!({
+                    "id": c.id.to_string(),
+                    "title": c.title,
+                    "description": c.description,
+                    "system_prompt": c.system_prompt,
+                    "category": c.category.as_str(),
+                    "tags": c.tags,
+                    "token_count": c.token_count,
+                    "updated_at": c.updated_at.to_rfc3339(),
+                }))),
+                None => Ok(ToolResult::error(json!({
+                    "error": format!("Coach not found: {coach_id}"),
+                }))),
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -691,16 +734,8 @@ impl McpTool for UpdateCoachTool {
 pub struct DeleteCoachTool;
 
 #[async_trait]
-impl McpTool for DeleteCoachTool {
-    fn name(&self) -> &'static str {
-        "delete_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Delete a coach"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -710,46 +745,63 @@ impl McpTool for DeleteCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
+        };
+
+        tool_definition(
+            "delete_coach",
+            "Delete a coach",
+            schema,
+            Some(destructive_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+
+            let manager = ctx.resources.coaches_manager();
+            let deleted = manager
+                .delete(coach_id, user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to delete coach: {e}")))?;
+
+            if deleted {
+                Ok(ToolResult::ok(json!({
+                    "deleted": true,
+                    "coach_id": coach_id,
+                })))
+            } else {
+                Ok(ToolResult::error(json!({
+                    "error": format!("Coach not found: {coach_id}"),
+                })))
+            }
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(destructive_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
-
-        let manager = ctx.resources.coaches_manager();
-        let deleted = manager
-            .delete(coach_id, user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to delete coach: {e}")))?;
-
-        if deleted {
-            Ok(ToolResult::ok(json!({
-                "deleted": true,
-                "coach_id": coach_id,
-            })))
-        } else {
-            Ok(ToolResult::error(json!({
-                "error": format!("Coach not found: {coach_id}"),
-            })))
-        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -761,16 +813,8 @@ impl McpTool for DeleteCoachTool {
 pub struct ToggleCoachFavoriteTool;
 
 #[async_trait]
-impl McpTool for ToggleCoachFavoriteTool {
-    fn name(&self) -> &'static str {
-        "toggle_coach_favorite"
-    }
-
-    fn description(&self) -> &'static str {
-        "Toggle the favorite status of a coach"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -780,49 +824,66 @@ impl McpTool for ToggleCoachFavoriteTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
-        }
-    }
+        };
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
-
-        let manager = ctx.resources.coaches_manager();
-        let is_favorite = manager
-            .toggle_favorite(coach_id, user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to toggle favorite: {e}")))?;
-
-        is_favorite.map_or_else(
-            || {
-                Ok(ToolResult::error(json!({
-                    "error": format!("Coach not found: {coach_id}"),
-                })))
-            },
-            |fav| {
-                Ok(ToolResult::ok(json!({
-                    "coach_id": coach_id,
-                    "is_favorite": fav,
-                })))
-            },
+        tool_definition(
+            "toggle_coach_favorite",
+            "Toggle the favorite status of a coach",
+            schema,
+            Some(write_annotations()),
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+
+            let manager = ctx.resources.coaches_manager();
+            let is_favorite = manager
+                .toggle_favorite(coach_id, user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to toggle favorite: {e}")))?;
+
+            is_favorite.map_or_else(
+                || {
+                    Ok(ToolResult::error(json!({
+                        "error": format!("Coach not found: {coach_id}"),
+                    })))
+                },
+                |fav| {
+                    Ok(ToolResult::ok(json!({
+                        "coach_id": coach_id,
+                        "is_favorite": fav,
+                    })))
+                },
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -834,16 +895,8 @@ impl McpTool for ToggleCoachFavoriteTool {
 pub struct SearchCoachesTool;
 
 #[async_trait]
-impl McpTool for SearchCoachesTool {
-    fn name(&self) -> &'static str {
-        "search_coaches"
-    }
-
-    fn description(&self) -> &'static str {
-        "Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "query".to_owned(),
@@ -877,78 +930,95 @@ impl McpTool for SearchCoachesTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["query".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "search_coaches",
+            "Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let format = extract_format(&args);
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let format = extract_format(&args);
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let query = args
+                .get("query")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: query"))?;
 
-        let query = args
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: query"))?;
+            #[allow(clippy::cast_possible_truncation)]
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|v| v.min(100) as u32);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let offset = args.get("offset").and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.min(u64::from(u32::MAX)) as u32)
+                    .or_else(|| v.as_f64().map(|f| f as u32))
+            });
 
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|v| v.min(100) as u32);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let offset = args.get("offset").and_then(|v| {
-            v.as_u64()
-                .map(|n| n.min(u64::from(u32::MAX)) as u32)
-                .or_else(|| v.as_f64().map(|f| f as u32))
-        });
+            let manager = ctx.resources.coaches_manager();
+            let coaches = manager
+                .search(user_id, tenant_id, query, limit, offset)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
 
-        let manager = ctx.resources.coaches_manager();
-        let coaches = manager
-            .search(user_id, tenant_id, query, limit, offset)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
-
-        let results: Vec<Value> = coaches
-            .iter()
-            .map(|c| {
-                json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "category": c.category.as_str(),
-                    "tags": c.tags,
-                    "token_count": c.token_count,
+            let results: Vec<Value> = coaches
+                .iter()
+                .map(|c| {
+                    json!({
+                        "id": c.id.to_string(),
+                        "title": c.title,
+                        "description": c.description,
+                        "category": c.category.as_str(),
+                        "tags": c.tags,
+                        "token_count": c.token_count,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let returned_count = results.len();
-        let limit_val = limit.unwrap_or(20);
-        #[allow(clippy::cast_possible_truncation)]
-        let has_more = returned_count == limit_val as usize;
+            let returned_count = results.len();
+            let limit_val = limit.unwrap_or(20);
+            #[allow(clippy::cast_possible_truncation)]
+            let has_more = returned_count == limit_val as usize;
 
-        let payload = json!({
-            "query": query,
-            "results": results,
-            "returned_count": returned_count,
-            "offset": offset.unwrap_or(0),
-            "limit": limit_val,
-            "has_more": has_more,
-        });
+            let payload = json!({
+                "query": query,
+                "results": results,
+                "returned_count": returned_count,
+                "offset": offset.unwrap_or(0),
+                "limit": limit_val,
+                "has_more": has_more,
+            });
 
-        Ok(ToolResult::ok(finalize_payload(payload, "results", format)))
+            Ok(ToolResult::ok(finalize_payload(payload, "results", format)))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -960,16 +1030,8 @@ impl McpTool for SearchCoachesTool {
 pub struct ActivateCoachTool;
 
 #[async_trait]
-impl McpTool for ActivateCoachTool {
-    fn name(&self) -> &'static str {
-        "activate_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Activate a coach for personalized training guidance"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -979,50 +1041,67 @@ impl McpTool for ActivateCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
+        };
+
+        tool_definition(
+            "activate_coach",
+            "Activate a coach for personalized training guidance",
+            schema,
+            Some(write_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+
+            let manager = ctx.resources.coaches_manager();
+            let coach = manager
+                .activate_coach(coach_id, user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to activate coach: {e}")))?;
+
+            match coach {
+                Some(c) => Ok(ToolResult::ok(json!({
+                    "id": c.id.to_string(),
+                    "title": c.title,
+                    "description": c.description,
+                    "system_prompt": c.system_prompt,
+                    "category": c.category.as_str(),
+                    "is_active": true,
+                    "token_count": c.token_count,
+                }))),
+                None => Ok(ToolResult::error(json!({
+                    "error": format!("Coach not found: {coach_id}"),
+                }))),
+            }
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
-
-        let manager = ctx.resources.coaches_manager();
-        let coach = manager
-            .activate_coach(coach_id, user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to activate coach: {e}")))?;
-
-        match coach {
-            Some(c) => Ok(ToolResult::ok(json!({
-                "id": c.id.to_string(),
-                "title": c.title,
-                "description": c.description,
-                "system_prompt": c.system_prompt,
-                "category": c.category.as_str(),
-                "is_active": true,
-                "token_count": c.token_count,
-            }))),
-            None => Ok(ToolResult::error(json!({
-                "error": format!("Coach not found: {coach_id}"),
-            }))),
-        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1034,44 +1113,53 @@ impl McpTool for ActivateCoachTool {
 pub struct DeactivateCoachTool;
 
 #[async_trait]
-impl McpTool for DeactivateCoachTool {
-    fn name(&self) -> &'static str {
-        "deactivate_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Deactivate the current coach and return to default AI guidance"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
+        };
+
+        tool_definition(
+            "deactivate_coach",
+            "Deactivate the current coach and return to default AI guidance",
+            schema,
+            Some(write_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            let manager = ctx.resources.coaches_manager();
+            let deactivated = manager
+                .deactivate_coach(user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to deactivate coach: {e}")))?;
+
+            Ok(ToolResult::ok(json!({
+                "deactivated": deactivated,
+            })))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
-
-        let manager = ctx.resources.coaches_manager();
-        let deactivated = manager
-            .deactivate_coach(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to deactivate coach: {e}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "deactivated": deactivated,
-        })))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1083,63 +1171,72 @@ impl McpTool for DeactivateCoachTool {
 pub struct GetActiveCoachTool;
 
 #[async_trait]
-impl McpTool for GetActiveCoachTool {
-    fn name(&self) -> &'static str {
-        "get_active_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get the currently active coach"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "get_active_coach",
+            "Get the currently active coach",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let format = extract_format(&args);
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let format = extract_format(&args);
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let manager = ctx.resources.coaches_manager();
+            let coach = manager
+                .get_active_coach(user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to get active coach: {e}")))?;
 
-        let manager = ctx.resources.coaches_manager();
-        let coach = manager
-            .get_active_coach(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to get active coach: {e}")))?;
-
-        match coach {
-            Some(c) => {
-                let payload = json!({
-                    "active": true,
-                    "coach": {
-                        "id": c.id.to_string(),
-                        "title": c.title,
-                        "description": c.description,
-                        "system_prompt": c.system_prompt,
-                        "category": c.category.as_str(),
-                        "tags": c.tags,
-                        "token_count": c.token_count,
-                    }
-                });
-                Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+            match coach {
+                Some(c) => {
+                    let payload = json!({
+                        "active": true,
+                        "coach": {
+                            "id": c.id.to_string(),
+                            "title": c.title,
+                            "description": c.description,
+                            "system_prompt": c.system_prompt,
+                            "category": c.category.as_str(),
+                            "tags": c.tags,
+                            "token_count": c.token_count,
+                        }
+                    });
+                    Ok(ToolResult::ok(finalize_payload(payload, "coach", format)))
+                }
+                None => Ok(ToolResult::ok(json!({
+                    "active": false,
+                    "coach": Value::Null,
+                }))),
             }
-            None => Ok(ToolResult::ok(json!({
-                "active": false,
-                "coach": Value::Null,
-            }))),
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1151,16 +1248,8 @@ impl McpTool for GetActiveCoachTool {
 pub struct HideCoachTool;
 
 #[async_trait]
-impl McpTool for HideCoachTool {
-    fn name(&self) -> &'static str {
-        "hide_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Hide a coach from listings"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for HideCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -1170,22 +1259,36 @@ impl McpTool for HideCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "hide_coach",
+            "Hide a coach from listings",
+            schema,
+            Some(write_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let user_id = ctx.user_id;
 
         let coach_id = args
@@ -1211,6 +1314,9 @@ impl McpTool for HideCoachTool {
                 "is_hidden": false,
             })))
         }
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1222,16 +1328,8 @@ impl McpTool for HideCoachTool {
 pub struct ShowCoachTool;
 
 #[async_trait]
-impl McpTool for ShowCoachTool {
-    fn name(&self) -> &'static str {
-        "show_coach"
-    }
-
-    fn description(&self) -> &'static str {
-        "Show a previously hidden coach"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ShowCoachTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
@@ -1241,40 +1339,57 @@ impl McpTool for ShowCoachTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["coach_id".to_owned()]),
+        };
+
+        tool_definition(
+            "show_coach",
+            "Show a previously hidden coach",
+            schema,
+            Some(write_annotations()),
+        )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::WRITES_DATA,
+        )
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_id = ctx.user_id;
+
+            let coach_id = args
+                .get("coach_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
+
+            let manager = ctx.resources.coaches_manager();
+            let success = manager
+                .show_coach(coach_id, user_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
+
+            Ok(ToolResult::ok(json!({
+                "coach_id": coach_id,
+                "is_hidden": false,
+                "removed_preference": success,
+            })))
         }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_id = ctx.user_id;
-
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: coach_id"))?;
-
-        let manager = ctx.resources.coaches_manager();
-        let success = manager
-            .show_coach(coach_id, user_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "coach_id": coach_id,
-            "is_hidden": false,
-            "removed_preference": success,
-        })))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1286,62 +1401,71 @@ impl McpTool for ShowCoachTool {
 pub struct ListHiddenCoachesTool;
 
 #[async_trait]
-impl McpTool for ListHiddenCoachesTool {
-    fn name(&self) -> &'static str {
-        "list_hidden_coaches"
-    }
-
-    fn description(&self) -> &'static str {
-        "List all hidden coaches"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
+impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
+    fn definition(&self) -> Tool {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(HashMap::new()),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "list_hidden_coaches",
+            "List all hidden coaches",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::COACHES
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let format = extract_format(&args);
+            let user_id = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let format = extract_format(&args);
-        let user_id = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let manager = ctx.resources.coaches_manager();
+            let coaches = manager
+                .list_hidden_coaches(user_id, tenant_id)
+                .await
+                .map_err(|e| AppError::internal(format!("Failed to list hidden coaches: {e}")))?;
 
-        let manager = ctx.resources.coaches_manager();
-        let coaches = manager
-            .list_hidden_coaches(user_id, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to list hidden coaches: {e}")))?;
-
-        let coach_summaries: Vec<Value> = coaches
-            .iter()
-            .map(|c| {
-                json!({
-                    "id": c.id.to_string(),
-                    "title": c.title,
-                    "description": c.description,
-                    "category": c.category.as_str(),
-                    "is_system": c.is_system,
+            let coach_summaries: Vec<Value> = coaches
+                .iter()
+                .map(|c| {
+                    json!({
+                        "id": c.id.to_string(),
+                        "title": c.title,
+                        "description": c.description,
+                        "category": c.category.as_str(),
+                        "is_system": c.is_system,
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let count = coach_summaries.len();
-        let payload = json!({
-            "coaches": coach_summaries,
-            "count": count,
-        });
+            let count = coach_summaries.len();
+            let payload = json!({
+                "coaches": coach_summaries,
+                "count": count,
+            });
 
-        Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+            Ok(ToolResult::ok(finalize_payload(payload, "coaches", format)))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -1351,7 +1475,7 @@ impl McpTool for ListHiddenCoachesTool {
 
 /// Create all coach tools for registration
 #[must_use]
-pub fn create_coach_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_coach_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ListCoachesTool),
         Box::new(CreateCoachTool),

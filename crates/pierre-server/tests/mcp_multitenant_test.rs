@@ -143,7 +143,7 @@
 )]
 //
 
-//! Comprehensive integration tests for MultiTenantMcpServer
+//! Comprehensive integration tests for ProviderToolRouter
 //!
 //! This test suite provides comprehensive coverage of the multitenant MCP server
 //! functionality including session management, protocol handling, authentication,
@@ -158,7 +158,7 @@ use pierre_auth::{
 use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_server::{constants::oauth_providers, mcp::multitenant::MultiTenantMcpServer};
+use pierre_mcp_server::{constants::oauth_providers, mcp::multitenant::ProviderToolRouter};
 use pierre_middleware::McpAuthMiddleware;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
@@ -171,12 +171,12 @@ use common::*;
 
 /// Helper to create a multitenant MCP server for testing
 async fn create_test_multitenant_server(
-) -> Result<(MultiTenantMcpServer, Arc<Database>, Arc<AuthManager>)> {
+) -> Result<(ProviderToolRouter, Arc<Database>, Arc<AuthManager>)> {
     let resources = create_test_server_resources().await?;
     let database = resources.coach.database.clone();
     let auth_manager = resources.auth.auth_manager.clone();
 
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     Ok((server, database, auth_manager))
 }

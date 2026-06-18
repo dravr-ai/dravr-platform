@@ -10,11 +10,25 @@
 use pierre_mcp_schema::*;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_server::constants::{errors::*, protocol::JSONRPC_VERSION};
-use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
+use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::tools::registry_builtin::get_tools;
 use serde_json::{json, Value};
 
 mod common;
+
+/// Drive a request through the shared tronc MCP engine under the anonymous
+/// context (the engine owns initialize/ping/tools; auth is applied by the HTTP
+/// transport, not exercised here).
+async fn drive(request: McpRequest) -> McpResponse {
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("Should build test resources");
+    let server = build_mcp_server(resources);
+    server
+        .handle_request(request)
+        .await
+        .expect("Engine should return a response for a request with an id")
+}
 
 /// Test MCP protocol version negotiation during initialization
 #[tokio::test]
@@ -39,7 +53,7 @@ async fn test_protocol_version_negotiation() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     // Should succeed with supported version
     match response.result {
@@ -68,19 +82,18 @@ async fn test_unsupported_protocol_version() {
         }
     });
 
+    common::init_server_config();
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
-    // Should return version mismatch error
-    if let Some(error) = response.error {
-        assert_eq!(error.code, ERROR_VERSION_MISMATCH);
-        // Accept any version-related error message
-        assert!(
-            error.message.to_lowercase().contains("version")
-                || error.message.to_lowercase().contains("unsupported")
-        );
-    } else {
-        panic!("Should return version mismatch error");
+    // The engine negotiates an unsupported client version down to its current
+    // stable revision rather than erroring (per the MCP spec, the client then
+    // decides whether to proceed).
+    match response.result {
+        Some(result) => {
+            assert_eq!(result["protocolVersion"], "2025-11-25");
+        }
+        None => panic!("Initialize should negotiate a supported version, not error"),
     }
 }
 
@@ -103,7 +116,7 @@ async fn test_server_capabilities_declaration() {
     });
 
     let request: McpRequest = serde_json::from_value(init_request).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     if let Some(result) = response.result {
         let capabilities = &result["capabilities"];
@@ -364,7 +377,7 @@ async fn test_ping_method_compliance() {
     });
 
     let request: McpRequest = serde_json::from_value(ping_request).expect("Should parse");
-    let response = McpRequestProcessor::handle_ping(&request);
+    let response = drive(request).await;
 
     // Ping should return empty result object
     if let Some(result) = response.result {
@@ -481,7 +494,7 @@ async fn test_protocol_version_backward_compatibility() {
 
     let request: McpRequest =
         serde_json::from_value(init_request_old).expect("Should parse request");
-    let response = McpRequestProcessor::handle_initialize(&request);
+    let response = drive(request).await;
 
     // Should succeed with older supported version
     if let Some(result) = response.result {

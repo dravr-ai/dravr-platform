@@ -166,7 +166,7 @@ use pierre_database::{
     database::generate_encryption_key,
 };
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
@@ -366,7 +366,7 @@ async fn test_oauth_flow_through_mcp() {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Start server in background (we'll simulate MCP requests instead of real TCP)
     let server_handle = tokio::spawn(async move {

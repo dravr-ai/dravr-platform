@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
@@ -16,9 +17,15 @@ use serde_json::{json, Value};
 use crate::services::training_history_compute::{
     compute_and_persist_history, fetch_history_rows, DEFAULT_BACKFILL_DAYS,
 };
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
-use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tool_runtime::conversions::{
+    capabilities_to_tronc, tool_definition, tool_result_to_response,
+};
+use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tools_core::ToolResult;
 
 fn read_only_annotations() -> ToolAnnotations {
@@ -110,49 +117,56 @@ fn date_range_schema() -> JsonSchema {
 pub struct ComputeTrainingHistoryTool;
 
 #[async_trait]
-impl McpTool for ComputeTrainingHistoryTool {
-    fn name(&self) -> &'static str {
-        "compute_training_history"
+impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
+    fn definition(&self) -> Tool {
+        let schema = date_range_schema();
+        tool_definition(
+            "compute_training_history",
+            "Compute and persist Endurance daily training-state rollups for the \
+             authenticated user across the requested window — CTL, ATL, TSB \
+             (Coggan), ACWR (Gabbett), monotony + strain (Foster), ramp rate, \
+             and daily TSS load. Use this to seed the `training_history` table \
+             on first use, after a long gap in syncs, or when the user asks for \
+             a specific historical window. Default window is the last 90 days. \
+             Mirrors the work the post-sync hook does automatically.",
+            schema,
+            Some(write_safe_annotations()),
+        )
     }
 
-    fn description(&self) -> &'static str {
-        "Compute and persist Endurance daily training-state rollups for the \
-         authenticated user across the requested window — CTL, ATL, TSB \
-         (Coggan), ACWR (Gabbett), monotony + strain (Foster), ramp rate, \
-         and daily TSS load. Use this to seed the `training_history` table \
-         on first use, after a long gap in syncs, or when the user asks for \
-         a specific historical window. Default window is the last 90 days. \
-         Mirrors the work the post-sync hook does automatically."
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::WRITES_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
     }
 
-    fn input_schema(&self) -> JsonSchema {
-        date_range_schema()
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::WRITES_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(write_safe_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let (from, to) = resolve_window(&args)?;
-        let count =
-            compute_and_persist_history(&context.resources, tenant_id, user_id, from, to).await?;
-        Ok(ToolResult::ok(json!({
-            "from": from.format("%Y-%m-%d").to_string(),
-            "to": to.format("%Y-%m-%d").to_string(),
-            "rows_upserted": count,
-        })))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let (from, to) = resolve_window(&args)?;
+            let count =
+                compute_and_persist_history(&context.resources, tenant_id, user_id, from, to)
+                    .await?;
+            Ok(ToolResult::ok(json!({
+                "from": from.format("%Y-%m-%d").to_string(),
+                "to": to.format("%Y-%m-%d").to_string(),
+                "rows_upserted": count,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -160,53 +174,59 @@ impl McpTool for ComputeTrainingHistoryTool {
 pub struct GetTrainingHistoryTool;
 
 #[async_trait]
-impl McpTool for GetTrainingHistoryTool {
-    fn name(&self) -> &'static str {
-        "get_training_history"
+impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
+    fn definition(&self) -> Tool {
+        let schema = date_range_schema();
+        tool_definition(
+            "get_training_history",
+            "Fetch persisted Endurance daily training-state rollups for the \
+             authenticated user across the requested window. Returns \
+             chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load \
+             rows. Use this BEFORE prescribing new load so coaching advice can \
+             cite the framework values (Coggan / Gabbett / Foster) on every \
+             numeric claim per the Endurance deterministic-output rule. \
+             Default window is the last 90 days.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn description(&self) -> &'static str {
-        "Fetch persisted Endurance daily training-state rollups for the \
-         authenticated user across the requested window. Returns \
-         chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load \
-         rows. Use this BEFORE prescribing new load so coaching advice can \
-         cite the framework values (Coggan / Gabbett / Foster) on every \
-         numeric claim per the Endurance deterministic-output rule. \
-         Default window is the last 90 days."
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA
+                | ToolCapabilities::ANALYTICS,
+        )
     }
 
-    fn input_schema(&self) -> JsonSchema {
-        date_range_schema()
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::ANALYTICS
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
-
-    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = require_tenant(context)?;
-        let user_id = context.user_id;
-        let (from, to) = resolve_window(&args)?;
-        let rows =
-            fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
-        Ok(ToolResult::ok(json!({
-            "from": from.format("%Y-%m-%d").to_string(),
-            "to": to.format("%Y-%m-%d").to_string(),
-            "days": rows,
-        })))
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let tenant_id = require_tenant(&context)?;
+            let user_id = context.user_id;
+            let (from, to) = resolve_window(&args)?;
+            let rows =
+                fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
+            Ok(ToolResult::ok(json!({
+                "from": from.format("%Y-%m-%d").to_string(),
+                "to": to.format("%Y-%m-%d").to_string(),
+                "days": rows,
+            })))
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
 /// Build the Endurance training-history tool list for registry registration.
 #[must_use]
-pub fn create_endurance_history_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_endurance_history_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ComputeTrainingHistoryTool),
         Box::new(GetTrainingHistoryTool),

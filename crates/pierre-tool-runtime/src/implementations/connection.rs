@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -23,9 +24,12 @@ use pierre_core::models::{ConnectionStatus, TenantId};
 use serde_json::{json, Map, Value};
 use tracing::{error, info};
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
-use crate::traits::{McpTool, ToolCapabilities};
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -214,16 +218,8 @@ fn destructive_annotations() -> ToolAnnotations {
 pub struct ConnectProviderTool;
 
 #[async_trait]
-impl McpTool for ConnectProviderTool {
-    fn name(&self) -> &'static str {
-        "connect_provider"
-    }
-
-    fn description(&self) -> &'static str {
-        "Initiate OAuth connection flow to connect a fitness data provider like Strava, Fitbit, or Garmin"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -246,22 +242,32 @@ impl McpTool for ConnectProviderTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned()]),
-        }
+        };
+
+        tool_definition(
+            "connect_provider",
+            "Initiate OAuth connection flow to connect a fitness data provider like Strava, Fitbit, or Garmin",
+            schema,
+            Some(open_world_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT)
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(open_world_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
         let user_uuid = ctx.user_id;
         let registry = &ctx.resources.provider_registry();
         let repos = &ctx.resources.repos();
@@ -401,6 +407,9 @@ impl McpTool for ConnectProviderTool {
                 Ok(oauth_error_result(provider, &e.to_string()))
             }
         }
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -414,16 +423,8 @@ impl McpTool for ConnectProviderTool {
 pub struct GetConnectionStatusTool;
 
 #[async_trait]
-impl McpTool for GetConnectionStatusTool {
-    fn name(&self) -> &'static str {
-        "get_connection_status"
-    }
-
-    fn description(&self) -> &'static str {
-        "Check the connection status of fitness data providers. If no provider is specified, returns status for all supported providers."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -436,125 +437,138 @@ impl McpTool for GetConnectionStatusTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
+        };
+
+        tool_definition(
+            "get_connection_status",
+            "Check the connection status of fitness data providers. If no provider is specified, returns status for all supported providers.",
+            schema,
+            Some(read_only_annotations()),
+        )
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }
 
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(read_only_annotations())
-    }
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_uuid = ctx.user_id;
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_uuid = ctx.user_id;
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+            // Lifecycle status per connected provider (best-effort). Lets us report a
+            // connected-but-dead provider as `needs_reauth` — a token row still exists, but a
+            // non-recoverable refresh failure means the user must reconnect before data flows.
+            let status_by_provider: HashMap<String, ConnectionStatus> = ctx
+                .resources
+                .repos()
+                .provider_connections
+                .get_for_user(user_uuid, Some(tenant_id))
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| (c.provider, c.status))
+                .collect();
 
-        // Lifecycle status per connected provider (best-effort). Lets us report a
-        // connected-but-dead provider as `needs_reauth` — a token row still exists, but a
-        // non-recoverable refresh failure means the user must reconnect before data flows.
-        let status_by_provider: HashMap<String, ConnectionStatus> = ctx
-            .resources
-            .repos()
-            .provider_connections
-            .get_for_user(user_uuid, Some(tenant_id))
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| (c.provider, c.status))
-            .collect();
-
-        if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
-            // Mirror backends are internal-only.
-            if backend_resolver::is_mirror_backend(specific_provider) {
-                return Ok(ToolResult::ok(json!({
-                    "provider": specific_provider,
-                    "status": "disconnected",
-                    "connected": false,
-                    "backend": "none",
-                    "note": "Unknown provider. Use 'strava' or 'garmin' instead."
-                })));
-            }
-
-            let auth_repos = ctx.resources.repos().auth_repos();
-            let (is_connected, backend_kind) = match user_facing_canonical(specific_provider) {
-                Some(canonical) => {
-                    let status = backend_resolver::coalesced_status(
-                        &auth_repos,
-                        user_uuid,
-                        tenant_id,
-                        canonical,
-                    )
-                    .await;
-                    (status.connected, status.backend_kind)
+            if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
+                // Mirror backends are internal-only.
+                if backend_resolver::is_mirror_backend(specific_provider) {
+                    return Ok(ToolResult::ok(json!({
+                        "provider": specific_provider,
+                        "status": "disconnected",
+                        "connected": false,
+                        "backend": "none",
+                        "note": "Unknown provider. Use 'strava' or 'garmin' instead."
+                    })));
                 }
-                None => (false, BackendKind::None),
-            };
 
-            let needs_reauth = status_by_provider
-                .get(specific_provider)
-                .copied()
-                .is_some_and(|s| s.requires_reauth());
-            let status = if needs_reauth {
-                "needs_reauth"
-            } else if is_connected {
-                "connected"
-            } else {
-                "disconnected"
-            };
-
-            Ok(ToolResult::ok(json!({
-                "provider": specific_provider,
-                "status": status,
-                "connected": is_connected,
-                "needs_reauth": needs_reauth,
-                "backend": backend_kind.as_str()
-            })))
-        } else {
-            let mut providers_status = Map::new();
-
-            let auth_repos = ctx.resources.repos().auth_repos();
-            for user_facing in USER_FACING_PROVIDERS {
-                let status = backend_resolver::coalesced_status(
-                    &auth_repos,
-                    user_uuid,
-                    tenant_id,
-                    user_facing,
-                )
-                .await;
+                let auth_repos = ctx.resources.repos().auth_repos();
+                let (is_connected, backend_kind) = match user_facing_canonical(specific_provider) {
+                    Some(canonical) => {
+                        let status = backend_resolver::coalesced_status(
+                            &auth_repos,
+                            user_uuid,
+                            tenant_id,
+                            canonical,
+                        )
+                        .await;
+                        (status.connected, status.backend_kind)
+                    }
+                    None => (false, BackendKind::None),
+                };
 
                 let needs_reauth = status_by_provider
-                    .get(*user_facing)
+                    .get(specific_provider)
                     .copied()
                     .is_some_and(|s| s.requires_reauth());
-                let status_str = if needs_reauth {
+                let status = if needs_reauth {
                     "needs_reauth"
-                } else if status.connected {
+                } else if is_connected {
                     "connected"
                 } else {
                     "disconnected"
                 };
 
-                providers_status.insert(
-                    (*user_facing).to_owned(),
-                    json!({
-                        "connected": status.connected,
-                        "status": status_str,
-                        "needs_reauth": needs_reauth,
-                        "backend": status.backend_kind.as_str()
-                    }),
-                );
-            }
+                Ok(ToolResult::ok(json!({
+                    "provider": specific_provider,
+                    "status": status,
+                    "connected": is_connected,
+                    "needs_reauth": needs_reauth,
+                    "backend": backend_kind.as_str()
+                })))
+            } else {
+                let mut providers_status = Map::new();
 
-            Ok(ToolResult::ok(json!({
-                "providers": providers_status
-            })))
+                let auth_repos = ctx.resources.repos().auth_repos();
+                for user_facing in USER_FACING_PROVIDERS {
+                    let status = backend_resolver::coalesced_status(
+                        &auth_repos,
+                        user_uuid,
+                        tenant_id,
+                        user_facing,
+                    )
+                    .await;
+
+                    let needs_reauth = status_by_provider
+                        .get(*user_facing)
+                        .copied()
+                        .is_some_and(|s| s.requires_reauth());
+                    let status_str = if needs_reauth {
+                        "needs_reauth"
+                    } else if status.connected {
+                        "connected"
+                    } else {
+                        "disconnected"
+                    };
+
+                    providers_status.insert(
+                        (*user_facing).to_owned(),
+                        json!({
+                            "connected": status.connected,
+                            "status": status_str,
+                            "needs_reauth": needs_reauth,
+                            "backend": status.backend_kind.as_str()
+                        }),
+                    );
+                }
+
+                Ok(ToolResult::ok(json!({
+                    "providers": providers_status
+                })))
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -566,16 +580,8 @@ impl McpTool for GetConnectionStatusTool {
 pub struct DisconnectProviderTool;
 
 #[async_trait]
-impl McpTool for DisconnectProviderTool {
-    fn name(&self) -> &'static str {
-        "disconnect_provider"
-    }
-
-    fn description(&self) -> &'static str {
-        "Disconnect from a fitness data provider by removing stored OAuth tokens"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "provider".to_owned(),
@@ -588,55 +594,68 @@ impl McpTool for DisconnectProviderTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["provider".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(destructive_annotations())
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let user_uuid = ctx.user_id;
-
-        let Some(provider) = args.get("provider").and_then(Value::as_str) else {
-            let supported = ctx
-                .resources
-                .provider_registry()
-                .supported_providers()
-                .join(", ");
-            return Ok(ToolResult::error(json!({
-                "error": format!(
-                    "Missing required 'provider' parameter. Supported providers: {supported}"
-                )
-            })));
         };
 
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+        tool_definition(
+            "disconnect_provider",
+            "Disconnect from a fitness data provider by removing stored OAuth tokens",
+            schema,
+            Some(destructive_annotations()),
+        )
+    }
 
-        match ctx
-            .resources
-            .repos()
-            .oauth_tokens
-            .delete_token(user_uuid, tenant_id, provider)
-            .await
-        {
-            Ok(()) => Ok(ToolResult::ok(json!({
-                "provider": provider,
-                "status": "disconnected",
-                "message": format!("Successfully disconnected from {provider}")
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to disconnect from {provider}: {e}")
-            }))),
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let user_uuid = ctx.user_id;
+
+            let Some(provider) = args.get("provider").and_then(Value::as_str) else {
+                let supported = ctx
+                    .resources
+                    .provider_registry()
+                    .supported_providers()
+                    .join(", ");
+                return Ok(ToolResult::error(json!({
+                    "error": format!(
+                        "Missing required 'provider' parameter. Supported providers: {supported}"
+                    )
+                })));
+            };
+
+            let tenant_id = TenantId::from(ctx.require_tenant()?);
+
+            match ctx
+                .resources
+                .repos()
+                .oauth_tokens
+                .delete_token(user_uuid, tenant_id, provider)
+                .await
+            {
+                Ok(()) => Ok(ToolResult::ok(json!({
+                    "provider": provider,
+                    "status": "disconnected",
+                    "message": format!("Successfully disconnected from {provider}")
+                }))),
+                Err(e) => Ok(ToolResult::error(json!({
+                    "error": format!("Failed to disconnect from {provider}: {e}")
+                }))),
+            }
         }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -646,7 +665,7 @@ impl McpTool for DisconnectProviderTool {
 
 /// Create all connection tools for registration
 #[must_use]
-pub fn create_connection_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_connection_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(ConnectProviderTool),
         Box::new(GetConnectionStatusTool),

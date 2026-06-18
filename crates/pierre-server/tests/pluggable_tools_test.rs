@@ -8,56 +8,61 @@
 #![allow(missing_docs)]
 
 use async_trait::async_trait;
-use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::JsonSchema;
-use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_core::errors::AppError;
 use pierre_tool_runtime::registry::ToolRegistry;
-use pierre_tool_runtime::traits::{McpTool, ToolCapabilities};
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::ToolCapabilities;
 use pierre_tools_core::{NotificationType, ToolError, ToolNotification, ToolResult};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
-// A simple stub tool for testing
+use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{
+    McpTool, ToolCapabilities as TroncCapabilities, ToolContext as TroncToolContext,
+};
+
+// A simple stub tool for testing. The tronc trait keys discovery and gating off
+// the host-agnostic capability set, so the stub stores tronc capabilities.
 struct StubTool {
     name: &'static str,
-    capabilities: ToolCapabilities,
+    capabilities: TroncCapabilities,
 }
 
 impl StubTool {
-    const fn new(name: &'static str, capabilities: ToolCapabilities) -> Self {
+    const fn new(name: &'static str, capabilities: TroncCapabilities) -> Self {
         Self { name, capabilities }
     }
 }
 
 #[async_trait]
-impl McpTool for StubTool {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn description(&self) -> &'static str {
-        "Stub tool for unit testing"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
-        JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: None,
-            required: None,
+impl McpTool<dyn ToolRuntime> for StubTool {
+    fn definition(&self) -> Tool {
+        Tool {
+            name: self.name.to_owned(),
+            description: "Stub tool for unit testing".to_owned(),
+            input_schema: serde_json::json!({"type": "object"}),
+            annotations: None,
         }
     }
 
-    fn capabilities(&self) -> ToolCapabilities {
+    fn capabilities(&self) -> TroncCapabilities {
         self.capabilities
     }
 
     async fn execute(
         &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &TroncToolContext,
         _args: Value,
-        _context: &ToolExecutionContext,
-    ) -> AppResult<ToolResult> {
-        Ok(ToolResult::ok(serde_json::json!({"status": "ok"})))
+    ) -> ToolResponse {
+        ToolResponse {
+            content: vec![Content::Text {
+                text: serde_json::json!({"status": "ok"}).to_string(),
+            }],
+            is_error: false,
+            structured_content: Some(serde_json::json!({"status": "ok"})),
+        }
     }
 }
 
@@ -109,7 +114,7 @@ mod registry_tests {
     #[test]
     fn test_registry_register() {
         let mut registry = ToolRegistry::new();
-        let tool = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
+        let tool = Arc::new(StubTool::new("test_tool", TroncCapabilities::REQUIRES_AUTH));
 
         assert!(registry.register(tool));
         assert!(registry.contains("test_tool"));
@@ -119,8 +124,8 @@ mod registry_tests {
     #[test]
     fn test_registry_duplicate_registration() {
         let mut registry = ToolRegistry::new();
-        let tool1 = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
-        let tool2 = Arc::new(StubTool::new("test_tool", ToolCapabilities::READS_DATA));
+        let tool1 = Arc::new(StubTool::new("test_tool", TroncCapabilities::REQUIRES_AUTH));
+        let tool2 = Arc::new(StubTool::new("test_tool", TroncCapabilities::READS_DATA));
 
         assert!(registry.register(tool1));
         assert!(!registry.register(tool2)); // Should return false for duplicate
@@ -131,10 +136,10 @@ mod registry_tests {
     fn test_registry_admin_filtering() {
         let mut registry = ToolRegistry::new();
 
-        let user_tool = Arc::new(StubTool::new("user_tool", ToolCapabilities::REQUIRES_AUTH));
+        let user_tool = Arc::new(StubTool::new("user_tool", TroncCapabilities::REQUIRES_AUTH));
         let admin_tool = Arc::new(StubTool::new(
             "admin_tool",
-            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY,
+            TroncCapabilities::REQUIRES_AUTH | TroncCapabilities::ADMIN_ONLY,
         ));
 
         registry.register(user_tool);
@@ -154,8 +159,8 @@ mod registry_tests {
     fn test_registry_categories() {
         let mut registry = ToolRegistry::new();
 
-        let data_tool = Arc::new(StubTool::new("get_data", ToolCapabilities::READS_DATA));
-        let analytics_tool = Arc::new(StubTool::new("analyze", ToolCapabilities::ANALYTICS));
+        let data_tool = Arc::new(StubTool::new("get_data", TroncCapabilities::READS_DATA));
+        let analytics_tool = Arc::new(StubTool::new("analyze", TroncCapabilities::READS_DATA));
 
         registry.register_with_category(data_tool, "data");
         registry.register_with_category(analytics_tool, "analytics");
@@ -169,8 +174,8 @@ mod registry_tests {
     fn test_registry_capability_filtering() {
         let mut registry = ToolRegistry::new();
 
-        let read_tool = Arc::new(StubTool::new("reader", ToolCapabilities::READS_DATA));
-        let write_tool = Arc::new(StubTool::new("writer", ToolCapabilities::WRITES_DATA));
+        let read_tool = Arc::new(StubTool::new("reader", TroncCapabilities::READS_DATA));
+        let write_tool = Arc::new(StubTool::new("writer", TroncCapabilities::WRITES_DATA));
 
         registry.register(read_tool);
         registry.register(write_tool);
@@ -300,7 +305,7 @@ mod error_tests {
 // ============================================================================
 
 mod auth_method_tests {
-    use super::*;
+    use pierre_tool_runtime::context::AuthMethod;
 
     #[test]
     fn test_auth_method_as_str() {
@@ -322,29 +327,27 @@ mod audited_tool_tests {
     struct AdminStubTool;
 
     #[async_trait]
-    impl McpTool for AdminStubTool {
-        fn name(&self) -> &'static str {
-            "admin_stub_tool"
-        }
-        fn description(&self) -> &'static str {
-            "Test tool for unit testing"
-        }
-        fn input_schema(&self) -> JsonSchema {
-            JsonSchema {
-                schema_type: "object".to_owned(),
-                properties: None,
-                required: None,
+    impl McpTool<dyn ToolRuntime> for AdminStubTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "admin_stub_tool".to_owned(),
+                description: "Test tool for unit testing".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
             }
         }
-        fn capabilities(&self) -> ToolCapabilities {
-            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY
+
+        fn capabilities(&self) -> TroncCapabilities {
+            TroncCapabilities::REQUIRES_AUTH | TroncCapabilities::ADMIN_ONLY
         }
+
         async fn execute(
             &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &TroncToolContext,
             _args: Value,
-            _context: &ToolExecutionContext,
-        ) -> AppResult<ToolResult> {
-            Ok(ToolResult::ok(serde_json::json!({"status": "ok"})))
+        ) -> ToolResponse {
+            ToolResponse::text(serde_json::json!({"status": "ok"}).to_string())
         }
     }
 
@@ -353,8 +356,11 @@ mod audited_tool_tests {
         let inner = Arc::new(AdminStubTool);
         let audited = AuditedTool::new(inner);
 
-        assert_eq!(audited.name(), "admin_stub_tool");
-        assert_eq!(audited.description(), "Test tool for unit testing");
+        assert_eq!(audited.definition().name, "admin_stub_tool");
+        assert_eq!(
+            audited.definition().description,
+            "Test tool for unit testing"
+        );
     }
 
     #[test]
@@ -363,7 +369,7 @@ mod audited_tool_tests {
         let audited = AuditedTool::with_argument_logging(inner);
 
         // Just verify it can be created with argument logging enabled
-        assert_eq!(audited.name(), "admin_stub_tool");
+        assert_eq!(audited.definition().name, "admin_stub_tool");
     }
 
     #[test]
@@ -372,7 +378,7 @@ mod audited_tool_tests {
         let audited = AuditedTool::new(inner);
 
         let caps = audited.capabilities();
-        assert!(caps.is_admin_only());
-        assert!(caps.requires_auth());
+        assert!(caps.contains(TroncCapabilities::ADMIN_ONLY));
+        assert!(caps.contains(TroncCapabilities::REQUIRES_AUTH));
     }
 }

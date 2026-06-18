@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_mcp_schema::McpRequest;
-use pierre_mcp_server::mcp::mcp_request_processor::McpRequestProcessor;
+use pierre_mcp_server::mcp::host_seams;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -33,7 +33,8 @@ fn test_completion_activity_type() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none(), "Should not have error");
     assert!(response.result.is_some(), "Should have result");
@@ -71,7 +72,8 @@ fn test_completion_provider() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none());
     let result = response.result.unwrap();
@@ -103,7 +105,8 @@ fn test_completion_goal_type() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none());
     let result = response.result.unwrap();
@@ -139,7 +142,8 @@ fn test_completion_resource_uri() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none());
     let result = response.result.unwrap();
@@ -171,7 +175,8 @@ fn test_completion_no_matches() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none());
     let result = response.result.unwrap();
@@ -203,7 +208,8 @@ fn test_completion_unknown_argument() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(response.error.is_none());
     let result = response.result.unwrap();
@@ -231,7 +237,8 @@ fn test_completion_invalid_params() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(
         response.error.is_some(),
@@ -253,7 +260,8 @@ fn test_completion_missing_params() {
         metadata: HashMap::new(),
     };
 
-    let response = McpRequestProcessor::handle_completion_complete(&request);
+    let response =
+        host_seams::handle_completion_complete(request.id.clone(), request.params.as_ref());
 
     assert!(
         response.error.is_some(),

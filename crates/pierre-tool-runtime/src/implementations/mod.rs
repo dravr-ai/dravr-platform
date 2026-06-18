@@ -6,7 +6,7 @@
 
 //! # Tool Implementations
 //!
-//! Concrete [`McpTool`](crate::traits::McpTool) implementations that depend
+//! Concrete [`McpTool`](crate::McpTool) implementations that depend
 //! only on the scaffolding in this crate plus shared workspace deps
 //! (`pierre-core`, `pierre-database`, `pierre-formatters`, `pierre-mcp-schema`,
 //! `pierre-tools-core`).

@@ -13,6 +13,7 @@
 //! secure token storage, and database management.
 
 use clap::{error::ErrorKind, Parser};
+use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
@@ -29,9 +30,9 @@ use pierre_mcp_server::{
     constants::init_server_config,
     features::FeatureConfig,
     mcp::{
-        multitenant::MultiTenantMcpServer,
+        host_seams::build_mcp_server,
+        multitenant::ProviderToolRouter,
         resources::{ServerContext, ServerContextOptions},
-        transport_manager::TransportManager,
     },
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
@@ -722,7 +723,7 @@ async fn create_server(
     jwt_secret: &str,
     config: &ServerConfig,
     cache: Cache,
-) -> MultiTenantMcpServer {
+) -> ProviderToolRouter {
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
@@ -794,7 +795,7 @@ async fn create_server(
     // Initialize product analytics (PostHog or noop)
     pierre_mcp_server::init_analytics();
 
-    MultiTenantMcpServer::new(resources)
+    ProviderToolRouter::new(resources)
 }
 
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
@@ -902,7 +903,7 @@ fn get_rsa_key_size() -> usize {
 
 /// Run the server after displaying endpoints
 async fn run_server(
-    server: MultiTenantMcpServer,
+    server: ProviderToolRouter,
     config: &ServerConfig,
     stdio_only: bool,
 ) -> Result<()> {
@@ -914,21 +915,25 @@ async fn run_server(
 }
 
 /// Run server in stdio-only mode (no HTTP/SSE transports)
-async fn run_stdio_only_mode(server: MultiTenantMcpServer) -> Result<()> {
+///
+/// Drives the shared `dravr_tronc` MCP engine over stdin/stdout. The stdio
+/// transport carries no HTTP bearer, so requests run under the anonymous
+/// context — auth-gated tools reject; this mode suits a trusted local client.
+async fn run_stdio_only_mode(server: ProviderToolRouter) -> Result<()> {
     info!("Starting in stdio-only mode (HTTP/SSE transports disabled)");
     info!("Listening on stdin/stdout for MCP JSON-RPC messages");
 
-    let transport_manager = TransportManager::new(server.resources());
-    transport_manager.start_stdio_only().await.map_err(|e| {
+    let mcp_server = build_mcp_server(server.resources());
+    stdio::run(mcp_server).await.map_err(|e| {
         error!("Stdio transport error: {}", e);
-        e
+        AppError::internal(format!("Stdio transport error: {e}"))
     })?;
 
     Ok(())
 }
 
 /// Run server in HTTP mode with all transports
-async fn run_http_mode(server: MultiTenantMcpServer, config: &ServerConfig) -> Result<()> {
+async fn run_http_mode(server: ProviderToolRouter, config: &ServerConfig) -> Result<()> {
     info!(
         "Server starting on port {} (unified MCP and HTTP)",
         config.http_port

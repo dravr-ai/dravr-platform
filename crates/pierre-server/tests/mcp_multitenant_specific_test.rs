@@ -1,9 +1,9 @@
-// ABOUTME: Specific tests for MultiTenantMcpServer handler methods
+// ABOUTME: Specific tests for ProviderToolRouter handler methods
 // ABOUTME: Targets handler methods with low coverage for improved testing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-//! Additional specific tests for `MultiTenantMcpServer` handler methods
+//! Additional specific tests for `ProviderToolRouter` handler methods
 //!
 //! This test suite targets specific handler methods that may have low coverage.
 
@@ -13,7 +13,7 @@
 use anyhow::Result;
 use pierre_config::environment::ServerConfig;
 use pierre_mcp_server::mcp::{
-    multitenant::MultiTenantMcpServer,
+    multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
 use serde_json::json;
@@ -51,7 +51,7 @@ async fn test_unknown_method_handler() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let (_user_id, user) = create_test_user(server.database()).await?;
@@ -106,7 +106,7 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let (_user_id, _user) = create_test_user(server.database()).await?;
@@ -145,7 +145,7 @@ async fn test_disconnect_provider_handler() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let (_user_id, _user) = create_test_user(server.database()).await?;
@@ -185,7 +185,7 @@ async fn test_authentication_error_handling() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test invalid token format
     let _request_json = json!({
@@ -233,7 +233,7 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user with starter tier (should have rate limits)
     let (_user_id, user) = create_test_user(server.database()).await?;
@@ -280,7 +280,7 @@ async fn test_provider_initialization_errors() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let (_user_id, _user) = create_test_user(server.database()).await?;
@@ -320,7 +320,7 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test malformed JSON-RPC requests
     // Test missing required fields
@@ -358,7 +358,7 @@ async fn test_session_state_edge_cases() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test concurrent session modifications
     // Test session cleanup
@@ -396,7 +396,7 @@ async fn test_database_error_handling() -> Result<()> {
         )
         .await,
     );
-    let _server = MultiTenantMcpServer::new(resources);
+    let _server = ProviderToolRouter::new(resources);
 
     // Test database connection failures
     // Test constraint violations
@@ -434,7 +434,7 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
         )
         .await,
     );
-    let server = MultiTenantMcpServer::new(resources);
+    let server = ProviderToolRouter::new(resources);
 
     // Create test user
     let (_user_id, _user) = create_test_user(server.database()).await?;

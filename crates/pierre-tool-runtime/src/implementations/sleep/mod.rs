@@ -18,14 +18,19 @@
 pub(crate) mod inner;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::implementations::handler_bridge;
 use crate::protocol::UniversalExecutor;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -38,16 +43,8 @@ use pierre_tools_core::ToolResult;
 pub struct AnalyzeSleepQualityTool;
 
 #[async_trait]
-impl McpTool for AnalyzeSleepQualityTool {
-    fn name(&self) -> &'static str {
-        "analyze_sleep_quality"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze sleep data to generate quality scores and insights"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "sleep_data".to_owned(),
@@ -82,24 +79,41 @@ impl McpTool for AnalyzeSleepQualityTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["sleep_data".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(ctx.resources.clone());
-        let request = handler_bridge::build_universal_request(ctx, args, "analyze_sleep_quality");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "analyze_sleep_quality",
-            inner::handle_analyze_sleep_quality(&executor, request).await,
+            "Analyze sleep data to generate quality scores and insights",
+            schema,
+            None,
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(ctx.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&ctx, args, "analyze_sleep_quality");
+            handler_bridge::map_universal_response(
+                "analyze_sleep_quality",
+                inner::handle_analyze_sleep_quality(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -111,16 +125,8 @@ impl McpTool for AnalyzeSleepQualityTool {
 pub struct CalculateRecoveryScoreTool;
 
 #[async_trait]
-impl McpTool for CalculateRecoveryScoreTool {
-    fn name(&self) -> &'static str {
-        "calculate_recovery_score"
-    }
-
-    fn description(&self) -> &'static str {
-        "Calculate holistic recovery score combining training stress, sleep, and HRV"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "sleep_data".to_owned(),
@@ -161,25 +167,41 @@ impl McpTool for CalculateRecoveryScoreTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["sleep_data".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(ctx.resources.clone());
-        let request =
-            handler_bridge::build_universal_request(ctx, args, "calculate_recovery_score");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "calculate_recovery_score",
-            inner::handle_calculate_recovery_score(&executor, request).await,
+            "Calculate holistic recovery score combining training stress, sleep, and HRV",
+            schema,
+            None,
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(ctx.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&ctx, args, "calculate_recovery_score");
+            handler_bridge::map_universal_response(
+                "calculate_recovery_score",
+                inner::handle_calculate_recovery_score(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -191,16 +213,8 @@ impl McpTool for CalculateRecoveryScoreTool {
 pub struct SuggestRestDayTool;
 
 #[async_trait]
-impl McpTool for SuggestRestDayTool {
-    fn name(&self) -> &'static str {
-        "suggest_rest_day"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get AI-powered recommendation on whether to rest or train"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "sleep_data".to_owned(),
@@ -239,24 +253,40 @@ impl McpTool for SuggestRestDayTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["sleep_data".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(ctx.resources.clone());
-        let request = handler_bridge::build_universal_request(ctx, args, "suggest_rest_day");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "suggest_rest_day",
-            inner::handle_suggest_rest_day(&executor, request).await,
+            "Get AI-powered recommendation on whether to rest or train",
+            schema,
+            None,
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(ctx.resources.clone());
+            let request = handler_bridge::build_universal_request(&ctx, args, "suggest_rest_day");
+            handler_bridge::map_universal_response(
+                "suggest_rest_day",
+                inner::handle_suggest_rest_day(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -268,16 +298,8 @@ impl McpTool for SuggestRestDayTool {
 pub struct TrackSleepTrendsTool;
 
 #[async_trait]
-impl McpTool for TrackSleepTrendsTool {
-    fn name(&self) -> &'static str {
-        "track_sleep_trends"
-    }
-
-    fn description(&self) -> &'static str {
-        "Analyze sleep patterns over time to identify trends and insights"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "sleep_history".to_owned(),
@@ -310,24 +332,40 @@ impl McpTool for TrackSleepTrendsTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: Some(vec!["sleep_history".to_owned()]),
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(ctx.resources.clone());
-        let request = handler_bridge::build_universal_request(ctx, args, "track_sleep_trends");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "track_sleep_trends",
-            inner::handle_track_sleep_trends(&executor, request).await,
+            "Analyze sleep patterns over time to identify trends and insights",
+            schema,
+            None,
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(ctx.resources.clone());
+            let request = handler_bridge::build_universal_request(&ctx, args, "track_sleep_trends");
+            handler_bridge::map_universal_response(
+                "track_sleep_trends",
+                inner::handle_track_sleep_trends(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -339,16 +377,8 @@ impl McpTool for TrackSleepTrendsTool {
 pub struct OptimizeSleepScheduleTool;
 
 #[async_trait]
-impl McpTool for OptimizeSleepScheduleTool {
-    fn name(&self) -> &'static str {
-        "optimize_sleep_schedule"
-    }
-
-    fn description(&self) -> &'static str {
-        "Get personalized sleep schedule recommendations based on training and recovery needs"
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
             "training_load".to_owned(),
@@ -374,24 +404,41 @@ impl McpTool for OptimizeSleepScheduleTool {
                 ..Default::default()
             },
         );
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(ctx.resources.clone());
-        let request = handler_bridge::build_universal_request(ctx, args, "optimize_sleep_schedule");
-        handler_bridge::map_universal_response(
+        };
+        tool_definition(
             "optimize_sleep_schedule",
-            inner::handle_optimize_sleep_schedule(&executor, request).await,
+            "Get personalized sleep schedule recommendations based on training and recovery needs",
+            schema,
+            None,
         )
+    }
+
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
+
+    async fn execute(
+        &self,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let ctx = ToolExecutionContext::from_tronc(state, ctx);
+        let result: AppResult<ToolResult> = async move {
+            let executor = UniversalExecutor::new(ctx.resources.clone());
+            let request =
+                handler_bridge::build_universal_request(&ctx, args, "optimize_sleep_schedule");
+            handler_bridge::map_universal_response(
+                "optimize_sleep_schedule",
+                inner::handle_optimize_sleep_schedule(&executor, request).await,
+            )
+        }
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -401,7 +448,7 @@ impl McpTool for OptimizeSleepScheduleTool {
 
 /// Create all sleep tools for registration
 #[must_use]
-pub fn create_sleep_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_sleep_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![
         Box::new(AnalyzeSleepQualityTool),
         Box::new(CalculateRecoveryScoreTool),

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -13,8 +14,11 @@ use tracing::{info, warn};
 use pierre_intelligence::location::{ForwardGeocodeResult, LocationService};
 use pierre_intelligence::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
 
-use crate::context::ToolExecutionContext;
-use crate::traits::{McpTool, ToolCapabilities};
+use crate::capabilities::ToolCapabilities;
+use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::runtime::ToolRuntime;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{resolve_sport_type, SportType};
@@ -54,26 +58,8 @@ fn discover_annotations() -> ToolAnnotations {
 pub struct DiscoverRoutesTool;
 
 #[async_trait]
-impl McpTool for DiscoverRoutesTool {
-    fn name(&self) -> &'static str {
-        "discover_routes"
-    }
-
-    fn description(&self) -> &'static str {
-        "Discover real named running, cycling, hiking, or ski routes near a location, \
-         grounded in OpenStreetMap data via the Overpass API. Pass either a place name \
-         via `place` (preferred — e.g. \"Prévost, QC\" or \"Saint-Alexis-des-Monts\") or \
-         explicit `latitude`/`longitude` coordinates. Place names are forward-geocoded \
-         via Nominatim before the Overpass query so the LLM never has to guess \
-         coordinates. Use this whenever the user asks you to propose, suggest, or find \
-         a route, trail, or outdoor session in a specific area. Never invent street \
-         names, trail names, or terrain you have not verified via this tool. Returns up \
-         to 20 named routes with coordinates so you can share exact locations with the \
-         user. For ski queries this falls back to OSM piste:type data (same source as \
-         OpenSkiMap)."
-    }
-
-    fn input_schema(&self) -> JsonSchema {
+impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
+    fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
 
         properties.insert(
@@ -145,7 +131,7 @@ impl McpTool for DiscoverRoutesTool {
             },
         );
 
-        JsonSchema {
+        let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
             // `place` XOR (`latitude`+`longitude`) is enforced at runtime in
@@ -154,74 +140,100 @@ impl McpTool for DiscoverRoutesTool {
             // the params as all-optional and the error message when neither is
             // set explains the requirement.
             required: None,
-        }
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    fn annotations(&self) -> Option<ToolAnnotations> {
-        Some(discover_annotations())
-    }
-
-    async fn execute(&self, args: Value, _context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let resolved = match resolve_center(&args).await {
-            Ok(center) => center,
-            Err(err) => return Ok(ToolResult::error(err)),
         };
+        tool_definition(
+            "discover_routes",
+            "Discover real named running, cycling, hiking, or ski routes near a location, \
+             grounded in OpenStreetMap data via the Overpass API. Pass either a place name \
+             via `place` (preferred — e.g. \"Prévost, QC\" or \"Saint-Alexis-des-Monts\") or \
+             explicit `latitude`/`longitude` coordinates. Place names are forward-geocoded \
+             via Nominatim before the Overpass query so the LLM never has to guess \
+             coordinates. Use this whenever the user asks you to propose, suggest, or find \
+             a route, trail, or outdoor session in a specific area. Never invent street \
+             names, trail names, or terrain you have not verified via this tool. Returns up \
+             to 20 named routes with coordinates so you can share exact locations with the \
+             user. For ski queries this falls back to OSM piste:type data (same source as \
+             OpenSkiMap).",
+            schema,
+            Some(discover_annotations()),
+        )
+    }
 
-        let sport = args
-            .get("sport_type")
-            .and_then(Value::as_str)
-            .and_then(parse_sport_type)
-            .unwrap_or(SportType::Run);
+    fn capabilities(&self) -> TroncCapabilities {
+        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    }
 
-        // Clamp radius into the allowed window without surfacing the clamp to
-        // the caller — the LLM should not have to know the magic numbers, and
-        // clamp-silently keeps the tool robust against sloppy inputs.
-        let radius = args
-            .get("radius_meters")
-            .and_then(Value::as_u64)
-            .and_then(|v| u32::try_from(v).ok())
-            .map_or(DEFAULT_RADIUS_METERS, |v| {
-                v.clamp(MIN_RADIUS_METERS, MAX_RADIUS_METERS)
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        args: Value,
+    ) -> ToolResponse {
+        let result: AppResult<ToolResult> = async move {
+            let resolved = match resolve_center(&args).await {
+                Ok(center) => center,
+                Err(err) => return Ok(ToolResult::error(err)),
+            };
+
+            let sport = args
+                .get("sport_type")
+                .and_then(Value::as_str)
+                .and_then(parse_sport_type)
+                .unwrap_or(SportType::Run);
+
+            // Clamp radius into the allowed window without surfacing the clamp to
+            // the caller — the LLM should not have to know the magic numbers, and
+            // clamp-silently keeps the tool robust against sloppy inputs.
+            let radius = args
+                .get("radius_meters")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .map_or(DEFAULT_RADIUS_METERS, |v| {
+                    v.clamp(MIN_RADIUS_METERS, MAX_RADIUS_METERS)
+                });
+
+            info!(
+                latitude = resolved.latitude,
+                longitude = resolved.longitude,
+                sport = %sport_label(&sport),
+                radius,
+                display_name = %resolved.display_name.as_deref().unwrap_or("(raw coordinates)"),
+                "discover_routes: querying Overpass for real OSM routes"
+            );
+
+            let mut service = RouteDiscoveryService::with_defaults();
+            let routes = service
+                .discover_routes_for_sport(
+                    &sport,
+                    resolved.latitude,
+                    resolved.longitude,
+                    Some(radius),
+                )
+                .await?;
+
+            let count = routes.len();
+            let mut center_json = json!({
+                "latitude": resolved.latitude,
+                "longitude": resolved.longitude,
+            });
+            if let Some(name) = resolved.display_name {
+                if let Some(obj) = center_json.as_object_mut() {
+                    obj.insert("display_name".to_owned(), Value::String(name));
+                }
+            }
+            let response = json!({
+                "sport_type": sport_label(&sport),
+                "center": center_json,
+                "radius_meters": radius,
+                "count": count,
+                "routes": routes.iter().map(discovered_route_to_json).collect::<Vec<_>>(),
             });
 
-        info!(
-            latitude = resolved.latitude,
-            longitude = resolved.longitude,
-            sport = %sport_label(&sport),
-            radius,
-            display_name = %resolved.display_name.as_deref().unwrap_or("(raw coordinates)"),
-            "discover_routes: querying Overpass for real OSM routes"
-        );
-
-        let mut service = RouteDiscoveryService::with_defaults();
-        let routes = service
-            .discover_routes_for_sport(&sport, resolved.latitude, resolved.longitude, Some(radius))
-            .await?;
-
-        let count = routes.len();
-        let mut center_json = json!({
-            "latitude": resolved.latitude,
-            "longitude": resolved.longitude,
-        });
-        if let Some(name) = resolved.display_name {
-            if let Some(obj) = center_json.as_object_mut() {
-                obj.insert("display_name".to_owned(), Value::String(name));
-            }
+            info!(count, "discover_routes: returning OSM-grounded routes");
+            Ok(ToolResult::ok(response))
         }
-        let response = json!({
-            "sport_type": sport_label(&sport),
-            "center": center_json,
-            "radius_meters": radius,
-            "count": count,
-            "routes": routes.iter().map(discovered_route_to_json).collect::<Vec<_>>(),
-        });
-
-        info!(count, "discover_routes: returning OSM-grounded routes");
-        Ok(ToolResult::ok(response))
+        .await;
+        tool_result_to_response(result)
     }
 }
 
@@ -363,6 +375,6 @@ fn sport_label(sport: &SportType) -> &'static str {
 
 /// Create route-discovery tools for registration.
 #[must_use]
-pub fn create_route_tools() -> Vec<Box<dyn McpTool>> {
+pub fn create_route_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![Box::new(DiscoverRoutesTool)]
 }
