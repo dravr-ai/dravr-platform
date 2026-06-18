@@ -15,7 +15,7 @@ use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
 use pierre_core::models::{ConnectionType, TenantId};
-use pierre_core::models::{Tenant, User, UserStatus};
+use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatCompletionResponse, ChatRoutes, ConversationResponse};
 use serde_json::json;
@@ -334,5 +334,50 @@ async fn slash_command_is_not_persisted_to_history() {
         history.is_empty(),
         "slash command must not persist to chat history, found {} message(s)",
         history.len()
+    );
+}
+
+#[tokio::test]
+async fn context_command_activates_onboarding_mode_no_llm_call() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "context-cmd@test.com").await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .json(&json!({"content": "/context"}))
+        .send(router)
+        .await;
+
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: ChatCompletionResponse = resp.json();
+
+    // Deterministic command dispatch — no LLM turn, marked so clients skip
+    // streaming UI. The greeting opens the guided walk on the North Star.
+    assert!(
+        body.is_command_response,
+        "/context must dispatch as a command"
+    );
+    assert!(
+        body.assistant_message.content.contains("North Star"),
+        "expected the onboarding greeting, got: {}",
+        body.assistant_message.content
+    );
+
+    // The handler flips the conversation into onboarding mode: subsequent
+    // (non-command) turns run the guided pillar walk until coverage completes.
+    let conv = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conv_id, &user_id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .expect("conversation exists");
+    assert!(
+        OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some(),
+        "/context must activate onboarding_state on the conversation"
     );
 }
