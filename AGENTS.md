@@ -149,7 +149,7 @@ Default to idiomatic Rust; the project-enforced specifics:
 - Every code file opens with a 2-line comment, each line prefixed `ABOUTME: ` (greppable).
 - Comments are evergreen — describe code as it is, not how it changed. Never delete a comment unless provably false.
 - Never name things `improved`/`new`/`enhanced`; no placeholder/`dead_code`/mock/`_`-prefixed vars; no "in future versions"/"implement later"/"fall back" stubs — implement the real thing.
-- Make the smallest reasonable change. Prefer simple/maintainable over clever. Match surrounding style.
+- Make the smallest reasonable change. Prefer simple/maintainable over clever — but correctness wins ties: smallest means least code, never the flimsier algorithm. Match surrounding style.
 - **Never rewrite an existing implementation from scratch to fix a bug/error — STOP and get explicit permission first.**
 </important>
 
