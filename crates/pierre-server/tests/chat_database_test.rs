@@ -77,7 +77,8 @@ async fn create_test_db() -> SqlitePool {
             total_tokens INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            group_id TEXT
+            group_id TEXT,
+            onboarding_state TEXT
         )
         ",
     )
