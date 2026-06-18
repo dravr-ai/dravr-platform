@@ -304,3 +304,71 @@ fn test_sqlx_config_clone_and_debug() {
     assert!(debug_output.contains("SqlxConfig"));
     assert!(debug_output.contains("idle_timeout_secs"));
 }
+
+// Tests for the outbound-email gate (ServerConfig::outbound_email_credentials).
+// This is the single guard that stops CI/test servers — which inherit a real
+// RESEND_API_KEY from .envrc when they boot via ServerConfig::from_env() — from
+// sending live transactional email and flooding the Resend dashboard.
+
+/// Build a config with Resend credentials set; `ci_mode` toggles the guard.
+fn config_with_resend(
+    api_key: Option<&str>,
+    from_email: Option<&str>,
+    ci_mode: bool,
+) -> ServerConfig {
+    let mut config = ServerConfig {
+        resend_api_key: api_key.map(str::to_owned),
+        resend_from_email: from_email.map(str::to_owned),
+        ..Default::default()
+    };
+    config.app_behavior.ci_mode = ci_mode;
+    config
+}
+
+#[test]
+fn outbound_email_enabled_when_configured_and_not_ci() {
+    let config = config_with_resend(
+        Some("re_test_key"),
+        Some("Pierre <noreply@pierre.dev>"),
+        false,
+    );
+    assert_eq!(
+        config.outbound_email_credentials(),
+        Some(("re_test_key", "Pierre <noreply@pierre.dev>"))
+    );
+}
+
+#[test]
+fn outbound_email_disabled_in_ci_even_with_credentials() {
+    // The flood guard: a developer's real key inherited from .envrc must not
+    // produce a live email service when CI mode is on.
+    let config = config_with_resend(
+        Some("re_test_key"),
+        Some("Pierre <noreply@pierre.dev>"),
+        true,
+    );
+    assert_eq!(config.outbound_email_credentials(), None);
+}
+
+#[test]
+fn outbound_email_disabled_when_credentials_blank_or_missing() {
+    // env::var().ok() yields Some("") for a blanked var; blanking must disable
+    // email exactly like unsetting it (otherwise the service 401s on every send).
+    assert_eq!(
+        config_with_resend(Some(""), Some("Pierre <noreply@pierre.dev>"), false)
+            .outbound_email_credentials(),
+        None
+    );
+    assert_eq!(
+        config_with_resend(Some("re_test_key"), Some(""), false).outbound_email_credentials(),
+        None
+    );
+    assert_eq!(
+        config_with_resend(None, None, false).outbound_email_credentials(),
+        None
+    );
+    assert_eq!(
+        config_with_resend(Some("re_test_key"), None, false).outbound_email_credentials(),
+        None
+    );
+}

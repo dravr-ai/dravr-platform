@@ -232,17 +232,26 @@ impl ServerContext {
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(&repos));
 
-        // Create email service if Resend credentials are configured
+        // Create email service if Resend credentials are configured and the
+        // server is not in CI mode (the gate lives on ServerConfig so the policy
+        // — non-empty creds + no email under CI — is enforced in one place).
         let email_service = config
-            .resend_api_key
-            .as_ref()
-            .zip(config.resend_from_email.as_ref())
+            .outbound_email_credentials()
             .map(|(api_key, from_email)| {
                 info!("Resend email service configured");
-                Arc::new(ResendEmailService::new(api_key.clone(), from_email.clone()))
+                Arc::new(ResendEmailService::new(
+                    api_key.to_owned(),
+                    from_email.to_owned(),
+                ))
             });
         if email_service.is_none() {
-            warn!("Resend email service not configured — password reset emails will be skipped");
+            if config.is_ci_mode() {
+                info!("CI mode active — outbound Resend email disabled (no transactional email will be sent)");
+            } else {
+                warn!(
+                    "Resend email service not configured — password reset emails will be skipped"
+                );
+            }
         }
 
         // Create notification service and start scheduler if notifications feature is enabled

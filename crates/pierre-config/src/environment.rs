@@ -354,6 +354,33 @@ impl ServerConfig {
         self.app_behavior.ci_mode
     }
 
+    /// Resolve the credentials for the outbound transactional email service.
+    ///
+    /// Returns `Some((api_key, from_email))` only when both Resend values are
+    /// present, non-empty, AND the server is not running in CI mode. This is the
+    /// single gate that decides whether a live email service is built.
+    ///
+    /// The CI-mode guard is a safety floor: integration tests that boot via
+    /// [`ServerConfig::from_env`] would otherwise inherit a developer's
+    /// `RESEND_API_KEY` from `.envrc` and send real email to throwaway addresses
+    /// on every registration/approval/password-reset flow they exercise, flooding
+    /// the Resend dashboard. The non-empty check makes blanking the env var
+    /// (`RESEND_API_KEY=`) disable email the same as unsetting it — `env::var().ok()`
+    /// yields `Some("")` for a blank value, which would otherwise build a broken
+    /// service that 401s on every send.
+    #[must_use]
+    pub fn outbound_email_credentials(&self) -> Option<(&str, &str)> {
+        if self.is_ci_mode() {
+            return None;
+        }
+        let api_key = self.resend_api_key.as_deref().filter(|s| !s.is_empty())?;
+        let from_email = self
+            .resend_from_email
+            .as_deref()
+            .filter(|s| !s.is_empty())?;
+        Some((api_key, from_email))
+    }
+
     /// Get protocol information
     #[must_use]
     pub fn protocol_info(&self) -> (&str, &str, &str) {

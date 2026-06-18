@@ -72,6 +72,16 @@ static INIT_SERVER_CONFIG: Once = Once::new();
 /// Initialize server configuration for tests (call once per test process)
 pub fn init_server_config() {
     INIT_SERVER_CONFIG.call_once(|| {
+        // Force CI mode for the whole test process. Tests that boot a live
+        // server via `ServerConfig::from_env()` (mcp_protocol_comprehensive,
+        // mcp_multitenant_specific, configuration_e2e) call this before
+        // `from_env()`, so `ci_mode` resolves to true. Combined with
+        // `ServerConfig::outbound_email_credentials()` — which returns None in
+        // CI mode — this stops a developer's real RESEND_API_KEY (inherited
+        // from .envrc) from building a live email service and sending real
+        // mail to throwaway addresses on every registration/approval/reset
+        // flow a test exercises. Do NOT remove this line; it is the local
+        // half of the outbound-email flood guard.
         env::set_var("CI", "true");
         env::set_var("DATABASE_URL", "sqlite::memory:");
 
