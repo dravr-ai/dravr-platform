@@ -19,7 +19,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
 use pierre_core::http_client::SharedHttpClient;
 use reqwest::header::HeaderMap;
-use reqwest::StatusCode;
+use reqwest::{Response, StatusCode};
 use serde::Serialize;
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -83,6 +83,22 @@ fn retry_delay_from_headers(headers: &HeaderMap) -> Option<Duration> {
     parse_retry_delay(get("retry-after"), get("ratelimit-reset"))
 }
 
+/// Build a structured error from a non-success Resend response, logging the body.
+async fn send_error_from_response(to: &str, response: Response) -> AppError {
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "no body".to_owned());
+    warn!(
+        to = to,
+        status = %status,
+        body = body,
+        "Resend API returned non-success status"
+    );
+    AppError::internal(format!("Resend API error (HTTP {status}): {body}"))
+}
+
 /// Email payload for the Resend API
 #[derive(Serialize)]
 struct ResendEmailPayload {
@@ -128,15 +144,7 @@ impl ResendEmailService {
 
         let mut attempt: u32 = 0;
         loop {
-            let response = self
-                .client
-                .post(RESEND_API_URL)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .json(&payload)
-                .send()
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to send email via Resend: {e}")))?;
-
+            let response = self.post_once(&payload).await?;
             let status = response.status();
             if status.is_success() {
                 info!(
@@ -149,36 +157,35 @@ impl ResendEmailService {
 
             // Honor Resend's rate-limit reset window: on a 429, wait out the
             // advertised reset (capped) and retry, rather than dropping the send.
-            if status == StatusCode::TOO_MANY_REQUESTS {
-                if let Some(delay) =
-                    plan_retry(attempt, retry_delay_from_headers(response.headers()))
-                {
-                    attempt += 1;
-                    warn!(
-                        to = to,
-                        attempt = attempt,
-                        delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-                        "Resend rate limit (HTTP 429) — waiting for reset, then retrying"
-                    );
-                    sleep(delay).await;
-                    continue;
-                }
-            }
+            let retry = if status == StatusCode::TOO_MANY_REQUESTS {
+                plan_retry(attempt, retry_delay_from_headers(response.headers()))
+            } else {
+                None
+            };
+            let Some(delay) = retry else {
+                return Err(send_error_from_response(to, response).await);
+            };
 
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "no body".to_owned());
+            attempt += 1;
             warn!(
                 to = to,
-                status = %status,
-                body = body,
-                "Resend API returned non-success status"
+                attempt = attempt,
+                delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+                "Resend rate limit (HTTP 429) — waiting for reset, then retrying"
             );
-            return Err(AppError::internal(format!(
-                "Resend API error (HTTP {status}): {body}"
-            )));
+            sleep(delay).await;
         }
+    }
+
+    /// Perform a single POST of the payload to the Resend API.
+    async fn post_once(&self, payload: &ResendEmailPayload) -> AppResult<Response> {
+        self.client
+            .post(RESEND_API_URL)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to send email via Resend: {e}")))
     }
 
     /// Send a password reset code email
