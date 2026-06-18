@@ -28,7 +28,7 @@ use tracing::error;
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
 use super::followups::inject_pending_followups;
-use super::memory::inject_memory_recall;
+use super::memory::inject_okf_bundle;
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{build_llm_messages, build_provider_context, build_tools_section};
@@ -275,6 +275,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     conv: &ConversationRecord,
     coach_ctx: Option<&CoachRuntimeContext>,
     history: &[MessageRecord],
+    onboarding: Option<&super::onboarding::OnboardingTurn>,
 ) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
     // Stage 7a: Start from coach-defined or default Pierre system prompt.
     // For contremaitre-sourced coaches we consult the in-memory
@@ -364,15 +365,23 @@ pub(crate) async fn assemble_prompt_and_messages(
         base_prompt
     };
 
-    // Stage 7e: Inject recalled user memory facts into the prompt.
-    let base_prompt = inject_memory_recall(
-        ctx.repos.memory.as_ref(),
+    // Stage 7e: Render the per-user OKF context bundle (North Star + pillar +
+    // medical facts) from the read-time Dossier into the prompt. Single
+    // fact->prompt surface; user-wide (coach-agnostic) facts.
+    let base_prompt = inject_okf_bundle(
+        ctx.repos.dossier.as_ref(),
         input.conversation_tenant_id,
-        &input.user_id,
-        conv.coach_id.as_deref(),
+        user_uuid,
         base_prompt,
     )
     .await;
+
+    // Stage 7e.1: Onboarding directive — when this conversation is mid guided
+    // pillar walk, steer the coach to probe the current topic conversationally.
+    let base_prompt = match onboarding {
+        Some(turn) => format!("{base_prompt}{}", super::onboarding::directive(turn)),
+        None => base_prompt,
+    };
 
     // Stage 7f: Render pending coach followups. Surfaced IDs are marked
     // delivered after the turn succeeds.

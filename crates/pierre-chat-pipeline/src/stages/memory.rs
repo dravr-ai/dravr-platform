@@ -1,50 +1,43 @@
-// ABOUTME: Tier 2 memory recall stage — injects stored user facts into the system prompt
-// ABOUTME: Provides inject_memory_recall — augments system prompt with relevant UserFact rows
+// ABOUTME: Per-user context stage — renders the Dossier's OKF bundle into the system prompt
+// ABOUTME: The single fact->prompt surface; composes the read-time Dossier then renders OKF markdown
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tier 2 memory recall.
+//! Per-user pillar-context injection.
 //!
-//! Retrieves previously-extracted user facts for the current (user, coach)
-//! pair and formats them as a short system-prompt section, so the coach can
-//! reference long-term context it has accumulated across prior turns
-//! (preferences, constraints, stated goals) without needing to re-derive
-//! them from the conversation history.
+//! Composes the read-time [`Dossier`](pierre_core::models::Dossier) for the
+//! current (tenant, user) and renders its North Star + pillar + medical facts
+//! as an OKF markdown bundle appended to the system prompt. This is the only
+//! place stored [`UserFact`](pierre_memory::UserFact)s become prompt text.
 //!
-//! Complementary to [`crate::services::memory_extraction`], which runs
-//! after the turn completes and distills new facts from the completed
-//! exchange.
+//! Complementary to [`pierre_services::memory_extraction`], which runs after
+//! the turn completes and distills new facts from the exchange.
 
-use pierre_database::repositories::HarnessMemoryRepository;
+use uuid::Uuid;
 
 use pierre_core::models::TenantId;
-use pierre_services::memory_recall::{build_user_memory_context, RecallRequest};
+use pierre_database::repositories::DossierRepository;
+use pierre_services::okf::render_okf_bundle_default;
 
-/// Append a recalled-memory block to the system prompt.
+/// Append the per-user OKF context bundle to the system prompt.
 ///
-/// Targets the given (tenant, user, coach) triple. Errors and missing
-/// memories both pass through silently — recall is a best-effort
-/// enhancement, not a hard dependency of the dispatch path.
-pub async fn inject_memory_recall(
-    memory_repo: &dyn HarnessMemoryRepository,
+/// Composes the dossier for the given (tenant, user) and renders its pillar
+/// context. Errors and empty context both pass through silently — the bundle
+/// is a best-effort enhancement, not a hard dependency of the dispatch path.
+pub async fn inject_okf_bundle(
+    dossier_repo: &dyn DossierRepository,
     tenant_id: TenantId,
-    user_id: &str,
-    coach_id: Option<&str>,
+    user_id: Uuid,
     base_prompt: String,
 ) -> String {
-    let request = RecallRequest {
-        tenant_id,
-        user_id,
-        coach_id,
-        limit: None,
-        token_budget: None,
-    };
-    match build_user_memory_context(memory_repo, &request).await {
-        Ok(Some(ctx)) => format!("{base_prompt}{}", ctx.block),
-        Ok(None) => base_prompt,
+    match dossier_repo.compose_dossier(tenant_id, user_id).await {
+        Ok(dossier) => match render_okf_bundle_default(&dossier) {
+            Some(block) => format!("{base_prompt}{block}"),
+            None => base_prompt,
+        },
         Err(e) => {
-            tracing::warn!(error = %e, "memory recall failed; continuing without user facts");
+            tracing::warn!(error = %e, "okf bundle compose failed; continuing without pillar context");
             base_prompt
         }
     }

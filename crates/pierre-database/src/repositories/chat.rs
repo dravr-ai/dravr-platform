@@ -143,6 +143,18 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
+    /// Set (or clear) the guided pillar-onboarding state JSON on a conversation.
+    ///
+    /// `/context` writes the active state to enter onboarding mode; the flow
+    /// clears it (`None`) once all pillars are covered. Tenant-scoped; returns
+    /// `false` if the conversation does not exist.
+    async fn set_conversation_onboarding_state(
+        &self,
+        conversation_id: &str,
+        onboarding_state: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
     /// Attach a coaching group id to an existing conversation row.
     ///
     /// Used by the messaging-ingress auto-bind path to retrofit

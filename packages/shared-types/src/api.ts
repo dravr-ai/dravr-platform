@@ -69,8 +69,18 @@ export interface MessageFeedbackEntry {
 
 // ========== PROMPT SUGGESTIONS ==========
 
-/** Activity pillar for prompt categorization */
-export type ActivityPillar = 'activity' | 'nutrition' | 'recovery';
+/**
+ * The canonical six fitness-adapted health pillars — the single source of truth
+ * for per-user context, pillar-tagged facts, and prompt categorization. Mirrors
+ * the Rust `Pillar` enum. Distinct from the coach-marketplace `CoachCategory`.
+ */
+export type ActivityPillar =
+  | 'training_and_movement'
+  | 'fuelling'
+  | 'sleep_and_recovery'
+  | 'mental_resilience'
+  | 'community_and_connection'
+  | 'recovery_optimisation';
 
 /** A category of prompt suggestions */
 export interface PromptCategory {

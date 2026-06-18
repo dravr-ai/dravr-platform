@@ -30,6 +30,7 @@ pub mod compaction;
 pub mod followups;
 pub mod guardrails;
 pub mod memory;
+pub mod onboarding;
 pub mod persistence;
 /// Per-persona output-format conformance check (post-LLM, advisory).
 pub mod persona_conformance;

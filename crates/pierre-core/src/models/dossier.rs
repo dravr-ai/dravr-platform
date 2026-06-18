@@ -4,12 +4,44 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::UserPhysiologicalProfile;
+use super::{Pillar, UserPhysiologicalProfile};
+
+/// A single pillar-context fact projected onto the dossier.
+///
+/// This is a read-time projection of a `pierre_memory::UserFact` — the subset
+/// the per-user OKF bundle needs to render, plus a computed freshness flag.
+/// `kind` and `source` are carried as their stable string slugs to keep this
+/// type free of a `pierre-memory` dependency. The `object` field is
+/// user-authored free text and must be treated as untrusted at render time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DossierFact {
+    /// `FactKind` slug (e.g. `goal`, `injury`, `north_star`, `medical`).
+    pub kind: String,
+    /// Subject phrase (typically "you").
+    pub subject: String,
+    /// Predicate phrase.
+    pub predicate: String,
+    /// Object phrase — UNTRUSTED user free text.
+    pub object: String,
+    /// Extractor/author confidence in `[0.0, 1.0]`.
+    pub confidence: f32,
+    /// `FactSource` slug (onboarding / conversation / device / coach).
+    pub source: String,
+    /// When the fact was last touched.
+    pub updated_at: DateTime<Utc>,
+    /// Freshness horizon, if any.
+    pub valid_until: Option<DateTime<Utc>>,
+    /// Computed at compose time: `valid_until` is in the past.
+    pub stale: bool,
+}
 
 /// Endurance athlete dossier.
 ///
@@ -64,6 +96,22 @@ pub struct Dossier {
     /// when the user has not configured equipment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub equipment: Option<Value>,
+
+    /// Per-user pillar context: durable facts grouped by health pillar. Empty
+    /// until the user has answered onboarding or accumulated conversation facts.
+    /// `BTreeMap` keeps JSON/markdown rendering order deterministic.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pillars: BTreeMap<Pillar, Vec<DossierFact>>,
+
+    /// The user's North Star — one to three core life motivations orienting the
+    /// pillars. Rendered as the index of the OKF bundle.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub north_star: Vec<DossierFact>,
+
+    /// Medical / PAR-Q flags the coach must heed. Gated separately from pillar
+    /// facts so raw medical detail can be withheld per privacy policy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub medical: Vec<DossierFact>,
 }
 
 impl Dossier {
@@ -83,6 +131,9 @@ impl Dossier {
             goals: Vec::new(),
             nutrition: None,
             equipment: None,
+            pillars: BTreeMap::new(),
+            north_star: Vec::new(),
+            medical: Vec::new(),
         }
     }
 }

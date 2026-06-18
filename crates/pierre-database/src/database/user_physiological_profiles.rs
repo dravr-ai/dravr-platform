@@ -5,15 +5,19 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{Dossier, TenantId, UserPhysiologicalProfile};
+use pierre_memory::FactKind;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
+use crate::dossier_facts::{group_facts, FACT_BUNDLE_LIMIT};
 use crate::repositories::{
-    DossierRepository, ProfileRepository, UserPhysiologicalProfileRepository,
+    DossierRepository, HarnessMemoryRepository, ProfileRepository,
+    UserPhysiologicalProfileRepository,
 };
 
 #[async_trait]
@@ -201,6 +205,26 @@ impl DossierRepository for Database {
             .as_ref()
             .and_then(|v| v.get("equipment").cloned());
 
+        // Per-user pillar context, grouped into pillar / north-star / medical
+        // buckets. Best-effort — facts are an enhancement, not a hard
+        // dependency of the dossier. The general read is recency-bounded
+        // (LIMIT, ORDER BY updated_at DESC); safety/identity kinds
+        // (Medical, NorthStar) are additionally fetched by kind so they can
+        // never be evicted from that recency window — group_facts dedupes.
+        let user = user_id.to_string();
+        let mut facts = self
+            .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT)
+            .await
+            .unwrap_or_default();
+        for kind in [FactKind::Medical, FactKind::NorthStar] {
+            let guaranteed = self
+                .list_user_facts(tenant_id, &user, None, Some(kind), FACT_BUNDLE_LIMIT)
+                .await
+                .unwrap_or_default();
+            facts.extend(guaranteed);
+        }
+        let buckets = group_facts(&facts, Utc::now());
+
         Ok(Dossier {
             user_id,
             tenant_id: tenant_id.as_uuid(),
@@ -210,6 +234,9 @@ impl DossierRepository for Database {
             goals,
             nutrition,
             equipment,
+            pillars: buckets.pillars,
+            north_star: buckets.north_star,
+            medical: buckets.medical,
         })
     }
 }
