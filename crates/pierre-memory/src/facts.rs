@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
+use pierre_core::models::Pillar;
 use serde::{Deserialize, Serialize};
 
 use crate::scope::MemoryScope;
@@ -30,6 +31,12 @@ pub enum FactKind {
     Schedule,
     /// Equipment or environment ("trains on a Wahoo Kickr indoors in winter").
     Equipment,
+    /// A core life motivation orienting the pillars ("be present for my kids").
+    /// One to three per user; the layer above the pillars.
+    NorthStar,
+    /// Medical / pre-participation (PAR-Q) flag the coach must heed. Kept
+    /// distinct from [`Self::Injury`] so it can be redacted/gated separately.
+    Medical,
     /// Catch-all for semantically meaningful facts that don't fit elsewhere.
     Other,
 }
@@ -45,6 +52,8 @@ impl FactKind {
             Self::Goal => "goal",
             Self::Schedule => "schedule",
             Self::Equipment => "equipment",
+            Self::NorthStar => "north_star",
+            Self::Medical => "medical",
             Self::Other => "other",
         }
     }
@@ -60,7 +69,53 @@ impl FactKind {
             "goal" => Self::Goal,
             "schedule" => Self::Schedule,
             "equipment" => Self::Equipment,
+            "north_star" => Self::NorthStar,
+            "medical" => Self::Medical,
             _ => Self::Other,
+        }
+    }
+}
+
+/// Provenance of a [`UserFact`] — where the claim came from.
+///
+/// Lets retrieval and the conversation-update loop reason about trust and
+/// supersession (e.g. a fresh `Onboarding` answer overrides a stale
+/// `Conversation` inference). New sources should be additive only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FactSource {
+    /// Captured during the conversational pillar onboarding flow.
+    Onboarding,
+    /// Inferred by the background extraction worker from ongoing chat.
+    Conversation,
+    /// Pre-filled from connected device/provider data.
+    Device,
+    /// Written intentionally by a coach tool.
+    Coach,
+}
+
+impl FactSource {
+    /// Stable string identifier used in DB serialization.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Onboarding => "onboarding",
+            Self::Conversation => "conversation",
+            Self::Device => "device",
+            Self::Coach => "coach",
+        }
+    }
+
+    /// Parse from the DB string form. Unknown values fall back to
+    /// [`Self::Conversation`] — the column is `NOT NULL DEFAULT 'conversation'`,
+    /// so a decode must never panic on an unexpected value.
+    #[must_use]
+    pub fn parse_lenient(s: &str) -> Self {
+        match s {
+            "onboarding" => Self::Onboarding,
+            "device" => Self::Device,
+            "coach" => Self::Coach,
+            _ => Self::Conversation,
         }
     }
 }
@@ -85,6 +140,10 @@ pub struct UserFact {
     pub scope: MemoryScope,
     /// Semantic category.
     pub kind: FactKind,
+    /// Which of the six health pillars this fact belongs to. `None` for facts
+    /// that are pillar-agnostic (e.g. North Star, medical flags, or older rows
+    /// recorded before pillar tagging).
+    pub pillar: Option<Pillar>,
     /// Short subject phrase — typically "you" or a named entity.
     pub subject: String,
     /// Predicate phrase ("prefers", "runs", "has").
@@ -93,6 +152,11 @@ pub struct UserFact {
     pub object: String,
     /// Extractor confidence in `[0.0, 1.0]`.
     pub confidence: f32,
+    /// Where this fact came from (onboarding / conversation / device / coach).
+    pub source: FactSource,
+    /// Freshness horizon: after this instant the fact is considered stale and
+    /// is demoted/flagged at render time. `None` means no expiry.
+    pub valid_until: Option<DateTime<Utc>>,
     /// ID of the message the fact was extracted from, for provenance.
     pub source_msg_id: Option<String>,
     /// Optional embedding vector for semantic recall. Stored as `Vec<f32>` at
@@ -163,7 +227,7 @@ impl UserFactMetrics {
 
 #[cfg(test)]
 mod tests {
-    use super::{FactKind, MemoryScope, UserFact};
+    use super::{FactKind, FactSource, MemoryScope, UserFact};
     use chrono::Utc;
 
     #[test]
@@ -175,10 +239,29 @@ mod tests {
             FactKind::Goal,
             FactKind::Schedule,
             FactKind::Equipment,
+            FactKind::NorthStar,
+            FactKind::Medical,
             FactKind::Other,
         ] {
             assert_eq!(FactKind::parse_lenient(kind.as_str()), kind);
         }
+    }
+
+    #[test]
+    fn fact_source_roundtrip() {
+        for source in [
+            FactSource::Onboarding,
+            FactSource::Conversation,
+            FactSource::Device,
+            FactSource::Coach,
+        ] {
+            assert_eq!(FactSource::parse_lenient(source.as_str()), source);
+        }
+        // Unknown values default to Conversation (NOT NULL DEFAULT in the DB).
+        assert_eq!(
+            FactSource::parse_lenient("garbage"),
+            FactSource::Conversation
+        );
     }
 
     #[test]
@@ -196,10 +279,13 @@ mod tests {
             coach_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
+            pillar: None,
             subject: "you".into(),
             predicate: "want".into(),
             object: "sub-3 marathon".into(),
             confidence: 0.72,
+            source: FactSource::Conversation,
+            valid_until: None,
             source_msg_id: Some("m1".into()),
             embedding: None,
             created_at: now,

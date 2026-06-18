@@ -89,8 +89,11 @@ pub mod memory_extraction;
 /// User-facing memory fact service — list and forget what the coach remembers
 pub mod memory_facts;
 
-/// Memory recall: Tier 2 retrieval of stored user facts for prompt injection
-pub mod memory_recall;
+/// OKF bundle rendering — the per-user Dossier projected to markdown for the prompt
+pub mod okf;
+
+/// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
+pub mod parq;
 
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]

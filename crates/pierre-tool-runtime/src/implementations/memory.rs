@@ -19,7 +19,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     InsertCoachFollowupParams, InsertCoachNoteParams, UpsertUserFactParams,
 };
-use pierre_memory::{FactKind, MemoryScope};
+use pierre_memory::{FactKind, FactSource, MemoryScope};
 use serde_json::{json, Value};
 
 use crate::context::ToolExecutionContext;
@@ -420,10 +420,13 @@ impl McpTool for RememberFactTool {
             coach_id: coach_id.as_deref(),
             scope: MemoryScope::User,
             kind: FactKind::parse_lenient(&kind_str),
+            pillar: None,
             subject: &subject,
             predicate: &predicate,
             object: &object,
             confidence,
+            source: FactSource::Coach,
+            valid_until: None,
             source_msg_id: None,
             embedding: None,
         };
@@ -449,9 +452,10 @@ impl McpTool for RememberFactTool {
 /// Memory recall read tool.
 ///
 /// Returns the most recently updated stored facts for the user, optionally
-/// scoped to a coach or fact kind. Mirrors the `services/memory_recall.rs`
-/// retrieval the orchestrator uses to inject facts into the system prompt,
-/// exposed as a tool so the coach can also query it explicitly during a turn.
+/// scoped to a coach or fact kind. The orchestrator injects facts into the
+/// system prompt via the per-user OKF bundle (`services/okf.rs`); this tool
+/// exposes the same underlying facts so the coach can query them explicitly
+/// during a turn.
 pub struct RecallUserMemoryTool;
 
 #[async_trait]

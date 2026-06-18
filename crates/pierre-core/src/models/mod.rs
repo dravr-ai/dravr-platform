@@ -38,6 +38,11 @@ pub mod dossier;
 mod health;
 mod nutrition;
 mod oauth;
+/// Guided pillar-onboarding flow state + Dossier-derived coverage map.
+pub mod onboarding;
+/// The canonical six fitness-adapted health pillars (single source of truth
+/// for per-user context, pillar-tagged facts, and the OKF bundle).
+pub mod pillar;
 /// Coach-athlete roster assignment shape backing `coach_athlete_assignments`.
 pub mod roster;
 mod sleep;
@@ -108,7 +113,9 @@ pub use user::{
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
-pub use dossier::Dossier;
+pub use dossier::{Dossier, DossierFact};
+pub use onboarding::{CoverageMap, CoverageTarget, OnboardingState};
+pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
     IntensityDistribution, PrescribedWorkout, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,

@@ -86,6 +86,7 @@ impl ChatManager {
             created_at: now.clone(),
             updated_at: now,
             group_id: group_id.map(ToOwned::to_owned),
+            onboarding_state: None,
         })
     }
 
@@ -102,7 +103,7 @@ impl ChatManager {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, coach_id, session_id, total_tokens, created_at, updated_at, group_id
+            SELECT id, user_id, tenant_id, title, model, coach_id, session_id, total_tokens, created_at, updated_at, group_id, onboarding_state
             FROM chat_conversations
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -126,6 +127,7 @@ impl ChatManager {
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
             group_id: r.get("group_id"),
+            onboarding_state: r.get("onboarding_state"),
         }))
     }
 
@@ -792,7 +794,7 @@ impl ChatRepository for Database {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, title, model, coach_id, session_id,
-                   total_tokens, created_at, updated_at, group_id
+                   total_tokens, created_at, updated_at, group_id, onboarding_state
             FROM chat_conversations
             ORDER BY updated_at DESC
             LIMIT $1
@@ -817,6 +819,7 @@ impl ChatRepository for Database {
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
                 group_id: row.get("group_id"),
+                onboarding_state: row.get("onboarding_state"),
             })
             .collect())
     }
@@ -854,6 +857,30 @@ impl ChatRepository for Database {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set conversation session_id: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_conversation_onboarding_state(
+        &self,
+        conversation_id: &str,
+        onboarding_state: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET onboarding_state = $1
+            WHERE id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(onboarding_state)
+        .bind(conversation_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to set conversation onboarding_state: {e}"))
+        })?;
         Ok(result.rows_affected() > 0)
     }
 

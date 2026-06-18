@@ -24,6 +24,9 @@ pub mod repositories;
 /// Data transfer types for seeder binaries
 pub mod seed_models;
 
+/// Groups `UserFact`s into the Dossier's pillar / north-star / medical buckets.
+mod dossier_facts;
+
 /// `SQLite` database implementation (core database operations)
 pub mod database;
 

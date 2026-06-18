@@ -222,22 +222,89 @@ async fn emit_step_finished(hooks: &PipelineHooks<'_>, step: &str) {
 /// [`stages::prompt_assembly::assemble_prompt_and_messages`] that
 /// emits `STEP_STARTED`/`STEP_FINISHED` around the call without
 /// inflating the cognitive complexity of [`run_turn`].
+/// Parameters for [`assemble_prompt_stage`]. Bundled into a struct to stay
+/// under the workspace `clippy::too_many_arguments` budget.
+struct AssemblePromptArgs<'a> {
+    /// Pipeline hooks for AG-UI step emissions.
+    hooks: &'a PipelineHooks<'a>,
+    /// Shared pipeline context.
+    ctx: &'a ChatPipelineContext,
+    /// Turn input (user message + identifiers).
+    input: &'a TurnInput,
+    /// Per-channel profile.
+    profile: &'a ChannelProfile,
+    /// Resolved conversation record.
+    conv: &'a ConversationRecord,
+    /// Optional coach runtime context.
+    coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Persisted conversation history.
+    history: &'a [MessageRecord],
+    /// Onboarding turn context when the conversation is mid pillar walk.
+    onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
+}
+
 async fn assemble_prompt_stage(
-    hooks: &PipelineHooks<'_>,
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    profile: &ChannelProfile,
-    conv: &ConversationRecord,
-    coach_ctx: Option<&CoachRuntimeContext>,
-    history: &[MessageRecord],
+    args: AssemblePromptArgs<'_>,
 ) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
-    emit_step_started(hooks, "prompt_assembly").await;
+    emit_step_started(args.hooks, "prompt_assembly").await;
     let result = stages::prompt_assembly::assemble_prompt_and_messages(
-        ctx, input, profile, conv, coach_ctx, history,
+        args.ctx,
+        args.input,
+        args.profile,
+        args.conv,
+        args.coach_ctx,
+        args.history,
+        args.onboarding,
     )
     .await;
-    emit_step_finished(hooks, "prompt_assembly").await;
+    emit_step_finished(args.hooks, "prompt_assembly").await;
     result
+}
+
+/// Resolve the coach runtime context for a conversation, if it has a coach.
+async fn resolve_coach_ctx(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+) -> AppResult<Option<CoachRuntimeContext>> {
+    match conv.coach_id.as_deref() {
+        Some(coach_id) => {
+            ctx.repos
+                .coaches
+                .get_coach_runtime_context(coach_id, tenant_id)
+                .await
+        }
+        None => Ok(None),
+    }
+}
+
+/// Fire the Tier 2 background fact extraction for a completed turn, stamping the
+/// onboarding pillar/source/force-kind when the conversation is mid pillar walk.
+fn spawn_turn_extraction(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    conv: &ConversationRecord,
+    assistant_reply: &str,
+    assistant_message_id: &str,
+    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+) {
+    let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(onboarding);
+    spawn_extract_for_turn(
+        Arc::clone(&ctx.repos.memory),
+        ctx.chat_provider.as_ref().map(Arc::clone),
+        ctx.memory_extraction_prompt.clone(),
+        SpawnedExtractionRequest {
+            tenant_id: input.conversation_tenant_id,
+            user_id: input.user_id.clone(),
+            coach_id: conv.coach_id.clone(),
+            user_message: input.content.clone(),
+            assistant_reply: assistant_reply.to_owned(),
+            source_msg_id: Some(assistant_message_id.to_owned()),
+            pillar,
+            source,
+            force_kind,
+        },
+    );
 }
 
 /// Parameters for [`dispatch_stage`].
@@ -686,6 +753,12 @@ async fn run_turn(
     // identifiers alongside user/tenant/conversation/turn.
     record_turn_span_context(&conv);
 
+    // Stage 4.5: Onboarding mode. If this conversation is mid guided pillar
+    // walk, resolve the topic being probed (and clear the flag once complete).
+    // Drives the prompt directive (below) and the fact-stamping at Stage 21.
+    let onboarding_turn =
+        stages::onboarding::resolve(ctx, &conv, input.conversation_tenant_id).await;
+
     // Stage 5: Load conversation history for LLM context.
     let history = get_conversation_history(
         database,
@@ -696,28 +769,22 @@ async fn run_turn(
     .await?;
 
     // Stage 6: Resolve coach runtime context.
-    let coach_ctx = match conv.coach_id.as_deref() {
-        Some(coach_id) => {
-            ctx.repos
-                .coaches
-                .get_coach_runtime_context(coach_id, input.conversation_tenant_id)
-                .await?
-        }
-        None => None,
-    };
+    let coach_ctx = resolve_coach_ctx(ctx, &conv, input.conversation_tenant_id).await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages) = assemble_prompt_stage(
-        hooks,
-        ctx,
-        &input,
-        profile,
-        &conv,
-        coach_ctx.as_ref(),
-        &history,
-    )
-    .await?;
+    let (prompt_guard, pending_followup_ids, mut llm_messages) =
+        assemble_prompt_stage(AssemblePromptArgs {
+            hooks,
+            ctx,
+            input: &input,
+            profile,
+            conv: &conv,
+            coach_ctx: coach_ctx.as_ref(),
+            history: &history,
+            onboarding: onboarding_turn.as_ref(),
+        })
+        .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
     let (mut result, provider_name) = dispatch_stage(
@@ -796,19 +863,15 @@ async fn run_turn(
     )
     .await;
 
-    // Stage 21: Tier 2 background memory extraction.
-    spawn_extract_for_turn(
-        Arc::clone(&ctx.repos.memory),
-        ctx.chat_provider.as_ref().map(Arc::clone),
-        ctx.memory_extraction_prompt.clone(),
-        SpawnedExtractionRequest {
-            tenant_id: input.conversation_tenant_id,
-            user_id: input.user_id.clone(),
-            coach_id: conv.coach_id.clone(),
-            user_message: input.content.clone(),
-            assistant_reply: result.content.clone(),
-            source_msg_id: Some(assistant_message.id.clone()),
-        },
+    // Stage 21: Tier 2 background memory extraction (onboarding turns stamp the
+    // probed pillar + source=onboarding; normal turns use conversation defaults).
+    spawn_turn_extraction(
+        ctx,
+        &input,
+        &conv,
+        &result.content,
+        &assistant_message.id,
+        onboarding_turn.as_ref(),
     );
 
     let dispatch_result = DispatchResult {

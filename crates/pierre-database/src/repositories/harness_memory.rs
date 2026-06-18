@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::TenantId;
+use pierre_core::models::{Pillar, TenantId};
 
 /// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
 ///
@@ -24,6 +24,8 @@ pub struct UpsertUserFactParams<'a> {
     pub scope: pierre_memory::MemoryScope,
     /// Semantic kind.
     pub kind: pierre_memory::FactKind,
+    /// Health pillar this fact belongs to, or `None` if pillar-agnostic.
+    pub pillar: Option<Pillar>,
     /// Subject phrase (typically "you" or an entity name).
     pub subject: &'a str,
     /// Predicate phrase.
@@ -32,6 +34,10 @@ pub struct UpsertUserFactParams<'a> {
     pub object: &'a str,
     /// Confidence in `[0.0, 1.0]`.
     pub confidence: f32,
+    /// Provenance (onboarding / conversation / device / coach).
+    pub source: pierre_memory::FactSource,
+    /// Freshness horizon after which the fact is stale, or `None` for no expiry.
+    pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
     /// Source message id for provenance.
     pub source_msg_id: Option<&'a str>,
     /// Optional embedding vector (little-endian f32 at the DB layer).
@@ -142,6 +148,19 @@ pub trait HarnessMemoryRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: &str,
     ) -> AppResult<bool>;
+
+    /// Supersede prior onboarding-captured facts by setting their `valid_until`
+    /// to now, so they render stale and demote. Optionally scoped to one pillar.
+    ///
+    /// Backs `/context` re-runs (re-screen): this is supersession, not deletion
+    /// (GDPR erase stays on [`delete_user_fact`](Self::delete_user_fact)).
+    /// Returns the number of facts superseded. Tenant-scoped.
+    async fn expire_onboarding_facts(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        pillar: Option<Pillar>,
+    ) -> AppResult<u64>;
 
     /// Tenant-wide aggregate snapshot of the memory extraction worker's output.
     ///

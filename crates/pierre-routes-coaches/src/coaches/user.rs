@@ -24,7 +24,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachListItem, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter,
     UpdateCoachRequest,
 };
-use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
+use pierre_core::models::{CoachingPersona, Dossier, Pillar, SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
@@ -337,7 +337,21 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
 
     // Recent sport profile (`None` ⇒ cold start: no provider or no activities).
     let sport_profile = load_sport_profile(ctx, user_id, tenant_id, &rec_config).await;
-    let profile_view = build_profile_view(sport_profile.as_ref(), &user_providers, &rec_config);
+    let mut profile_view = build_profile_view(sport_profile.as_ref(), &user_providers, &rec_config);
+
+    // Enrich the re-rank prompt with onboarding pillar context (North Star +
+    // covered pillars). Graceful: when the user has no pillar context yet, the
+    // match falls back to sport-mix exactly as before. Best-effort — a dossier
+    // compose failure never blocks the proposal.
+    if let Ok(dossier) = MiddlewareCtx::repos(ctx.as_ref())
+        .dossier
+        .compose_dossier(tenant_id, user_id)
+        .await
+    {
+        if let Some(context) = pillar_context_prompt(&dossier) {
+            profile_view.prompt_text = format!("{}\n\n{context}", profile_view.prompt_text);
+        }
+    }
 
     // Score the full system-coach catalog and keep only eligible candidates,
     // best deterministic score first, capped to the re-rank pool size.
@@ -402,6 +416,52 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
         .collect();
 
     Ok((profile_view.summary, coaches))
+}
+
+/// Clamp + flatten untrusted fact text before it enters the re-rank LLM prompt.
+fn sanitize_for_prompt(s: &str) -> String {
+    s.chars()
+        .take(120)
+        .collect::<String>()
+        .replace(['\n', '\r'], " ")
+}
+
+/// Build a short coach-matching context line from the user's onboarding facts:
+/// their North Star (sanitized, the most match-relevant signal) plus which
+/// pillars they have shared context on (labels only). `None` when the user has
+/// no non-stale pillar context yet — the proposal then matches on sport-mix.
+fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
+    let mut parts = Vec::new();
+
+    let north_star: Vec<String> = dossier
+        .north_star
+        .iter()
+        .filter(|f| !f.stale)
+        .map(|f| sanitize_for_prompt(&f.object))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if !north_star.is_empty() {
+        parts.push(format!(
+            "North Star (the athlete's core motivations): {}",
+            north_star.join("; ")
+        ));
+    }
+
+    let covered: Vec<&str> = Pillar::ALL
+        .iter()
+        .filter(|p| {
+            dossier
+                .pillars
+                .get(p)
+                .is_some_and(|facts| facts.iter().any(|f| !f.stale))
+        })
+        .map(|p| p.display_label())
+        .collect();
+    if !covered.is_empty() {
+        parts.push(format!("Has shared context on: {}", covered.join(", ")));
+    }
+
+    (!parts.is_empty()).then(|| parts.join(". "))
 }
 
 /// The user's sport profile in the two shapes the proposal needs: the
@@ -1296,4 +1356,49 @@ pub(super) async fn handle_list_hidden<C: CoachesCtx + MiddlewareCtx>(
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pillar_context_prompt;
+    use pierre_core::models::{Dossier, DossierFact, Pillar};
+    use uuid::Uuid;
+
+    fn fact(object: &str, stale: bool) -> DossierFact {
+        DossierFact {
+            kind: "north_star".to_owned(),
+            subject: "you".to_owned(),
+            predicate: "value".to_owned(),
+            object: object.to_owned(),
+            confidence: 0.9,
+            source: "onboarding".to_owned(),
+            updated_at: chrono::Utc::now(),
+            valid_until: None,
+            stale,
+        }
+    }
+
+    #[test]
+    fn empty_dossier_yields_no_context() {
+        let d = Dossier::empty(Uuid::nil(), Uuid::nil());
+        assert!(pillar_context_prompt(&d).is_none());
+    }
+
+    #[test]
+    fn north_star_and_covered_pillars_surface() {
+        let mut d = Dossier::empty(Uuid::nil(), Uuid::nil());
+        d.north_star = vec![fact("be present for my kids", false)];
+        d.pillars
+            .insert(Pillar::Fuelling, vec![fact("avoid dairy", false)]);
+        let ctx = pillar_context_prompt(&d).unwrap_or_default();
+        assert!(ctx.contains("be present for my kids"));
+        assert!(ctx.contains("Fuelling"));
+    }
+
+    #[test]
+    fn stale_only_context_is_ignored() {
+        let mut d = Dossier::empty(Uuid::nil(), Uuid::nil());
+        d.north_star = vec![fact("old motivation", true)];
+        assert!(pillar_context_prompt(&d).is_none());
+    }
 }

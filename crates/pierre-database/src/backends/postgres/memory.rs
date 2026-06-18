@@ -9,10 +9,10 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Pillar, TenantId};
 use pierre_memory::{
-    CoachFollowup, CoachNote, CoachSession, CompactionBlock, FactKind, FollowupStatus, MemoryScope,
-    SessionStatus, UserFact, UserFactMetrics,
+    CoachFollowup, CoachNote, CoachSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
+    MemoryScope, SessionStatus, UserFact, UserFactMetrics,
 };
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -89,6 +89,10 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
     let updated_at: DateTime<Utc> = row.get("updated_at");
     let scope = MemoryScope::parse(&scope_str)
         .ok_or_else(|| AppError::internal(format!("Invalid scope in user_facts: {scope_str}")))?;
+    let pillar_str: Option<String> = row.get("pillar");
+    let source_str: String = row
+        .try_get("source")
+        .unwrap_or_else(|_| "conversation".into());
     Ok(UserFact {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
@@ -96,10 +100,13 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
         coach_id: row.get("coach_id"),
         scope,
         kind: FactKind::parse_lenient(&kind_str),
+        pillar: pillar_str.as_deref().and_then(Pillar::parse),
         subject: row.get("subject"),
         predicate: row.get("predicate"),
         object: row.get("object"),
         confidence: row.get("confidence"),
+        source: FactSource::parse_lenient(&source_str),
+        valid_until: row.get("valid_until"),
         source_msg_id: row.get("source_msg_id"),
         embedding: optional_embedding(row)?,
         created_at,
@@ -251,11 +258,11 @@ impl HarnessMemoryRepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO user_facts (
-                id, tenant_id, user_id, coach_id, scope, kind,
-                subject, predicate, object, confidence, source_msg_id,
-                embedding, created_at, updated_at
+                id, tenant_id, user_id, coach_id, scope, kind, pillar,
+                subject, predicate, object, confidence, source, valid_until,
+                source_msg_id, embedding, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
             ",
         )
         .bind(&id)
@@ -264,10 +271,13 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(params.coach_id)
         .bind(params.scope.as_str())
         .bind(params.kind.as_str())
+        .bind(params.pillar.map(Pillar::as_str))
         .bind(params.subject)
         .bind(params.predicate)
         .bind(params.object)
         .bind(params.confidence)
+        .bind(params.source.as_str())
+        .bind(params.valid_until)
         .bind(params.source_msg_id)
         .bind(embedding_bytes)
         .bind(now)
@@ -282,10 +292,13 @@ impl HarnessMemoryRepository for PostgresDatabase {
             coach_id: params.coach_id.map(ToOwned::to_owned),
             scope: params.scope,
             kind: params.kind,
+            pillar: params.pillar,
             subject: params.subject.to_owned(),
             predicate: params.predicate.to_owned(),
             object: params.object.to_owned(),
             confidence: params.confidence,
+            source: params.source,
+            valid_until: params.valid_until,
             source_msg_id: params.source_msg_id.map(ToOwned::to_owned),
             embedding: params.embedding.map(<[f32]>::to_vec),
             created_at: now,
@@ -392,6 +405,32 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to delete user fact: {e}")))?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn expire_onboarding_facts(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        pillar: Option<Pillar>,
+    ) -> AppResult<u64> {
+        let now = Utc::now();
+        let result = sqlx::query(
+            r"
+            UPDATE user_facts
+               SET valid_until = $1, updated_at = $1
+             WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
+               AND ($4::text IS NULL OR pillar = $4)
+               AND (valid_until IS NULL OR valid_until > $1)
+            ",
+        )
+        .bind(now)
+        .bind(tenant_id.to_string())
+        .bind(user_id)
+        .bind(pillar.map(Pillar::as_str))
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;
+        Ok(result.rows_affected())
     }
 
     async fn count_user_facts_metrics(&self, tenant_id: TenantId) -> AppResult<UserFactMetrics> {

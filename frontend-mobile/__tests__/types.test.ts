@@ -94,7 +94,7 @@ describe('Type Definitions', () => {
         category_key: 'training',
         category_title: 'Training',
         category_icon: '🏃',
-        pillar: 'activity',
+        pillar: 'training_and_movement',
         prompts: ['What is my fitness level?'],
       };
       expect(category.prompts).toHaveLength(1);

@@ -142,6 +142,12 @@ pub struct ConversationRecord {
     /// Optional coaching group context for group-scoped conversations
     #[serde(default)]
     pub group_id: Option<String>,
+    /// Active pillar-onboarding flow state (JSON). When set, prompt assembly
+    /// runs this conversation in guided onboarding mode and the extraction
+    /// worker stamps captured facts with `source=onboarding`. `None` for
+    /// normal coaching conversations.
+    #[serde(default)]
+    pub onboarding_state: Option<String>,
 }
 
 /// Runtime context for a coach attached to a conversation.

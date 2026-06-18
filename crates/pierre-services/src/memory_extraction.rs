@@ -19,10 +19,10 @@
 use std::sync::{Arc, LazyLock};
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
-use pierre_memory::{FactKind, MemoryScope, UserFact};
+use pierre_memory::{FactKind, FactSource, MemoryScope, UserFact};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
@@ -70,6 +70,15 @@ pub struct ExtractionRequest<'a> {
     pub assistant_reply: &'a str,
     /// The assistant message id for provenance, if available.
     pub source_msg_id: Option<&'a str>,
+    /// Health pillar to stamp on extracted facts. The conversation worker
+    /// leaves this `None`; the onboarding flow sets the pillar it is screening.
+    pub pillar: Option<Pillar>,
+    /// Provenance to stamp on extracted facts (conversation for the background
+    /// worker, onboarding for the conversational onboarding flow).
+    pub source: FactSource,
+    /// When set, override the extractor's kind on every captured fact (used by
+    /// the onboarding flow to force `NorthStar` when probing the North Star).
+    pub force_kind: Option<FactKind>,
 }
 
 /// Outcome of a single extraction run.
@@ -160,17 +169,22 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             continue;
         }
 
-        let kind = FactKind::parse_lenient(&fact.kind);
+        let kind = req
+            .force_kind
+            .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
         let params = UpsertUserFactParams {
             tenant_id: req.tenant_id,
             user_id: req.user_id,
             coach_id: req.coach_id,
             scope: MemoryScope::User,
             kind,
+            pillar: req.pillar,
             subject: &fact.subject,
             predicate: &fact.predicate,
             object: &fact.object,
             confidence: clamped_confidence,
+            source: req.source,
+            valid_until: None,
             source_msg_id: req.source_msg_id,
             embedding: None,
         };
@@ -270,6 +284,15 @@ pub struct SpawnedExtractionRequest {
     pub assistant_reply: String,
     /// Source assistant message id for provenance.
     pub source_msg_id: Option<String>,
+    /// Health pillar to stamp on extracted facts (set by the onboarding flow
+    /// for the pillar it is probing). `None` for the background worker.
+    pub pillar: Option<Pillar>,
+    /// Provenance to stamp (onboarding vs. conversation).
+    pub source: FactSource,
+    /// When set, override the extractor's kind on every captured fact — used
+    /// by the onboarding flow when probing the North Star so the answer is
+    /// stored as `FactKind::NorthStar` regardless of how the extractor labels it.
+    pub force_kind: Option<FactKind>,
 }
 
 /// Fire-and-forget memory extraction.
@@ -319,6 +342,12 @@ pub fn spawn_extract_for_turn(
             user_message: &req.user_message,
             assistant_reply: &req.assistant_reply,
             source_msg_id: req.source_msg_id.as_deref(),
+            // Pillar/source/force_kind are set by the caller — the background
+            // worker leaves them at conversation defaults; the onboarding flow
+            // stamps the probed pillar + source=onboarding (+ force North Star).
+            pillar: req.pillar,
+            source: req.source,
+            force_kind: req.force_kind,
         };
         match extract_and_persist(memory_repo.as_ref(), provider, &system_prompt, &request).await {
             Ok(outcome) => debug!(
