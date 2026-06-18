@@ -212,11 +212,10 @@ impl ServerContext {
         let csrf_manager = Arc::new(CsrfTokenManager::from_jwt_secret(admin_jwt_secret));
 
         // Create Firebase auth handler if configured
-        let firebase_auth = if config.firebase.is_configured() {
-            Some(Arc::new(FirebaseAuth::new(config.firebase.clone())))
-        } else {
-            None
-        };
+        let firebase_auth = config
+            .firebase
+            .is_configured()
+            .then(|| Arc::new(FirebaseAuth::new(config.firebase.clone())));
 
         // Create admin config service if SQLite is available
         // This provides runtime-configurable parameters via admin API
@@ -232,27 +231,9 @@ impl ServerContext {
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(&repos));
 
-        // Create email service if Resend credentials are configured and the
-        // server is not in CI mode (the gate lives on ServerConfig so the policy
-        // — non-empty creds + no email under CI — is enforced in one place).
-        let email_service = config
-            .outbound_email_credentials()
-            .map(|(api_key, from_email)| {
-                info!("Resend email service configured");
-                Arc::new(ResendEmailService::new(
-                    api_key.to_owned(),
-                    from_email.to_owned(),
-                ))
-            });
-        if email_service.is_none() {
-            if config.is_ci_mode() {
-                info!("CI mode active — outbound Resend email disabled (no transactional email will be sent)");
-            } else {
-                warn!(
-                    "Resend email service not configured — password reset emails will be skipped"
-                );
-            }
-        }
+        // Build the outbound email service (gated on ServerConfig: non-empty
+        // Resend creds + not in CI mode). See `build_email_service`.
+        let email_service = Self::build_email_service(&config);
 
         // Create notification service and start scheduler if notifications feature is enabled
         #[cfg(feature = "client-notifications")]
@@ -269,44 +250,9 @@ impl ServerContext {
             tier_strategy_for("professional"),
         ));
 
-        // Load messaging slash commands from commands/ directory.
-        //
-        // `PIERRE_COMMANDS_DIR` overrides the default CWD-relative lookup so
-        // tests and non-default deployments can point at an absolute path.
+        // Load messaging slash commands + handlers (see `build_command_registries`).
         #[cfg(feature = "client-messaging")]
-        let (command_registry, command_handler_registry) = {
-            let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
-            let commands_dir = commands_dir_override
-                .as_deref()
-                .map_or_else(|| Path::new("commands").to_path_buf(), PathBuf::from);
-            let defs = commands::load_command_definitions(&commands_dir);
-            let mut registry = CommandRegistry::new();
-            for def in defs {
-                registry.register(def);
-            }
-            let registry = Arc::new(registry);
-
-            let mut handler_reg = CommandHandlerRegistry::new();
-            handler_reg.register("help", Arc::new(HelpHandler::new(Arc::clone(&registry))));
-            handler_reg.register("status", Arc::new(StatusHandler));
-            handler_reg.register("logout", Arc::new(LogoutHandler));
-            handler_reg.register("group", Arc::new(GroupListHandler));
-            handler_reg.register("group-status", Arc::new(GroupStatusHandler));
-            handler_reg.register("group-members", Arc::new(GroupMembersHandler));
-            handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
-            handler_reg.register("group-coach", Arc::new(GroupCoachHandler));
-            handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
-            handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
-            handler_reg.register("coach", Arc::new(CoachListHandler));
-            handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
-            handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));
-            handler_reg.register("privacy", Arc::new(PrivacyStatusHandler));
-            handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
-            handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
-            handler_reg.register("timezone", Arc::new(TimezoneHandler));
-            handler_reg.register("context", Arc::new(ContextHandler));
-            (Some(registry), Some(Arc::new(handler_reg)))
-        };
+        let (command_registry, command_handler_registry) = Self::build_command_registries();
 
         // Create and populate tool registry with all built-in tools. Any
         // `extra_tools` supplied via `ServerContextOptions` (used by
@@ -481,6 +427,72 @@ impl ServerContext {
             billing,
             mcp,
         }
+    }
+
+    /// Build the outbound transactional email service, or `None` when Resend is
+    /// unconfigured or the server is in CI mode.
+    ///
+    /// The decision lives entirely in [`ServerConfig::outbound_email_credentials`]
+    /// (non-empty creds + not CI); this just constructs the service or logs why
+    /// it was skipped, keeping `new` free of the branching.
+    fn build_email_service(config: &ServerConfig) -> Option<Arc<ResendEmailService>> {
+        let Some((api_key, from_email)) = config.outbound_email_credentials() else {
+            if config.is_ci_mode() {
+                info!("CI mode active — outbound Resend email disabled (no transactional email will be sent)");
+            } else {
+                warn!(
+                    "Resend email service not configured — password reset emails will be skipped"
+                );
+            }
+            return None;
+        };
+        info!("Resend email service configured");
+        Some(Arc::new(ResendEmailService::new(
+            api_key.to_owned(),
+            from_email.to_owned(),
+        )))
+    }
+
+    /// Load messaging slash-command definitions and register their handlers.
+    ///
+    /// `PIERRE_COMMANDS_DIR` overrides the default CWD-relative `commands/`
+    /// lookup so tests and non-default deployments can point at an absolute path.
+    #[cfg(feature = "client-messaging")]
+    fn build_command_registries() -> (
+        Option<Arc<CommandRegistry>>,
+        Option<Arc<CommandHandlerRegistry>>,
+    ) {
+        let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
+        let commands_dir = commands_dir_override
+            .as_deref()
+            .map_or_else(|| Path::new("commands").to_path_buf(), PathBuf::from);
+        let defs = commands::load_command_definitions(&commands_dir);
+        let mut registry = CommandRegistry::new();
+        for def in defs {
+            registry.register(def);
+        }
+        let registry = Arc::new(registry);
+
+        let mut handler_reg = CommandHandlerRegistry::new();
+        handler_reg.register("help", Arc::new(HelpHandler::new(Arc::clone(&registry))));
+        handler_reg.register("status", Arc::new(StatusHandler));
+        handler_reg.register("logout", Arc::new(LogoutHandler));
+        handler_reg.register("group", Arc::new(GroupListHandler));
+        handler_reg.register("group-status", Arc::new(GroupStatusHandler));
+        handler_reg.register("group-members", Arc::new(GroupMembersHandler));
+        handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
+        handler_reg.register("group-coach", Arc::new(GroupCoachHandler));
+        handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
+        handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
+        handler_reg.register("coach", Arc::new(CoachListHandler));
+        handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
+        handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));
+        handler_reg.register("privacy", Arc::new(PrivacyStatusHandler));
+        handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
+        handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
+        handler_reg.register("timezone", Arc::new(TimezoneHandler));
+        handler_reg.register("context", Arc::new(ContextHandler));
+        (Some(registry), Some(Arc::new(handler_reg)))
     }
 
     /// Create the notification service, dispatching to the appropriate backend
