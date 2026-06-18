@@ -6,6 +6,7 @@
 
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { buildOutgoingMessage } from '@pierre/chat-utils';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 
 interface Message {
@@ -150,19 +151,18 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
 
     const displayContent = newMessage.trim();
 
-    // Add context about connected providers
-    let messageContent = displayContent;
-    if (oauthNotification) {
-      messageContent = `[Context: I just connected my ${oauthNotification.provider} account successfully] ${displayContent}`;
-    } else if (hasConnectedProvider && (!messagesData?.messages || messagesData.messages.length === 0)) {
-      const connectedProviders = oauthStatus?.providers
-        ?.filter(p => p.connected)
-        .map(p => p.provider.charAt(0).toUpperCase() + p.provider.slice(1))
-        .join(', ');
-      if (connectedProviders) {
-        messageContent = `[Context: I have ${connectedProviders} connected] ${displayContent}`;
-      }
-    }
+    // Attach the provider-context hint via the shared helper, which exempts
+    // slash commands (the backend dispatcher needs the leading '/' at position
+    // 0). Single source of truth for the prefix rule across web + mobile.
+    const connectedProviders = oauthStatus?.providers
+      ?.filter(p => p.connected)
+      .map(p => p.provider.charAt(0).toUpperCase() + p.provider.slice(1))
+      .join(', ');
+    const messageContent = buildOutgoingMessage(displayContent, {
+      justConnectedProvider: oauthNotification?.provider ?? null,
+      connectedProviders: hasConnectedProvider ? (connectedProviders ?? null) : null,
+      isFirstMessage: !messagesData?.messages || messagesData.messages.length === 0,
+    });
 
     setNewMessage('');
     setIsStreaming(true);

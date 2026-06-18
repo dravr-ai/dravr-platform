@@ -10,7 +10,8 @@ export {
 } from './insight';
 
 // Message processing utilities
-export { stripContextPrefix } from './message';
+export { stripContextPrefix, buildOutgoingMessage } from './message';
+export type { ProviderContextInput } from './message';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';

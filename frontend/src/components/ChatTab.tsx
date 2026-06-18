@@ -13,7 +13,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useAgUiProgress } from '../hooks/useAgUiProgress';
 import PromptSuggestions from './PromptSuggestions';
 import { MessageCircle, Plus, Sparkles } from 'lucide-react';
-import { createInsightPrompt, stripContextPrefix } from '@pierre/chat-utils';
+import { createInsightPrompt, stripContextPrefix, buildOutgoingMessage } from '@pierre/chat-utils';
 import {
   MessageList,
   MessageInput,
@@ -543,15 +543,18 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
 
     const displayContent = newMessage.trim();
-    let messageContent = displayContent;
-    if (oauthNotification) {
-      messageContent = `[Context: I just connected my ${oauthNotification.provider} account successfully] ${displayContent}`;
-    } else if (hasConnectedProvider && (!messagesData?.messages || messagesData.messages.length === 0)) {
-      const connectedProviders = providersData?.providers?.filter(p => p.connected).map(p =>
-        p.display_name
-      ).join(', ');
-      messageContent = `[Context: I have connected ${connectedProviders}] ${displayContent}`;
-    }
+    // Attach the provider-context hint via the shared helper, which exempts
+    // slash commands (the backend dispatcher needs the leading '/' at position
+    // 0). Single source of truth for the prefix rule across web + mobile.
+    const connectedProviders = providersData?.providers
+      ?.filter(p => p.connected)
+      .map(p => p.display_name)
+      .join(', ');
+    const messageContent = buildOutgoingMessage(displayContent, {
+      justConnectedProvider: oauthNotification?.provider ?? null,
+      connectedProviders: hasConnectedProvider ? (connectedProviders ?? null) : null,
+      isFirstMessage: !messagesData?.messages || messagesData.messages.length === 0,
+    });
 
     setNewMessage('');
     setIsStreaming(true);
@@ -631,6 +634,15 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       };
       let finalData: StreamFinalPayload | null = null;
 
+      // Slash-command turns return a single JSON document (is_command_response),
+      // not an SSE stream — the dispatcher answers synchronously with no AG-UI
+      // run. Detect by content-type and use the body as the final payload
+      // directly; the SSE reader below understands only `event:`/`data:` frames
+      // and would otherwise parse zero frames and drop the command's reply.
+      const isEventStream = (response.headers.get('content-type') ?? '').includes('text/event-stream');
+      if (!isEventStream) {
+        finalData = (await response.json().catch(() => null)) as StreamFinalPayload | null;
+      } else {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -688,6 +700,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             dispatch(eventName, dataLines.join('\n'));
           }
         }
+      }
       }
 
       const data: StreamFinalPayload = finalData ?? {};
