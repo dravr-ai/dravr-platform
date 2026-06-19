@@ -410,4 +410,29 @@ pub trait MessagingRepository: Send + Sync {
         channel_type: &str,
         channel_user_id: &str,
     ) -> AppResult<()>;
+
+    // ── Backfill Push Dedup ──
+
+    /// Atomically claim the right to push the backfill-completion notice for a
+    /// `(tenant, user, provider, after_ts)` window.
+    ///
+    /// Inserts one row into `backfill_push_log` with `ON CONFLICT DO NOTHING`.
+    /// Returns `true` when THIS caller inserted the row — it is the first/only one
+    /// to claim the window and so must send the notice. Returns `false` when the
+    /// row already existed (another replica or an earlier attempt already claimed
+    /// it), so the caller must skip sending.
+    ///
+    /// `after_ts` is the historical-window `after` lower bound in unix seconds
+    /// (`0` when the request had no `after`). The in-process `IN_FLIGHT_BACKFILLS`
+    /// set only de-dups the fetch within a single replica; this durable claim
+    /// de-dups the push across every replica so a user never receives two notices
+    /// for the same window. Tenant-scoped by construction — `tenant_id` is part of
+    /// the primary key and the inserted row.
+    async fn claim_backfill_push(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        provider: &str,
+        after_ts: i64,
+    ) -> AppResult<bool>;
 }

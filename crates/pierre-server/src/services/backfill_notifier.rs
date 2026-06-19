@@ -229,10 +229,11 @@ impl ServerBackfillNotifier {
 impl BackfillNotifier for ServerBackfillNotifier {
     async fn push_backfill_complete(
         &self,
-        _user_id: Uuid,
+        user_id: Uuid,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
-        _provider: &str,
+        provider: &str,
+        after_ts: i64,
         activity_count: usize,
     ) {
         let Some((channel_str, channel_type, outgoing)) = self
@@ -241,6 +242,31 @@ impl BackfillNotifier for ServerBackfillNotifier {
         else {
             return;
         };
+
+        // Durable cross-replica dedup. The staleness reverse-lookup above has
+        // already confirmed there is a live channel to notify; claim the
+        // `(tenant, user, provider, window)` BEFORE resolving the adapter or
+        // sending so a race between replicas resolves to exactly one send. A
+        // `false` claim means another replica (or an earlier attempt) already
+        // sent the notice for this window, so we skip silently.
+        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
+        match db
+            .claim_backfill_push(tenant_id, &user_id.to_string(), provider, after_ts)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                info!(
+                    provider = %provider,
+                    "backfill push already sent (dedup), skipping"
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(error = %e, "Backfill push: dedup claim failed");
+                return;
+            }
+        }
 
         let Some((adapter, channel_config)) = self
             .resolver
