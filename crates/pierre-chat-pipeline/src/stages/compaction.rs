@@ -15,7 +15,6 @@
 
 use std::sync::Arc;
 
-use pierre_database::database::MessageRecord;
 use pierre_database::repositories::HarnessMemoryRepository;
 
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -34,7 +33,7 @@ pub async fn apply_tier1_compaction(
     provider: &ChatProvider,
     tenant_id: TenantId,
     conversation_id: &str,
-    history: &[MessageRecord],
+    source_ids: &[Option<String>],
     llm_messages: &mut Vec<ChatMessage>,
 ) {
     // Read the active compaction tunables from the harness config registry
@@ -46,7 +45,7 @@ pub async fn apply_tier1_compaction(
         provider,
         tenant_id,
         conversation_id,
-        history,
+        source_ids,
         llm_messages,
     };
     match compactor.compact_if_needed(ctx).await {

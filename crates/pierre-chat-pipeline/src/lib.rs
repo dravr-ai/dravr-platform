@@ -245,7 +245,7 @@ struct AssemblePromptArgs<'a> {
 
 async fn assemble_prompt_stage(
     args: AssemblePromptArgs<'_>,
-) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
+) -> AppResult<stages::prompt_assembly::AssembledPrompt> {
     emit_step_started(args.hooks, "prompt_assembly").await;
     let result = stages::prompt_assembly::assemble_prompt_and_messages(
         args.ctx,
@@ -326,6 +326,9 @@ struct DispatchStageArgs<'a> {
     coach_ctx: Option<&'a CoachRuntimeContext>,
     /// Persisted conversation history.
     history: &'a [MessageRecord],
+    /// Per-message history-row ids parallel to `llm_messages` (`None` for the
+    /// system prompt), threaded to Tier 1 compaction for id-anchored blocks.
+    source_ids: &'a [Option<String>],
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -344,6 +347,7 @@ async fn dispatch_stage(
             active_model: args.active_model,
             coach_ctx: args.coach_ctx,
             history: args.history,
+            source_ids: args.source_ids,
         },
         llm_messages,
         max_iterations,
@@ -797,7 +801,7 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages) =
+    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids) =
         assemble_prompt_stage(AssemblePromptArgs {
             hooks,
             ctx,
@@ -820,6 +824,7 @@ async fn run_turn(
             active_model: &active_model,
             coach_ctx: coach_ctx.as_ref(),
             history: &history,
+            source_ids: &source_ids,
         },
         &mut llm_messages,
     )

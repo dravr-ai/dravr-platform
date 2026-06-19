@@ -30,7 +30,6 @@ use pierre_core::config::CompactionConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::tokens::estimate_prompt_tokens;
-use pierre_database::database::MessageRecord;
 use pierre_database::repositories::{HarnessMemoryRepository, InsertCompactionBlockParams};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider, MessageRole};
 use pierre_memory::CompactionBlock;
@@ -93,6 +92,10 @@ struct CompactRange {
 }
 
 /// Metadata about which history records the compacted range corresponds to.
+///
+/// `first_id` / `last_id` borrow from the caller's `source_ids` slice — the
+/// first and last real history-row id within the compacted range (skipping
+/// `None` entries such as the system prompt).
 struct HistoryRange<'a> {
     first_id: &'a str,
     last_id: &'a str,
@@ -218,8 +221,20 @@ impl ConversationCompactor {
         &self,
         ctx: &CompactionContext<'_, R>,
     ) -> Option<SummaryPlan> {
+        // `source_ids` is index-aligned with `llm_messages` as built by
+        // `build_llm_messages`, and nothing mutates `llm_messages` between that
+        // build and here on a compacting turn: the only pre-compaction mutator,
+        // `inject_startup_context`, fires solely on the first turn
+        // (`history_len == 1`), which never reaches the compaction thresholds.
+        // This guard makes that invariant safe — if a future stage ever inserts
+        // into `llm_messages` without updating `source_ids`, we skip compaction
+        // this turn rather than anchor a block to the wrong rows.
+        if ctx.source_ids.len() != ctx.llm_messages.len() {
+            return None;
+        }
         let range = self.pick_range(ctx.llm_messages)?;
-        let history_range = history_range_for(ctx.history, range.start, range.end)?;
+        let history_range =
+            history_range_for(ctx.source_ids, ctx.llm_messages, range.start, range.end)?;
         let combined = extract_range_text(ctx.llm_messages, &range);
         Some(SummaryPlan {
             combined,
@@ -389,9 +404,12 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     pub tenant_id: TenantId,
     /// Conversation being compacted.
     pub conversation_id: &'a str,
-    /// History records underlying the prompt — used to anchor the compaction
-    /// block's `first_message_id` / `last_message_id` metadata.
-    pub history: &'a [MessageRecord],
+    /// Per-message history-row ids, index-aligned with `llm_messages` at the
+    /// point `plan_summary` reads them (before any mutation): `None` for the
+    /// system prompt, `Some(MessageRecord.id)` for each surviving history row.
+    /// Used to anchor the compaction block's `first_message_id` /
+    /// `last_message_id` metadata to real persisted rows.
+    pub source_ids: &'a [Option<String>],
     /// The LLM message list being assembled; the compactor mutates it in place.
     pub llm_messages: &'a mut Vec<ChatMessage>,
 }
@@ -429,34 +447,32 @@ fn replace_range(messages: &mut Vec<ChatMessage>, range: &CompactRange, replacem
     messages.splice(range.start..range.end, once(replacement));
 }
 
-fn history_range_for(
-    history: &[MessageRecord],
+fn history_range_for<'a>(
+    source_ids: &'a [Option<String>],
+    llm_messages: &[ChatMessage],
     start: usize,
     end: usize,
-) -> Option<HistoryRange<'_>> {
-    // The llm_messages vector is laid out as [system?, ...history],
-    // so subtract the system offset to land back in history coordinates.
-    // We don't strictly know if there's a system message — assume yes when
-    // start > 0; callers always build messages with a system prompt in
-    // practice.
-    let offset = start.min(1);
-    let h_start = start.saturating_sub(offset);
-    let h_end = end.saturating_sub(offset);
-
-    if h_start >= history.len() || h_end > history.len() || h_start >= h_end {
+) -> Option<HistoryRange<'a>> {
+    // `source_ids` is index-aligned with `llm_messages`: `None` marks the
+    // system prompt, `Some(id)` carries the originating history-row id. We
+    // map the compaction range `[start, end)` directly through it — no
+    // positional history assumption — because `build_llm_messages` drops
+    // history rows that strip to empty, so a position-based remap would be
+    // off by the number of dropped rows.
+    if end > source_ids.len() || start >= end {
         return None;
     }
 
-    let slice = &history[h_start..h_end];
-    let first = slice.first()?;
-    let last = slice.last()?;
-    let original_tokens: u32 = slice
+    let span = &source_ids[start..end];
+    let first_id = span.iter().flatten().next()?;
+    let last_id = span.iter().flatten().next_back()?;
+    let original_tokens: u32 = llm_messages[start..end]
         .iter()
         .map(|m| estimate_prompt_tokens(&m.content))
         .sum();
     Some(HistoryRange {
-        first_id: &first.id,
-        last_id: &last.id,
+        first_id: first_id.as_str(),
+        last_id: last_id.as_str(),
         original_tokens,
     })
 }

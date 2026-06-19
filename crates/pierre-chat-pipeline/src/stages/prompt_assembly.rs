@@ -241,6 +241,17 @@ pub fn resolve_coach_base_prompt(
     coach_ctx.system_prompt.clone()
 }
 
+/// Output of [`assemble_prompt_and_messages`]: the hardened prompt guard,
+/// pending-followup ids, the flattened LLM message list, and the parallel
+/// `source_ids` vector (`None` for the system prompt, `Some(history-row id)`
+/// per surviving message) that Tier 1 compaction uses to anchor block ids.
+pub(crate) type AssembledPrompt = (
+    prompt_leak::PromptGuard,
+    Vec<String>,
+    Vec<ChatMessage>,
+    Vec<Option<String>>,
+);
+
 /// Assemble the hardened system prompt and flatten history into an
 /// LLM-ready message list.
 ///
@@ -250,6 +261,10 @@ pub fn resolve_coach_base_prompt(
 /// and canary hardening — followed by
 /// [`build_llm_messages`](super::prompt_builder::build_llm_messages)
 /// flattening.
+///
+/// Returns the prompt guard, pending-followup ids, the flattened message
+/// list, and the parallel `source_ids` vector mapping each message to its
+/// history-row id (`None` for the system prompt) for Tier 1 compaction.
 ///
 /// # Errors
 ///
@@ -276,7 +291,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     coach_ctx: Option<&CoachRuntimeContext>,
     history: &[MessageRecord],
     onboarding: Option<&super::onboarding::OnboardingTurn>,
-) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
+) -> AppResult<AssembledPrompt> {
     // Stage 7a: Start from coach-defined or default Pierre system prompt.
     // For contremaitre-sourced coaches we consult the in-memory
     // `PromptRegistry` first so a webhook-driven hot-reload reaches the
@@ -445,8 +460,11 @@ pub(crate) async fn assemble_prompt_and_messages(
         &raw_system_prompt,
     );
 
-    // Stage 8: Flatten into the LLM message list.
-    let llm_messages = build_llm_messages(Some(&prompt_guard.hardened_prompt), history);
+    // Stage 8: Flatten into the LLM message list. `source_ids` maps each
+    // emitted message back to its history row id (None for the system prompt)
+    // so Tier 1 compaction can anchor block ids without a positional guess.
+    let (llm_messages, source_ids) =
+        build_llm_messages(Some(&prompt_guard.hardened_prompt), history);
 
     let span = Span::current();
     span.record("prompt_len", prompt_guard.hardened_prompt.len());
@@ -475,5 +493,5 @@ pub(crate) async fn assemble_prompt_and_messages(
         }
     }
 
-    Ok((prompt_guard, pending_followup_ids, llm_messages))
+    Ok((prompt_guard, pending_followup_ids, llm_messages, source_ids))
 }
