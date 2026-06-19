@@ -24,6 +24,8 @@ use pierre_runtime_context::DataContext;
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_tool_runtime::registry::ToolRegistry;
+#[cfg(feature = "client-messaging")]
+use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::sync::Arc;
@@ -103,6 +105,11 @@ impl ToolRuntime for ServerContext {
 
     fn evidence_registry(&self) -> &Arc<pierre_contremaitre::EvidenceRegistry> {
         &self.mcp.evidence_registry
+    }
+
+    #[cfg(feature = "client-messaging")]
+    fn backfill_notifier(&self) -> Option<&Arc<dyn BackfillNotifier>> {
+        self.mcp.backfill_notifier.as_ref()
     }
 
     fn data(&self) -> DataContext {

@@ -136,6 +136,13 @@ pub const KEY_COACH_PROPOSAL_FOOTER: &str = "messaging.coach_proposal.footer";
 /// user's account is approved. No placeholders.
 pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_approved";
 
+/// Key: historical-backfill completion notice.
+///
+/// Pushed back to the channel that asked for an old activity window once the
+/// background backfill finished warming the durable cache. `{0}` = count of
+/// activities loaded.
+pub const KEY_BACKFILL_READY: &str = "messaging.backfill.ready";
+
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
 // account, so locale resolution here cannot consult `users.locale`. Callers
@@ -441,6 +448,9 @@ pub const FR_COACH_PROPOSAL_FOOTER: &str =
 /// French default for [`KEY_REGISTRATION_APPROVED`].
 pub const FR_REGISTRATION_APPROVED: &str =
     "🎉 Ton compte Dravr a été approuvé ! Tu peux maintenant discuter avec ton coach ici. Pose-moi ta première question quand tu veux.";
+/// French default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
+pub const FR_BACKFILL_READY: &str =
+    "✅ Ton historique est prêt — {0} activités récupérées. Redemande-moi ce que tu cherchais.";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -599,6 +609,9 @@ pub const EN_COACH_PROPOSAL_FOOTER: &str =
 /// English default for [`KEY_REGISTRATION_APPROVED`].
 pub const EN_REGISTRATION_APPROVED: &str =
     "🎉 Your Dravr account has been approved! You can now chat with your coach right here. Ask me your first question whenever you're ready.";
+/// English default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
+pub const EN_BACKFILL_READY: &str =
+    "✅ Your history is ready — {0} activities loaded. Ask me again what you were looking for.";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -1196,6 +1209,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "fr", FR_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "fr", FR_REGISTRATION_APPROVED),
+    (KEY_BACKFILL_READY, "fr", FR_BACKFILL_READY),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -1305,6 +1319,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "en", EN_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "en", EN_REGISTRATION_APPROVED),
+    (KEY_BACKFILL_READY, "en", EN_BACKFILL_READY),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),

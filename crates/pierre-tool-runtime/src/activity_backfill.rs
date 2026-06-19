@@ -200,6 +200,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         return;
     }
 
+    let activity_count = activities.len();
     let retention_days = backfill_retention_days(job.query_params.after);
     write_through_activity_cache(
         &executor.auth_service,
@@ -214,7 +215,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
     info!(
         user_id = %job.user_id,
         provider = %job.provider_name,
-        count = activities.len(),
+        count = activity_count,
         retention_days,
         // Whether this backfill was chat-triggered, so the later completion-push
         // phase's behaviour is observable. The conversation id itself is an
@@ -223,4 +224,25 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         chat_triggered = job.pierre_conversation_id.is_some(),
         "Activity backfill: wrote historical activities to durable cache"
     );
+
+    // Chat-triggered backfill: push a "your history is ready" notice back to the
+    // originating channel. Best-effort — the notifier owns its own error
+    // handling and the count is the number of activities written through (the
+    // most honest figure available without a second cache query). No-op for
+    // MCP-direct / A2A callers (no conversation id) or when no notifier is wired
+    // (messaging compiled out / not configured).
+    if let (Some(conversation_id), Some(notifier)) = (
+        job.pierre_conversation_id.as_deref(),
+        job.resources.backfill_notifier(),
+    ) {
+        notifier
+            .push_backfill_complete(
+                job.user_id,
+                job.tenant_id,
+                conversation_id,
+                &job.provider_name,
+                activity_count,
+            )
+            .await;
+    }
 }

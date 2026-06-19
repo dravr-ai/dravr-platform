@@ -102,6 +102,8 @@ use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use pierre_tool_runtime::registry::ToolRegistry;
+#[cfg(feature = "client-messaging")]
+use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -287,6 +289,12 @@ pub struct McpSlice {
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// Messaging strings registry for hot-reloadable user-facing canned replies.
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
+    /// Best-effort notifier that pushes a "your historical backfill finished"
+    /// notice back to the channel that triggered a background activity backfill.
+    /// `None` when messaging is compiled out. Exposed to the detached backfill
+    /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
+    #[cfg(feature = "client-messaging")]
+    pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
     /// Contremaitre configuration for GitHub sync and webhook verification.
     pub contremaitre_config: Option<ContremaitreConfig>,
 }
