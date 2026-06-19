@@ -39,6 +39,8 @@ pub mod fixtures;
 pub mod judge;
 /// Multi-turn sliding-window evaluator (Layer 3).
 pub mod multi_turn;
+/// Tier 5.5 Layer 2.5 — claim checked against the athlete's own computed physiology.
+pub mod personalized;
 /// Aggregated rubric-driven scoring report.
 pub mod report;
 /// Tier 5.5 Layer 1 — rhetoric vs propositional classifier.
@@ -57,8 +59,16 @@ pub use evidence_retriever::{EvidenceCorpus, EvidenceMatch, EvidenceRecord};
 pub use fixtures::{GoldenCase, GoldenFixture, Turn};
 pub use judge::{ClaimJudgement, JudgeVerdict, RubricScore};
 pub use multi_turn::{MultiTurnEvaluator, MultiTurnReport};
+pub use personalized::{
+    AthleteMetrics, CoachConfiguredStrategy, ConservativeStrategy, PersonalizedContext,
+    TightStrategy, ToleranceCall, ToleranceStrategy,
+};
 pub use report::{EvalSummary, RubricKind};
 pub use rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 pub use rubrics::Rubric;
 pub use verdict_engine::{check_claim, check_claim_judged, check_reply, VerdictOutcome};
-pub use verification_config::{CategoryConfig, VerificationConfig, VerificationFallback};
+pub use verification_config::{
+    ActionMode, AuditOnlyPolicy, CategoryConfig, ContradictionPolicy, InheritConfigPolicy,
+    PersonalizedConfig, ResolvedAction, ToleranceMode, UserWarnPolicy, VerificationConfig,
+    VerificationFallback,
+};

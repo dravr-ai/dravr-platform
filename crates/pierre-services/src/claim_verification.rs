@@ -23,7 +23,8 @@ use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::AppResult;
 use pierre_evals::{
     check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
-    evidence_retriever::EvidenceCorpus, extract_heuristic, VerdictOutcome, VerificationConfig,
+    evidence_retriever::EvidenceCorpus, extract_heuristic, PersonalizedContext, VerdictOutcome,
+    VerificationConfig,
 };
 use pierre_llm::LlmProvider;
 use pierre_memory::claims::EvidenceStrength;
@@ -285,7 +286,7 @@ pub fn verify_reply_heuristic_with(
     claims
         .iter()
         .map(|claim| {
-            let outcome = check_claim(claim, &claims, corpus, minimum_strength);
+            let outcome = check_claim(claim, &claims, corpus, minimum_strength, None);
             (claim.clone(), outcome)
         })
         .collect()
@@ -329,7 +330,7 @@ pub fn verify_reply_with_config_and_corpus(
         .filter(|claim| config.is_enabled_for(claim.category))
         .map(|claim| {
             let min_strength = config.for_category(claim.category).min_strength;
-            let outcome = check_claim(claim, &claims, corpus, min_strength);
+            let outcome = check_claim(claim, &claims, corpus, min_strength, None);
             (claim.clone(), outcome)
         })
         .collect()
@@ -353,6 +354,7 @@ pub async fn verify_reply_with_config_and_judge(
     config: &VerificationConfig,
     corpus: &EvidenceCorpus,
     judge: Option<&dyn LlmProvider>,
+    athlete: Option<&PersonalizedContext<'_>>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
     if !config.enabled {
         return Ok(Vec::new());
@@ -365,8 +367,10 @@ pub async fn verify_reply_with_config_and_judge(
     for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
         let min_strength = config.for_category(claim.category).min_strength;
         // Cross-check Layer 4 against every extracted claim, matching the
-        // synchronous variant's semantics.
-        let outcome = check_claim_judged(claim, &claims, corpus, min_strength, judge).await?;
+        // synchronous variant's semantics. Layer 2.5 fires when `athlete` is
+        // supplied (the chat pipeline builds it from the athlete's physiology).
+        let outcome =
+            check_claim_judged(claim, &claims, corpus, min_strength, judge, athlete).await?;
         out.push((claim.clone(), outcome));
     }
     Ok(out)
@@ -381,7 +385,13 @@ pub fn verify_single_claim(
 ) -> VerdictOutcome {
     // A claim verified in isolation has no siblings, so Layer 4 (consistency)
     // has nothing to compare against and the verdict falls through to evidence.
-    check_claim(claim, slice::from_ref(claim), corpus(), minimum_strength)
+    check_claim(
+        claim,
+        slice::from_ref(claim),
+        corpus(),
+        minimum_strength,
+        None,
+    )
 }
 
 /// Verify a single claim against a caller-provided corpus.
@@ -395,7 +405,13 @@ pub fn verify_single_claim_with(
     corpus: &EvidenceCorpus,
 ) -> VerdictOutcome {
     // Single-claim path: no siblings for Layer 4 to cross-check against.
-    check_claim(claim, slice::from_ref(claim), corpus, minimum_strength)
+    check_claim(
+        claim,
+        slice::from_ref(claim),
+        corpus,
+        minimum_strength,
+        None,
+    )
 }
 
 /// Warm the corpus at startup and log its size.

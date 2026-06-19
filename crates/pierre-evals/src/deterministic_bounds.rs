@@ -44,7 +44,7 @@ pub fn check(claim: &ExtractedClaim) -> Option<BoundViolation> {
     }
 }
 
-fn extract_number_near(text: &str, keyword: &str) -> Option<f64> {
+pub(crate) fn extract_number_near(text: &str, keyword: &str) -> Option<f64> {
     let lower = text.to_lowercase();
     let idx = lower.find(keyword)?;
     let kw_end = idx + keyword.len();

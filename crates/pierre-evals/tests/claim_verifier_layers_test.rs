@@ -192,7 +192,7 @@ async fn consistency_layer_fires_in_full_pipeline() {
             ClaimCategory::TrainingPrescription,
         ),
     ];
-    let verdicts = check_reply(&claims, &corpus(), EvidenceStrength::Mixed, None)
+    let verdicts = check_reply(&claims, &corpus(), EvidenceStrength::Mixed, None, None)
         .await
         .expect("pipeline runs without a judge");
     assert_eq!(verdicts.len(), 2);
@@ -217,7 +217,7 @@ fn check_claim_without_siblings_skips_consistency() {
     );
     // No siblings — Layer 4 has nothing to compare against, so the verdict
     // falls through to the evidence layer (no corpus match → Unsupported).
-    let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed);
+    let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed, None);
     assert_eq!(outcome.layer_fired, VerdictLayer::Evidence);
     assert_eq!(outcome.status, ClaimStatus::Unsupported);
 }
@@ -243,6 +243,7 @@ async fn judge_resolves_inconclusive_claim() {
         &corpus(),
         EvidenceStrength::Mixed,
         Some(&judge),
+        None,
     )
     .await
     .expect("judge call succeeds");
@@ -269,6 +270,7 @@ async fn judge_maps_unknown_verdict_to_unverifiable() {
         &corpus(),
         EvidenceStrength::Mixed,
         Some(&judge),
+        None,
     )
     .await
     .expect("judge call succeeds");
@@ -291,6 +293,7 @@ async fn judge_does_not_fire_when_earlier_layer_resolves() {
         &corpus(),
         EvidenceStrength::Mixed,
         Some(&judge),
+        None,
     )
     .await
     .expect("pipeline runs");
@@ -311,6 +314,7 @@ async fn no_judge_settles_on_evidence_layer() {
         &corpus(),
         EvidenceStrength::Mixed,
         None,
+        None,
     )
     .await
     .expect("pipeline runs without judge");
@@ -329,9 +333,15 @@ async fn check_reply_preserves_rhetoric_short_circuit() {
         ClaimCategory::TrainingPrescription,
     )];
     let judge = CannedJudge::new(r#"{"verdict":"supported","confidence":1.0,"rationale":"x"}"#);
-    let verdicts = check_reply(&claims, &corpus(), EvidenceStrength::Mixed, Some(&judge))
-        .await
-        .expect("pipeline runs");
+    let verdicts = check_reply(
+        &claims,
+        &corpus(),
+        EvidenceStrength::Mixed,
+        Some(&judge),
+        None,
+    )
+    .await
+    .expect("pipeline runs");
     assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Rhetoric);
     assert_eq!(
         judge.call_count(),
@@ -346,7 +356,7 @@ async fn check_reply_preserves_evidence_support() {
         "Aim for 1.6 grams of protein per kg of body weight daily.",
         ClaimCategory::Nutrition,
     )];
-    let verdicts = check_reply(&claims, &corpus(), EvidenceStrength::Mixed, None)
+    let verdicts = check_reply(&claims, &corpus(), EvidenceStrength::Mixed, None, None)
         .await
         .expect("pipeline runs");
     assert_eq!(verdicts[0].1.status, ClaimStatus::Supported);

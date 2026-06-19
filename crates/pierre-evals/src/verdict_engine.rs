@@ -15,6 +15,10 @@
 //! 2. **Deterministic** — hard-coded per-category sanity bounds. If any
 //!    bound is violated, emit `ClaimStatus::Contradicted` with
 //!    `VerdictLayer::Deterministic`.
+//! 2.5. **Personalized** — when an athlete snapshot is supplied, check the
+//!    claim against that athlete's own VDOT-derived paces, zones, and load. A
+//!    clear mismatch emits `ClaimStatus::Contradicted`, a match emits
+//!    `ClaimStatus::Supported`, both with `VerdictLayer::Personalized`.
 //! 3. **Evidence** — retrieval against [`EvidenceCorpus`]. If a match at
 //!    or above the configured minimum strength, emit
 //!    `ClaimStatus::Supported` with `VerdictLayer::Evidence` and stop.
@@ -43,6 +47,7 @@ use crate::consistency::find_contradiction;
 use crate::deterministic_bounds;
 use crate::evidence_retriever::{EvidenceCorpus, EvidenceMatch};
 use crate::judge::judge_claim;
+use crate::personalized::{check as personalized_check, PersonalizedContext};
 use crate::rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 use pierre_core::errors::AppResult;
 use pierre_llm::LlmProvider;
@@ -98,8 +103,9 @@ pub fn check_claim(
     siblings: &[ExtractedClaim],
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
+    personalized: Option<&PersonalizedContext<'_>>,
 ) -> VerdictOutcome {
-    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength) {
+    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength, personalized) {
         LayerResult::Resolved(outcome) => outcome,
         LayerResult::Inconclusive(matches) => {
             inconclusive_evidence_verdict(&matches, minimum_strength)
@@ -125,10 +131,12 @@ pub async fn check_reply(
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
     judge: Option<&dyn LlmProvider>,
+    personalized: Option<&PersonalizedContext<'_>>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
     let mut out = Vec::with_capacity(claims.len());
     for claim in claims {
-        let outcome = match run_layers_1_to_4(claim, claims, corpus, minimum_strength) {
+        let outcome = match run_layers_1_to_4(claim, claims, corpus, minimum_strength, personalized)
+        {
             LayerResult::Resolved(outcome) => outcome,
             LayerResult::Inconclusive(matches) => {
                 run_judge_or_settle(claim, &matches, minimum_strength, judge).await?
@@ -158,8 +166,9 @@ pub async fn check_claim_judged(
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
     judge: Option<&dyn LlmProvider>,
+    personalized: Option<&PersonalizedContext<'_>>,
 ) -> AppResult<VerdictOutcome> {
-    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength) {
+    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength, personalized) {
         LayerResult::Resolved(outcome) => Ok(outcome),
         LayerResult::Inconclusive(matches) => {
             run_judge_or_settle(claim, &matches, minimum_strength, judge).await
@@ -175,10 +184,19 @@ fn run_layers_1_to_4(
     siblings: &[ExtractedClaim],
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
+    personalized: Option<&PersonalizedContext<'_>>,
 ) -> LayerResult {
     // Layers 1–2.
     if let Some(early) = run_rhetoric_and_deterministic(claim) {
         return LayerResult::Resolved(early);
+    }
+
+    // Layer 2.5 — personalized physiology. Fires only when the caller supplied
+    // an athlete snapshot; otherwise the claim flows straight to evidence.
+    if let Some(ctx) = personalized {
+        if let Some(outcome) = personalized_check(claim, ctx) {
+            return LayerResult::Resolved(outcome);
+        }
     }
 
     // Layer 3 — evidence retrieval. A confident support stops the pipeline.

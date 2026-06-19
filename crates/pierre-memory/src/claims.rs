@@ -172,6 +172,10 @@ pub enum VerdictLayer {
     Rhetoric,
     /// Layer 2 — deterministic per-category bounds (pure Rust).
     Deterministic,
+    /// Layer 2.5 — claim checked against the athlete's own computed
+    /// physiology (VDOT-derived training paces, HR/power zones, recent load).
+    /// Pure Rust; fires only when a personalized snapshot is supplied.
+    Personalized,
     /// Layer 3 — evidence RAG against the curated corpus.
     Evidence,
     /// Layer 4 — cross-check against other claims in the same reply.
@@ -187,6 +191,7 @@ impl VerdictLayer {
         match self {
             Self::Rhetoric => "rhetoric",
             Self::Deterministic => "deterministic",
+            Self::Personalized => "personalized",
             Self::Evidence => "evidence",
             Self::Consistency => "consistency",
             Self::Judge => "judge",
@@ -199,6 +204,7 @@ impl VerdictLayer {
         match s {
             "rhetoric" => Some(Self::Rhetoric),
             "deterministic" => Some(Self::Deterministic),
+            "personalized" => Some(Self::Personalized),
             "evidence" => Some(Self::Evidence),
             "consistency" => Some(Self::Consistency),
             "judge" => Some(Self::Judge),
@@ -313,6 +319,7 @@ mod tests {
         for l in [
             VerdictLayer::Rhetoric,
             VerdictLayer::Deterministic,
+            VerdictLayer::Personalized,
             VerdictLayer::Evidence,
             VerdictLayer::Consistency,
             VerdictLayer::Judge,

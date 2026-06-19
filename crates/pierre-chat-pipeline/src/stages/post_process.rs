@@ -167,6 +167,8 @@ pub(crate) async fn post_process_assistant_reply(
             reply: &content,
             config: &verification_config,
             locale: locale_opt,
+            user_id: &input.user_id,
+            tenant_id: input.conversation_tenant_id,
         })
         .await;
         content = verified_content;

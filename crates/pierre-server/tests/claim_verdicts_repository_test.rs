@@ -71,6 +71,46 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
 }
 
 #[tokio::test]
+async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
+    // Validates migration 20260619000001: the `layer_fired` CHECK constraint
+    // must accept 'personalized' (Layer 2.5). A wrong constraint fails this
+    // insert at runtime — on SQLite here and on Postgres under the postgresql
+    // feature — which is the only place the migration is exercised.
+    let db = fresh_db().await?;
+    let repos = db.repositories();
+    let params = InsertClaimVerdictParams {
+        tenant_id: tenant(),
+        user_id: "user-1",
+        coach_id: None,
+        conversation_id: None,
+        message_id: None,
+        claim_text: "Run your threshold pace at 4:00/km",
+        category: ClaimCategory::TrainingPrescription,
+        status: ClaimStatus::Contradicted,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::Personalized,
+        explanation: Some(
+            "Contradicts your own data — threshold pace 4:00/km vs your 5:00/km–5:15/km",
+        ),
+        evidence_refs: None,
+    };
+
+    let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
+    assert_eq!(saved.layer_fired, VerdictLayer::Personalized);
+    assert_eq!(saved.status, ClaimStatus::Contradicted);
+
+    let recent = repos
+        .claim_verdicts
+        .list_recent_verdicts(tenant(), 10)
+        .await?;
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].layer_fired, VerdictLayer::Personalized);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
     let db = fresh_db().await?;
     let repos = db.repositories();

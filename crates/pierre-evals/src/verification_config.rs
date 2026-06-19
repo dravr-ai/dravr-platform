@@ -17,7 +17,12 @@
 //! prompt text. The loader is tolerant — any parse failure falls back to
 //! the safe default so misconfigured coaches never crash dispatch.
 
-use pierre_memory::{ClaimCategory, EvidenceStrength};
+use crate::personalized::{
+    CoachConfiguredStrategy, ConservativeStrategy, TightStrategy, ToleranceStrategy,
+    DEFAULT_MARGIN_FRAC,
+};
+use crate::verdict_engine::VerdictOutcome;
+use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -70,6 +75,9 @@ pub struct VerificationConfig {
     /// How to react to a non-supported verdict.
     #[serde(default)]
     pub fallback_behavior: VerificationFallback,
+    /// Strategy + tuning for the personalized physiology layer (Layer 2.5).
+    #[serde(default)]
+    pub personalized: PersonalizedConfig,
 }
 
 impl Default for VerificationConfig {
@@ -89,6 +97,7 @@ impl Default for VerificationConfig {
             enabled: true,
             categories,
             fallback_behavior: VerificationFallback::Warn,
+            personalized: PersonalizedConfig::default(),
         }
     }
 }
@@ -146,4 +155,165 @@ struct FrontmatterShape {
 fn parse_verification_config_yaml(frontmatter: &str) -> Option<VerificationConfig> {
     let parsed: FrontmatterShape = serde_yaml::from_str(frontmatter).ok()?;
     parsed.verification_config
+}
+
+/// Which [`ToleranceStrategy`] Layer 2.5 uses to decide when a claim
+/// contradicts the athlete's range. Selected per-coach via YAML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToleranceMode {
+    /// Buffer margin read from the coach YAML (`margin_frac`). The default.
+    #[default]
+    CoachConfigured,
+    /// Fixed safety buffer the coach cannot loosen.
+    Conservative,
+    /// Zero buffer: any value outside the range is contradicted.
+    Tight,
+}
+
+/// What a personalized (Layer 2.5) verdict does to the reply. Selected
+/// per-coach via YAML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionMode {
+    /// Reuse the coach's existing [`VerificationFallback`]. The default.
+    #[default]
+    Inherit,
+    /// Record the verdict for admin / the human coach, never alter the reply.
+    AuditOnly,
+    /// Append a warning banner to the athlete's reply.
+    UserWarn,
+}
+
+/// Per-coach configuration for the personalized physiology layer (Layer 2.5).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PersonalizedConfig {
+    /// Master switch for Layer 2.5.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Which tolerance strategy decides contradictions.
+    #[serde(default)]
+    pub tolerance: ToleranceMode,
+    /// Buffer margin (fraction of the metric value) for the
+    /// [`ToleranceMode::CoachConfigured`] strategy.
+    #[serde(default = "default_margin_frac")]
+    pub margin_frac: f64,
+    /// What a personalized verdict does to the reply.
+    #[serde(default)]
+    pub action: ActionMode,
+}
+
+impl Default for PersonalizedConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tolerance: ToleranceMode::default(),
+            margin_frac: DEFAULT_MARGIN_FRAC,
+            action: ActionMode::default(),
+        }
+    }
+}
+
+fn default_margin_frac() -> f64 {
+    DEFAULT_MARGIN_FRAC
+}
+
+impl PersonalizedConfig {
+    /// Build the [`ToleranceStrategy`] selected by `tolerance`. The default
+    /// ([`ToleranceMode::CoachConfigured`]) carries the YAML `margin_frac`.
+    #[must_use]
+    pub fn tolerance_strategy(&self) -> Box<dyn ToleranceStrategy> {
+        match self.tolerance {
+            ToleranceMode::CoachConfigured => Box::new(CoachConfiguredStrategy {
+                margin_frac: self.margin_frac,
+            }),
+            ToleranceMode::Conservative => Box::new(ConservativeStrategy::default()),
+            ToleranceMode::Tight => Box::new(TightStrategy),
+        }
+    }
+
+    /// Build the [`ContradictionPolicy`] selected by `action`. The default
+    /// ([`ActionMode::Inherit`]) defers to the coach's [`VerificationFallback`].
+    #[must_use]
+    pub fn contradiction_policy(&self) -> Box<dyn ContradictionPolicy> {
+        match self.action {
+            ActionMode::Inherit => Box::new(InheritConfigPolicy),
+            ActionMode::AuditOnly => Box::new(AuditOnlyPolicy),
+            ActionMode::UserWarn => Box::new(UserWarnPolicy),
+        }
+    }
+}
+
+/// The effective action the dispatch path takes for a verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedAction {
+    /// Leave the reply untouched (the verdict was supportive or rhetorical).
+    Pass,
+    /// Append a warning banner to the reply but let it through.
+    WarnBanner,
+    /// Record the verdict for the admin trail without altering the reply.
+    RecordOnly,
+    /// Reject the reply and ask the LLM to retry.
+    BlockRetry,
+}
+
+/// Pluggable policy mapping a verdict + coach config to a [`ResolvedAction`].
+///
+/// Selected per-coach via [`ActionMode`]. The default ([`InheritConfigPolicy`])
+/// reproduces the pipeline's pre-Layer-2.5 behavior exactly.
+pub trait ContradictionPolicy: Send + Sync {
+    /// Resolve what the dispatch path should do with `verdict`.
+    fn resolve(&self, verdict: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction;
+}
+
+/// Default policy: defer to the coach's existing [`VerificationFallback`].
+pub struct InheritConfigPolicy;
+
+impl ContradictionPolicy for InheritConfigPolicy {
+    fn resolve(&self, verdict: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction {
+        if is_passing(verdict) {
+            return ResolvedAction::Pass;
+        }
+        match config.fallback_behavior {
+            VerificationFallback::Warn => ResolvedAction::WarnBanner,
+            VerificationFallback::Silent => ResolvedAction::RecordOnly,
+            VerificationFallback::Block => ResolvedAction::BlockRetry,
+        }
+    }
+}
+
+/// Record-only policy: the verdict reaches the admin trail and the human coach,
+/// never the athlete.
+pub struct AuditOnlyPolicy;
+
+impl ContradictionPolicy for AuditOnlyPolicy {
+    fn resolve(&self, verdict: &VerdictOutcome, _config: &VerificationConfig) -> ResolvedAction {
+        if is_passing(verdict) {
+            ResolvedAction::Pass
+        } else {
+            ResolvedAction::RecordOnly
+        }
+    }
+}
+
+/// User-facing policy: always append a warning banner for a non-supported verdict.
+pub struct UserWarnPolicy;
+
+impl ContradictionPolicy for UserWarnPolicy {
+    fn resolve(&self, verdict: &VerdictOutcome, _config: &VerificationConfig) -> ResolvedAction {
+        if is_passing(verdict) {
+            ResolvedAction::Pass
+        } else {
+            ResolvedAction::WarnBanner
+        }
+    }
+}
+
+/// A verdict whose status needs no dispatch action (supportive or
+/// non-propositional).
+fn is_passing(verdict: &VerdictOutcome) -> bool {
+    matches!(
+        verdict.status,
+        ClaimStatus::Supported | ClaimStatus::Rhetorical
+    )
 }

@@ -50,7 +50,7 @@ export interface ChatVerdictRow {
   status: 'supported' | 'unsupported' | 'contradicted' | 'rhetorical' | 'unverifiable';
   evidence_strength: 'strong' | 'mixed' | 'weak' | 'none';
   confidence: number;
-  layer_fired: 'rhetoric' | 'deterministic' | 'evidence' | 'consistency' | 'judge';
+  layer_fired: 'rhetoric' | 'deterministic' | 'personalized' | 'evidence' | 'consistency' | 'judge';
   explanation: string | null;
   evidence_refs: string | null;
   created_at: string;
