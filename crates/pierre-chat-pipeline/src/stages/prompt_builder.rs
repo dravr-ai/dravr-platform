@@ -27,6 +27,7 @@ use pierre_core::models::ConnectionType;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
@@ -106,10 +107,23 @@ pub fn build_llm_messages(
     }
 
     for msg in history {
+        // Strip tool-result scaffolding from replayed history before it re-enters
+        // the prompt. Persisted `tool_result` turns hold raw `<tool_result>` XML,
+        // and a prior parroted assistant echo holds the same blocks; replaying
+        // either verbatim teaches the model to imitate the format and emit a
+        // tool-result echo instead of an answer (observed: a long thread degrades
+        // to empty/parroted replies). `strip_simulation_artifacts` leaves a real
+        // synthesized answer untouched and reduces pure scaffolding to empty, so
+        // an empty result is dropped rather than re-seeding the parrot. Mirrors
+        // the per-turn strip in `run_cli_tool_loop` / `finalize_headless_turn`.
+        let stripped = strip_simulation_artifacts(&msg.content);
+        if stripped.is_empty() {
+            continue;
+        }
         let chat_msg = match msg.role.as_str() {
-            "user" | "tool_result" => ChatMessage::user(&msg.content),
-            "assistant" | "tool_call" => ChatMessage::assistant(&msg.content),
-            "system" => ChatMessage::system(&msg.content),
+            "user" | "tool_result" => ChatMessage::user(&stripped),
+            "assistant" | "tool_call" => ChatMessage::assistant(&stripped),
+            "system" => ChatMessage::system(&stripped),
             _ => continue,
         };
         messages.push(chat_msg);
