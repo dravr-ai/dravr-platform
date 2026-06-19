@@ -24,7 +24,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::analytics_sink::PierreAnalyticsProvider;
+use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
 use pierre_mcp_server::{
     constants::init_server_config,
@@ -169,6 +169,9 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     // Register the PostHog analytics provider before logging init so the
     // NotifyLayer can attach the sink (active only when POSTHOG_API_KEY is set).
     pierre_logging::set_analytics_provider(Arc::new(PierreAnalyticsProvider));
+    // Register the notify enricher so every Slack/PostHog event carries the
+    // user's email (from the identity cache) and a display emoji.
+    pierre_logging::set_notify_enricher(Arc::new(PierreNotifyEnricher));
     pierre_logging::init_from_env()?;
     info!("Starting Dravr API - Production Mode");
     info!("{}", config.summary());

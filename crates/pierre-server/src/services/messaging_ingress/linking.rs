@@ -19,7 +19,7 @@ use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
     KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
 };
-use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::user_status_gate::messaging_key_for_status;
 
 use super::locale::resolve_messaging_locale;
@@ -328,6 +328,9 @@ pub(super) async fn hydrate_analytics_consent(resources: &ServerContext, user_id
     match resources.common.repos.users.get_global(parsed).await {
         Ok(Some(user)) => {
             analytics().hydrate_consent(&hashed_user, user.analytics_consent);
+            // Warm the identity cache from the same record so this user's
+            // messaging-channel notify events carry their email.
+            cache_user_email(user_id, &user.email);
         }
         Ok(None) => {}
         Err(e) => {

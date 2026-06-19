@@ -5,9 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
-#[cfg(feature = "analytics-posthog")]
 use dashmap::DashMap;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
@@ -109,6 +108,56 @@ pub fn analytics() -> &'static dyn AnalyticsTracker {
 #[must_use]
 pub fn is_consented(hashed_user_id: &str) -> bool {
     analytics().is_consented(hashed_user_id)
+}
+
+// =============================================================================
+// Identity cache (notify-event enrichment)
+// =============================================================================
+
+/// Process-wide cache mapping a raw `user_id` to the user's email.
+///
+/// Populated at authentication time from the durable user record and read by
+/// the notify-event enricher synchronously on the tracing thread, so every
+/// Slack/`PostHog` message can carry the user's email without a database
+/// round-trip. Keyed by the raw `user_id` string carried on notify events —
+/// not the hashed id the consent cache uses — because the enricher resolves
+/// straight from an event's `user_id` field.
+///
+/// Distinct from the consent cache: email is internal operator/identity
+/// context for the private monitoring channel, not consent-gated `PostHog`
+/// state. A cold pod that has not yet seen a user simply renders no email for
+/// that event until the next authentication warms the entry.
+static USER_EMAILS: LazyLock<DashMap<String, String>> = LazyLock::new(DashMap::new);
+
+/// Cache a user's email for notify-event enrichment.
+///
+/// Call wherever the durable user record is loaded during authentication —
+/// the same call sites that warm the consent cache — so identity coverage
+/// tracks consent coverage. No-op for empty inputs.
+pub fn cache_user_email(user_id: &str, email: &str) {
+    if user_id.is_empty() || email.is_empty() {
+        return;
+    }
+    USER_EMAILS.insert(user_id.to_owned(), email.to_owned());
+}
+
+/// Resolve a cached email for `user_id`, or `None` when the user has not been
+/// seen on this pod since its last cold start.
+///
+/// Returns an owned clone so the caller holds no map guard across the tracing
+/// hot path.
+///
+/// ```
+/// use pierre_services::analytics::{cache_user_email, resolve_user_email};
+/// assert_eq!(resolve_user_email("u-doc"), None);
+/// cache_user_email("u-doc", "jane@acme.com");
+/// assert_eq!(resolve_user_email("u-doc").as_deref(), Some("jane@acme.com"));
+/// cache_user_email("u-doc", ""); // empty email is a no-op, prior value kept
+/// assert_eq!(resolve_user_email("u-doc").as_deref(), Some("jane@acme.com"));
+/// ```
+#[must_use]
+pub fn resolve_user_email(user_id: &str) -> Option<String> {
+    USER_EMAILS.get(user_id).map(|e| e.value().clone())
 }
 
 // =============================================================================

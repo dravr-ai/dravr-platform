@@ -31,7 +31,7 @@ use pierre_auth::dto::auth::{
     UpdateProfileRequest, UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
-use pierre_services::analytics::{analytics, hash_id};
+use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
 
 // ---------------------------------------------------------------------------
@@ -237,6 +237,9 @@ pub async fn handle_firebase_login(
             let user_id = uuid::Uuid::parse_str(&response.user.user_id)
                 .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
 
+            // Warm the identity cache so this user's notify events carry email.
+            cache_user_email(&user_id.to_string(), &response.user.email);
+
             // Generate CSRF token (stateless HMAC — no server storage)
             let csrf_token = resources
                 .csrf_manager
@@ -371,6 +374,9 @@ pub async fn handle_session(
     // events are not silently dropped after a Cloud Run cold start
     let hashed_user_id = hash_id(&user_id.to_string());
     analytics().hydrate_consent(&hashed_user_id, user.analytics_consent);
+    // Warm the identity cache from the same durable record so notify events
+    // for this user carry their email (mirrors the consent-cache hydration).
+    cache_user_email(&user_id.to_string(), &user.email);
 
     // Preserve active_tenant_id from existing JWT, or look up user's default tenant
     let active_tenant_id = if let Some(tid) = auth_result.active_tenant_id {
@@ -856,6 +862,9 @@ pub async fn handle_oauth2_token(
             if let Some(tenant_id) = response.user.tenant_id.as_deref() {
                 Span::current().record("tenant_id", field::display(&tenant_id));
             }
+            // Warm the identity cache before emitting so the NotifyLayer enricher
+            // can attach this user's email to the user.login event itself.
+            cache_user_email(&user_id.to_string(), &response.user.email);
             info!(
                 target: "notify",
                 event = "user.login",
