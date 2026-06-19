@@ -68,6 +68,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
+      # Retry transient crates.io download failures (curl/SSL EOF) instead of failing.
+      CARGO_NET_RETRY: "10"
       CARGO_HOME: /home/runner/.cargo
       CARGO_INCREMENTAL: "0"
     steps:
@@ -120,6 +122,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
+      # Retry transient crates.io download failures (curl/SSL EOF) instead of failing.
+      CARGO_NET_RETRY: "10"
       CARGO_HOME: /home/runner/.cargo
       CARGO_INCREMENTAL: "0"
       # QA driver creds consumed by the test harness (posts + polls

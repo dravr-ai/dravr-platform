@@ -49,6 +49,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # Retry transient crates.io download failures (curl/SSL EOF) instead of
+  # failing the job; cold rust-cache (frequent Cargo.lock churn) hits fresh fetches.
+  CARGO_NET_RETRY: "10"
   RUSTFLAGS: -Dwarnings
 
 concurrency:
