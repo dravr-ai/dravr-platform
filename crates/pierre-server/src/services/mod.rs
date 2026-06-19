@@ -36,6 +36,11 @@ pub mod messaging_ingress;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod user_approval_notifier;
 
+/// Backfill-completion notifier: pushes a "your history is ready" notice back to
+/// the channel that triggered a historical activity backfill.
+#[cfg(feature = "client-messaging")]
+pub mod backfill_notifier;
+
 /// Endurance Phase 2 training-history compute service — fetches activities + physiology,
 /// runs `pierre_intelligence::training_history_compute`, persists rows.
 pub mod training_history_compute;

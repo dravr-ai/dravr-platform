@@ -13,6 +13,8 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+#[cfg(feature = "client-messaging")]
+use crate::services::backfill_notifier::ServerBackfillNotifier;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -407,6 +409,16 @@ impl ServerContext {
             repos: usage_repos_view,
         };
 
+        // Best-effort backfill-completion notifier, built from the same shared
+        // repos + strings registry the approval notifier uses. Stored on the
+        // context so the detached historical-backfill task can push a "your
+        // history is ready" notice back to the originating channel.
+        #[cfg(feature = "client-messaging")]
+        let backfill_notifier = Some(ServerBackfillNotifier::from_handles(
+            common.repos.clone(),
+            contremaitre_messaging_strings_registry.clone(),
+        ));
+
         let mcp = super::slices::McpSlice {
             tool_registry,
             tool_selection,
@@ -414,6 +426,8 @@ impl ServerContext {
             tool_description_registry: contremaitre_tool_desc_registry,
             evidence_registry: contremaitre_evidence_registry,
             messaging_strings_registry: contremaitre_messaging_strings_registry,
+            #[cfg(feature = "client-messaging")]
+            backfill_notifier,
             contremaitre_config: ContremaitreConfig::from_env(),
         };
 
