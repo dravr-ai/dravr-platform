@@ -7,6 +7,8 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use std::slice::from_ref;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use futures_util::stream;
@@ -34,6 +36,10 @@ use pierre_services::conversation_compaction::{
 /// the exact string flowed from the LLM call through persistence and back into
 /// the reconstructed prompt.
 const STUB_SUMMARY: &str = "SUMMARY: earlier turns covered the user's training week.";
+
+/// Number of messages seeded into the conversation — over the default 40-message
+/// cap so compaction routes through the summarize path.
+const MESSAGE_COUNT: usize = 50;
 
 /// LLM provider stub that returns a fixed summary from `complete`.
 ///
@@ -173,7 +179,6 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     .await
     .expect("conversation should be created");
 
-    const MESSAGE_COUNT: usize = 50;
     for i in 0..MESSAGE_COUNT {
         let role = if i % 2 == 0 { "user" } else { "assistant" };
         let content = format!("msg-{i:02} short coaching turn about the training week");
@@ -292,7 +297,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     //     prompt from the SAME raw history plus the persisted block must re-inject
     //     the summary in place of the six covered rows. ---
     let (reconstructed, recon_source_ids) =
-        build_llm_messages_with_blocks(Some(system_prompt), &history, &[block.clone()]);
+        build_llm_messages_with_blocks(Some(system_prompt), &history, from_ref(&block));
 
     // The six covered raw rows must be absent.
     for covered in history.iter().take(6) {
