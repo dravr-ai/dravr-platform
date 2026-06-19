@@ -1,5 +1,5 @@
-// ABOUTME: Platform AnalyticsProvider — resolves per-notify-event PostHog capture decisions
-// ABOUTME: Maps event tier + consent to a hashed distinct_id and PII-stripped properties
+// ABOUTME: Platform NotifyLayer seams — AnalyticsProvider (PostHog capture) + NotifyEnricher (user_email/emoji)
+// ABOUTME: Maps event tier + consent to a hashed distinct_id and PII-stripped properties; enriches every event
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use dravr_contremaitre::schemas::NOTIFY_EVENTS_YAML;
-use dravr_tronc::notify::{AnalyticsCapture, AnalyticsProvider};
-use pierre_services::analytics::{hash_id, is_consented, EventTier};
+use dravr_tronc::notify::{AnalyticsCapture, AnalyticsProvider, NotifyEnricher};
+use pierre_services::analytics::{hash_id, is_consented, resolve_user_email, EventTier};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tracing::error;
@@ -21,6 +21,11 @@ use tracing::error;
 const STRIPPED_KEYS: &[&str] = &[
     "user_id",
     "tenant_id",
+    // `user_email` is forwarded only as a PostHog person property ($set) for
+    // consented product events — never as a flat event property. `emoji` is a
+    // Slack-display field with no analytics meaning.
+    "user_email",
+    "emoji",
     "message",
     "uri",
     "method",
@@ -101,10 +106,47 @@ impl AnalyticsProvider for PierreAnalyticsProvider {
             }
         };
 
+        let mut properties = build_properties(fields, tier, raw_tenant);
+
+        // Attach the user's email as a PostHog person property ($set) — the
+        // idiomatic way to make a person profile identifiable — but only for
+        // consented product-tier events. Operational events key on the hashed
+        // tenant and are PII-free by design, so they never carry email.
+        if tier == EventTier::Product {
+            if let Some(email) = fields.get("user_email") {
+                set_person_email(&mut properties, email);
+            }
+        }
+
         Some(AnalyticsCapture {
             distinct_id,
-            properties: build_properties(fields, tier, raw_tenant),
+            properties,
         })
+    }
+}
+
+/// Set `email` as a `PostHog` person property under the reserved `$set` key,
+/// creating the `$set` object when absent. No-op if `properties` is not a JSON
+/// object (it always is, from [`build_properties`]).
+///
+/// ```
+/// use pierre_mcp_server::analytics_sink::set_person_email;
+/// use serde_json::json;
+///
+/// let mut props = json!({ "tier": "product" });
+/// set_person_email(&mut props, "jane@acme.com");
+/// assert_eq!(props["$set"]["email"], "jane@acme.com");
+/// assert_eq!(props["tier"], "product"); // existing properties untouched
+/// ```
+pub fn set_person_email(properties: &mut Value, email: &str) {
+    let Value::Object(map) = properties else {
+        return;
+    };
+    let set = map
+        .entry("$set")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Value::Object(set_map) = set {
+        set_map.insert("email".to_owned(), Value::String(email.to_owned()));
     }
 }
 
@@ -162,4 +204,52 @@ fn coerce(value: &str) -> Value {
         }
     }
     Value::String(value.to_owned())
+}
+
+/// Enriches every notify event with host-derived fields for both sinks.
+///
+/// Injects a `user_email` resolved from the in-process identity cache (so the
+/// private monitoring channel shows who, not an opaque UUID) and a per-event
+/// display `emoji` for the Slack headline.
+///
+/// Registered once at startup via [`pierre_logging::set_notify_enricher`]. Runs
+/// synchronously on the tracing thread, so it only touches in-memory state —
+/// never a database. Events with no `user_id` in scope (pure system events) or
+/// a user not yet seen on this pod simply carry no `user_email`.
+pub struct PierreNotifyEnricher;
+
+impl NotifyEnricher for PierreNotifyEnricher {
+    fn enrich(&self, event: &str, fields: &mut HashMap<String, String>) {
+        // Per-event display emoji for the Slack headline. `or_insert` so a
+        // call site that set its own emoji wins.
+        fields
+            .entry("emoji".to_owned())
+            .or_insert_with(|| event_emoji(event).to_owned());
+
+        // Resolve the user's email from the identity cache. Clone the id first
+        // to release the immutable borrow before the insert.
+        if let Some(user_id) = fields.get("user_id").cloned() {
+            if let Some(email) = resolve_user_email(&user_id) {
+                fields.insert("user_email".to_owned(), email);
+            }
+        }
+    }
+}
+
+/// Map a notify event to a Slack-headline emoji by its category (the segment
+/// before the first `.`). Every event gets an icon; the `🔔` fallback covers
+/// categories without a dedicated glyph.
+fn event_emoji(event: &str) -> &'static str {
+    match event.split('.').next().unwrap_or_default() {
+        "user" => "🔑",
+        "chat" => "💬",
+        "provider" => "📥",
+        "embacle" | "llm" => "🤖",
+        "coach" => "🏃",
+        "billing" | "checkout" | "subscription" => "💳",
+        "group" => "👥",
+        "messaging" => "📨",
+        "oauth" => "🔗",
+        _ => "🔔",
+    }
 }

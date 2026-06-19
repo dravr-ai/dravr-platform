@@ -37,7 +37,7 @@ use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::field::Empty;
+use tracing::field::{display, Empty};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -83,7 +83,7 @@ impl ToolHandlers {
         skip(request, resources),
         fields(
             method = %request.method,
-            request_id = ?request.id,
+            request_id = Empty,
             tool_name = Empty,
             user_id = Empty,
             tenant_id = Empty,
@@ -95,6 +95,13 @@ impl ToolHandlers {
         request: McpRequest,
         resources: &Arc<ServerContext>,
     ) -> McpResponse {
+        // Record the JSON-RPC id as its inner value's Display (e.g. `3`) rather
+        // than the Debug of the Option<Value> (`Some(Number(3))`) so notify
+        // events inheriting this span render a clean request_id.
+        if let Some(id) = &request.id {
+            tracing::Span::current().record("request_id", display(id));
+        }
+
         // Extract auth token from either HTTP Authorization header or MCP params
         let auth_token_string = request
             .params

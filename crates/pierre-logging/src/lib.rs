@@ -33,7 +33,7 @@ use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
     SlackConfig,
 };
-use dravr_tronc::notify::{AnalyticsProvider, NotifyLayer};
+use dravr_tronc::notify::{AnalyticsProvider, NotifyEnricher, NotifyLayer};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
@@ -154,6 +154,23 @@ static ANALYTICS_PROVIDER: OnceLock<Arc<dyn AnalyticsProvider>> = OnceLock::new(
 /// is set-once), so a re-init in tests can't clobber the live provider.
 pub fn set_analytics_provider(provider: Arc<dyn AnalyticsProvider>) {
     let _ = ANALYTICS_PROVIDER.set(provider);
+}
+
+/// Process-wide [`NotifyEnricher`] for the `NotifyLayer`.
+///
+/// Set once at startup (before [`init_from_env`]) by the binary. The enricher
+/// injects host-derived fields the call sites don't carry — a `user_email`
+/// resolved from the in-process identity cache and a per-event display `emoji`
+/// — into every notify event before it reaches Slack and `PostHog`. Applies to
+/// both sink configurations (with or without the `PostHog` analytics sink), so
+/// Slack identity rendering does not depend on `POSTHOG_API_KEY`.
+static NOTIFY_ENRICHER: OnceLock<Arc<dyn NotifyEnricher>> = OnceLock::new();
+
+/// Register the [`NotifyEnricher`] used by the `NotifyLayer`.
+///
+/// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
+pub fn set_notify_enricher(enricher: Arc<dyn NotifyEnricher>) {
+    let _ = NOTIFY_ENRICHER.set(enricher);
 }
 
 /// Per-event filter applied to the Slack notification sink only.
@@ -708,21 +725,24 @@ impl LoggingConfig {
                 },
             );
 
-        match (ANALYTICS_PROVIDER.get().cloned(), posthog) {
-            (Some(analytics), Some(posthog)) => {
-                info!("PostHog analytics sink enabled on NotifyLayer");
-                Some(
-                    NotifyLayer::builder(slack_client, provider, environment.to_owned())
-                        .with_analytics(analytics, posthog)
-                        .build(),
-                )
-            }
-            _ => Some(NotifyLayer::new(
-                slack_client,
-                provider,
-                environment.to_owned(),
-            )),
+        let mut builder = NotifyLayer::builder(slack_client, provider, environment.to_owned());
+
+        // The enricher (user_email + emoji) applies to every notify event for
+        // both sinks, so it is wired regardless of whether PostHog is enabled.
+        if let Some(enricher) = NOTIFY_ENRICHER.get().cloned() {
+            builder = builder.with_enricher(enricher);
         }
+
+        // Attach the PostHog analytics sink when a project key is set and a
+        // provider was registered at startup. The sink captures every
+        // catalogued event (tier/consent decided by the provider) independent
+        // of the Slack routing rules.
+        if let (Some(analytics), Some(posthog)) = (ANALYTICS_PROVIDER.get().cloned(), posthog) {
+            info!("PostHog analytics sink enabled on NotifyLayer");
+            builder = builder.with_analytics(analytics, posthog);
+        }
+
+        Some(builder.build())
     }
 
     /// Create GCP optimized logging configuration
