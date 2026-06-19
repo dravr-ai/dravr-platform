@@ -6,9 +6,14 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
+use chrono::{TimeZone, Utc};
+use pierre_chat_pipeline::stages::prompt_builder::{
+    build_llm_messages, build_llm_messages_with_blocks,
+};
 use pierre_database::database::MessageRecord;
 use pierre_llm::MessageRole;
+use pierre_memory::CompactionBlock;
+use pierre_services::conversation_compaction::COMPACTION_MARKER;
 
 /// Build a deterministic `MessageRecord` for a given role + content. The
 /// non-content fields don't influence `build_llm_messages` so they get
@@ -180,4 +185,118 @@ fn unknown_roles_are_dropped_defensively() {
     assert_eq!(source_ids.len(), messages.len());
     assert_eq!(source_ids[0].as_deref(), Some(history[0].id.as_str()));
     assert_eq!(source_ids[1].as_deref(), Some(history[2].id.as_str()));
+}
+
+/// Build a `MessageRecord` with an explicit id so block boundary ids are
+/// unambiguous (the `record` helper derives id from role+len, which collides
+/// across same-shape rows).
+fn record_id(id: &str, role: &str, content: &str) -> MessageRecord {
+    MessageRecord {
+        id: id.to_owned(),
+        conversation_id: "conv-1".to_owned(),
+        role: role.to_owned(),
+        content: content.to_owned(),
+        token_count: None,
+        prompt_tokens: None,
+        model: None,
+        finish_reason: None,
+        structured_content: None,
+        created_at: "2026-05-15T15:10:00Z".to_owned(),
+    }
+}
+
+/// Build a `CompactionBlock` anchored on two history-row ids.
+fn block(id: &str, first_id: &str, last_id: &str, summary: &str) -> CompactionBlock {
+    CompactionBlock {
+        id: id.to_owned(),
+        tenant_id: "t1".to_owned(),
+        conversation_id: "conv-1".to_owned(),
+        summary: summary.to_owned(),
+        summary_tokens: 10,
+        original_tokens: 100,
+        first_message_id: first_id.to_owned(),
+        last_message_id: last_id.to_owned(),
+        created_at: Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, 0).unwrap(),
+    }
+}
+
+#[test]
+fn block_covering_rows_is_replaced_by_one_summary_message() {
+    let history = vec![
+        record_id("m1", "user", "first question"),
+        record_id("m2", "assistant", "first answer"),
+        record_id("m3", "user", "second question"),
+        record_id("m4", "assistant", "second answer"),
+        record_id("m5", "user", "latest question"),
+    ];
+    // Block covers rows [m2..m4] (indices 1..=3).
+    let blocks = vec![block("b1", "m2", "m4", "Summary of the middle exchange")];
+
+    let (messages, source_ids) =
+        build_llm_messages_with_blocks(Some("system instructions"), &history, &blocks);
+
+    // system + m1 + one summary + m5 = 4 messages.
+    assert_eq!(messages.len(), 4, "covered rows collapse into one summary");
+    assert_eq!(source_ids.len(), messages.len());
+
+    assert_eq!(messages[0].role, MessageRole::System);
+    assert_eq!(source_ids[0], None);
+
+    // m1 flows through raw.
+    assert_eq!(messages[1].role, MessageRole::User);
+    assert_eq!(messages[1].content, "first question");
+    assert_eq!(source_ids[1].as_deref(), Some("m1"));
+
+    // The summary replaces m2..m4: a System message carrying the block summary
+    // verbatim, no UI marker, source_id None.
+    assert_eq!(messages[2].role, MessageRole::System);
+    assert_eq!(messages[2].content, "Summary of the middle exchange");
+    assert!(
+        !messages[2].content.contains(COMPACTION_MARKER),
+        "injected summary must not carry the UI render marker"
+    );
+    assert!(
+        !messages[2].content.contains("[pierre:compaction]"),
+        "injected summary must read as authoritative history"
+    );
+    assert_eq!(source_ids[2], None, "injected summary occupies a None slot");
+
+    // The covered raw rows are absent.
+    for covered in ["first answer", "second question", "second answer"] {
+        assert!(
+            messages.iter().all(|m| m.content != covered),
+            "covered row {covered:?} must not survive raw"
+        );
+    }
+
+    // m5 (outside the block) flows through raw.
+    assert_eq!(messages[3].content, "latest question");
+    assert_eq!(source_ids[3].as_deref(), Some("m5"));
+}
+
+#[test]
+fn empty_blocks_path_is_byte_identical_to_build_llm_messages() {
+    let history = vec![
+        record("user", "Give me my last 7 activities"),
+        record("tool_call", "Pulling your last 7 activities."),
+        record(
+            "tool_result",
+            "[Tool Result for get_activities]: {\"activity_list\":\"3 trails\"}",
+        ),
+        record("assistant", "Here is your week summary…"),
+        record("user", "And now my last 7"),
+    ];
+
+    let (base_messages, base_ids) = build_llm_messages(Some("system instructions"), &history);
+    let (blocks_messages, blocks_ids) =
+        build_llm_messages_with_blocks(Some("system instructions"), &history, &[]);
+
+    // The no-blocks path must produce byte-identical messages and source_ids —
+    // the existing replay tests then transitively cover the wrapper.
+    assert_eq!(base_ids, blocks_ids);
+    assert_eq!(base_messages.len(), blocks_messages.len());
+    for (a, b) in base_messages.iter().zip(blocks_messages.iter()) {
+        assert_eq!(a.role, b.role);
+        assert_eq!(a.content, b.content);
+    }
 }
