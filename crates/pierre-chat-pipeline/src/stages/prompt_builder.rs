@@ -95,15 +95,27 @@ pub async fn resolve_group_context(
 /// that `run_api_tool_loop` and `run_cli_tool_loop` push into `llm_messages`
 /// mid-loop, so a follow-up turn sees the same grounded evidence the model
 /// just consumed last turn.
+///
+/// Returns the messages alongside a parallel `source_ids` vector that maps
+/// each emitted [`ChatMessage`] back to its origin: `None` for the system
+/// prompt, `Some(MessageRecord.id)` for each surviving history row. The two
+/// vectors stay index-aligned because a dropped history row (empty after the
+/// strip, or an unknown role) skips both. Compaction reads this mapping to
+/// anchor a block's first/last message id to real persisted rows rather than
+/// guessing positions — `strip_simulation_artifacts` drops some rows, so the
+/// emitted list is shorter than `history`, and a positional mapping would be
+/// off by the number of dropped rows.
 #[must_use]
 pub fn build_llm_messages(
     system_prompt: Option<&str>,
     history: &[MessageRecord],
-) -> Vec<ChatMessage> {
+) -> (Vec<ChatMessage>, Vec<Option<String>>) {
     let mut messages = Vec::with_capacity(history.len() + 1);
+    let mut source_ids: Vec<Option<String>> = Vec::with_capacity(history.len() + 1);
 
     if let Some(prompt) = system_prompt {
         messages.push(ChatMessage::system(prompt));
+        source_ids.push(None);
     }
 
     for msg in history {
@@ -127,9 +139,10 @@ pub fn build_llm_messages(
             _ => continue,
         };
         messages.push(chat_msg);
+        source_ids.push(Some(msg.id.clone()));
     }
 
-    messages
+    (messages, source_ids)
 }
 
 /// Build the "Connected Fitness Data Providers" system-prompt section.

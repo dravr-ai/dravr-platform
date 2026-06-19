@@ -58,6 +58,10 @@ pub(crate) struct DispatchLlmInputs<'a> {
     pub coach_ctx: Option<&'a CoachRuntimeContext>,
     /// Prior conversation messages (oldest first) used for context.
     pub history: &'a [MessageRecord],
+    /// Per-message history-row ids parallel to `llm_messages` (`None` for the
+    /// system prompt), used by Tier 1 compaction to anchor block first/last
+    /// message ids to real persisted rows rather than positional guesses.
+    pub source_ids: &'a [Option<String>],
 }
 
 #[tracing::instrument(
@@ -84,6 +88,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         active_model,
         coach_ctx,
         history,
+        source_ids,
     } = inputs;
     // Stage 9: MCP executor for tool calls.
     let executor = Arc::new(UniversalExecutor::new(Arc::clone(&ctx.tool_runtime)));
@@ -112,7 +117,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         provider,
         input.conversation_tenant_id,
         &input.conversation_id,
-        history,
+        source_ids,
         llm_messages,
     )
     .await;

@@ -41,7 +41,7 @@ fn tool_call_and_tool_result_roles_replay_in_order() {
         record("user", "And now my last 7"),
     ];
 
-    let messages = build_llm_messages(Some("system instructions"), &history);
+    let (messages, source_ids) = build_llm_messages(Some("system instructions"), &history);
 
     assert_eq!(messages.len(), 6, "system + 5 history rows");
     assert_eq!(messages[0].role, MessageRole::System);
@@ -61,6 +61,22 @@ fn tool_call_and_tool_result_roles_replay_in_order() {
     assert_eq!(messages[4].role, MessageRole::Assistant);
     assert_eq!(messages[5].role, MessageRole::User);
     assert_eq!(messages[5].content, "And now my last 7");
+
+    // `source_ids` is index-aligned with `messages`: same length, `None` for
+    // the system prompt at index 0, and each non-system message carries its
+    // originating history-row id. No rows were stripped here so all 5 history
+    // ids survive.
+    assert_eq!(source_ids.len(), messages.len());
+    assert_eq!(source_ids[0], None, "system prompt has no source id");
+    for (i, h) in history.iter().enumerate() {
+        assert_eq!(
+            source_ids[i + 1].as_deref(),
+            Some(h.id.as_str()),
+            "message {} maps to history row {}",
+            i + 1,
+            i
+        );
+    }
 }
 
 #[test]
@@ -77,13 +93,20 @@ fn tool_round_without_assistant_preamble_replays_correctly() {
         record("assistant", "Yesterday you ran an 8 km trail."),
     ];
 
-    let messages = build_llm_messages(None, &history);
+    let (messages, source_ids) = build_llm_messages(None, &history);
 
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].role, MessageRole::User);
     assert_eq!(messages[1].role, MessageRole::User);
     assert!(messages[1].content.contains("Trail run"));
     assert_eq!(messages[2].role, MessageRole::Assistant);
+
+    // No system prompt was passed, so every entry maps to a history row in
+    // order and the first `source_id` is `Some`, not `None`.
+    assert_eq!(source_ids.len(), messages.len());
+    for (i, h) in history.iter().enumerate() {
+        assert_eq!(source_ids[i].as_deref(), Some(h.id.as_str()));
+    }
 }
 
 #[test]
@@ -108,7 +131,7 @@ fn tool_result_scaffolding_and_parroted_echo_are_stripped_from_replay() {
         record("user", "And 2023?"),
     ];
 
-    let messages = build_llm_messages(Some("system instructions"), &history);
+    let (messages, source_ids) = build_llm_messages(Some("system instructions"), &history);
 
     // system + the two user turns + the one real assistant answer. The
     // scaffolding `tool_result` row and the parroted assistant echo both strip
@@ -122,6 +145,20 @@ fn tool_result_scaffolding_and_parroted_echo_are_stripped_from_replay() {
     assert_eq!(messages[1].content, "Show me my 2022 races");
     assert_eq!(messages[2].content, "You raced 7 times in 2022.");
     assert_eq!(messages[3].content, "And 2023?");
+
+    // Dropped rows take NO `source_ids` slot — the two stripped rows produce no
+    // entry, so `source_ids` is index-aligned with `messages` (length 4) yet
+    // shorter than `history + 1` (would be 6 with no drops). This is exactly
+    // the misalignment id-anchoring fixes: a positional remap would be off by
+    // the two dropped rows.
+    assert_eq!(source_ids.len(), messages.len());
+    assert!(source_ids.len() < history.len() + 1);
+    assert_eq!(source_ids[0], None, "system prompt has no source id");
+    // The surviving messages map to the three non-stripped history rows in
+    // order: the first user turn, the real assistant answer, the last user turn.
+    assert_eq!(source_ids[1].as_deref(), Some(history[0].id.as_str()));
+    assert_eq!(source_ids[2].as_deref(), Some(history[2].id.as_str()));
+    assert_eq!(source_ids[3].as_deref(), Some(history[4].id.as_str()));
 }
 
 #[test]
@@ -132,9 +169,15 @@ fn unknown_roles_are_dropped_defensively() {
         record("assistant", "hello"),
     ];
 
-    let messages = build_llm_messages(None, &history);
+    let (messages, source_ids) = build_llm_messages(None, &history);
 
     assert_eq!(messages.len(), 2, "unknown role dropped");
     assert_eq!(messages[0].content, "hi");
     assert_eq!(messages[1].content, "hello");
+
+    // The unknown-role row contributes no message and no `source_ids` entry, so
+    // the two remain index-aligned and map to the two known-role history rows.
+    assert_eq!(source_ids.len(), messages.len());
+    assert_eq!(source_ids[0].as_deref(), Some(history[0].id.as_str()));
+    assert_eq!(source_ids[1].as_deref(), Some(history[2].id.as_str()));
 }
