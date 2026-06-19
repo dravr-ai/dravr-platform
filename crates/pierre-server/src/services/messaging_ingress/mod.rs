@@ -25,9 +25,11 @@ pub use locale::{detect_turn_locale, resolve_messaging_locale};
 pub(crate) use dispatch::dispatch_and_respond;
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
+// Re-exported (not just `use`) so the messaging-reset integration test can
+// reach the helper — pierre-server keeps test modules external, not in src/.
+pub use otp::is_reset_command;
 use otp::{
-    apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command,
-    is_reset_command, start_otp_flow,
+    apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command, start_otp_flow,
 };
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use session::{create_link_and_prompt, handle_reset, resolve_linked_session, ChannelChatRef};

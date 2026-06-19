@@ -275,6 +275,15 @@ pub(crate) const FR_RESET_CONFIRM: &str =
 /// English default for [`KEY_RESET_CONFIRM`].
 pub(crate) const EN_RESET_CONFIRM: &str =
     "🔄 New conversation started — fresh slate. Your previous thread stays archived.";
+/// Spanish default for [`KEY_RESET_CONFIRM`].
+pub(crate) const ES_RESET_CONFIRM: &str =
+    "🔄 Nueva conversación iniciada — empezamos de cero. Tu conversación anterior queda archivada.";
+/// German default for [`KEY_RESET_CONFIRM`].
+pub(crate) const DE_RESET_CONFIRM: &str =
+    "🔄 Neue Unterhaltung gestartet — wir fangen frisch an. Dein bisheriger Verlauf bleibt archiviert.";
+/// Portuguese default for [`KEY_RESET_CONFIRM`].
+pub(crate) const PT_RESET_CONFIRM: &str =
+    "🔄 Nova conversa iniciada — recomeçando do zero. O teu histórico anterior fica arquivado.";
 
 // ── /privacy command keys ─────────────────────────────────────────────────
 
@@ -1497,6 +1506,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "es", ES_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "es", ES_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "es", ES_COACH_ASSIGN_FORBIDDEN),
+    (KEY_RESET_CONFIRM, "es", ES_RESET_CONFIRM),
 
     // ── German ──────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
@@ -1611,6 +1621,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "de", DE_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "de", DE_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "de", DE_COACH_ASSIGN_FORBIDDEN),
+    (KEY_RESET_CONFIRM, "de", DE_RESET_CONFIRM),
 
     // ── Portuguese ──────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
@@ -1725,6 +1736,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "pt", PT_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "pt", PT_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "pt", PT_COACH_ASSIGN_FORBIDDEN),
+    (KEY_RESET_CONFIRM, "pt", PT_RESET_CONFIRM),
 ];
 
 /// A single localized messaging string entry in the registry.
