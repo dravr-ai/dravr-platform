@@ -264,6 +264,18 @@ pub const KEY_HELP_FOOTER: &str = "commands.help.footer";
 /// Key: `/logout` confirmation prompt. `{0}` = channel type.
 pub const KEY_LOGOUT_CONFIRM_PROMPT: &str = "commands.logout.confirm_prompt";
 
+// ── /reset command keys ───────────────────────────────────────────────────
+
+/// Key: `/reset` (`/nouveau`) confirmation after rotating the session onto a
+/// fresh conversation. No template args.
+pub const KEY_RESET_CONFIRM: &str = "commands.reset.confirm";
+/// French default for [`KEY_RESET_CONFIRM`].
+pub(crate) const FR_RESET_CONFIRM: &str =
+    "🔄 Nouvelle conversation démarrée — on repart à neuf. Ton historique précédent reste archivé.";
+/// English default for [`KEY_RESET_CONFIRM`].
+pub(crate) const EN_RESET_CONFIRM: &str =
+    "🔄 New conversation started — fresh slate. Your previous thread stays archived.";
+
 // ── /privacy command keys ─────────────────────────────────────────────────
 
 /// Key: `/privacy` status line. `{0}` = localized "enabled" / "disabled" word.
@@ -1216,6 +1228,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_ACCOUNT, "fr", FR_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_FOOTER, "fr", FR_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "fr", FR_LOGOUT_CONFIRM_PROMPT),
+    (KEY_RESET_CONFIRM, "fr", FR_RESET_CONFIRM),
     (KEY_PRIVACY_STATUS_LINE, "fr", FR_PRIVACY_STATUS_LINE),
     (KEY_PRIVACY_STATUS_ENABLED, "fr", FR_PRIVACY_STATUS_ENABLED),
     (KEY_PRIVACY_STATUS_DISABLED, "fr", FR_PRIVACY_STATUS_DISABLED),
@@ -1330,6 +1343,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_ACCOUNT, "en", EN_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_FOOTER, "en", EN_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "en", EN_LOGOUT_CONFIRM_PROMPT),
+    (KEY_RESET_CONFIRM, "en", EN_RESET_CONFIRM),
     (KEY_PRIVACY_STATUS_LINE, "en", EN_PRIVACY_STATUS_LINE),
     (KEY_PRIVACY_STATUS_ENABLED, "en", EN_PRIVACY_STATUS_ENABLED),
     (KEY_PRIVACY_STATUS_DISABLED, "en", EN_PRIVACY_STATUS_DISABLED),

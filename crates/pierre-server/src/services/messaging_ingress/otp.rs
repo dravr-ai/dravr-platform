@@ -50,6 +50,17 @@ pub(super) fn is_logout_command(content: &MessageContent) -> bool {
     matches!(content, MessageContent::Text { body } if body.trim().eq_ignore_ascii_case("logout"))
 }
 
+/// Check if a message is the conversation-reset command (`/reset`, `/nouveau`,
+/// `/new`). Only the explicit slash forms are matched so a bare mention like
+/// "reset my training" stays a normal chat turn.
+pub(super) fn is_reset_command(content: &MessageContent) -> bool {
+    matches!(content, MessageContent::Text { body }
+    if matches!(
+        body.trim().to_ascii_lowercase().as_str(),
+        "/reset" | "/nouveau" | "/new"
+    ))
+}
+
 /// Handle logout: delete channel link, sessions, and OTP states atomically
 pub(super) async fn handle_logout(
     resources: &ServerContext,

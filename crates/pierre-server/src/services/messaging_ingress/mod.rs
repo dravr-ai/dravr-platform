@@ -26,10 +26,11 @@ pub(crate) use dispatch::dispatch_and_respond;
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 use otp::{
-    apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command, start_otp_flow,
+    apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command,
+    is_reset_command, start_otp_flow,
 };
 use pierre_services::onboarding_gate::user_has_connected_provider;
-use session::{create_link_and_prompt, resolve_linked_session, ChannelChatRef};
+use session::{create_link_and_prompt, handle_reset, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::slash_reply_should_be_private;
 #[cfg(feature = "client-messaging")]
@@ -334,6 +335,96 @@ fn emit_unlinked_prompted(tenant_id: TenantId, channel: &str, prompt_type: &str)
     );
 }
 
+/// Inputs for [`dispatch_slash_command_if_any`], bundled into a struct so the
+/// helper stays within clippy's argument-count budget — the channel / tenant /
+/// auth / session context it needs is intrinsically wide.
+struct SlashDispatchInputs<'a> {
+    resources: &'a Arc<ServerContext>,
+    db: &'a dyn MessagingRepository,
+    channel: &'a str,
+    channel_type: ChannelType,
+    tenant_id: TenantId,
+    adapter: &'a Arc<dyn MessagingChannel>,
+    message: &'a IncomingMessage,
+    auth_result: &'a AuthResult,
+    session: &'a ResolvedSession,
+    thread_id: Option<String>,
+}
+
+/// Dispatch a slash command when the inbound text is one, routing the reply
+/// privately in shared rooms (and deleting the command echo) or back into a 1:1
+/// DM. Returns `true` when a command was recognized and handled (so the caller
+/// stops before storing/LLM dispatch), `false` to fall through to normal chat.
+///
+/// Extracted from [`persist_single_message`] so that function stays within the
+/// cognitive-complexity budget as command branches accrete.
+async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool {
+    let SlashDispatchInputs {
+        resources,
+        db,
+        channel,
+        channel_type,
+        tenant_id,
+        adapter,
+        message,
+        auth_result,
+        session,
+        thread_id,
+    } = inputs;
+    let Some(text) = content_body_text(&message.content) else {
+        return false;
+    };
+    let Some(response) = try_handle_slash_command(
+        resources,
+        SlashCommandContext {
+            channel,
+            channel_type,
+            auth_result,
+            session,
+            text: &text,
+            sender_id: &message.sender_id,
+            conversation_id: message.conversation_id.as_deref(),
+            thread_id,
+            is_direct_message: message.is_direct_message,
+        },
+    )
+    .await
+    else {
+        return false;
+    };
+
+    if slash_reply_should_be_private(message.is_direct_message) {
+        // Shared room (any channel): deliver the answer privately to the caller
+        // and remove the command echo so other members see neither. Both are
+        // best-effort and channel-specific inside canot (DM / Slack ephemeral /
+        // Discord DM; echo delete only where the platform allows).
+        send_private_channel_response(
+            db,
+            tenant_id,
+            channel,
+            adapter,
+            response,
+            &message.sender_id,
+        )
+        .await;
+        if let Some(room_id) = message.conversation_id.as_deref() {
+            delete_room_command_echo(
+                db,
+                tenant_id,
+                channel,
+                adapter,
+                room_id,
+                &message.channel_message_id,
+            )
+            .await;
+        }
+    } else {
+        // Already a 1:1 DM — the conversation is the private chat.
+        send_channel_response(db, tenant_id, channel, adapter, response).await;
+    }
+    true
+}
+
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
@@ -427,57 +518,46 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     };
 
+    // Reset command: rotate onto a fresh conversation so a user can abandon a
+    // long or degraded thread. Handled here rather than via the generic slash
+    // dispatcher because it mutates the messaging session binding the dispatcher
+    // cannot reach; must run before the slash dispatch below (which would
+    // otherwise report "/reset" as an unknown command).
+    if is_reset_command(&message.content) {
+        emit_messaging_intent(&session.user_id, tenant_id, channel, "reset");
+        let mut reset_response = handle_reset(
+            resources,
+            db,
+            tenant_id,
+            channel_type,
+            channel,
+            &message.sender_id,
+            &session,
+        )
+        .await;
+        reset_response.thread_id = thread_id;
+        apply_conversation_recipient(&mut reset_response, message.conversation_id.as_deref());
+        send_channel_response(db, tenant_id, channel, adapter, reset_response).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
     // Check for slash commands before storing or dispatching to LLM.
     // Commands are handled immediately and not stored in conversation history.
-    if let Some(text) = content_body_text(&message.content) {
-        if let Some(response) = try_handle_slash_command(
-            resources,
-            SlashCommandContext {
-                channel,
-                channel_type,
-                auth_result: &auth_result,
-                session: &session,
-                text: &text,
-                sender_id: &message.sender_id,
-                conversation_id: message.conversation_id.as_deref(),
-                thread_id: thread_id.clone(),
-                is_direct_message: message.is_direct_message,
-            },
-        )
-        .await
-        {
-            if slash_reply_should_be_private(message.is_direct_message) {
-                // Shared room (any channel): deliver the answer privately to
-                // the caller and remove the command echo so other members see
-                // neither. Both are best-effort and channel-specific inside
-                // canot (DM / Slack ephemeral / Discord DM; echo delete only
-                // where the platform allows).
-                send_private_channel_response(
-                    db,
-                    tenant_id,
-                    channel,
-                    adapter,
-                    response,
-                    &message.sender_id,
-                )
-                .await;
-                if let Some(room_id) = message.conversation_id.as_deref() {
-                    delete_room_command_echo(
-                        db,
-                        tenant_id,
-                        channel,
-                        adapter,
-                        room_id,
-                        &message.channel_message_id,
-                    )
-                    .await;
-                }
-            } else {
-                // Already a 1:1 DM — the conversation is the private chat.
-                send_channel_response(db, tenant_id, channel, adapter, response).await;
-            }
-            return Ok(PersistOutcome::HandledNotStored);
-        }
+    if dispatch_slash_command_if_any(SlashDispatchInputs {
+        resources,
+        db,
+        channel,
+        channel_type,
+        tenant_id,
+        adapter,
+        message,
+        auth_result: &auth_result,
+        session: &session,
+        thread_id: thread_id.clone(),
+    })
+    .await
+    {
+        return Ok(PersistOutcome::HandledNotStored);
     }
 
     let stored = store_inbound_message(db, tenant_id, &session, channel, message).await?;

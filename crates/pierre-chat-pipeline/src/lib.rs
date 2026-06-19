@@ -565,14 +565,23 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
         let conversation_id = self.conversation_id.clone();
         let user_id = self.user_id.clone();
         let tenant_id = self.tenant_id;
+        // Strip tool-call/tool-result scaffolding before persisting. The raw
+        // `<tool_call>`/`<tool_result>` blocks are per-turn LLM plumbing, not
+        // durable conversation content; persisting them verbatim lets a thread
+        // accrete scaffolding the model later parrots (the read path strips them
+        // on replay, so a stored block is dead weight anyway). A real preamble
+        // ("Pulling your activities…") survives the strip and is still kept;
+        // pure scaffolding reduces to empty and is skipped.
+        let assistant_text = chat_tool_loop::strip_simulation_artifacts(&record.assistant_text);
+        let tool_result_text = chat_tool_loop::strip_simulation_artifacts(&record.tool_result_text);
         tokio::spawn(async move {
-            if !record.assistant_text.is_empty() {
+            if !assistant_text.is_empty() {
                 let params = AddMessageParams {
                     tenant_id,
                     conversation_id: &conversation_id,
                     user_id: &user_id,
                     role: "tool_call",
-                    content: &record.assistant_text,
+                    content: &assistant_text,
                     token_count: None,
                     finish_reason: None,
                     prompt_tokens: None,
@@ -584,13 +593,13 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     return;
                 }
             }
-            if !record.tool_result_text.is_empty() {
+            if !tool_result_text.is_empty() {
                 let params = AddMessageParams {
                     tenant_id,
                     conversation_id: &conversation_id,
                     user_id: &user_id,
                     role: "tool_result",
-                    content: &record.tool_result_text,
+                    content: &tool_result_text,
                     token_count: None,
                     finish_reason: None,
                     prompt_tokens: None,
@@ -823,12 +832,17 @@ async fn run_turn(
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
     let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
+    // Persist the stripped reply, never a parroted scaffolding echo: a real
+    // answer is unchanged by the strip, a pure `<tool_result>` echo reduces to
+    // empty. Belt-and-suspenders with the read-side strip; the outbound reply
+    // (`result.content`) is sent unchanged, only the durable copy is cleaned.
+    let persisted_assistant_content = chat_tool_loop::strip_simulation_artifacts(&result.content);
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
         user_id: &input.user_id,
         role: "assistant",
-        content: &result.content,
+        content: &persisted_assistant_content,
         token_count,
         finish_reason: result.finish_reason.as_deref(),
         prompt_tokens,
