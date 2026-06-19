@@ -245,6 +245,12 @@ the user sees them.
   that drops figures of speech, questions, greetings.
 - `crates/pierre-evals/src/deterministic_bounds.rs` — Layer 2
   per-category hard bounds (HRmax, VO2max, protein intake, etc.).
+- `crates/pierre-evals/src/personalized.rs` — Layer 2.5 personalized
+  physiology checks against the athlete's own VDOT-derived paces,
+  zones, and load; pluggable `ToleranceStrategy` + `ContradictionPolicy`.
+- `crates/pierre-services/src/athlete_snapshot.rs` —
+  `build_athlete_metrics` assembles the per-user snapshot Layer 2.5
+  scores against (physiology profile + activity cache + cageux compute).
 - `crates/pierre-evals/src/evidence_retriever.rs` — Layer 3 RAG over
   the curated sports-science corpus.
 - `crates/pierre-evals/src/verdict_engine.rs` — synthesizes the
@@ -260,7 +266,7 @@ the user sees them.
 - `crates/pierre-server/src/services/chat_verdicts.rs` — user-facing
   wire shapes for in-chat Evidence Strength chips (Sprint C4).
 
-**The six-layer pipeline**
+**The seven-step pipeline**
 
 1. **Claim extraction** — LLM decomposes the coach reply into
    atomic propositions tagged by category.
@@ -268,18 +274,61 @@ the user sees them.
    drop figures of speech before any LLM cost is incurred.
 3. **Deterministic bounds** — hard category-specific checks
    (`HR > 220 BPM` → false, `100g protein/kg bw` → false).
-4. **Evidence retrieval** — RAG over the curated sports-science
+4. **Personalized physiology (Layer 2.5)** — check the claim against
+   *this athlete's* own VDOT-derived paces, zones, FTP, and load. Pure
+   Rust; fires only when a per-user snapshot is supplied.
+5. **Evidence retrieval** — RAG over the curated sports-science
    corpus, returns DOI/PMID-backed atomic propositions.
-5. **Consistency check** — cross-check the claim against the
+6. **Consistency check** — cross-check the claim against the
    coach's earlier turns in the same conversation.
-6. **LLM-as-judge** — only invoked when layers 1–5 don't reach a
-   confident verdict. This is the cost optimization: target <10% of
-   turns reach layer 6.
+7. **LLM-as-judge** — only invoked when the earlier layers don't reach
+   a confident verdict. This is the cost optimization: target <10% of
+   turns reach the judge.
 
 Each verdict carries an **Evidence Strength badge** (Strong / Mixed /
 Weak / None). The `ClaimVerdictRepository::insert_claim_verdict` call
 persists the row; both admin and end users see it rendered as a chip
 on the offending message via the Sprint C1 and C4 UI work.
+
+**Layer 2.5 — Personalized physiology**
+
+Where Layer 2 checks claims against *population* bounds, Layer 2.5 checks
+them against the *individual athlete's* computed physiology — VDOT-derived
+training paces, HR zones, FTP, VO2max, and recent training-stress balance.
+A 4:00/km threshold prescription is contradicted for an athlete whose VDOT
+52 puts threshold at ≈5:08/km, even though 4:00/km is a perfectly plausible
+population pace. This is what makes "checked against your VDOT 52" literally
+true.
+
+The snapshot (`AthleteMetrics`) is built caller-side by
+`build_athlete_metrics` (physiology profile + activity cache + cageux); the
+`pierre-evals` crate never reaches for the athlete's data itself. A snapshot
+backed by fewer than 14 days of activity history is treated as too thin to
+trust — the layer stays silent rather than contradict a coach off a noisy
+estimate.
+
+Two axes are pluggable per-coach via the YAML `verification_config`:
+
+```yaml
+verification_config:
+  personalized:
+    enabled: true
+    tolerance: coach_configured   # | conservative | tight
+    margin_frac: 0.08             # buffer for coach_configured
+    action: inherit               # | audit_only | user_warn
+```
+
+- **`tolerance`** (`ToleranceStrategy`) — when a claimed number is outside
+  the athlete's range: `coach_configured` (default) reads `margin_frac`
+  from this YAML; `conservative` applies a fixed non-overridable buffer;
+  `tight` allows zero buffer (any out-of-range value is contradicted).
+- **`action`** (`ContradictionPolicy`) — what a personalized contradiction
+  does: `inherit` (default) reuses the coach's `fallback_behavior`;
+  `audit_only` records the verdict for admin + the human coach without ever
+  surfacing it to the athlete; `user_warn` always appends a banner.
+
+Both defaults read the coach YAML, so out of the box a personalized verdict
+behaves exactly like any other Tier 5.5 verdict.
 
 ## Tier 6 — Text guardrails
 

@@ -17,8 +17,11 @@
 //! workspace configuration.
 
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::{ExtractedClaim, VerdictOutcome, VerificationConfig, VerificationFallback};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus};
+use pierre_evals::{
+    AthleteMetrics, ExtractedClaim, PersonalizedContext, ResolvedAction, ToleranceStrategy,
+    VerdictOutcome, VerificationConfig, VerificationFallback,
+};
+use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
 
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
@@ -26,8 +29,10 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::TenantId;
 use pierre_runtime_context::DataContext;
+use pierre_services::athlete_snapshot::build_athlete_metrics;
 use pierre_services::claim_verification::resolve_corpus;
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
+use uuid::Uuid;
 
 /// Localizes the verification warn / block-fallback strings.
 ///
@@ -135,14 +140,70 @@ const MAX_FLAGGED_BULLETS: usize = 5;
 pub fn actionable_problems(verdicts: &[(ExtractedClaim, VerdictOutcome)]) -> Vec<(&str, bool)> {
     verdicts
         .iter()
-        .filter_map(|(claim, outcome)| match outcome.status {
-            ClaimStatus::Contradicted => Some((claim.text.as_str(), true)),
-            ClaimStatus::Unsupported if claim.category != ClaimCategory::TrainingPrescription => {
-                Some((claim.text.as_str(), false))
-            }
-            _ => None,
+        .filter_map(|(claim, outcome)| {
+            actionable_flag(claim, outcome).map(|contradicted| (claim.text.as_str(), contradicted))
         })
         .collect()
+}
+
+/// The single source of truth for "is this verdict worth acting on".
+///
+/// Returns `Some(contradicted)` when it is. A bare `Unsupported` on a
+/// [`ClaimCategory::TrainingPrescription`] is a category error (advice has no
+/// citation to support), so it is not actionable; a `Contradicted` prescription
+/// violated a bound and stays.
+fn actionable_flag(claim: &ExtractedClaim, outcome: &VerdictOutcome) -> Option<bool> {
+    match outcome.status {
+        ClaimStatus::Contradicted => Some(true),
+        ClaimStatus::Unsupported if claim.category != ClaimCategory::TrainingPrescription => {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
+/// The dispatch action for a single verdict.
+///
+/// Personalized (Layer 2.5) verdicts route through the coach's
+/// [`ContradictionPolicy`]; every other layer keeps the existing
+/// `fallback_behavior` mapping, so non-personalized behavior is unchanged.
+fn resolved_action(outcome: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction {
+    if outcome.layer_fired == VerdictLayer::Personalized {
+        config
+            .personalized
+            .contradiction_policy()
+            .resolve(outcome, config)
+    } else {
+        match config.fallback_behavior {
+            VerificationFallback::Warn => ResolvedAction::WarnBanner,
+            VerificationFallback::Silent => ResolvedAction::RecordOnly,
+            VerificationFallback::Block => ResolvedAction::BlockRetry,
+        }
+    }
+}
+
+/// The strongest action across the reply's actionable verdicts. Non-actionable
+/// verdicts never drive a reply change, matching [`actionable_problems`].
+fn reply_action(
+    verdicts: &[(ExtractedClaim, VerdictOutcome)],
+    config: &VerificationConfig,
+) -> ResolvedAction {
+    verdicts
+        .iter()
+        .filter(|(claim, outcome)| actionable_flag(claim, outcome).is_some())
+        .map(|(_, outcome)| resolved_action(outcome, config))
+        .max_by_key(|action| action_rank(*action))
+        .unwrap_or(ResolvedAction::Pass)
+}
+
+/// Severity ordering so [`reply_action`] can take the strongest action.
+const fn action_rank(action: ResolvedAction) -> u8 {
+    match action {
+        ResolvedAction::Pass => 0,
+        ResolvedAction::RecordOnly => 1,
+        ResolvedAction::WarnBanner => 2,
+        ResolvedAction::BlockRetry => 3,
+    }
 }
 
 /// Format the caveat bullets from the actionable problems.
@@ -194,6 +255,10 @@ pub struct ClaimVerificationParams<'a> {
     pub config: &'a VerificationConfig,
     /// Resolved locale for Warn/Block fallback strings, `None` → default.
     pub locale: Option<&'a str>,
+    /// User whose physiology backs the Layer 2.5 personalized snapshot.
+    pub user_id: &'a str,
+    /// Tenant owning the user's data (multi-tenant scoping for snapshot reads).
+    pub tenant_id: TenantId,
 }
 
 /// Result of running Tier 5.5 verification on an assistant reply.
@@ -227,6 +292,8 @@ pub async fn apply_claim_verification(
         reply,
         config,
         locale,
+        user_id,
+        tenant_id,
     } = params;
     let locale = resolve_banner_locale(reply, locale);
     let locale = locale.as_str();
@@ -243,7 +310,31 @@ pub async fn apply_claim_verification(
     // pipeline stays fully deterministic and inconclusive claims settle on the
     // evidence layer's verdict.
     let judge = ctx.llm_provider.as_deref();
-    let verdicts = match verify_reply_with_config_and_judge(reply, config, &corpus, judge).await {
+
+    // Layer 2.5 — build the athlete snapshot + tolerance strategy when the coach
+    // enabled personalized verification. The snapshot owns its data so its
+    // borrow lives through the verify call; an unusable snapshot (thin history)
+    // makes the layer a silent no-op. Kept in fn-scope so `personalized` can
+    // borrow it.
+    let personalized_inputs: Option<(AthleteMetrics, Box<dyn ToleranceStrategy>)> =
+        build_personalized_inputs(ctx, config, user_id, tenant_id).await;
+    let personalized =
+        personalized_inputs
+            .as_ref()
+            .map(|(metrics, tolerance)| PersonalizedContext {
+                metrics,
+                tolerance: tolerance.as_ref(),
+            });
+
+    let verdicts = match verify_reply_with_config_and_judge(
+        reply,
+        config,
+        &corpus,
+        judge,
+        personalized.as_ref(),
+    )
+    .await
+    {
         Ok(verdicts) => verdicts,
         Err(e) => {
             tracing::warn!(error = %e, "Tier 5.5 verification failed — skipping claim verdicts");
@@ -265,9 +356,21 @@ pub async fn apply_claim_verification(
     let content = if problems.is_empty() {
         reply.to_owned()
     } else {
-        match config.fallback_behavior {
-            VerificationFallback::Warn => {
-                let bullets = warning_bullets(&problems, reply);
+        match reply_action(&verdicts, config) {
+            ResolvedAction::WarnBanner => {
+                // Only list claims whose own resolved action is a user-facing
+                // warning — an audit-only personalized contradiction is recorded
+                // but must never surface in the banner.
+                let shown: Vec<(&str, bool)> = verdicts
+                    .iter()
+                    .filter_map(|(claim, outcome)| {
+                        actionable_flag(claim, outcome).and_then(|contradicted| {
+                            (resolved_action(outcome, config) == ResolvedAction::WarnBanner)
+                                .then_some((claim.text.as_str(), contradicted))
+                        })
+                    })
+                    .collect();
+                let bullets = warning_bullets(&shown, reply);
                 if bullets.is_empty() {
                     reply.to_owned()
                 } else {
@@ -278,8 +381,8 @@ pub async fn apply_claim_verification(
                     format!("{reply}\n\n---\n{header}\n{body}")
                 }
             }
-            VerificationFallback::Silent => reply.to_owned(),
-            VerificationFallback::Block => {
+            ResolvedAction::Pass | ResolvedAction::RecordOnly => reply.to_owned(),
+            ResolvedAction::BlockRetry => {
                 tracing::warn!(
                     flagged_claims = problems.len(),
                     "Tier 5.5 block fallback fired — replacing reply"
@@ -294,6 +397,31 @@ pub async fn apply_claim_verification(
         content,
         pending_verdicts: verdicts,
     }
+}
+
+/// Build the Layer 2.5 inputs (athlete snapshot + tolerance strategy) for a turn.
+///
+/// Returns `None` when personalized verification is disabled, the user id is
+/// unparseable, or the snapshot is too thin to trust
+/// ([`AthleteMetrics::is_usable`]).
+async fn build_personalized_inputs(
+    ctx: &ChatPipelineContext,
+    config: &VerificationConfig,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Option<(AthleteMetrics, Box<dyn ToleranceStrategy>)> {
+    if !config.personalized.enabled {
+        return None;
+    }
+    let uuid = Uuid::parse_str(user_id).ok()?;
+    let cageux = ctx.cageux_config_registry.current();
+    let metrics =
+        build_athlete_metrics(ctx.repos.as_ref(), &cageux.algorithms, tenant_id, uuid).await;
+    if !metrics.is_usable() {
+        return None;
+    }
+    let tolerance = config.personalized.tolerance_strategy();
+    Some((metrics, tolerance))
 }
 
 /// Persist the verdicts produced by [`apply_claim_verification`].

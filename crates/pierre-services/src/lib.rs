@@ -28,6 +28,10 @@ pub mod auth;
 /// Product analytics (`PostHog`) for messaging funnel, tool usage, and command tracking
 pub mod analytics;
 
+/// Athlete physiology snapshot builder for Tier 5.5 Layer 2.5 (personalized).
+#[cfg(feature = "tools-verification")]
+pub mod athlete_snapshot;
+
 /// Claim verification: Tier 5.5 bullshit detector pipeline + evidence corpus singleton
 #[cfg(feature = "tools-verification")]
 pub mod claim_verification;
