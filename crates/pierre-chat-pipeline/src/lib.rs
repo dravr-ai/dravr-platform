@@ -768,12 +768,27 @@ async fn run_turn(
     let onboarding_turn =
         stages::onboarding::resolve(ctx, &conv, input.conversation_tenant_id).await;
 
-    // Stage 5: Load conversation history for LLM context.
+    // Stage 5: Load conversation history for LLM context. Bound the load to a
+    // generous multiple of the compaction message cap so a long thread loads
+    // its recent working set, not its full unbounded history (a 200-turn thread
+    // would otherwise build a 200-message vector every turn before compaction
+    // trims it to the cap). The multiple leaves headroom above `max_messages`
+    // for compaction-block reconstruction; compaction still governs the final
+    // in-prompt size.
+    let history_load_limit = i64::try_from(
+        ctx.harness_config_registry
+            .current_compaction()
+            .max_messages
+            .saturating_mul(4)
+            .clamp(80, 500),
+    )
+    .unwrap_or(160);
     let history = get_conversation_history(
         database,
         &input.conversation_id,
         &input.user_id,
         input.conversation_tenant_id,
+        history_load_limit,
     )
     .await?;
 
