@@ -11,14 +11,18 @@
 //! prompt is about to be, compares it against the model's context window,
 //! and takes one of three actions:
 //!
-//! 1. **Under warn threshold (70%)** — do nothing.
-//! 2. **Between warn and emergency (70%–95%)** — summarize the oldest N
+//! 1. **Under warn threshold (70%) and within the message cap** — do nothing.
+//! 2. **Warn band (70%–95%) OR over the message cap** — summarize the oldest N
 //!    turns via the LLM, persist a [`CompactionBlock`], and replace those
 //!    turns in the outgoing [`ChatMessage`] vector with a single system
-//!    message tagged as a compaction summary.
-//! 3. **Above emergency (95%)** — sliding-window fallback: drop the oldest
-//!    turns outright. This is a safety net against pathological cases where
-//!    summarization doesn't shrink enough.
+//!    message. The block is re-injected on later turns by
+//!    `build_llm_messages_with_blocks`, so summarized context survives instead
+//!    of being lost. The message cap routes here too (rather than dropping)
+//!    because it is an under-estimation backstop, not a reason to lose history.
+//! 3. **Above emergency (95% — the hard token cliff)** — sliding-window
+//!    fallback: drop the oldest turns outright. This is the one place there is
+//!    no budget for a summarizer LLM call before the window would overflow, and
+//!    the backstop when summarization can't shrink an over-cap thread.
 //!
 //! The service intentionally takes a `&mut Vec<ChatMessage>` rather than
 //! rebuilding the message list from scratch — the caller owns prompt
@@ -151,23 +155,32 @@ impl ConversationCompactor {
         let before = estimate_messages_tokens(ctx.llm_messages);
         let over_messages = non_system_count(ctx.llm_messages) > self.config.max_messages;
 
-        // The character-based token estimate under-counts dense content (JSON
-        // tool results, structured data), so a genuinely oversized thread can
-        // read below the token thresholds and slip through as a no-op. The
-        // message-count cap is the estimate-independent backstop: too many
-        // accreted turns forces the emergency slide even when `before` looks
-        // safe. Checked first so it overrides the warn-threshold no-op below.
-        if before >= self.config.emergency_tokens() || over_messages {
-            return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
-        }
-
-        if before < self.config.warn_tokens() {
-            return Ok(CompactionOutcome::NoOp {
+        match decide_action(
+            before,
+            over_messages,
+            self.config.warn_tokens(),
+            self.config.emergency_tokens(),
+        ) {
+            CompactionAction::Slide => Ok(self.run_emergency_sliding(ctx.llm_messages, before)),
+            CompactionAction::NoOp => Ok(CompactionOutcome::NoOp {
                 estimated_tokens: before,
-            });
+            }),
+            CompactionAction::Summarize => {
+                // Summarize the oldest turns into a durable block (re-injected
+                // on later turns by `build_llm_messages_with_blocks`) instead of
+                // raw-dropping, so the thread keeps its context. `try_summarize`
+                // already falls back to sliding on an LLM error. If it returns
+                // `NoOp` (too few real turns to compact) while we are still over
+                // the message cap, slide as the backstop so the cap is never
+                // violated.
+                let outcome = self.try_summarize(&mut ctx, before).await?;
+                if over_messages && matches!(outcome, CompactionOutcome::NoOp { .. }) {
+                    Ok(self.run_emergency_sliding(ctx.llm_messages, before))
+                } else {
+                    Ok(outcome)
+                }
+            }
         }
-
-        self.try_summarize(&mut ctx, before).await
     }
 
     /// Emergency sliding-window fallback. Drops the oldest turns and
@@ -351,6 +364,46 @@ impl ConversationCompactor {
     /// Sliding-window fallback: delegates to [`sliding_window_to_fit`].
     fn sliding_window(&self, llm_messages: &mut Vec<ChatMessage>) -> usize {
         sliding_window_to_fit(llm_messages, &self.config)
+    }
+}
+
+/// What [`ConversationCompactor::compact_if_needed`] does this turn, decided
+/// purely from the size signals so the routing is unit-testable without an LLM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionAction {
+    /// Under every threshold — leave the prompt unchanged.
+    NoOp,
+    /// Summarize the oldest turns into a durable block (re-injected on later
+    /// turns), preserving context.
+    Summarize,
+    /// Emergency drop of the oldest turns — reserved for the hard token cliff,
+    /// where there is no budget for a summarizer LLM call before the prompt
+    /// would overflow the window.
+    Slide,
+}
+
+/// Decide the compaction action from the size signals. Pure; exposed for
+/// integration tests.
+///
+/// The hard token cliff (`before >= emergency_tokens`) slides immediately — a
+/// multi-second summarizer call risks overflowing the window first. Otherwise
+/// an over-message thread OR a warn-band thread summarizes, persisting a durable
+/// block rather than raw-dropping history: the message cap is an
+/// under-estimation backstop, not a reason to lose context. Below every
+/// threshold is a no-op.
+#[must_use]
+pub const fn decide_action(
+    before: u32,
+    over_messages: bool,
+    warn_tokens: u32,
+    emergency_tokens: u32,
+) -> CompactionAction {
+    if before >= emergency_tokens {
+        CompactionAction::Slide
+    } else if over_messages || before >= warn_tokens {
+        CompactionAction::Summarize
+    } else {
+        CompactionAction::NoOp
     }
 }
 

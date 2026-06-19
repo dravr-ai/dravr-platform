@@ -10,7 +10,8 @@
 use pierre_core::config::CompactionConfig;
 use pierre_llm::{ChatMessage, MessageRole};
 use pierre_services::conversation_compaction::{
-    estimate_messages_tokens, non_system_count, sliding_window_to_fit,
+    decide_action, estimate_messages_tokens, non_system_count, sliding_window_to_fit,
+    CompactionAction,
 };
 
 fn msgs(items: &[(MessageRole, &str)]) -> Vec<ChatMessage> {
@@ -22,6 +23,55 @@ fn msgs(items: &[(MessageRole, &str)]) -> Vec<ChatMessage> {
             MessageRole::System | MessageRole::Tool => ChatMessage::system(*content),
         })
         .collect()
+}
+
+#[test]
+fn decide_action_routes_over_message_thread_to_summarize_not_slide() {
+    let cfg = CompactionConfig::default();
+    let (warn, emerg) = (cfg.warn_tokens(), cfg.emergency_tokens());
+    // Over the message cap but token-wise under the emergency cliff: summarize
+    // (preserve context as a durable block), NOT slide. This is the path a long
+    // under-token thread hits — the change that stops it raw-dropping history.
+    assert_eq!(
+        decide_action(warn / 2, true, warn, emerg),
+        CompactionAction::Summarize
+    );
+}
+
+#[test]
+fn decide_action_hard_token_cliff_always_slides() {
+    let cfg = CompactionConfig::default();
+    let (warn, emerg) = (cfg.warn_tokens(), cfg.emergency_tokens());
+    // At/over the emergency token cliff: slide, even when also over the message
+    // cap — no budget for a summarizer call before the window would overflow.
+    assert_eq!(
+        decide_action(emerg, false, warn, emerg),
+        CompactionAction::Slide
+    );
+    assert_eq!(
+        decide_action(emerg, true, warn, emerg),
+        CompactionAction::Slide
+    );
+    assert_eq!(
+        decide_action(emerg + 1, false, warn, emerg),
+        CompactionAction::Slide
+    );
+}
+
+#[test]
+fn decide_action_warn_band_summarizes_below_warn_is_noop() {
+    let cfg = CompactionConfig::default();
+    let (warn, emerg) = (cfg.warn_tokens(), cfg.emergency_tokens());
+    // Warn band (warn <= before < emergency), within the message cap: summarize.
+    assert_eq!(
+        decide_action(warn, false, warn, emerg),
+        CompactionAction::Summarize
+    );
+    // Below warn and within the message cap: no-op.
+    assert_eq!(
+        decide_action(warn - 1, false, warn, emerg),
+        CompactionAction::NoOp
+    );
 }
 
 #[test]
