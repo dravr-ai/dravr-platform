@@ -23,6 +23,10 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use pierre_core::models::TenantId;
+use uuid::Uuid;
+
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use pierre_auth::tenant::TenantOAuthClient;
@@ -45,6 +49,36 @@ use pierre_services::provider_refresh::SyncNotifier;
 use pierre_enforme::SyncOrchestrator;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+
+/// Best-effort sink that pushes a "your historical backfill finished" notice
+/// back to the messaging channel that triggered it.
+///
+/// A deep-history `get_activities` ask on a scrape-backed mirror provider warms
+/// the durable cache off the request path (see [`crate::activity_backfill`]) and
+/// returns silently. When the originating turn came from a messaging channel,
+/// the backfill job can later resolve that channel from the Pierre conversation
+/// id and ping the user that their older history is now ready.
+///
+/// The push is best-effort: the implementation owns its own error handling and
+/// returns unit, so a notification failure never affects the backfill itself.
+/// The concrete implementation and the call from `run_activity_backfill` land
+/// in a later phase; this trait and the [`ToolRuntime::backfill_notifier`]
+/// getter only declare the seam.
+#[async_trait]
+pub trait BackfillNotifier: Send + Sync {
+    /// Notify the channel behind `pierre_conversation_id` that a background
+    /// historical backfill of `activity_count` activities from `provider`
+    /// finished for `(user_id, tenant_id)`. Best-effort — implementations
+    /// swallow and log their own failures.
+    async fn push_backfill_complete(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+        provider: &str,
+        activity_count: usize,
+    );
+}
 
 /// Narrow façade over the server's shared services that tool implementations
 /// are allowed to depend on.
@@ -122,6 +156,15 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Materialize a [`DataContext`] (the focused data-access slice).
     fn data(&self) -> DataContext;
+
+    /// Optional best-effort notifier that pushes a backfill-completion notice
+    /// back to the messaging channel that triggered a historical
+    /// [`crate::activity_backfill`] job. Defaults to `None` so existing
+    /// `ToolRuntime` impls (and test fakes) keep compiling unchanged; the
+    /// production `ServerContext` overrides it once the push lands.
+    fn backfill_notifier(&self) -> Option<&Arc<dyn BackfillNotifier>> {
+        None
+    }
 
     /// Optional MCP sampling peer (present when an MCP client supports
     /// sampling).

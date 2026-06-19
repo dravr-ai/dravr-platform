@@ -363,6 +363,49 @@ impl Database {
         }))
     }
 
+    /// Look up a session by its originating Pierre conversation id (per-tenant).
+    ///
+    /// Returns the session row exposing `channel_type` + `channel_conversation_id`
+    /// so a caller can route a notice back to the channel behind a conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_session_by_pierre_conversation_id_impl(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> AppResult<Option<Value>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, channel_type, channel_user_id,
+                   channel_conversation_id, pierre_conversation_id, last_message_at, created_at
+            FROM messaging_sessions
+            WHERE tenant_id = ? AND pierre_conversation_id = ?
+            LIMIT 1
+            ",
+        )
+        .bind(tenant_id)
+        .bind(pierre_conversation_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get session by conversation: {e}")))?;
+
+        Ok(row.map(|r| {
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "user_id": r.get::<String, _>("user_id"),
+                "tenant_id": r.get::<String, _>("tenant_id"),
+                "channel_type": r.get::<String, _>("channel_type"),
+                "channel_user_id": r.get::<String, _>("channel_user_id"),
+                "channel_conversation_id": r.get::<Option<String>, _>("channel_conversation_id"),
+                "pierre_conversation_id": r.get::<Option<String>, _>("pierre_conversation_id"),
+                "last_message_at": r.get::<String, _>("last_message_at"),
+                "created_at": r.get::<String, _>("created_at"),
+            })
+        }))
+    }
+
     /// Touch a session's last message timestamp
     ///
     /// # Errors
@@ -1362,6 +1405,15 @@ impl MessagingRepository for Database {
             channel_conversation_id,
         )
         .await
+    }
+
+    async fn get_session_by_pierre_conversation_id(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> AppResult<Option<Value>> {
+        self.get_session_by_pierre_conversation_id_impl(tenant_id, pierre_conversation_id)
+            .await
     }
 
     async fn touch_session(&self, session_id: &str) -> AppResult<()> {

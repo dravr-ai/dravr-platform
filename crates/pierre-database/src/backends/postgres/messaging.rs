@@ -328,6 +328,51 @@ impl MessagingRepository for PostgresDatabase {
         }))
     }
 
+    async fn get_session_by_pierre_conversation_id(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> AppResult<Option<Value>> {
+        // Casts mirror get_session_by_channel_identity: migration
+        // 20260417000001 converted tenant_id/user_id to UUID, so the bound
+        // TenantId string is cast to compare against the UUID column.
+        let row = sqlx::query(
+            r"
+            SELECT id,
+                   user_id::text   AS user_id,
+                   tenant_id::text AS tenant_id,
+                   channel_type, channel_user_id,
+                   channel_conversation_id, pierre_conversation_id,
+                   last_message_at, created_at
+            FROM messaging_sessions
+            WHERE tenant_id = $1::uuid AND pierre_conversation_id = $2
+            LIMIT 1
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(pierre_conversation_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get session by conversation: {e}")))?;
+
+        Ok(row.map(|r| {
+            let last_message_at: DateTime<Utc> = r.get("last_message_at");
+            let created_at: DateTime<Utc> = r.get("created_at");
+
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "user_id": r.get::<String, _>("user_id"),
+                "tenant_id": r.get::<String, _>("tenant_id"),
+                "channel_type": r.get::<String, _>("channel_type"),
+                "channel_user_id": r.get::<String, _>("channel_user_id"),
+                "channel_conversation_id": r.get::<Option<String>, _>("channel_conversation_id"),
+                "pierre_conversation_id": r.get::<Option<String>, _>("pierre_conversation_id"),
+                "last_message_at": last_message_at.to_rfc3339(),
+                "created_at": created_at.to_rfc3339(),
+            })
+        }))
+    }
+
     async fn touch_session(&self, session_id: &str) -> AppResult<()> {
         let now = Utc::now();
 

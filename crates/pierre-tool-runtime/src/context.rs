@@ -33,6 +33,22 @@ use pierre_database::backends::factory::Database;
 use pierre_intelligence::ActivityIntelligence;
 use pierre_providers::ProviderRegistry;
 
+tokio::task_local! {
+    /// Originating Pierre conversation id for the in-flight tool call.
+    ///
+    /// The third-party tronc `ToolContext` (which backs every satellite) carries
+    /// only host-agnostic identity strings and cannot be extended with a
+    /// conversation field. [`crate::protocol::executor::UniversalExecutor`]
+    /// therefore opens this task-local scope around `McpTool::execute` for the
+    /// duration of one tool call, and [`ToolExecutionContext::from_tronc`] reads
+    /// it back so a tool can correlate detached work (e.g. a background activity
+    /// backfill) with the channel that triggered it. The value is constant for
+    /// the executor's per-turn lifetime; concurrent turns run in separate tokio
+    /// tasks, so the slot never crosses turns. Absent (the scope is never
+    /// entered) for MCP-direct / A2A / SSE calls that have no conversation.
+    pub static CONVERSATION_ID: Option<String>;
+}
+
 /// How the user authenticated for this request.
 ///
 /// Useful for audit logging and determining available permissions.
@@ -111,6 +127,11 @@ pub struct ToolExecutionContext {
     pub resources: Arc<dyn ToolRuntime>,
     /// Authentication method used (for audit logging)
     pub auth_method: AuthMethod,
+    /// Originating Pierre conversation id when this call was surfaced from a
+    /// chat turn, `None` for MCP-direct / A2A / SSE calls. Lets a tool route
+    /// detached follow-up work (e.g. a background backfill push) back to the
+    /// channel that triggered it.
+    pub conversation_id: Option<String>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -137,6 +158,7 @@ impl ToolExecutionContext {
             request_id: None,
             resources,
             auth_method,
+            conversation_id: None,
             is_admin: None,
         }
     }
@@ -148,6 +170,12 @@ impl ToolExecutionContext {
     /// them back into the platform's typed fields (`Uuid` ids, [`AuthMethod`]).
     /// An unparsable/absent user id becomes the nil UUID, and the admin flag is
     /// taken as already-resolved so tools don't re-query the database.
+    ///
+    /// The originating Pierre `conversation_id` is read from the
+    /// [`CONVERSATION_ID`] task-local that the executor scopes around the tool
+    /// call — the tronc context has no field for it, so this side-channel keeps
+    /// the conversation available without extending the third-party type. It is
+    /// `None` outside a scoped chat dispatch (MCP-direct / A2A / SSE).
     #[must_use]
     pub fn from_tronc(resources: &Arc<dyn ToolRuntime>, ctx: &TroncToolContext) -> Self {
         let user_id = ctx
@@ -169,6 +197,7 @@ impl ToolExecutionContext {
             request_id: ctx.request_id.clone(),
             resources: resources.clone(),
             auth_method,
+            conversation_id: CONVERSATION_ID.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -184,6 +213,13 @@ impl ToolExecutionContext {
     #[must_use]
     pub fn with_request_id(mut self, request_id: Value) -> Self {
         self.request_id = Some(request_id);
+        self
+    }
+
+    /// Set the originating Pierre conversation id (chat-surfaced calls).
+    #[must_use]
+    pub fn with_conversation_id(mut self, conversation_id: String) -> Self {
+        self.conversation_id = Some(conversation_id);
         self
     }
 
@@ -310,6 +346,7 @@ impl ToolExecutionContext {
             request_id: self.request_id.clone(),
             resources: self.resources.clone(),
             auth_method: self.auth_method,
+            conversation_id: self.conversation_id.clone(),
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -341,6 +378,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("tenant_id", &self.tenant_id)
             .field("request_id", &self.request_id)
             .field("auth_method", &self.auth_method)
+            .field("conversation_id", &self.conversation_id)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

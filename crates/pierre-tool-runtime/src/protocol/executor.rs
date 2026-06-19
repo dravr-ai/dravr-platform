@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
-use crate::context::AuthMethod;
+use crate::context::{AuthMethod, CONVERSATION_ID};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
@@ -135,6 +135,12 @@ pub struct UniversalExecutor {
     pub intelligence_service: IntelligenceService,
     /// Shared server resources (database, weather service, etc.)
     pub resources: Arc<dyn ToolRuntime>,
+    /// Originating Pierre conversation id when this executor was built for a
+    /// chat turn (`None` for MCP-direct / A2A / SSE dispatch). Scoped into the
+    /// [`crate::context::CONVERSATION_ID`] task-local around each tool call so
+    /// [`crate::context::ToolExecutionContext::from_tronc`] can recover it
+    /// without extending the third-party tronc `ToolContext`.
+    conversation_id: Option<String>,
 }
 
 impl UniversalExecutor {
@@ -148,7 +154,18 @@ impl UniversalExecutor {
             auth_service,
             intelligence_service,
             resources,
+            conversation_id: None,
         }
+    }
+
+    /// Bind the originating Pierre conversation id for the turn this executor
+    /// serves. The chat pipeline calls this where `TurnInput.conversation_id`
+    /// is in scope so every tool dispatched through [`Self::execute_tool`] can
+    /// recover the conversation via [`crate::context::ToolExecutionContext`].
+    #[must_use]
+    pub fn with_conversation_id(mut self, conversation_id: String) -> Self {
+        self.conversation_id = Some(conversation_id);
+        self
     }
 
     /// Return a cheap clone of the current cageux intelligence config
@@ -195,7 +212,15 @@ impl UniversalExecutor {
         let args = request.parameters;
         let tool_name = request.tool_name;
 
-        let response = tool.execute(&self.resources, &ctx, args).await;
+        // Scope the originating conversation id into the task-local for the
+        // duration of the tool body so `ToolExecutionContext::from_tronc` can
+        // recover it — the tronc `ToolContext` has no field to carry it through.
+        let response = CONVERSATION_ID
+            .scope(
+                self.conversation_id.clone(),
+                tool.execute(&self.resources, &ctx, args),
+            )
+            .await;
 
         if response.is_error {
             // Preserve the provider-auth short-circuit across the tronc
