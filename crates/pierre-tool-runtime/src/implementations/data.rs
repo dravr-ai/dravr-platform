@@ -526,6 +526,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         tenant_id_str: tenant_id_str.clone(),
                         provider_name: provider_name.clone(),
                         query_params: query_params.clone(),
+                        pierre_conversation_id: context.conversation_id.clone(),
                     });
                     return Ok(ToolResult::ok(json!({
                         "status": "backfilling",

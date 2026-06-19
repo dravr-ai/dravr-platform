@@ -193,6 +193,20 @@ pub trait MessagingRepository: Send + Sync {
         channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<Value>>;
 
+    /// Look up a session by its originating Pierre conversation id.
+    ///
+    /// The reverse of [`Self::set_session_conversation`]: given a
+    /// `pierre_conversation_id`, return the messaging session that owns it so a
+    /// caller can recover the channel (`channel_type` + `channel_conversation_id`)
+    /// to push a notice back to. Tenant-scoped — a different tenant's conversation
+    /// id yields `None`. Backs the backfill-completion push, which only has the
+    /// conversation id of the turn that spawned the job.
+    async fn get_session_by_pierre_conversation_id(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> AppResult<Option<Value>>;
+
     /// Update the last message timestamp on a session
     async fn touch_session(&self, session_id: &str) -> AppResult<()>;
 

@@ -103,6 +103,11 @@ pub(crate) struct ActivityBackfillJob {
     pub provider_name: String,
     /// The original request window — its deep `after` drives the page-to-date scrape.
     pub query_params: ActivityQueryParams,
+    /// Originating Pierre conversation id when the backfill was triggered from a
+    /// chat turn, so a later phase can push the completion notice back to the
+    /// channel that asked. `None` for MCP-direct / A2A / SSE callers with no
+    /// conversation. Unused until the backfill-completion push lands.
+    pub pierre_conversation_id: Option<String>,
 }
 
 /// Spawn a bounded background job that pages a provider's feed back to the
@@ -211,6 +216,11 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         provider = %job.provider_name,
         count = activities.len(),
         retention_days,
+        // Whether this backfill was chat-triggered, so the later completion-push
+        // phase's behaviour is observable. The conversation id itself is an
+        // internal identifier (already logged on the chat dispatch path); here we
+        // only surface whether one is attached.
+        chat_triggered = job.pierre_conversation_id.is_some(),
         "Activity backfill: wrote historical activities to durable cache"
     );
 }

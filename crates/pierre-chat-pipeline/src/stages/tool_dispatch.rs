@@ -90,8 +90,13 @@ pub(crate) async fn dispatch_llm_with_tools(
         history,
         source_ids,
     } = inputs;
-    // Stage 9: MCP executor for tool calls.
-    let executor = Arc::new(UniversalExecutor::new(Arc::clone(&ctx.tool_runtime)));
+    // Stage 9: MCP executor for tool calls. Bind the originating conversation id
+    // so a tool that spawns detached work (e.g. a historical activity backfill)
+    // can route a completion notice back to the channel that triggered it.
+    let executor = Arc::new(
+        UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
+            .with_conversation_id(input.conversation_id.clone()),
+    );
 
     // Stage 10: Deterministic activity prefetch driven by coach DataRequirements.
     inject_startup_context(
