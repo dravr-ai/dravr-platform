@@ -22,7 +22,8 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use pierre_chat_pipeline::stages::persistence::create_conversation;
 use pierre_contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
+    format_template, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_LINK_FALLBACK_PROMPT,
+    KEY_LINK_INITIAL_PROMPT, KEY_RESET_CONFIRM,
 };
 use pierre_core::errors::AppError;
 use pierre_services::messaging_group_bind::resolve_or_create_channel_group;
@@ -84,7 +85,7 @@ async fn resolve_session_conversation(
 /// `pierre_conversation_id` cannot be reused for the current linked
 /// user (NULL column, deleted row, rebind to a different user, or
 /// cross-tenant move). Returns the new conversation id.
-async fn forge_fresh_session_conversation(
+pub(super) async fn forge_fresh_session_conversation(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
     session_id: &str,
@@ -119,6 +120,61 @@ async fn forge_fresh_session_conversation(
     let new_id = conversation.conversation.id.clone();
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
+}
+
+/// Handle the `/reset` (`/nouveau`, `/new`) command: rotate the messaging
+/// session onto a fresh conversation so a user can abandon a long or degraded
+/// thread without operator help. The previous conversation row is left intact
+/// (only unlinked from the session) — nothing is destroyed. Returns the
+/// confirmation reply, or the generic error reply if the rotation fails.
+/// Addressed to `sender_id`; the caller applies thread/room recipient routing.
+pub(super) async fn handle_reset(
+    resources: &ServerContext,
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &str,
+    sender_id: &str,
+    session: &ResolvedSession,
+) -> OutgoingMessage {
+    let registry = &resources.mcp.messaging_strings_registry;
+    let body = match forge_fresh_session_conversation(
+        resources,
+        db,
+        &session.session_id,
+        &session.user_id,
+        tenant_id,
+        channel,
+    )
+    .await
+    {
+        Ok(new_id) => {
+            info!(
+                session_id = %session.session_id,
+                old_conversation_id = %session.conversation,
+                new_conversation_id = %new_id,
+                channel = %channel,
+                "Reset command: rotated messaging session onto a fresh conversation"
+            );
+            registry.get(KEY_RESET_CONFIRM, DEFAULT_LOCALE)
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                session_id = %session.session_id,
+                "Reset command failed to forge a fresh conversation"
+            );
+            format_template(&registry.get(KEY_ERROR_GENERIC, DEFAULT_LOCALE), &["reset"])
+        }
+    };
+    OutgoingMessage {
+        channel_type,
+        recipient_id: sender_id.to_owned(),
+        content: MessageContent::Text { body },
+        turn_id: CanotTurnId::new(),
+        reply_to: None,
+        thread_id: None,
+    }
 }
 
 /// Best-effort `coach_assignments.use_count++` for messaging-channel
