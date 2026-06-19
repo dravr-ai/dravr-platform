@@ -232,7 +232,7 @@ impl ConversationCompactor {
         if ctx.source_ids.len() != ctx.llm_messages.len() {
             return None;
         }
-        let range = self.pick_range(ctx.llm_messages)?;
+        let range = self.pick_range(ctx.source_ids)?;
         let history_range =
             history_range_for(ctx.source_ids, ctx.llm_messages, range.start, range.end)?;
         let combined = extract_range_text(ctx.llm_messages, &range);
@@ -300,26 +300,52 @@ impl ConversationCompactor {
 
     /// Choose which range of `llm_messages` indices to compact.
     ///
-    /// We always preserve the system prompt at index 0 (if any) and we avoid
-    /// dropping the most recent user message. That leaves the oldest user +
-    /// assistant turns as compaction candidates.
-    fn pick_range(&self, llm_messages: &[ChatMessage]) -> Option<CompactRange> {
-        let system_count = llm_messages
-            .iter()
-            .take(1)
-            .filter(|m| matches!(m.role, MessageRole::System))
-            .count();
-        let non_system_len = llm_messages.len().saturating_sub(system_count);
+    /// `source_ids` is index-aligned with `llm_messages`: `None` marks a
+    /// non-history entry (the leading system prompt **and** any compaction
+    /// summary spliced back in by `build_llm_messages_with_blocks`),
+    /// `Some(id)` a real persisted turn. We anchor the compaction window on
+    /// real turns only, which both preserves the system prompt and — crucially
+    /// — never re-summarizes an already-injected summary (those carry `None`,
+    /// so they fall outside the range).
+    ///
+    /// `start` is the first real turn. We then require the
+    /// `summarize_oldest_n` entries starting there to be *contiguously* real
+    /// (a defensive guard: an unexpected summary interspersed among the oldest
+    /// turns means our window assumptions no longer hold, so we skip
+    /// compaction this turn) and at least two more real turns to survive after
+    /// the window, so the most recent user+assistant pair stays for the LLM to
+    /// reply to.
+    fn pick_range(&self, source_ids: &[Option<String>]) -> Option<CompactRange> {
+        let n = self.config.summarize_oldest_n;
 
-        // Need at least `summarize_oldest_n + 2` non-system messages so we
-        // leave the last user+assistant pair alone for the LLM to reply to.
-        if non_system_len < self.config.summarize_oldest_n + 2 {
+        // First real turn: skips the system prompt and any leading injected
+        // summaries (all `None`).
+        let start = source_ids.iter().position(Option::is_some)?;
+
+        // The `n` entries to compact must all be real turns. An interspersed
+        // injected summary (`None`) inside the window aborts compaction.
+        let window_end = start.checked_add(n)?;
+        if window_end > source_ids.len() {
+            return None;
+        }
+        if source_ids[start..window_end].iter().any(Option::is_none) {
             return None;
         }
 
-        let start = system_count;
-        let end = start + self.config.summarize_oldest_n;
-        Some(CompactRange { start, end })
+        // Keep-the-last-pair rule: at least two real turns must remain after
+        // the compaction window.
+        let real_after = source_ids[window_end..]
+            .iter()
+            .filter(|id| id.is_some())
+            .count();
+        if real_after < 2 {
+            return None;
+        }
+
+        Some(CompactRange {
+            start,
+            end: window_end,
+        })
     }
 
     /// Sliding-window fallback: delegates to [`sliding_window_to_fit`].

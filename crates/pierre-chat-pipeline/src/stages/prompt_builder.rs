@@ -15,10 +15,12 @@
 //! prior message history into a flat `Vec<ChatMessage>` for the LLM.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pierre_database::database::MessageRecord;
+use pierre_memory::CompactionBlock;
 use uuid::Uuid;
 
 #[cfg(feature = "tools-groups")]
@@ -110,6 +112,41 @@ pub fn build_llm_messages(
     system_prompt: Option<&str>,
     history: &[MessageRecord],
 ) -> (Vec<ChatMessage>, Vec<Option<String>>) {
+    build_llm_messages_with_blocks(system_prompt, history, &[])
+}
+
+/// Build LLM messages, splicing persisted compaction summaries back over the
+/// raw history rows they replaced.
+///
+/// Identical to [`build_llm_messages`] except that each accepted
+/// [`CompactionBlock`] collapses its covered `[first_message_id,
+/// last_message_id]` history range into a single `System` message carrying the
+/// block's `summary` text — exactly the read-side that lets a long thread keep
+/// its summarized context on later turns. The summary is injected verbatim,
+/// **without** the UI-only [`COMPACTION_MARKER`] prefix, so the model reads it
+/// as authoritative prior conversation rather than as a render artifact.
+///
+/// [`COMPACTION_MARKER`]: pierre_services::conversation_compaction::COMPACTION_MARKER
+///
+/// A block is *accepted* only when both of its boundary ids resolve to indices
+/// in `history`, the range is well-formed (`first_index <= last_index`), and it
+/// does not overlap an already-accepted block. Because `blocks` arrives
+/// `created_at` ASC, the earliest-created block wins any overlap and the later
+/// one is skipped — there is never a double summary for a row. A block whose
+/// boundary id is absent from `history` (it straddles or sits outside the
+/// loaded window, or belongs to another conversation) is skipped entirely and
+/// its rows render raw.
+///
+/// The injected summary occupies one emitted slot with `source_id` `None`
+/// (like the system prompt): it is not a persisted history row, so Tier 1
+/// compaction's `source_ids`-aware guard treats it as off-limits and never
+/// re-summarizes an already-injected summary.
+#[must_use]
+pub fn build_llm_messages_with_blocks(
+    system_prompt: Option<&str>,
+    history: &[MessageRecord],
+    blocks: &[CompactionBlock],
+) -> (Vec<ChatMessage>, Vec<Option<String>>) {
     let mut messages = Vec::with_capacity(history.len() + 1);
     let mut source_ids: Vec<Option<String>> = Vec::with_capacity(history.len() + 1);
 
@@ -118,31 +155,100 @@ pub fn build_llm_messages(
         source_ids.push(None);
     }
 
-    for msg in history {
-        // Strip tool-result scaffolding from replayed history before it re-enters
-        // the prompt. Persisted `tool_result` turns hold raw `<tool_result>` XML,
-        // and a prior parroted assistant echo holds the same blocks; replaying
-        // either verbatim teaches the model to imitate the format and emit a
-        // tool-result echo instead of an answer (observed: a long thread degrades
-        // to empty/parroted replies). `strip_simulation_artifacts` leaves a real
-        // synthesized answer untouched and reduces pure scaffolding to empty, so
-        // an empty result is dropped rather than re-seeding the parrot. Mirrors
-        // the per-turn strip in `run_cli_tool_loop` / `finalize_headless_turn`.
-        let stripped = strip_simulation_artifacts(&msg.content);
-        if stripped.is_empty() {
+    // Resolve each block's boundary ids to indices, then accept it only if the
+    // range is well-formed and disjoint from every block already accepted. We
+    // iterate `blocks` in their given order (the repository returns them
+    // `created_at` ASC), so an overlap resolves in favour of the earlier block.
+    let id_to_index: HashMap<&str, usize> = history
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.id.as_str(), i))
+        .collect();
+    let mut accepted: Vec<AcceptedBlock<'_>> = Vec::new();
+    for block in blocks {
+        let (Some(&first_index), Some(&last_index)) = (
+            id_to_index.get(block.first_message_id.as_str()),
+            id_to_index.get(block.last_message_id.as_str()),
+        ) else {
+            continue;
+        };
+        if first_index > last_index {
             continue;
         }
-        let chat_msg = match msg.role.as_str() {
-            "user" | "tool_result" => ChatMessage::user(&stripped),
-            "assistant" | "tool_call" => ChatMessage::assistant(&stripped),
-            "system" => ChatMessage::system(&stripped),
-            _ => continue,
-        };
-        messages.push(chat_msg);
-        source_ids.push(Some(msg.id.clone()));
+        let overlaps = accepted
+            .iter()
+            .any(|a| first_index <= a.last_index && a.first_index <= last_index);
+        if overlaps {
+            continue;
+        }
+        accepted.push(AcceptedBlock {
+            first_index,
+            last_index,
+            summary: &block.summary,
+        });
+    }
+    // Index the accepted blocks by their start row so the walk can detect a
+    // block boundary in O(1) and fast-forward over the rows it covers.
+    let block_start: HashMap<usize, &AcceptedBlock<'_>> =
+        accepted.iter().map(|a| (a.first_index, a)).collect();
+
+    let mut i = 0usize;
+    while i < history.len() {
+        if let Some(block) = block_start.get(&i) {
+            // Splice the summary in place of the raw rows `[first_index,
+            // last_index]` (inclusive), then skip every covered row. The
+            // summary is authoritative history, so no marker prefix.
+            messages.push(ChatMessage::system(block.summary));
+            source_ids.push(None);
+            i = block.last_index + 1;
+            continue;
+        }
+        push_history_row(&history[i], &mut messages, &mut source_ids);
+        i += 1;
     }
 
     (messages, source_ids)
+}
+
+/// An accepted compaction block, resolved to history indices.
+struct AcceptedBlock<'a> {
+    first_index: usize,
+    last_index: usize,
+    summary: &'a str,
+}
+
+/// Map one persisted history row to its wire-format [`ChatMessage`] and append
+/// it (with its `source_id`) to the in-flight vectors, or drop it.
+///
+/// Shared by [`build_llm_messages`] and [`build_llm_messages_with_blocks`] so
+/// the per-row mapping lives in exactly one place: the no-blocks path is then
+/// byte-identical to the legacy single-function output.
+fn push_history_row(
+    msg: &MessageRecord,
+    messages: &mut Vec<ChatMessage>,
+    source_ids: &mut Vec<Option<String>>,
+) {
+    // Strip tool-result scaffolding from replayed history before it re-enters
+    // the prompt. Persisted `tool_result` turns hold raw `<tool_result>` XML,
+    // and a prior parroted assistant echo holds the same blocks; replaying
+    // either verbatim teaches the model to imitate the format and emit a
+    // tool-result echo instead of an answer (observed: a long thread degrades
+    // to empty/parroted replies). `strip_simulation_artifacts` leaves a real
+    // synthesized answer untouched and reduces pure scaffolding to empty, so
+    // an empty result is dropped rather than re-seeding the parrot. Mirrors
+    // the per-turn strip in `run_cli_tool_loop` / `finalize_headless_turn`.
+    let stripped = strip_simulation_artifacts(&msg.content);
+    if stripped.is_empty() {
+        return;
+    }
+    let chat_msg = match msg.role.as_str() {
+        "user" | "tool_result" => ChatMessage::user(&stripped),
+        "assistant" | "tool_call" => ChatMessage::assistant(&stripped),
+        "system" => ChatMessage::system(&stripped),
+        _ => return,
+    };
+    messages.push(chat_msg);
+    source_ids.push(Some(msg.id.clone()));
 }
 
 /// Build the "Connected Fitness Data Providers" system-prompt section.

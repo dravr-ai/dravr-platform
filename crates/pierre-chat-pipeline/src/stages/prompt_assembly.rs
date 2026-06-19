@@ -31,7 +31,9 @@ use super::followups::inject_pending_followups;
 use super::memory::inject_okf_bundle;
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
-use super::prompt_builder::{build_llm_messages, build_provider_context, build_tools_section};
+use super::prompt_builder::{
+    build_llm_messages_with_blocks, build_provider_context, build_tools_section,
+};
 use super::refresh::inject_refresh_context;
 
 /// Return the [`MessagingStringsRegistry`] key that holds the scope
@@ -463,8 +465,27 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 8: Flatten into the LLM message list. `source_ids` maps each
     // emitted message back to its history row id (None for the system prompt)
     // so Tier 1 compaction can anchor block ids without a positional guess.
+    //
+    // First fetch any persisted compaction blocks for this conversation so the
+    // flattener can splice their summaries over the raw history rows they
+    // replaced — without this read-side reconstruction the summaries are
+    // write-only orphans and a long thread silently loses its compacted
+    // context. A repository error degrades to an empty block list (the turn
+    // proceeds with raw history) rather than failing the turn.
+    let blocks = match ctx
+        .repos
+        .memory
+        .list_compaction_blocks(&input.conversation_id, input.conversation_tenant_id)
+        .await
+    {
+        Ok(blocks) => blocks,
+        Err(e) => {
+            warn!(error = %e, "failed to list compaction blocks; proceeding with raw history");
+            Vec::new()
+        }
+    };
     let (llm_messages, source_ids) =
-        build_llm_messages(Some(&prompt_guard.hardened_prompt), history);
+        build_llm_messages_with_blocks(Some(&prompt_guard.hardened_prompt), history, &blocks);
 
     let span = Span::current();
     span.record("prompt_len", prompt_guard.hardened_prompt.len());
