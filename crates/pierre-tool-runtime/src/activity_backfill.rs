@@ -235,12 +235,16 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         job.pierre_conversation_id.as_deref(),
         job.resources.backfill_notifier(),
     ) {
+        // The historical-window `after` (unix seconds) keys the durable
+        // cross-replica dedup claim; `0` when the request had no `after`.
+        let after_ts = job.query_params.after.unwrap_or(0);
         notifier
             .push_backfill_complete(
                 job.user_id,
                 job.tenant_id,
                 conversation_id,
                 &job.provider_name,
+                after_ts,
                 activity_count,
             )
             .await;

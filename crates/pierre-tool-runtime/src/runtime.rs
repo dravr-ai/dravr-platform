@@ -70,12 +70,18 @@ pub trait BackfillNotifier: Send + Sync {
     /// historical backfill of `activity_count` activities from `provider`
     /// finished for `(user_id, tenant_id)`. Best-effort — implementations
     /// swallow and log their own failures.
+    ///
+    /// `after_ts` is the historical-window `after` lower bound in unix seconds
+    /// (`0` when the request had no `after`). It keys the durable cross-replica
+    /// dedup claim so the notice is sent exactly once per `(user, provider,
+    /// window)` even when several replicas finish the same backfill.
     async fn push_backfill_complete(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
         provider: &str,
+        after_ts: i64,
         activity_count: usize,
     );
 }

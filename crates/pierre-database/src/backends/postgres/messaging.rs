@@ -1268,6 +1268,35 @@ impl MessagingRepository for PostgresDatabase {
 
         Ok(())
     }
+
+    async fn claim_backfill_push(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        provider: &str,
+        after_ts: i64,
+    ) -> AppResult<bool> {
+        // tenant_id/user_id are UUID columns (cf. messaging_sessions): bind the
+        // string form and cast. ON CONFLICT DO NOTHING claims the window once;
+        // rows_affected() == 1 means THIS caller won the claim and must send.
+        let result = sqlx::query(
+            r"
+            INSERT INTO backfill_push_log
+                (tenant_id, user_id, provider, after_ts)
+            VALUES ($1::uuid, $2::uuid, $3, $4)
+            ON CONFLICT (tenant_id, user_id, provider, after_ts) DO NOTHING
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id)
+        .bind(provider)
+        .bind(after_ts)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to claim backfill push: {e}")))?;
+
+        Ok(result.rows_affected() == 1)
+    }
 }
 
 /// Convert an outbound queue row to JSON value

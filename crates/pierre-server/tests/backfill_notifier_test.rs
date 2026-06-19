@@ -269,7 +269,14 @@ async fn push_routes_to_originating_chat() {
     let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
 
     notifier
-        .push_backfill_complete(user_uuid, tenant_id, &conversation_id, "strava", 42)
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            42,
+        )
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -328,7 +335,14 @@ async fn push_for_moved_session_sends_nothing() {
 
     // Push for the OLD conversation C — the session no longer points at it.
     notifier
-        .push_backfill_complete(user_uuid, tenant_id, &conversation_c, "strava", 7)
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_c,
+            "strava",
+            1_700_000_000,
+            7,
+        )
         .await;
 
     assert!(
@@ -381,7 +395,14 @@ async fn push_is_tenant_scoped() {
 
     // Push tenant A's conversation under tenant B — must resolve nothing.
     notifier
-        .push_backfill_complete(user_b, tenant_b, &conversation_a, "strava", 5)
+        .push_backfill_complete(
+            user_b,
+            tenant_b,
+            &conversation_a,
+            "strava",
+            1_700_000_000,
+            5,
+        )
         .await;
     assert!(
         channel.sent.lock().unwrap().is_empty(),
@@ -390,7 +411,14 @@ async fn push_is_tenant_scoped() {
 
     // Sanity: under tenant A the same conversation resolves and routes to A's chat.
     notifier
-        .push_backfill_complete(user_a, tenant_a, &conversation_a, "strava", 5)
+        .push_backfill_complete(
+            user_a,
+            tenant_a,
+            &conversation_a,
+            "strava",
+            1_700_000_000,
+            5,
+        )
         .await;
     let sent = channel.sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "owning tenant should deliver exactly once");

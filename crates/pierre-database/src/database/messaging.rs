@@ -1332,6 +1332,40 @@ impl Database {
 
         Ok(())
     }
+
+    /// Atomically claim the backfill-completion push for a window.
+    ///
+    /// `INSERT OR IGNORE` is `SQLite`'s spelling of `ON CONFLICT DO NOTHING`: the
+    /// row is inserted iff the `(tenant_id, user_id, provider, after_ts)` PK is
+    /// free. `rows_affected() == 1` means THIS caller won the claim and must send.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database insert fails.
+    pub async fn claim_backfill_push_impl(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        provider: &str,
+        after_ts: i64,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            INSERT OR IGNORE INTO backfill_push_log
+                (tenant_id, user_id, provider, after_ts)
+            VALUES (?, ?, ?, ?)
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(provider)
+        .bind(after_ts)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to claim backfill push: {e}")))?;
+
+        Ok(result.rows_affected() == 1)
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1673,6 +1707,17 @@ impl MessagingRepository for Database {
         channel_user_id: &str,
     ) -> AppResult<()> {
         self.invalidate_otp_link_states_impl(tenant_id, channel_type, channel_user_id)
+            .await
+    }
+
+    async fn claim_backfill_push(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        provider: &str,
+        after_ts: i64,
+    ) -> AppResult<bool> {
+        self.claim_backfill_push_impl(tenant_id, user_id, provider, after_ts)
             .await
     }
 }
