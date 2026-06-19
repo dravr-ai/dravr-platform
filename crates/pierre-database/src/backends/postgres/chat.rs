@@ -386,7 +386,7 @@ impl ChatRepository for PostgresDatabase {
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
-            ORDER BY m.created_at DESC
+            ORDER BY m.created_at DESC, m.id DESC
             LIMIT $4
             ",
         )

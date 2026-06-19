@@ -111,9 +111,15 @@ pub async fn persist_user_message(
     })
 }
 
-/// Get conversation history for LLM context building.
+/// Get the per-turn conversation history for LLM context building.
 ///
-/// Returns all messages in the conversation for the given user.
+/// Returns the most recent `limit` messages in chronological order. The load is
+/// bounded (not the full unbounded history) so a long thread doesn't build a
+/// thousand-message vector before compaction trims it to the cap; `limit` is
+/// derived from the compaction message cap with headroom, and is always
+/// `>= max_messages` so the message-count backstop still governs the in-prompt
+/// size. Read-only: the full history remains available for the UI and export
+/// paths via `get_messages`.
 ///
 /// # Errors
 ///
@@ -123,9 +129,10 @@ pub async fn get_conversation_history(
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
+    limit: i64,
 ) -> AppResult<Vec<MessageRecord>> {
     database
-        .get_messages(conversation_id, user_id, tenant_id)
+        .get_recent_messages(conversation_id, user_id, tenant_id, limit)
         .await
 }
 
