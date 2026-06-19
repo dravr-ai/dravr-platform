@@ -165,6 +165,16 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
     if c.max_messages == 0 {
         return Err(AppError::invalid_input("max_messages must be > 0"));
     }
+    // Summarization needs `summarize_oldest_n` turns to compact plus 2 to keep
+    // (the last user+assistant pair). If that exceeds the message cap, a thread
+    // can never accumulate enough turns to summarize before the cap forces a
+    // raw slide — silently disabling summarization. Guard the invariant so an
+    // admin can't configure the compactor into a permanently-sliding state.
+    if c.summarize_oldest_n.saturating_add(2) > c.max_messages {
+        return Err(AppError::invalid_input(
+            "summarize_oldest_n + 2 must be <= max_messages so summarization can run before the message cap forces a slide",
+        ));
+    }
 
     let g = &doc.guardrails;
     for (locale, lg) in &g.locales {

@@ -15,6 +15,24 @@ fn default_document_is_valid() {
 }
 
 #[test]
+fn summarize_oldest_n_plus_two_above_max_messages_is_rejected() {
+    let mut doc = HarnessConfigDocument::default();
+    // 6 + 2 = 8 > 7: summarization could never run before the cap forces a slide.
+    doc.compaction.max_messages = 7;
+    doc.compaction.summarize_oldest_n = 6;
+    assert!(validate_document(&doc).is_err());
+}
+
+#[test]
+fn summarize_oldest_n_plus_two_equal_to_max_messages_is_valid() {
+    let mut doc = HarnessConfigDocument::default();
+    // 6 + 2 = 8 <= 8: exactly enough room to compact and keep the last pair.
+    doc.compaction.max_messages = 8;
+    doc.compaction.summarize_oldest_n = 6;
+    validate_document(&doc).expect("n + 2 == max_messages must validate");
+}
+
+#[test]
 fn warn_must_be_strictly_less_than_emergency() {
     let mut doc = HarnessConfigDocument::default();
     doc.compaction.warn_threshold = 0.95;
