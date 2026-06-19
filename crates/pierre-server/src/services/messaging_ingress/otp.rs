@@ -53,7 +53,7 @@ pub(super) fn is_logout_command(content: &MessageContent) -> bool {
 /// Check if a message is the conversation-reset command (`/reset`, `/nouveau`,
 /// `/new`). Only the explicit slash forms are matched so a bare mention like
 /// "reset my training" stays a normal chat turn.
-pub(super) fn is_reset_command(content: &MessageContent) -> bool {
+pub fn is_reset_command(content: &MessageContent) -> bool {
     matches!(content, MessageContent::Text { body }
     if matches!(
         body.trim().to_ascii_lowercase().as_str(),
