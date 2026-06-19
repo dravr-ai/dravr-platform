@@ -87,6 +87,44 @@ fn tool_round_without_assistant_preamble_replays_correctly() {
 }
 
 #[test]
+fn tool_result_scaffolding_and_parroted_echo_are_stripped_from_replay() {
+    // Real persisted `tool_result` rows hold the `<tool_result>` XML that
+    // `format_tool_results_as_text` emits (preamble + blocks). A prior parroted
+    // assistant turn holds the same blocks. Replaying either verbatim teaches the
+    // model to imitate the format and emit a tool-result echo instead of an
+    // answer — a long thread then degrades to empty/parroted replies. The replay
+    // must strip the scaffolding (which reduces to empty) and skip it, while a
+    // real synthesized answer survives untouched.
+    let scaffold = "Here are the results from the tools you requested:\n\n\
+                    <tool_result name=\"get_activities\">\n\
+                    {\"activity_list\":\"3 trails\"}\n\
+                    </tool_result>";
+    let history = vec![
+        record("user", "Show me my 2022 races"),
+        record("tool_result", scaffold),
+        record("assistant", "You raced 7 times in 2022."),
+        // A prior parroted assistant echo — pure scaffolding, must also drop.
+        record("assistant", scaffold),
+        record("user", "And 2023?"),
+    ];
+
+    let messages = build_llm_messages(Some("system instructions"), &history);
+
+    // system + the two user turns + the one real assistant answer. The
+    // scaffolding `tool_result` row and the parroted assistant echo both strip
+    // to empty and are skipped.
+    assert_eq!(messages.len(), 4, "scaffolding + parroted echo dropped");
+    assert!(
+        messages.iter().all(|m| !m.content.contains("<tool_result")),
+        "no <tool_result> scaffolding may survive into the prompt"
+    );
+    assert_eq!(messages[0].role, MessageRole::System);
+    assert_eq!(messages[1].content, "Show me my 2022 races");
+    assert_eq!(messages[2].content, "You raced 7 times in 2022.");
+    assert_eq!(messages[3].content, "And 2023?");
+}
+
+#[test]
 fn unknown_roles_are_dropped_defensively() {
     let history = vec![
         record("user", "hi"),
