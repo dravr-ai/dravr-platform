@@ -200,9 +200,13 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         return;
     }
 
-    let activity_count = activities.len();
+    let fetched_count = activities.len();
     let retention_days = backfill_retention_days(job.query_params.after);
-    write_through_activity_cache(
+    // The persisted count is the NET DISTINCT rows actually stored (deduped by
+    // activity_id), which can be below `fetched_count` when the provider feed
+    // repeats an id within the batch. Surface the persisted figure to the user;
+    // fall back to the fetched length only if the write-through failed.
+    let activity_count = write_through_activity_cache(
         &executor.auth_service,
         job.user_id,
         job.tenant_id,
@@ -210,12 +214,15 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         &activities,
         retention_days,
     )
-    .await;
+    .await
+    .and_then(|c| usize::try_from(c).ok())
+    .unwrap_or(fetched_count);
 
     info!(
         user_id = %job.user_id,
         provider = %job.provider_name,
         count = activity_count,
+        fetched_count,
         retention_days,
         // Whether this backfill was chat-triggered, so the later completion-push
         // phase's behaviour is observable. The conversation id itself is an
@@ -227,10 +234,10 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
 
     // Chat-triggered backfill: push a "your history is ready" notice back to the
     // originating channel. Best-effort — the notifier owns its own error
-    // handling and the count is the number of activities written through (the
-    // most honest figure available without a second cache query). No-op for
-    // MCP-direct / A2A callers (no conversation id) or when no notifier is wired
-    // (messaging compiled out / not configured).
+    // handling and `activity_count` is the net distinct rows persisted (deduped
+    // by activity_id), the honest figure the user sees. No-op for MCP-direct /
+    // A2A callers (no conversation id) or when no notifier is wired (messaging
+    // compiled out / not configured).
     if let (Some(conversation_id), Some(notifier)) = (
         job.pierre_conversation_id.as_deref(),
         job.resources.backfill_notifier(),

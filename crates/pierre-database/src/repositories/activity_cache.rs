@@ -22,8 +22,11 @@ pub trait ActivityCacheRepository: Send + Sync {
     /// Insert or update a batch of activities for a user+provider.
     ///
     /// Keyed on `(user_id, tenant_id, provider, activity_id)`; a later fetch of
-    /// the same activity overwrites the stored copy. Returns the number of rows
-    /// written.
+    /// the same activity overwrites the stored copy. Returns the count of NET
+    /// DISTINCT rows persisted (deduped by `activity_id`), not the raw input
+    /// length — a provider feed that repeats an `activity_id` within one batch
+    /// upserts the same row, so the input length would overstate the rows
+    /// actually stored. This honest count feeds the backfill completion notice.
     async fn upsert_activities(
         &self,
         user_id: Uuid,

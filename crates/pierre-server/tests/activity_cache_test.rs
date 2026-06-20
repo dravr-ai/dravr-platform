@@ -18,11 +18,18 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 
 fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
     let start = Utc::now() - Duration::days(age_days);
+    activity_at(id, provider, start)
+}
+
+/// Build an activity with an explicit `start_date`, so tests can place rows at a
+/// fixed point in a historical window (e.g. the 2022 season) independent of the
+/// current time.
+fn activity_at(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         format!("activity {id}"),
@@ -156,4 +163,131 @@ async fn activity_cache_is_tenant_isolated() {
         .await
         .unwrap();
     assert_eq!(in_b.len(), 0);
+}
+
+/// The returned count must be the NET DISTINCT rows persisted (deduped by
+/// `activity_id`), never the raw input length. A provider feed can repeat an
+/// `activity_id` within one batch; each ON CONFLICT upsert overwrites the same
+/// row, so the input length overstates the distinct rows stored. This guards the
+/// honest count that feeds the backfill completion notice.
+#[tokio::test]
+async fn activity_cache_upsert_count_is_distinct_not_input_length() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::new();
+    let repo = &repos.activity_cache;
+
+    // Five input rows but only THREE distinct activity_ids — "d1" appears three
+    // times (the provider feed repeated it within the batch).
+    let acts = vec![
+        activity("d1", "strava", 1),
+        activity("d2", "strava", 2),
+        activity("d1", "strava", 1),
+        activity("d3", "strava", 3),
+        activity("d1", "strava", 1),
+    ];
+    assert_eq!(acts.len(), 5, "fixture should have 5 raw input rows");
+
+    let persisted = repo
+        .upsert_activities(user_id, &tenant_id, "strava", &acts)
+        .await
+        .unwrap();
+    // Honest count: 3 distinct rows, NOT 5.
+    assert_eq!(
+        persisted, 3,
+        "upsert must report net distinct rows (3), not raw input length (5)"
+    );
+
+    // And the durable table holds exactly those 3 distinct rows.
+    let window_start = Utc::now() - Duration::days(90);
+    let now = Utc::now();
+    let stored = repo
+        .get_cached_activities(user_id, &tenant_id, Some("strava"), window_start, now, 100)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 3, "only 3 distinct rows should be stored");
+}
+
+/// Number of distinct historical rows seeded by the determinism test.
+const K: usize = 50;
+
+/// A historical window must read DETERMINISTICALLY: reading the same `[after,
+/// before]` window twice returns the identical complete set of all K seeded
+/// rows, regardless of how many times it is read or what display limit a caller
+/// would later apply. This is the durable-cache invariant the `get_activities`
+/// historical gate now relies on (single deterministic read for both the
+/// coverage decision and the served list, instead of two diverging reads).
+#[tokio::test]
+async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::new();
+    let repo = &repos.activity_cache;
+
+    // Seed K=50 distinct rows spread across the 2022 season [2022-01-01,
+    // 2023-01-01). One per week so they comfortably fit the year window.
+    let mut acts = Vec::with_capacity(K);
+    for i in 0..K {
+        let week = i64::try_from(i).unwrap();
+        let start = Utc.with_ymd_and_hms(2022, 1, 1, 12, 0, 0).unwrap() + Duration::weeks(week);
+        acts.push(activity_at(&format!("h{i}"), "strava", start));
+    }
+    let persisted = repo
+        .upsert_activities(user_id, &tenant_id, "strava", &acts)
+        .await
+        .unwrap();
+    assert_eq!(
+        persisted,
+        u64::try_from(K).unwrap(),
+        "all 50 distinct rows persisted"
+    );
+
+    let after = Utc.with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap();
+    let before = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+    // A high read limit (mirrors the gate's window read limit) so the full
+    // window comes back rather than a small display limit truncating it.
+    let read_limit = 2_000;
+
+    // Read the same window TWICE. Both reads must return the identical complete
+    // set of all K rows — no divergence, no partial result.
+    let first = repo
+        .get_cached_activities(
+            user_id,
+            &tenant_id,
+            Some("strava"),
+            after,
+            before,
+            read_limit,
+        )
+        .await
+        .unwrap();
+    let second = repo
+        .get_cached_activities(
+            user_id,
+            &tenant_id,
+            Some("strava"),
+            after,
+            before,
+            read_limit,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first.len(), K, "first read returns all K rows");
+    assert_eq!(second.len(), K, "second read returns all K rows");
+
+    let first_ids: Vec<String> = first.iter().map(|a| a.id().to_owned()).collect();
+    let second_ids: Vec<String> = second.iter().map(|a| a.id().to_owned()).collect();
+    assert_eq!(
+        first_ids, second_ids,
+        "two reads of the same historical window must be identical (deterministic)"
+    );
+
+    // The window read is newest-first and stable.
+    assert_eq!(first[0].id(), "h49", "newest 2022 row first");
+    assert_eq!(first[K - 1].id(), "h0", "oldest 2022 row last");
 }

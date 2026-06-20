@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use sqlx::Row;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// Best-effort string form of an activity's sport type for the indexed column.
@@ -34,7 +35,13 @@ impl ActivityCacheRepository for Database {
         let user_id_str = user_id.to_string();
         let tenant_str = tenant_id.to_string();
         let now = Utc::now().to_rfc3339();
-        let mut written = 0u64;
+        // Count NET DISTINCT rows persisted, not raw input length. A provider feed
+        // can return the same `activity_id` twice in one batch; each ON CONFLICT
+        // upsert overwrites the prior copy, so the input length overstates the
+        // distinct rows actually stored. Dedup by the upsert key (activity_id) to
+        // report the honest figure — the backfill completion notice surfaces this
+        // count to the user.
+        let mut distinct_ids = HashSet::new();
 
         for activity in activities {
             let id = Uuid::new_v4().to_string();
@@ -67,10 +74,10 @@ impl ActivityCacheRepository for Database {
             .await
             .map_err(|e| AppError::database(format!("Failed to upsert activity: {e}")))?;
 
-            written += 1;
+            distinct_ids.insert(activity.id().to_owned());
         }
 
-        Ok(written)
+        Ok(u64::try_from(distinct_ids.len()).unwrap_or(u64::MAX))
     }
 
     async fn get_cached_activities(
