@@ -187,6 +187,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
     enabled: !!selectedConversation,
+    // Messaging turns arrive async via inbound webhook with no websocket push
+    // to the web client. Refetch when the tab/window regains focus so a reply
+    // sent from Telegram (or any channel) into an open conversation appears
+    // without a manual reload.
+    refetchOnWindowFocus: true,
   });
 
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever

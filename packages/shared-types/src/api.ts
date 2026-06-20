@@ -28,12 +28,30 @@ export interface Conversation {
   last_message_at?: string | null;
 }
 
+/**
+ * A message role.
+ *
+ * `user` / `assistant` / `system` are the user-facing conversational turns.
+ * `tool_call` / `tool_result` are internal LLM plumbing rows — they hold raw
+ * `<tool_call>` / `<tool_result>` XML scaffolding the model uses to call tools
+ * and read their output. They are persisted in the same `chat_messages` table
+ * (so messaging-channel conversations replay correctly) but MUST NOT be
+ * rendered in any user-facing thread. Use `filterDisplayMessages` from
+ * `@pierre/chat-utils` to drop them before display.
+ */
+export type MessageRole =
+  | 'user'
+  | 'assistant'
+  | 'system'
+  | 'tool_call'
+  | 'tool_result';
+
 /** A message in a conversation */
 export interface Message {
   id: string;
   /** Conversation this message belongs to */
   conversation_id?: string;
-  role: 'user' | 'assistant' | 'system';
+  role: MessageRole;
   content: string;
   token_count?: number;
   created_at: string;

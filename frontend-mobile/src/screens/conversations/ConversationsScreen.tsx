@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { deriveMessageChannel } from '@pierre/chat-utils';
 import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { chatApi, coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -370,6 +371,11 @@ export function ConversationsScreen() {
   );
 
   const renderConversationRow = (conversation: Conversation) => {
+    // Origin badge for conversations that started on a messaging channel
+    // (Telegram, WhatsApp, …), derived from the "Messaging: <channel>" title.
+    // Plain in-app conversations → null (no badge).
+    const channelOrigin = deriveMessageChannel(conversation.title);
+
     const leftActions: SwipeAction[] = [
       {
         icon: 'edit-2',
@@ -429,9 +435,30 @@ export function ConversationsScreen() {
           delayLongPress={300}
         >
           <View className="flex-1">
-            <Text className="text-base font-medium text-text-primary mb-0.5" numberOfLines={1}>
-              {conversation.title || 'Untitled'}
-            </Text>
+            <View className="flex-row items-center gap-1.5">
+              {channelOrigin && (
+                <View
+                  className="flex-row items-center rounded-full px-1.5 py-0.5"
+                  style={{ backgroundColor: `${colors.pierre.violet}26` }}
+                  accessibilityLabel={`From ${channelOrigin.label}`}
+                  testID={`conversation-channel-badge-${conversation.id}`}
+                >
+                  <Feather name="send" size={9} color={colors.pierre.violet} />
+                  <Text
+                    className="text-[10px] font-medium ml-1"
+                    style={{ color: colors.pierre.violet }}
+                  >
+                    {channelOrigin.label}
+                  </Text>
+                </View>
+              )}
+              <Text
+                className="text-base font-medium text-text-primary mb-0.5 flex-shrink"
+                numberOfLines={1}
+              >
+                {conversation.title || 'Untitled'}
+              </Text>
+            </View>
             <Text className="text-sm text-text-tertiary">
               {formatRelativeDate(conversation.updated_at)}
             </Text>

@@ -365,4 +365,26 @@ describe('MessageItem', () => {
       expect(screen.queryByText(/Context:/)).not.toBeInTheDocument();
     });
   });
+
+  describe('tool scaffolding stripping', () => {
+    it('strips residual <tool_result> XML embedded in displayed content', () => {
+      // Defensive guard: whole tool_call/tool_result rows are filtered out in
+      // MessageList, but if scaffolding leaks into a visible turn's content it
+      // must not be dumped at the user (matters for messaging-origin chats).
+      const messageWithScaffolding: Message = {
+        id: 'msg-scaffold',
+        role: 'assistant',
+        content:
+          'Your recovery looks good. <tool_result>{"hrv":65}</tool_result> Keep it up.',
+        created_at: new Date().toISOString(),
+      };
+
+      render(<MessageItem message={messageWithScaffolding} />);
+
+      expect(screen.getByText(/Your recovery looks good\./)).toBeInTheDocument();
+      expect(screen.getByText(/Keep it up\./)).toBeInTheDocument();
+      expect(screen.queryByText(/tool_result/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/hrv/)).not.toBeInTheDocument();
+    });
+  });
 });
