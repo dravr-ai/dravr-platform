@@ -118,6 +118,14 @@ pub(super) async fn forge_fresh_session_conversation(
         record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
     }
     let new_id = conversation.conversation.id.clone();
+    stamp_channel_origin(
+        resources.common.repos.chat.as_ref(),
+        &new_id,
+        user_id,
+        tenant_id,
+        channel_type,
+    )
+    .await;
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
 }
@@ -374,6 +382,27 @@ async fn resume_existing_session(
     })
 }
 
+/// Best-effort stamp of the durable channel of origin onto a freshly forged
+/// messaging conversation. The `channel_type` column defaults to `web`; this
+/// records the real channel so the client badge survives a later title rename
+/// (rows created before the column was populated fall back to the title
+/// prefix). A stamp failure must never break the turn, so the error is logged
+/// and swallowed — the title fallback still badges the row.
+async fn stamp_channel_origin(
+    chat: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    channel_type: &str,
+) {
+    if let Err(e) = chat
+        .set_conversation_channel(conversation_id, user_id, tenant_id, channel_type)
+        .await
+    {
+        warn!(error = %e, conversation_id, "Failed to stamp messaging channel_type");
+    }
+}
+
 /// Open a brand-new session for a linked user. The caller
 /// (`resolve_linked_session`) has already verified the channel link exists
 /// and passes the linked `user_id` in. For non-DM chats, resolves the
@@ -418,6 +447,14 @@ async fn open_new_session(
     }
 
     let conversation_id = conversation.conversation.id.clone();
+    stamp_channel_origin(
+        resources.common.repos.chat.as_ref(),
+        &conversation_id,
+        &user_id,
+        tenant_id,
+        channel_type,
+    )
+    .await;
     let session_id = Uuid::new_v4().to_string();
 
     let session_params = CreateSessionParams {

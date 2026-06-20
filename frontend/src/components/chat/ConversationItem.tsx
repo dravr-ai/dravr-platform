@@ -7,7 +7,7 @@
 import { memo, useRef, useEffect } from 'react';
 import { clsx } from 'clsx';
 import { History, Pencil, Trash2, Send } from 'lucide-react';
-import { deriveMessageChannel } from '@pierre/chat-utils';
+import { resolveChannelOrigin } from '@pierre/chat-utils';
 import type { Conversation } from './types';
 import { formatDate } from './utils';
 
@@ -43,10 +43,10 @@ const ConversationItem = memo(function ConversationItem({
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Origin badge for conversations that started on a messaging channel
-  // (Telegram, WhatsApp, …). Derived from the conversation's own title
-  // ("Messaging: <channel>"), never the possibly-rewritten displayTitle, so
-  // the badge survives a coach-aware title override. Plain web chats → null.
-  const channelOrigin = deriveMessageChannel(conversation.title);
+  // (Telegram, WhatsApp, …). Prefers the durable channel_type column (survives
+  // a rename/reset), falling back to the "Messaging: <channel>" title — never
+  // the possibly-rewritten displayTitle. Plain web/mobile chats → null.
+  const channelOrigin = resolveChannelOrigin(conversation);
 
   // Focus input when editing starts
   useEffect(() => {

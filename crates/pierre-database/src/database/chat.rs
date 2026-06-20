@@ -145,7 +145,7 @@ impl ChatManager {
     ) -> AppResult<Vec<ConversationSummary>> {
         let rows = sqlx::query(
             r"
-            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.created_at, c.updated_at,
+            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
                    COUNT(m.id) as message_count
             FROM chat_conversations c
             LEFT JOIN chat_messages m ON m.conversation_id = c.id
@@ -172,6 +172,7 @@ impl ChatManager {
                 message_count: r.get("message_count"),
                 total_tokens: r.get("total_tokens"),
                 coach_id: r.get("coach_id"),
+                channel_type: r.get("channel_type"),
                 created_at: r.get("created_at"),
                 updated_at: r.get("updated_at"),
             })
@@ -209,6 +210,41 @@ impl ChatManager {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update conversation title: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Stamp a conversation's channel of origin (`telegram`/`whatsapp`/…).
+    ///
+    /// Called by messaging-ingress right after forging a session conversation
+    /// so the durable `channel_type` column reflects the real channel instead
+    /// of the column default `web`. Tenant-scoped. The badge derives from this
+    /// column first, so it survives a later title rename.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn set_conversation_channel(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET channel_type = $1
+            WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+            ",
+        )
+        .bind(channel_type)
+        .bind(conversation_id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation channel: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -717,6 +753,22 @@ impl ChatRepository for Database {
     ) -> AppResult<bool> {
         Self::chat_update_conversation_title_impl(self, conversation_id, user_id, tenant_id, title)
             .await
+    }
+    async fn set_conversation_channel(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool> {
+        Self::chat_set_conversation_channel_impl(
+            self,
+            conversation_id,
+            user_id,
+            tenant_id,
+            channel_type,
+        )
+        .await
     }
     async fn delete_conversation(
         &self,

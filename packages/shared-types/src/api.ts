@@ -20,6 +20,11 @@ export interface Conversation {
   total_tokens?: number;
   /** Number of messages in conversation */
   message_count: number;
+  /** Channel of origin: `web`/`mobile` for an in-app chat, or a messaging
+   *  channel (`telegram`/`whatsapp`/…). Durable badge signal that survives a
+   *  title rename; the client prefers it and falls back to the title prefix
+   *  (see `resolveChannelOrigin` in `@pierre/chat-utils`). */
+  channel_type?: string | null;
   /** When conversation was created */
   created_at: string;
   /** When conversation was last updated */

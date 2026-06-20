@@ -114,3 +114,35 @@ export function deriveMessageChannel(
     channel.charAt(0).toUpperCase() + channel.slice(1);
   return { channel, label };
 }
+
+// In-app origins stored in `chat_conversations.channel_type` (NOT NULL DEFAULT
+// 'web'). These are not external messaging channels, so they get no badge.
+const IN_APP_CHANNELS: ReadonlySet<string> = new Set(['web', 'mobile', '']);
+
+/**
+ * Resolve a conversation's messaging-channel origin for the channel badge.
+ *
+ * Prefers the **durable** `channel_type` column (stamped by messaging-ingress
+ * at creation; survives a later title rename or `/reset`), and falls back to
+ * parsing the `"Messaging: <channel>"` {@link deriveMessageChannel | title} for
+ * conversations created before the column was populated (or not yet
+ * backfilled). Returns `null` for an ordinary in-app (`web`/`mobile`) chat,
+ * which shows no badge.
+ *
+ * @example
+ * resolveChannelOrigin({ channel_type: 'telegram', title: 'My plan' })   // { channel: 'telegram', label: 'Telegram' }
+ * resolveChannelOrigin({ channel_type: 'web', title: 'Messaging: slack' }) // { channel: 'slack', label: 'Slack' } (fallback)
+ * resolveChannelOrigin({ channel_type: 'web', title: 'Chat Jun 7' })      // null
+ */
+export function resolveChannelOrigin(
+  conversation: { title?: string | null; channel_type?: string | null },
+): MessageChannelOrigin | null {
+  const channel = conversation.channel_type?.trim().toLowerCase();
+  if (channel && !IN_APP_CHANNELS.has(channel)) {
+    const label =
+      CHANNEL_LABEL_OVERRIDES[channel] ??
+      channel.charAt(0).toUpperCase() + channel.slice(1);
+    return { channel, label };
+  }
+  return deriveMessageChannel(conversation.title);
+}
