@@ -786,6 +786,13 @@ pub(crate) const ES_COACH_PROPOSAL_FOOTER: &str =
 /// Spanish default for [`KEY_REGISTRATION_APPROVED`].
 pub(crate) const ES_REGISTRATION_APPROVED: &str =
     "🎉 ¡Tu cuenta de Dravr ha sido aprobada! Ya puedes hablar con tu coach aquí. Hazme tu primera pregunta cuando quieras.";
+/// Spanish default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
+pub(crate) const ES_BACKFILL_READY: &str =
+    "✅ Tu historial está listo — {0} actividades cargadas. Vuelve a preguntarme lo que buscabas.";
+/// Spanish default for [`KEY_BACKFILL_LIST_HEADER`]. `{0}` = activity count.
+pub(crate) const ES_BACKFILL_LIST_HEADER: &str = "✅ Tu historial está listo — {0} actividades:";
+/// Spanish default for [`KEY_BACKFILL_LIST_MORE`]. `{0}` = remaining count.
+pub(crate) const ES_BACKFILL_LIST_MORE: &str = "… y {0} más";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -935,6 +942,13 @@ pub(crate) const DE_COACH_PROPOSAL_FOOTER: &str =
 /// German default for [`KEY_REGISTRATION_APPROVED`].
 pub(crate) const DE_REGISTRATION_APPROVED: &str =
     "🎉 Dein Dravr-Konto wurde freigeschaltet! Du kannst jetzt hier mit deinem Coach chatten. Stell mir deine erste Frage, wann immer du möchtest.";
+/// German default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
+pub(crate) const DE_BACKFILL_READY: &str =
+    "✅ Dein Verlauf ist bereit — {0} Aktivitäten geladen. Frag mich einfach noch einmal, wonach du gesucht hast.";
+/// German default for [`KEY_BACKFILL_LIST_HEADER`]. `{0}` = activity count.
+pub(crate) const DE_BACKFILL_LIST_HEADER: &str = "✅ Dein Verlauf ist bereit — {0} Aktivitäten:";
+/// German default for [`KEY_BACKFILL_LIST_MORE`]. `{0}` = remaining count.
+pub(crate) const DE_BACKFILL_LIST_MORE: &str = "… und {0} weitere";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -1087,6 +1101,13 @@ pub(crate) const PT_COACH_PROPOSAL_FOOTER: &str =
 /// Portuguese default for [`KEY_REGISTRATION_APPROVED`].
 pub(crate) const PT_REGISTRATION_APPROVED: &str =
     "🎉 A tua conta Dravr foi aprovada! Já podes falar com o teu coach aqui. Faz-me a tua primeira pergunta quando quiseres.";
+/// Portuguese default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
+pub(crate) const PT_BACKFILL_READY: &str =
+    "✅ O teu histórico está pronto — {0} atividades carregadas. Pergunta-me de novo o que procuravas.";
+/// Portuguese default for [`KEY_BACKFILL_LIST_HEADER`]. `{0}` = activity count.
+pub(crate) const PT_BACKFILL_LIST_HEADER: &str = "✅ O teu histórico está pronto — {0} atividades:";
+/// Portuguese default for [`KEY_BACKFILL_LIST_MORE`]. `{0}` = remaining count.
+pub(crate) const PT_BACKFILL_LIST_MORE: &str = "… e mais {0}";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -1459,6 +1480,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "es", ES_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "es", ES_REGISTRATION_APPROVED),
+    (KEY_BACKFILL_READY, "es", ES_BACKFILL_READY),
+    (KEY_BACKFILL_LIST_HEADER, "es", ES_BACKFILL_LIST_HEADER),
+    (KEY_BACKFILL_LIST_MORE, "es", ES_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -1574,6 +1598,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "de", DE_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "de", DE_REGISTRATION_APPROVED),
+    (KEY_BACKFILL_READY, "de", DE_BACKFILL_READY),
+    (KEY_BACKFILL_LIST_HEADER, "de", DE_BACKFILL_LIST_HEADER),
+    (KEY_BACKFILL_LIST_MORE, "de", DE_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1689,6 +1716,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     ),
     (KEY_COACH_PROPOSAL_FOOTER, "pt", PT_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "pt", PT_REGISTRATION_APPROVED),
+    (KEY_BACKFILL_READY, "pt", PT_BACKFILL_READY),
+    (KEY_BACKFILL_LIST_HEADER, "pt", PT_BACKFILL_LIST_HEADER),
+    (KEY_BACKFILL_LIST_MORE, "pt", PT_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
