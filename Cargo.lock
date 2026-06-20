@@ -1290,8 +1290,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.5.2"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.5.2#dd8a7cbc34841528fbe3fbe83fa40966611356d4"
+version = "0.5.3"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.5.3#a2d16eabb96beecc6fc66767f3f873b885c600c8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1307,8 +1307,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.17"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.17#8f0a158991297b5fcdb661a6060d1cc4d7f22c21"
+version = "0.4.18"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.18#3968ea02da0ac1e8dc930679e553c1d95e5201ef"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1332,8 +1332,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.1.6"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.1.6#2ab2545645249607d59114b068c0d1be82684260"
+version = "0.1.7"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.1.7#1d71b75980e96aecb775ad427e570c86390feabf"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1356,8 +1356,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=c236015d707
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.31"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.31#d30c85b1947203048ebc7e2af67d15415b47acee"
+version = "0.1.33"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.33#52e50ac2df9dfe7a8e91204353edae4e9549a7cc"
 dependencies = [
  "async-trait",
  "axum",
@@ -1378,8 +1378,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.2.3"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.3#4c0add422fb7061063c9dc0fdafc7df32d02e115"
+version = "0.2.4"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.4#3222556294cdfeded2ef6f1316b476c3e5963f6a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1406,8 +1406,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-riviere"
-version = "0.2.3"
-source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.2.3#108370240299e9ac4faea58c5fc26e821b0e8c20"
+version = "0.2.4"
+source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.2.4#cc883fe80a890513a65d1e35b19a3b716ec6680f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1420,8 +1420,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.7.5"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.7.5#910d89aefa78469f63bedcde2fddcf950642efec"
+version = "0.7.6"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.7.6#f0fd09373e958a6f9755375a54feebadfb381724"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1573,8 +1573,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.19.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.19.0#56b5bd0ea70067e3947e1326b46ee202fa34dfad"
+version = "0.19.2"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.19.2#06b31573955593ca10d3219da75d791c32359baa"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
