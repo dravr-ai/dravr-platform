@@ -78,7 +78,8 @@ async fn create_test_db() -> SqlitePool {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             group_id TEXT,
-            onboarding_state TEXT
+            onboarding_state TEXT,
+            channel_type TEXT NOT NULL DEFAULT 'web'
         )
         ",
     )
@@ -367,6 +368,62 @@ async fn test_update_conversation_title() {
         .unwrap();
 
     assert_eq!(fetched.title, "New Title");
+}
+
+#[tokio::test]
+async fn test_set_conversation_channel_surfaces_in_list() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Messaging: telegram",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Before stamping, the column holds the 'web' default.
+    let before = manager
+        .list_conversations("user-1", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        before
+            .iter()
+            .find(|s| s.id == conv.id)
+            .unwrap()
+            .channel_type
+            .as_deref(),
+        Some("web"),
+    );
+
+    // Stamp the messaging channel, as messaging-ingress does when forging the
+    // session conversation.
+    assert!(manager
+        .set_conversation_channel(&conv.id, "user-1", tenant_id, "telegram")
+        .await
+        .unwrap());
+
+    // The durable channel now surfaces in the list for the badge.
+    let after = manager
+        .list_conversations("user-1", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        after
+            .iter()
+            .find(|s| s.id == conv.id)
+            .unwrap()
+            .channel_type
+            .as_deref(),
+        Some("telegram"),
+    );
 }
 
 #[tokio::test]

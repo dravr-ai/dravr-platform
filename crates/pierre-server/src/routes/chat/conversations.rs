@@ -218,6 +218,7 @@ pub async fn list_conversations(
                 message_count: c.message_count,
                 total_tokens: c.total_tokens,
                 coach_id: c.coach_id,
+                channel_type: c.channel_type,
                 created_at: c.created_at,
                 updated_at: c.updated_at,
             })

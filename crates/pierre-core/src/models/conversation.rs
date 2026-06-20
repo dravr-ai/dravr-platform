@@ -235,6 +235,11 @@ pub struct ConversationSummary {
     /// Coach attached to the conversation, if any. Lets the listing group
     /// sessions by coach and label them with the coach's name.
     pub coach_id: Option<String>,
+    /// Channel of origin from `chat_conversations.channel_type`: `web`/`mobile`
+    /// for an in-app chat, or a messaging channel (`telegram`/`whatsapp`/…) for
+    /// a conversation that came in over a messaging app. Durable badge signal
+    /// that survives a title rename (unlike parsing the title prefix).
+    pub channel_type: Option<String>,
     /// When the conversation was created
     pub created_at: String,
     /// When the conversation was last updated

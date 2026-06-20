@@ -52,6 +52,16 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         title: &str,
     ) -> AppResult<bool>;
+    /// Stamp a conversation's channel of origin (`telegram`/`whatsapp`/…) into
+    /// the durable `channel_type` column. Used by messaging-ingress so the
+    /// client badge survives a later title rename. Tenant-scoped.
+    async fn set_conversation_channel(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool>;
     /// Delete a conversation and its messages
     async fn delete_conversation(
         &self,

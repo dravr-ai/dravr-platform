@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { deriveMessageChannel } from '@pierre/chat-utils';
+import { resolveChannelOrigin } from '@pierre/chat-utils';
 import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { chatApi, coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -372,9 +372,10 @@ export function ConversationsScreen() {
 
   const renderConversationRow = (conversation: Conversation) => {
     // Origin badge for conversations that started on a messaging channel
-    // (Telegram, WhatsApp, …), derived from the "Messaging: <channel>" title.
-    // Plain in-app conversations → null (no badge).
-    const channelOrigin = deriveMessageChannel(conversation.title);
+    // (Telegram, WhatsApp, …). Prefers the durable channel_type column (survives
+    // a rename/reset), falling back to the "Messaging: <channel>" title. Plain
+    // in-app conversations → null (no badge).
+    const channelOrigin = resolveChannelOrigin(conversation);
 
     const leftActions: SwipeAction[] = [
       {

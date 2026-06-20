@@ -148,7 +148,7 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Vec<ConversationSummary>> {
         let rows = sqlx::query(
             r"
-            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.created_at, c.updated_at,
+            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
                    COUNT(m.id) as message_count
             FROM chat_conversations c
             LEFT JOIN chat_messages m ON m.conversation_id = c.id
@@ -179,6 +179,7 @@ impl ChatRepository for PostgresDatabase {
                     message_count: r.get("message_count"),
                     total_tokens: r.get("total_tokens"),
                     coach_id: r.get("coach_id"),
+                    channel_type: r.get("channel_type"),
                     created_at: created_at.to_rfc3339(),
                     updated_at: updated_at.to_rfc3339(),
                 }
@@ -212,6 +213,31 @@ impl ChatRepository for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update conversation title: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_conversation_channel(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET channel_type = $1
+            WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+            ",
+        )
+        .bind(channel_type)
+        .bind(conversation_id)
+        .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation channel: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }

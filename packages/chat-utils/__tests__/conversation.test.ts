@@ -8,6 +8,7 @@ import {
   filterDisplayMessages,
   stripToolScaffolding,
   deriveMessageChannel,
+  resolveChannelOrigin,
 } from '../src/conversation';
 
 function msg(role: Message['role'], content = ''): Message {
@@ -109,5 +110,31 @@ describe('deriveMessageChannel', () => {
     expect(deriveMessageChannel(null)).toBeNull();
     expect(deriveMessageChannel(undefined)).toBeNull();
     expect(deriveMessageChannel('')).toBeNull();
+  });
+});
+
+describe('resolveChannelOrigin', () => {
+  it('prefers the durable channel_type column over the title', () => {
+    // Column wins even when the title was renamed away from "Messaging: …".
+    expect(resolveChannelOrigin({ channel_type: 'telegram', title: 'My marathon plan' })).toEqual({
+      channel: 'telegram',
+      label: 'Telegram',
+    });
+    expect(resolveChannelOrigin({ channel_type: 'WhatsApp', title: null })?.label).toBe('WhatsApp');
+  });
+
+  it('falls back to the title when channel_type is in-app or absent', () => {
+    // Pre-backfill / pre-stamp rows: column is 'web', recover from the title.
+    expect(resolveChannelOrigin({ channel_type: 'web', title: 'Messaging: slack' })).toEqual({
+      channel: 'slack',
+      label: 'Slack',
+    });
+    expect(resolveChannelOrigin({ channel_type: undefined, title: 'Messaging: discord' })?.label).toBe('Discord');
+  });
+
+  it('returns null for in-app chats (web/mobile) with no messaging title', () => {
+    expect(resolveChannelOrigin({ channel_type: 'web', title: 'Chat Jun 7' })).toBeNull();
+    expect(resolveChannelOrigin({ channel_type: 'mobile', title: 'Threshold pacing' })).toBeNull();
+    expect(resolveChannelOrigin({ channel_type: null, title: null })).toBeNull();
   });
 });

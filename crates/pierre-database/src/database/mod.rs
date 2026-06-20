@@ -2513,6 +2513,23 @@ impl Database {
             .await
     }
 
+    /// Stamp a conversation's channel of origin (impl for trait)
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
+    pub async fn chat_set_conversation_channel_impl(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool> {
+        let chat_manager = ChatManager::new(self.pool.clone());
+        chat_manager
+            .set_conversation_channel(conversation_id, user_id, tenant_id, channel_type)
+            .await
+    }
+
     /// Delete a conversation (impl for trait)
     ///
     /// # Errors

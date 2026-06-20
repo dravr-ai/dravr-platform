@@ -73,6 +73,10 @@ pub struct ConversationSummaryResponse {
     /// Coach attached to the conversation, if any. Lets the client group
     /// sessions by coach and show the coach's name in the header/history.
     pub coach_id: Option<String>,
+    /// Channel of origin (`web`/`mobile` for in-app, `telegram`/`whatsapp`/…
+    /// for messaging). The client prefers this durable signal for the channel
+    /// badge and falls back to parsing the `Messaging: <channel>` title.
+    pub channel_type: Option<String>,
     /// Creation timestamp
     pub created_at: String,
     /// Last update timestamp

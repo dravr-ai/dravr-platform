@@ -23,6 +23,7 @@ export {
   filterDisplayMessages,
   stripToolScaffolding,
   deriveMessageChannel,
+  resolveChannelOrigin,
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
 
