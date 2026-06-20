@@ -104,7 +104,7 @@
 //! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
 //! #   async fn get_stats(&self) -> AppResult<Stats> {
-//! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0 })
+//! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0, year_to_date: None })
 //! #   }
 //! #   async fn get_personal_records(&self) -> AppResult<Vec<pierre_core::models::PersonalRecord>> {
 //! #       Ok(vec![])

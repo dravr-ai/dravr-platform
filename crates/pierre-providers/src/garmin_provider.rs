@@ -800,6 +800,7 @@ impl FitnessProvider for GarminProvider {
             total_distance,
             total_duration,
             total_elevation_gain,
+            year_to_date: None,
         })
     }
 

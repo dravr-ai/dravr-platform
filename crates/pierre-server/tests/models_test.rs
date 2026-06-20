@@ -11,8 +11,8 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     Activity, ActivityBuilder, Athlete, AuthorizationCode, EncryptedToken, HeartRateZone,
-    PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant, TenantId, User,
-    UserStatus, UserTier,
+    PeriodTotals, PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant,
+    TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use uuid::Uuid;
@@ -138,6 +138,12 @@ fn test_stats_creation() {
         total_distance: 1_500_000.0, // 1500 km
         total_duration: 540_000,     // 150 hours
         total_elevation_gain: 25000.0,
+        year_to_date: Some(PeriodTotals {
+            total_activities: 40,
+            total_distance: 400_000.0, // 400 km this year
+            total_duration: 144_000,   // 40 hours
+            total_elevation_gain: 6000.0,
+        }),
     };
 
     assert_eq!(stats.total_activities, 150);
@@ -146,6 +152,12 @@ fn test_stats_creation() {
         assert!((stats.total_elevation_gain - 25000.0).abs() < f64::EPSILON);
     }
     assert_eq!(stats.total_duration, 540_000);
+
+    // Year-to-date is a distinct, smaller figure than all-time.
+    let ytd = stats.year_to_date.expect("ytd populated");
+    assert_eq!(ytd.total_activities, 40);
+    assert!((ytd.total_distance - 400_000.0).abs() < f64::EPSILON);
+    assert!(ytd.total_distance < stats.total_distance);
 }
 
 #[test]
@@ -155,13 +167,26 @@ fn test_stats_serialization() {
         total_distance: 1_000_000.0,
         total_duration: 360_000,
         total_elevation_gain: 15000.0,
+        year_to_date: Some(PeriodTotals {
+            total_activities: 30,
+            total_distance: 300_000.0,
+            total_duration: 108_000,
+            total_elevation_gain: 4500.0,
+        }),
     };
 
     let json = serde_json::to_string(&stats).expect("Failed to serialize stats");
+    assert!(
+        json.contains("year_to_date"),
+        "ytd breakdown must be present in serialized stats: {json}"
+    );
     let deserialized: Stats = serde_json::from_str(&json).expect("Failed to deserialize stats");
 
     assert_eq!(deserialized.total_activities, stats.total_activities);
     assert!((deserialized.total_distance - stats.total_distance).abs() < f64::EPSILON);
+    let ytd = deserialized.year_to_date.expect("ytd round-trips");
+    assert_eq!(ytd.total_activities, 30);
+    assert!((ytd.total_distance - 300_000.0).abs() < f64::EPSILON);
 }
 
 #[test]
