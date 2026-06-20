@@ -76,6 +76,20 @@ const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 /// `[after, now]` don't mask a missing historical season.
 const HISTORICAL_COVERAGE_BOUND_SECS: i64 = 365 * 24 * 60 * 60;
 
+/// Read limit for the single deterministic durable-cache read on the historical
+/// backfill path. Decoupled from the user's display limit so the cache read
+/// returns the COMPLETE window (the display limit caps only the returned list
+/// afterwards). Generous enough to cover a dense season (>=2 activities/day for
+/// a year) without truncating the window read; the durable table is already
+/// retention-bounded, so this only guards against an unbounded read.
+const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
+
+/// Read limit (as `usize`) for the historical backfill window read.
+#[must_use]
+const fn historical_window_read_limit() -> usize {
+    HISTORICAL_WINDOW_READ_LIMIT
+}
+
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
 fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
     let end = args
@@ -473,29 +487,35 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             };
             let (activities, provider) = if route_to_backfill {
                 // Is the requested historical window actually cached, or only recent
-                // rows that fall inside it? `read_cached_window` honors `before`, so a
-                // cold [2022,2023] returns empty and triggers the backfill. When the
-                // caller leaves `before` open we bound the coverage probe to a year
-                // above `after` so recent rows can't mask missing depth.
-                let coverage_params = if before.is_some() {
-                    query_params.clone()
-                } else {
-                    ActivityQueryParams {
-                        after,
-                        before: after.map(|a| a.saturating_add(HISTORICAL_COVERAGE_BOUND_SECS)),
-                        limit: Some(1),
-                        offset,
-                    }
+                // rows that fall inside it? Read the durable window ONCE and derive
+                // both the coverage decision and the served list from that single
+                // result — issuing a second read with a different limit (coverage
+                // probe vs serve) let the two diverge between awaits (concurrent
+                // backfill/prune, or an open-`before` coverage bound that differs
+                // from the serve window), so the same 2022 query could serve a full
+                // 200 on one call and a partial 46 on the next. When the caller
+                // leaves `before` open we bound the read to a year above `after` so
+                // recent rows can't mask missing historical depth. The read limit is
+                // the durable retention cap, NOT the user's display limit, so the
+                // served set is the complete window; the display limit caps only the
+                // returned length afterwards.
+                let coverage_params = ActivityQueryParams {
+                    after,
+                    before: before.or_else(|| {
+                        after.map(|a| a.saturating_add(HISTORICAL_COVERAGE_BOUND_SECS))
+                    }),
+                    limit: Some(historical_window_read_limit()),
+                    offset,
                 };
-                let covered = read_cached_window(
+                let window = read_cached_window(
                     &context.resources,
                     &provider_name,
                     context.user_id,
                     tenant_id,
                     &coverage_params,
                 )
-                .await
-                .is_some();
+                .await;
+                let covered = window.is_some();
 
                 info!(
                     user_id = %context.user_id,
@@ -506,17 +526,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     "get_activities historical gate decision"
                 );
 
-                if covered {
-                    // The requested depth is cached — serve the user's actual window.
-                    let served = read_cached_window(
-                        &context.resources,
-                        &provider_name,
-                        context.user_id,
-                        tenant_id,
-                        &query_params,
-                    )
-                    .await
-                    .unwrap_or_default();
+                if let Some(mut served) = window {
+                    // The requested depth is cached — serve the single deterministic
+                    // window read, capping only the RETURNED length by the user's
+                    // display limit (never the cache read), so the set is complete
+                    // and identical across repeated calls.
+                    served.truncate(limit);
                     (served, None)
                 } else {
                     let started = spawn_activity_backfill(ActivityBackfillJob {

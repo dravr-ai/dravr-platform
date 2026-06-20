@@ -244,6 +244,9 @@ pub async fn fetch_recent_activities_all_providers(
 /// not immediately pruned. Pruning is keyed by `(user_id, tenant_id)` across
 /// all providers, so the retention floor for durable history is whatever the
 /// *widest-window* writer uses.
+/// Returns the count of net distinct rows persisted (deduped by `activity_id`),
+/// or `None` when the upsert itself failed. The historical backfill surfaces
+/// this honest figure in its completion notice; recent-fetch callers ignore it.
 pub(crate) async fn write_through_activity_cache(
     auth_service: &AuthService,
     user_id: Uuid,
@@ -251,16 +254,19 @@ pub(crate) async fn write_through_activity_cache(
     provider: &str,
     activities: &[Activity],
     retention_days: i64,
-) {
+) -> Option<u64> {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
-    if let Err(e) = cache
+    let persisted = match cache
         .upsert_activities(user_id, &tenant_id, provider, activities)
         .await
     {
-        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
-        return;
-    }
+        Ok(count) => count,
+        Err(e) => {
+            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
+            return None;
+        }
+    };
     let cutoff = Utc::now() - Duration::days(retention_days);
     if let Err(e) = cache
         .prune_activities_before(user_id, &tenant_id, cutoff)
@@ -268,4 +274,5 @@ pub(crate) async fn write_through_activity_cache(
     {
         info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
     }
+    Some(persisted)
 }
