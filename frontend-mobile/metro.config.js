@@ -62,6 +62,22 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
       type: 'sourceFile',
     };
   }
+  // Workspace TS packages re-export with ESM-style `.js` extensions on relative
+  // paths (e.g. shared-types/src/index.ts `export { parseWorkoutPlan } from
+  // './workout-plan.js'`). tsc (moduleResolution: bundler), Vite and Jest map that
+  // `.js` specifier back to the `.ts` source, but Metro treats `.js` as a literal
+  // on-disk extension and fails to resolve it. Only value re-exports reach Metro
+  // (type-only re-exports are erased by the TS transform), so a single
+  // `export { fn } from './x.js'` breaks the whole native bundle. Resolve the
+  // `.js` literally when it exists; otherwise strip it so Metro's sourceExts find
+  // the `.ts` source.
+  if (moduleName.startsWith('.') && moduleName.endsWith('.js')) {
+    try {
+      return context.resolveRequest(context, moduleName, platform);
+    } catch (jsResolutionError) {
+      return context.resolveRequest(context, moduleName.slice(0, -3), platform);
+    }
+  }
   return context.resolveRequest(context, moduleName, platform);
 };
 
