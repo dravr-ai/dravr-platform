@@ -140,8 +140,20 @@ pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_appr
 ///
 /// Pushed back to the channel that asked for an old activity window once the
 /// background backfill finished warming the durable cache. `{0}` = count of
-/// activities loaded.
+/// activities loaded. Used as the fallback nudge when the warmed cache reads
+/// back empty (it shouldn't, post-backfill).
 pub const KEY_BACKFILL_READY: &str = "messaging.backfill.ready";
+
+/// Key: header line for the backfill completion notice that pushes the list.
+///
+/// Sits above the actual activity list (not just a nudge). `{0}` = count of
+/// activities loaded. The per-activity lines and the truncation footer are
+/// rendered in Rust; only this header phrase is localized.
+pub const KEY_BACKFILL_LIST_HEADER: &str = "messaging.backfill.list_header";
+
+/// Key: footer appended to the backfill activity list when it is truncated.
+/// `{0}` = number of additional activities not shown.
+pub const KEY_BACKFILL_LIST_MORE: &str = "messaging.backfill.list_more";
 
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
@@ -451,6 +463,10 @@ pub const FR_REGISTRATION_APPROVED: &str =
 /// French default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
 pub const FR_BACKFILL_READY: &str =
     "✅ Ton historique est prêt — {0} activités récupérées. Redemande-moi ce que tu cherchais.";
+/// French default for [`KEY_BACKFILL_LIST_HEADER`]. `{0}` = activity count.
+pub const FR_BACKFILL_LIST_HEADER: &str = "✅ Ton historique est prêt — {0} activités :";
+/// French default for [`KEY_BACKFILL_LIST_MORE`]. `{0}` = remaining count.
+pub const FR_BACKFILL_LIST_MORE: &str = "… et {0} de plus";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -612,6 +628,10 @@ pub const EN_REGISTRATION_APPROVED: &str =
 /// English default for [`KEY_BACKFILL_READY`]. `{0}` = activity count.
 pub const EN_BACKFILL_READY: &str =
     "✅ Your history is ready — {0} activities loaded. Ask me again what you were looking for.";
+/// English default for [`KEY_BACKFILL_LIST_HEADER`]. `{0}` = activity count.
+pub const EN_BACKFILL_LIST_HEADER: &str = "✅ Your history is ready — {0} activities:";
+/// English default for [`KEY_BACKFILL_LIST_MORE`]. `{0}` = remaining count.
+pub const EN_BACKFILL_LIST_MORE: &str = "… and {0} more";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -1210,6 +1230,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_PROPOSAL_FOOTER, "fr", FR_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "fr", FR_REGISTRATION_APPROVED),
     (KEY_BACKFILL_READY, "fr", FR_BACKFILL_READY),
+    (KEY_BACKFILL_LIST_HEADER, "fr", FR_BACKFILL_LIST_HEADER),
+    (KEY_BACKFILL_LIST_MORE, "fr", FR_BACKFILL_LIST_MORE),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -1320,6 +1342,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_PROPOSAL_FOOTER, "en", EN_COACH_PROPOSAL_FOOTER),
     (KEY_REGISTRATION_APPROVED, "en", EN_REGISTRATION_APPROVED),
     (KEY_BACKFILL_READY, "en", EN_BACKFILL_READY),
+    (KEY_BACKFILL_LIST_HEADER, "en", EN_BACKFILL_LIST_HEADER),
+    (KEY_BACKFILL_LIST_MORE, "en", EN_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),

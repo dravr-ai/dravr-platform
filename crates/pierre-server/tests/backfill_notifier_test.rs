@@ -17,7 +17,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use http::HeaderMap;
 #[cfg(feature = "postgresql")]
 use pierre_config::environment::PostgresPoolConfig;
@@ -26,7 +26,7 @@ use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
     OutgoingMessage,
 };
-use pierre_core::models::{Tenant, TenantId, User};
+use pierre_core::models::{Activity, ActivityBuilder, SportType, Tenant, TenantId, User};
 use pierre_database::backends::{factory::Database, CreateSessionParams};
 use pierre_database::{DatabaseProvider, RepositoryRegistry};
 use pierre_mcp_server::services::backfill_notifier::{AdapterResolver, ServerBackfillNotifier};
@@ -129,6 +129,36 @@ async fn seed_session(
         .await
         .unwrap();
     session_id
+}
+
+/// Build a cached activity with an explicit `start_date` so a test can place it
+/// inside the backfill window `[after_ts, now]` the notifier reads.
+fn cached_activity(id: &str, name: &str, age_days: i64) -> Activity {
+    ActivityBuilder::new(
+        id.to_owned(),
+        name.to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(age_days),
+        3_600,
+        "strava".to_owned(),
+    )
+    .distance_meters(10_000.0)
+    .build()
+}
+
+/// Seed the durable activity cache for `(user, tenant, "strava")` with the given
+/// activities, mirroring how the backfill warms the cache before the push fires.
+async fn seed_activity_cache(
+    db: &Database,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    activities: &[Activity],
+) {
+    db.repositories()
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, "strava", activities)
+        .await
+        .unwrap();
 }
 
 /// Captures the single outbound message a send routes through, so a test can
@@ -423,4 +453,131 @@ async fn push_is_tenant_scoped() {
     let sent = channel.sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "owning tenant should deliver exactly once");
     assert_eq!(sent[0].recipient_id, "tg_chat_a");
+}
+
+/// PR4: once the backfill has warmed the durable cache, the completion push
+/// reads that window back and sends the ACTUAL activity list (header with the
+/// count + at least one activity name), not just a templated "ask again" nudge.
+#[tokio::test]
+async fn push_sends_warmed_activity_list() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    // Warm the cache exactly like the backfill does, with two distinctly-named
+    // activities inside the read window.
+    let acts = vec![
+        cached_activity("a1", "Morning Trail Run", 2),
+        cached_activity("a2", "Tempo Intervals", 5),
+    ];
+    seed_activity_cache(&db, user_uuid, tenant_id, &acts).await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+
+    // `after_ts` = 30 days ago, so the 2- and 5-day-old activities fall inside
+    // the `[after_ts, now]` window the notifier reads. `activity_count` here is
+    // the warmed count the backfill reported.
+    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            2,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1, "exactly one notice should be sent");
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    // The list push carries the count in the header AND the real activity names
+    // read from the warmed cache — proving it pushed the LIST, not the nudge.
+    assert!(body.contains('2'), "header count should be present: {body}");
+    assert!(
+        body.contains("Morning Trail Run"),
+        "warmed activity name should be in the body: {body}"
+    );
+    assert!(
+        body.contains("Tempo Intervals"),
+        "second warmed activity name should be in the body: {body}"
+    );
+    // Distinguishes the list path from the templated nudge, which ends with the
+    // "ask me again" sentence rather than rendering activity lines.
+    assert!(
+        !body.contains("Ask me again") && !body.contains("Redemande"),
+        "list push must not be the templated nudge: {body}"
+    );
+}
+
+/// PR4 fallback: when the warmed window reads back empty (it shouldn't,
+/// post-backfill), the push degrades to the templated "your history is ready,
+/// ask again" nudge rather than sending nothing or an empty list.
+#[tokio::test]
+async fn push_falls_back_to_nudge_on_empty_cache() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    // No cache rows seeded — the warmed-window read returns empty.
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+
+    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            9,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1, "the fallback nudge should still be sent");
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    // The templated nudge interpolates the reported count and is the "ask me
+    // again" phrasing (default locale is French → "Redemande").
+    assert!(
+        body.contains('9'),
+        "nudge should interpolate the count: {body}"
+    );
+    assert!(
+        body.contains("Redemande") || body.contains("Ask me again"),
+        "empty cache must fall back to the templated nudge: {body}"
+    );
 }
