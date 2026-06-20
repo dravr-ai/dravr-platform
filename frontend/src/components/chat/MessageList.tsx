@@ -7,7 +7,7 @@
 import { useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { isInsightPrompt, detectInsightMessages, splitActivityContent } from '@pierre/chat-utils';
+import { isInsightPrompt, detectInsightMessages, splitActivityContent, filterDisplayMessages } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import type { ChatVerdictRow } from '@pierre/api-client';
 import type { Message, MessageActionItem, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
@@ -108,8 +108,12 @@ export default function MessageList({
   // Detect insight messages from the message pattern (assistant response following insight prompt)
   const detectedInsightIds = detectInsightMessages(messages);
 
-  // Filter out insight prompt messages (user messages that triggered insight generation)
-  const visibleMessages = messages.filter(msg =>
+  // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
+  // raw <tool_call>/<tool_result> XML never renders — this matters most for
+  // messaging-origin conversations (Telegram etc.) that surface in web chat
+  // with the same scaffolding rows as native web chat. Then drop insight
+  // prompt messages (user messages that triggered insight generation).
+  const visibleMessages = filterDisplayMessages(messages).filter(msg =>
     !(msg.role === 'user' && isInsightPrompt(msg.content))
   );
 

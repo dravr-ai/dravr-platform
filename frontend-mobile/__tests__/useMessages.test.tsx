@@ -22,6 +22,10 @@ jest.mock('@pierre/chat-utils', () => ({
   isInsightPrompt: () => false,
   detectInsightMessages: () => new Set(),
   createInsightPrompt: (content: string) => `[INSIGHT] ${content}`,
+  // loadMessages now drops tool_call/tool_result plumbing rows via this helper;
+  // mirror the real implementation so the hook under test behaves identically.
+  filterDisplayMessages: (messages: { role: string }[]) =>
+    messages.filter((m) => m.role !== 'tool_call' && m.role !== 'tool_result'),
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
@@ -336,6 +340,30 @@ describe('useMessages', () => {
 
       expect(result.current.messageFeedback['asst-1']).toBe('down');
       expect(result.current.messageFeedbackComment['asst-1']).toBe('missing detail');
+    });
+  });
+
+  describe('loadMessages tool-row filtering', () => {
+    it('drops tool_call / tool_result plumbing rows from the loaded thread', async () => {
+      mockGetConversationMessages.mockResolvedValue({
+        messages: [
+          createMockMessage({ id: 'u-1', role: 'user', content: 'how was my run?' }),
+          createMockMessage({ id: 'tc-1', role: 'tool_call', content: '<tool_call>get_activities</tool_call>' }),
+          createMockMessage({ id: 'tr-1', role: 'tool_result', content: '<tool_result>{"d":5000}</tool_result>' }),
+          createMockMessage({ id: 'a-1', role: 'assistant', content: 'Your run was 5km.' }),
+        ],
+        feedback: [],
+      });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+
+      const roles = result.current.messages.map((m) => m.role);
+      expect(roles).toEqual(['user', 'assistant']);
+      // No raw scaffolding survives into the rendered thread.
+      expect(result.current.messages.some((m) => m.content.includes('<tool_'))).toBe(false);
     });
   });
 });

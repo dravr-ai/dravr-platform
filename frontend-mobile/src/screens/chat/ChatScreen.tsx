@@ -84,9 +84,17 @@ export function ChatScreen() {
       if (isAuthenticated) {
         coachSelection.loadCoaches();
         providerStatus.loadProviderStatus();
+        // Messaging turns arrive async via inbound webhook with no push to the
+        // app. Reload the open conversation on focus so a reply sent from
+        // Telegram (or any channel) appears without a manual pull-to-refresh.
+        // Skipped mid-send so an in-flight optimistic turn isn't clobbered.
+        const openId = conversations.currentConversation?.id;
+        if (openId && !messagesHook.isSending) {
+          void messagesHook.loadMessages(openId);
+        }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAuthenticated])
+    }, [isAuthenticated, conversations.currentConversation?.id, messagesHook.isSending])
   );
 
   // Load messages when conversation changes

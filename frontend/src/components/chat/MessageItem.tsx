@@ -11,7 +11,7 @@ import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, Shield
 import type { ChatVerdictRow } from '@pierre/api-client';
 import { parseWorkoutPlan } from '@pierre/shared-types';
 import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } from './types';
-import { splitActivityContent, countActivities } from '@pierre/chat-utils';
+import { splitActivityContent, countActivities, stripToolScaffolding } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
 import WorkoutPlanCard from './WorkoutPlanCard';
 
@@ -190,7 +190,10 @@ const MessageItem = memo(function MessageItem({
   onActionClick,
 }: MessageItemProps) {
   const isUser = message.role === 'user';
-  const rawContent = stripContextPrefix(message.content);
+  // Defensive: drop any residual <tool_call>/<tool_result> scaffolding embedded
+  // in a visible turn's content. Whole tool-plumbing rows are already filtered
+  // upstream in MessageList; this guards the rarer leaked-into-content case.
+  const rawContent = stripToolScaffolding(stripContextPrefix(message.content));
 
   // When an activity list is present, strip it from the displayed content (for old baked-in messages)
   const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;

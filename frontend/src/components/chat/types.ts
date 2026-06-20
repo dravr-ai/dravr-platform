@@ -4,11 +4,11 @@
 // ABOUTME: Shared types for chat components
 // ABOUTME: Centralizes type definitions used across chat-related components
 
-import type { Conversation, Coach } from '@pierre/shared-types';
+import type { Conversation, Coach, MessageRole } from '@pierre/shared-types';
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: MessageRole;
   content: string;
   token_count?: number;
   created_at: string;

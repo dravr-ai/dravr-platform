@@ -5,7 +5,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
 import { v4 as uuidv4 } from 'uuid';
 import { chatApi } from '../../services/api';
-import { isInsightPrompt, detectInsightMessages, createInsightPrompt } from '@pierre/chat-utils';
+import { isInsightPrompt, detectInsightMessages, createInsightPrompt, filterDisplayMessages } from '@pierre/chat-utils';
 import type { Message } from '../../types';
 
 /**
@@ -126,7 +126,11 @@ export function useMessages(): MessagesState & MessagesActions {
         });
       }
 
-      const filteredMessages = allMessages.filter(
+      // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
+      // <tool_call>/<tool_result> XML never renders — critical for
+      // messaging-origin conversations (Telegram etc.) that carry the same
+      // scaffolding rows as native chat. Then drop insight prompt user turns.
+      const filteredMessages = filterDisplayMessages(allMessages).filter(
         (msg: Message) => !(msg.role === 'user' && isInsightPrompt(msg.content))
       );
       setMessages(filteredMessages);

@@ -8,11 +8,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import type { Conversation } from '@pierre/shared-types';
+import type { Conversation, MessageRole } from '@pierre/shared-types';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: MessageRole;
   content: string;
   token_count?: number;
   created_at: string;
@@ -53,6 +53,9 @@ export function useConversations(options: UseConversationsOptions = {}) {
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
     enabled: !!selectedConversation,
+    // Pick up async messaging-channel replies (no websocket push) when the
+    // window regains focus.
+    refetchOnWindowFocus: true,
   });
 
   // Create conversation mutation. The mutate argument is an optional

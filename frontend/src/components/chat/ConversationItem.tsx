@@ -6,7 +6,8 @@
 
 import { memo, useRef, useEffect } from 'react';
 import { clsx } from 'clsx';
-import { History, Pencil, Trash2 } from 'lucide-react';
+import { History, Pencil, Trash2, Send } from 'lucide-react';
+import { deriveMessageChannel } from '@pierre/chat-utils';
 import type { Conversation } from './types';
 import { formatDate } from './utils';
 
@@ -40,6 +41,12 @@ const ConversationItem = memo(function ConversationItem({
   onCancelRename,
 }: ConversationItemProps) {
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Origin badge for conversations that started on a messaging channel
+  // (Telegram, WhatsApp, …). Derived from the conversation's own title
+  // ("Messaging: <channel>"), never the possibly-rewritten displayTitle, so
+  // the badge survives a coach-aware title override. Plain web chats → null.
+  const channelOrigin = deriveMessageChannel(conversation.title);
 
   // Focus input when editing starts
   useEffect(() => {
@@ -87,9 +94,22 @@ const ConversationItem = memo(function ConversationItem({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <p className="text-sm font-normal truncate group-hover:text-on-surface transition-colors">
-            {displayTitle ?? conversation.title ?? 'Untitled Chat'}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {channelOrigin && (
+              <span
+                className="inline-flex items-center gap-1 flex-shrink-0 rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-medium"
+                title={`From ${channelOrigin.label}`}
+                aria-label={`From ${channelOrigin.label}`}
+                data-testid="conversation-channel-badge"
+              >
+                <Send className="w-2.5 h-2.5" aria-hidden="true" />
+                {channelOrigin.label}
+              </span>
+            )}
+            <p className="text-sm font-normal truncate group-hover:text-on-surface transition-colors">
+              {displayTitle ?? conversation.title ?? 'Untitled Chat'}
+            </p>
+          </div>
         )}
       </div>
       <span className="text-on-surface-variant text-xs whitespace-nowrap flex-shrink-0">

@@ -17,7 +17,7 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
-import { splitActivityContent, countActivities } from '@pierre/chat-utils';
+import { splitActivityContent, countActivities, isToolPlumbingMessage, stripToolScaffolding } from '@pierre/chat-utils';
 import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
 import { parseWorkoutPlan } from '@pierre/shared-types';
@@ -419,19 +419,26 @@ export function MessageList({
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (!item?.id) return null;
+    // Defensive: never render internal tool plumbing (tool_call / tool_result).
+    // The list is pre-filtered in useMessages, but a stray row from any other
+    // path must not dump raw <tool_call>/<tool_result> XML at the user.
+    if (isToolPlumbingMessage(item)) return null;
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
     // Builder-coach replies carry a schema-validated plan; render a card.
     const workoutPlan = isUser ? null : parseWorkoutPlan(item.structured_content);
+    // Strip any residual tool scaffolding that leaked into a visible turn's
+    // content before deriving the rendered body.
+    const cleanedContent = isUser ? item.content : stripToolScaffolding(item.content);
     // auth_recovery replies embed a one-time hosted-login URL; surface it as a
     // prominent Reconnect button and drop the raw URL from the rendered text.
     const reconnectUrl = isUser
       ? null
-      : (item.content.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/)?.[0] ?? null);
+      : (cleanedContent.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/)?.[0] ?? null);
     const assistantContent = reconnectUrl
-      ? item.content.replace(reconnectUrl, '').trim()
-      : item.content;
+      ? cleanedContent.replace(reconnectUrl, '').trim()
+      : cleanedContent;
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>

@@ -16,6 +16,16 @@ export type { ProviderContextInput } from './message';
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';
 
+// Cross-surface conversation rendering helpers (web + mobile parity):
+// hide tool-plumbing rows, strip residual tool XML, derive channel badges.
+export {
+  isToolPlumbingMessage,
+  filterDisplayMessages,
+  stripToolScaffolding,
+  deriveMessageChannel,
+} from './conversation';
+export type { MessageChannelOrigin } from './conversation';
+
 // AG-UI progress event → status text mapping (shared by web + mobile)
 export {
   statusTextForAguiEvent,

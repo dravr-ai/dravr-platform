@@ -22,6 +22,10 @@
       "types": "./src/activity.ts",
       "import": "./src/activity.ts"
     },
+    "./conversation": {
+      "types": "./src/conversation.ts",
+      "import": "./src/conversation.ts"
+    },
     "./agui": {
       "types": "./src/agui.ts",
       "import": "./src/agui.ts"
