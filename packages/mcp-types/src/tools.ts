@@ -825,7 +825,7 @@ export interface GetSleepSessionsParams {
 
 
 /**
- * Retrieve aggregated activity statistics from connected fitness providers including totals, records, and year-to-date metrics
+ * Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields are ALL-TIME / lifetime totals. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the all-time totals as annual. If `year_to_date` is absent, the provider does not expose annual figures.
  */
 export interface GetStatsParams {
 
