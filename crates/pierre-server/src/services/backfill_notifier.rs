@@ -10,8 +10,12 @@
 //! the durable activity cache off the request path (see
 //! `pierre_tool_runtime::activity_backfill`) and returns silently. When the
 //! originating turn came from a messaging channel, this notifier resolves that
-//! channel from the Pierre conversation id and pings the user that their older
-//! history is now loaded.
+//! channel from the Pierre conversation id and pushes the user the ACTUAL list
+//! of activities it just loaded — read straight back from the now-warm durable
+//! cache via the [`pierre_database::repositories::ActivityCacheRepository`] the
+//! notifier already holds, so there is no chat-pipeline re-entry and no LLM
+//! call. If that read comes back empty (it shouldn't, post-backfill) it falls
+//! back to a templated "your history is ready, ask again" nudge.
 //!
 //! Built once from the assembled [`ServerContext`] handles (repos +
 //! messaging-strings registry) and stored on the context behind the
@@ -30,15 +34,18 @@
 //! dropped — the user has moved on and a stale "your history is ready" ping
 //! against an archived thread would be noise.
 
+use std::fmt::Write as _;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{Duration, TimeZone, Utc};
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_READY,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
+    KEY_BACKFILL_READY,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Activity, TenantId};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
@@ -48,6 +55,20 @@ use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+/// Max activities rendered inline in the completion notice; the rest collapse
+/// into a "… and N more" footer so a deep backfill can't flood the channel.
+const BACKFILL_LIST_MAX: usize = 15;
+
+/// Read limit for the warmed window — covers a deep backfill while staying well
+/// above [`BACKFILL_LIST_MAX`] so the rendered list and the "and N more" count
+/// reflect the true window size, not a truncated read.
+const BACKFILL_WINDOW_READ_LIMIT: i64 = 500;
+
+/// Lower bound (days) used when the job carries no `after` timestamp, so the
+/// window read still has a finite floor. The backfill always passes the job's
+/// `after`, so this is only a defensive fallback.
+const BACKFILL_FALLBACK_WINDOW_DAYS: i64 = 90;
 
 /// Resolves a `(tenant, channel)` to an outbound adapter + its config.
 ///
@@ -160,19 +181,19 @@ impl ServerBackfillNotifier {
         }
     }
 
-    /// Resolve the originating channel for a Pierre conversation id and build the
-    /// outbound notice, or `None` when the conversation has moved/gone (the
-    /// staleness guard) or the row is missing channel routing.
+    /// Resolve the originating channel for a Pierre conversation id, or `None`
+    /// when the conversation has moved/gone (the staleness guard) or the row is
+    /// missing channel routing.
     ///
-    /// Returns the `(channel_str, channel_type, outgoing)` triple so a caller can
-    /// resolve the adapter and send. Kept separate from the send so the routing
-    /// decision is unit-testable without a channel adapter.
-    async fn build_notice(
+    /// Returns the routing pieces — `(channel_str, channel_type, recipient,
+    /// locale)` — so the caller can read the warmed cache, compose the body, and
+    /// send. Kept separate from body composition + send so the routing decision
+    /// is unit-testable without a channel adapter.
+    async fn resolve_route(
         &self,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
-        activity_count: usize,
-    ) -> Option<(String, ChannelType, OutgoingMessage)> {
+    ) -> Option<(String, ChannelType, String, String)> {
         let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
         let session = match db
             .get_session_by_pierre_conversation_id(tenant_id, pierre_conversation_id)
@@ -208,21 +229,104 @@ impl ServerBackfillNotifier {
             return None;
         };
 
-        let count = activity_count.to_string();
-        let body = self.strings.render(KEY_BACKFILL_READY, locale, &[&count]);
-        let outgoing = OutgoingMessage {
+        Some((
+            channel_str.to_owned(),
             channel_type,
-            recipient_id: recipient.to_owned(),
-            content: MessageContent::Text { body },
-            // Fresh turn — this is a proactive push, not a reply to the
-            // originating turn.
-            turn_id: ConversationTurnId::new(),
-            reply_to: None,
-            thread_id: None,
-        };
-
-        Some((channel_str.to_owned(), channel_type, outgoing))
+            recipient.to_owned(),
+            locale.to_owned(),
+        ))
     }
+
+    /// Read the warmed window's cached activities straight from the durable
+    /// activity cache the backfill just populated.
+    ///
+    /// Reads through the [`ActivityCacheRepository`] the notifier already holds
+    /// on `repos` — no `ToolRuntime` dependency is pulled into the notifier. The
+    /// window mirrors the job: `[after_ts, now]`, newest first, capped at
+    /// [`BACKFILL_WINDOW_READ_LIMIT`]. Returns `None`/empty (then the caller
+    /// falls back to the templated nudge) when the cache read misses or fails.
+    async fn read_warmed_window(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        after_ts: i64,
+    ) -> Vec<Activity> {
+        let now = Utc::now();
+        let start = Utc
+            .timestamp_opt(after_ts, 0)
+            .single()
+            .unwrap_or_else(|| now - Duration::days(BACKFILL_FALLBACK_WINDOW_DAYS));
+        match self
+            .repos
+            .activity_cache
+            .get_cached_activities(
+                user_id,
+                &tenant_id,
+                Some(provider),
+                start,
+                now,
+                BACKFILL_WINDOW_READ_LIMIT,
+            )
+            .await
+        {
+            Ok(activities) => activities,
+            Err(e) => {
+                warn!(error = %e, provider = %provider, "Backfill push: warmed-window cache read failed");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Compose the completion-notice body: a localized header followed by a
+    /// compact, Rust-rendered list of up to [`BACKFILL_LIST_MAX`] activities,
+    /// then a localized "… and N more" footer when the window is larger.
+    ///
+    /// Only the header/footer phrases are localized; the per-activity lines
+    /// (name · date · sport · distance) are formatted here from the `Activity`
+    /// fields so the rendering stays in Rust.
+    fn render_list_body(&self, locale: &str, activities: &[Activity]) -> String {
+        let total = activities.len();
+        let count = total.to_string();
+        let mut body = self
+            .strings
+            .render(KEY_BACKFILL_LIST_HEADER, locale, &[&count]);
+
+        for activity in activities.iter().take(BACKFILL_LIST_MAX) {
+            body.push('\n');
+            body.push_str(&format_activity_line(activity));
+        }
+
+        if total > BACKFILL_LIST_MAX {
+            let remaining = (total - BACKFILL_LIST_MAX).to_string();
+            body.push('\n');
+            body.push_str(
+                &self
+                    .strings
+                    .render(KEY_BACKFILL_LIST_MORE, locale, &[&remaining]),
+            );
+        }
+
+        body
+    }
+}
+
+/// Render one activity as a compact `• name · YYYY-MM-DD · Sport · 10.0 km`
+/// line. Distance is shown in kilometres (one decimal) only when present; sport
+/// uses the canonical display name. Pure formatting over the cheaply-available
+/// `Activity` accessors — no allocation beyond the returned line.
+fn format_activity_line(activity: &Activity) -> String {
+    let date = activity.start_date().format("%Y-%m-%d");
+    let sport = activity.sport_type().display_name();
+    let mut line = format!("• {} · {date} · {sport}", activity.name());
+    if let Some(meters) = activity.distance_meters() {
+        if meters > 0.0 {
+            // Infallible write into a String; the trait import is `as _` so the
+            // method resolves without exposing `Write` to the rest of the file.
+            let _ = write!(line, " · {:.1} km", meters / 1000.0);
+        }
+    }
+    line
 }
 
 #[async_trait]
@@ -236,19 +340,18 @@ impl BackfillNotifier for ServerBackfillNotifier {
         after_ts: i64,
         activity_count: usize,
     ) {
-        let Some((channel_str, channel_type, outgoing)) = self
-            .build_notice(tenant_id, pierre_conversation_id, activity_count)
-            .await
+        let Some((channel_str, channel_type, recipient, locale)) =
+            self.resolve_route(tenant_id, pierre_conversation_id).await
         else {
             return;
         };
 
         // Durable cross-replica dedup. The staleness reverse-lookup above has
         // already confirmed there is a live channel to notify; claim the
-        // `(tenant, user, provider, window)` BEFORE resolving the adapter or
-        // sending so a race between replicas resolves to exactly one send. A
-        // `false` claim means another replica (or an earlier attempt) already
-        // sent the notice for this window, so we skip silently.
+        // `(tenant, user, provider, window)` BEFORE reading the cache, resolving
+        // the adapter, or sending so a race between replicas resolves to exactly
+        // one send. A `false` claim means another replica (or an earlier
+        // attempt) already sent the notice for this window, so we skip silently.
         let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
         match db
             .claim_backfill_push(tenant_id, &user_id.to_string(), provider, after_ts)
@@ -268,6 +371,32 @@ impl BackfillNotifier for ServerBackfillNotifier {
             }
         }
 
+        // Push the ACTUAL warmed list read straight from the durable cache the
+        // backfill just populated — no chat-pipeline re-entry, no LLM call. If
+        // the window reads back empty (it shouldn't, post-backfill), fall back
+        // to the templated "ask me again" nudge so the user still hears that
+        // their history loaded.
+        let warmed = self
+            .read_warmed_window(user_id, tenant_id, provider, after_ts)
+            .await;
+        let body = if warmed.is_empty() {
+            let count = activity_count.to_string();
+            self.strings.render(KEY_BACKFILL_READY, &locale, &[&count])
+        } else {
+            self.render_list_body(&locale, &warmed)
+        };
+
+        let outgoing = OutgoingMessage {
+            channel_type,
+            recipient_id: recipient,
+            content: MessageContent::Text { body },
+            // Fresh turn — this is a proactive push, not a reply to the
+            // originating turn.
+            turn_id: ConversationTurnId::new(),
+            reply_to: None,
+            thread_id: None,
+        };
+
         let Some((adapter, channel_config)) = self
             .resolver
             .resolve(tenant_id, &channel_str, channel_type)
@@ -281,7 +410,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         } else {
             info!(
                 channel = %channel_str,
-                count = activity_count,
+                count = warmed.len().max(activity_count),
                 "Sent backfill-ready notice on channel"
             );
         }
