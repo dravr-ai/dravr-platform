@@ -47,8 +47,10 @@ pub struct Athlete {
 
 /// Aggregated fitness statistics for an athlete
 ///
-/// Contains summarized statistics across all activities for a given time period.
-/// Values are typically calculated from the athlete's activity history.
+/// The top-level `total_*` fields are **all-time / lifetime** totals across the
+/// athlete's entire history. When the provider also exposes calendar-year
+/// figures, `year_to_date` carries the current-year totals so a consumer can
+/// distinguish "annual" from "lifetime" without inferring it from the numbers.
 ///
 /// # Examples
 ///
@@ -60,17 +62,39 @@ pub struct Athlete {
 ///     total_distance: 1500000.0, // 1500 km in meters
 ///     total_duration: 540000, // 150 hours in seconds
 ///     total_elevation_gain: 25000.0, // 25km of elevation
+///     year_to_date: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stats {
-    /// Total number of recorded activities
+    /// Total number of recorded activities over all time
     pub total_activities: u64,
-    /// Total distance covered across all activities (meters)
+    /// Total distance covered over all time (meters)
     pub total_distance: f64,
-    /// Total time spent in activities (seconds)
+    /// Total time spent in activities over all time (seconds)
     pub total_duration: u64,
-    /// Total elevation gained across all activities (meters)
+    /// Total elevation gained over all time (meters)
+    pub total_elevation_gain: f64,
+    /// Current calendar-year totals, when the provider supplies them.
+    /// `None` means the provider does not expose a year-to-date breakdown
+    /// (consumers must not treat the all-time totals as annual).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year_to_date: Option<PeriodTotals>,
+}
+
+/// Aggregated activity totals scoped to a single time period.
+///
+/// Used for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the
+/// lifetime totals so a period can be reported with the same fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeriodTotals {
+    /// Number of recorded activities in the period
+    pub total_activities: u64,
+    /// Distance covered in the period (meters)
+    pub total_distance: f64,
+    /// Time spent in activities in the period (seconds)
+    pub total_duration: u64,
+    /// Elevation gained in the period (meters)
     pub total_elevation_gain: f64,
 }
 

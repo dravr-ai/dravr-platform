@@ -868,6 +868,7 @@ impl FitnessProvider for CorosProvider {
             total_distance: 0.0,
             total_duration: 0,
             total_elevation_gain: 0.0,
+            year_to_date: None,
         })
     }
 

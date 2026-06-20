@@ -703,6 +703,7 @@ impl FitnessProvider for SciotteProvider {
             total_distance,
             total_duration,
             total_elevation_gain: total_elevation,
+            year_to_date: None,
         })
     }
 

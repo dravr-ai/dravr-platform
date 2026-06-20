@@ -104,7 +104,7 @@ pub use dravr_equilibre::{
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
-pub use athlete::{Athlete, PersonalRecord, PrMetric, Stats};
+pub use athlete::{Athlete, PeriodTotals, PersonalRecord, PrMetric, Stats};
 pub use roster::CoachAthleteAssignment;
 
 // User domain

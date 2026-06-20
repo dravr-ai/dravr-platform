@@ -134,11 +134,13 @@ async fn athlete_activities(
     }
 }
 
-/// `GET /athletes/{id}/stats` — returns the bearer user's all-time ride and run
-/// totals in Strava's athlete-stats JSON shape. The path id is ignored; the user
-/// is resolved from the bearer like the other handlers. Only `all_ride_totals`
-/// and `all_run_totals` are emitted because those are the only fields the Strava
-/// provider's `get_stats` reads — matching how the real provider sums ride+run.
+/// `GET /athletes/{id}/stats` — returns the bearer user's ride and run totals in
+/// Strava's athlete-stats JSON shape, for both all-time and the current calendar
+/// year (`ytd_*`). The path id is ignored; the user is resolved from the bearer
+/// like the other handlers. Ride and run buckets are emitted because those are the
+/// fields the Strava provider's `get_stats` reads — matching how the real provider
+/// sums ride+run. The `ytd_*` totals re-run the same aggregation filtered to the
+/// current year so dev exercises the annual-vs-lifetime distinction.
 async fn athlete_stats(State(pool): State<SqlitePool>, headers: HeaderMap) -> Json<Value> {
     let Some(user_id) = user_from_bearer(&headers) else {
         warn!("missing or malformed bearer; returning zeroed stats");
@@ -149,6 +151,9 @@ async fn athlete_stats(State(pool): State<SqlitePool>, headers: HeaderMap) -> Js
     // (`%ride%`, `%run%`) catch the seeded variants — gravel_ride, virtual_ride,
     // mountain_bike_ride, trail_run — the same way real Strava folds them into
     // its ride/run buckets. SQLite SUM ignores NULL distance/elevation (e.g. yoga).
+    // The `ytd_*` aggregates reuse the ride/run buckets but additionally require
+    // the activity's calendar year to match the current year (SQLite `strftime`),
+    // so they form a strict subset of the all-time totals.
     let row = sqlx::query(
         "SELECT \
          COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN 1 ELSE 0 END), 0) AS ride_count, \
@@ -158,7 +163,15 @@ async fn athlete_stats(State(pool): State<SqlitePool>, headers: HeaderMap) -> Js
          COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN 1 ELSE 0 END), 0) AS run_count, \
          COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN distance_meters END), 0.0) AS run_distance, \
          COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN duration_seconds END), 0) AS run_time, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN elevation_gain END), 0.0) AS run_elev \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN elevation_gain END), 0.0) AS run_elev, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN 1 ELSE 0 END), 0) AS ytd_ride_count, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN distance_meters END), 0.0) AS ytd_ride_distance, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN duration_seconds END), 0) AS ytd_ride_time, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN elevation_gain END), 0.0) AS ytd_ride_elev, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN 1 ELSE 0 END), 0) AS ytd_run_count, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN distance_meters END), 0.0) AS ytd_run_distance, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN duration_seconds END), 0) AS ytd_run_time, \
+         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN elevation_gain END), 0.0) AS ytd_run_elev \
          FROM synthetic_activities WHERE user_id = ?",
     )
     .bind(&user_id)
@@ -202,6 +215,8 @@ fn strava_stats_json(row: Option<&SqliteRow>) -> Value {
     json!({
         "all_ride_totals": totals("ride_count", "ride_distance", "ride_time", "ride_elev"),
         "all_run_totals": totals("run_count", "run_distance", "run_time", "run_elev"),
+        "ytd_ride_totals": totals("ytd_ride_count", "ytd_ride_distance", "ytd_ride_time", "ytd_ride_elev"),
+        "ytd_run_totals": totals("ytd_run_count", "ytd_run_distance", "ytd_run_time", "ytd_run_elev"),
     })
 }
 

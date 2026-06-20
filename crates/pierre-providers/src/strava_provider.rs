@@ -18,7 +18,8 @@ use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, PeriodTotals, PersonalRecord,
+    SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use async_trait::async_trait;
@@ -206,10 +207,20 @@ pub struct DetailedActivityResponse {
 }
 
 /// Strava API response for stats
+///
+/// The `/athletes/{id}/stats` endpoint returns parallel `all_*` (lifetime) and
+/// `ytd_*` (current calendar year) totals per sport. We deserialize both so the
+/// stats tool can report annual figures distinctly from lifetime ones.
 #[derive(Debug, Deserialize)]
 struct StravaStatsResponse {
-    all_ride_totals: Option<StravaTotals>,
-    all_run_totals: Option<StravaTotals>,
+    #[serde(rename = "all_ride_totals")]
+    all_ride: Option<StravaTotals>,
+    #[serde(rename = "all_run_totals")]
+    all_run: Option<StravaTotals>,
+    #[serde(rename = "ytd_ride_totals")]
+    ytd_ride: Option<StravaTotals>,
+    #[serde(rename = "ytd_run_totals")]
+    ytd_run: Option<StravaTotals>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,6 +229,28 @@ struct StravaTotals {
     distance: f32,
     moving_time: u32,
     elevation_gain: f32,
+}
+
+impl StravaStatsResponse {
+    /// Combine a ride+run total pair into the canonical [`PeriodTotals`].
+    ///
+    /// Swim totals (`*_swim_totals`) are intentionally excluded to match the
+    /// historical behaviour of the lifetime sum; including swims is tracked as
+    /// a separate change.
+    fn sum_pair(ride: Option<&StravaTotals>, run: Option<&StravaTotals>) -> PeriodTotals {
+        PeriodTotals {
+            total_activities: u64::from(ride.map_or(0, |t| t.count) + run.map_or(0, |t| t.count)),
+            total_distance: f64::from(
+                ride.map_or(0.0, |t| t.distance) + run.map_or(0.0, |t| t.distance),
+            ),
+            total_duration: u64::from(
+                ride.map_or(0, |t| t.moving_time) + run.map_or(0, |t| t.moving_time),
+            ),
+            total_elevation_gain: f64::from(
+                ride.map_or(0.0, |t| t.elevation_gain) + run.map_or(0.0, |t| t.elevation_gain),
+            ),
+        }
+    }
 }
 
 /// Context for multi-page activity fetching
@@ -972,29 +1005,17 @@ impl FitnessProvider for StravaProvider {
         let endpoint = format!("athletes/{}/stats", athlete.id);
         let stats: StravaStatsResponse = self.api_request(&endpoint).await?;
 
+        let all_time =
+            StravaStatsResponse::sum_pair(stats.all_ride.as_ref(), stats.all_run.as_ref());
+        let year_to_date =
+            StravaStatsResponse::sum_pair(stats.ytd_ride.as_ref(), stats.ytd_run.as_ref());
+
         Ok(Stats {
-            total_activities: u64::from(
-                stats.all_ride_totals.as_ref().map_or(0, |t| t.count)
-                    + stats.all_run_totals.as_ref().map_or(0, |t| t.count),
-            ),
-            total_distance: f64::from(
-                stats.all_ride_totals.as_ref().map_or(0.0, |t| t.distance)
-                    + stats.all_run_totals.as_ref().map_or(0.0, |t| t.distance),
-            ),
-            total_duration: u64::from(
-                stats.all_ride_totals.as_ref().map_or(0, |t| t.moving_time)
-                    + stats.all_run_totals.as_ref().map_or(0, |t| t.moving_time),
-            ),
-            total_elevation_gain: f64::from(
-                stats
-                    .all_ride_totals
-                    .as_ref()
-                    .map_or(0.0, |t| t.elevation_gain)
-                    + stats
-                        .all_run_totals
-                        .as_ref()
-                        .map_or(0.0, |t| t.elevation_gain),
-            ),
+            total_activities: all_time.total_activities,
+            total_distance: all_time.total_distance,
+            total_duration: all_time.total_duration,
+            total_elevation_gain: all_time.total_elevation_gain,
+            year_to_date: Some(year_to_date),
         })
     }
 

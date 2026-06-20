@@ -845,6 +845,7 @@ impl FitnessProvider for FitbitProvider {
             total_distance: response.lifetime.total.distance * 1000.0, // Convert km to meters
             total_duration: 0,   // Not available in lifetime stats
             total_elevation_gain: response.lifetime.total.floors * 3.0, // Estimate: 1 floor ≈ 3m
+            year_to_date: None,
         })
     }
 
