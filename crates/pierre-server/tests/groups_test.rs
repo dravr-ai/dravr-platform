@@ -864,3 +864,82 @@ async fn test_full_group_lifecycle() {
         .await;
     assert_success(&resp, "request");
 }
+
+/// Cross-tenant isolation for the group entity, encoding the documented v1
+/// tenant model (see `crates/pierre-routes-social/src/groups.rs:1095`):
+/// **athlete membership is cross-tenant by design**, but the group entity
+/// itself (update/delete) is tenant-scoped (`WHERE tenant_id`).
+///
+/// Every other groups test uses [`setup_two_users`], which deliberately forces
+/// both users into ONE tenant, so the suite never crossed the tenant boundary
+/// despite the file's "tenant isolation" charter. This puts the two users in
+/// DISTINCT tenants and asserts both halves of the rule.
+#[tokio::test]
+async fn cross_tenant_group_entity_isolation() {
+    let res = create_test_server_resources().await.unwrap();
+
+    // Owner in tenant A (professional so group coaching is available).
+    let (_u1id, u1, _t1) =
+        create_test_user_with_plan(&res.coach.database, "ct-owner@test.com", "professional")
+            .await
+            .unwrap();
+    // Outsider in a DISTINCT tenant B (its own professional tenant).
+    let (_u2id, u2, _t2) =
+        create_test_user_with_plan(&res.coach.database, "ct-outsider@test.com", "professional")
+            .await
+            .unwrap();
+    let a1 = format!("Bearer {}", generate_test_token(&res, &u1).await);
+    let a2 = format!("Bearer {}", generate_test_token(&res, &u2).await);
+
+    let router = build_coaches_router::<ServerContext>()
+        .with_state(Arc::clone(&res))
+        .merge(GroupRoutes::routes(Arc::clone(&res)))
+        .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
+
+    let cid = create_test_coach(&router, &a1).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &a1, &cid).await;
+
+    // Tenant-scoped: an outsider in another tenant cannot UPDATE the group.
+    let update = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &a2)
+        .json(&json!({ "name": "Hijacked by tenant B" }))
+        .send(router.clone())
+        .await;
+    assert!(
+        !update.status_code().is_success(),
+        "a user in another tenant must NOT update the group, got {}",
+        update.status_code()
+    );
+
+    // Tenant-scoped: an outsider in another tenant cannot DELETE the group.
+    let delete = AxumTestRequest::delete(&format!("/api/groups/{group_id}"))
+        .header("authorization", &a2)
+        .send(router.clone())
+        .await;
+    assert!(
+        !delete.status_code().is_success(),
+        "a user in another tenant must NOT delete the group, got {}",
+        delete.status_code()
+    );
+
+    // The group survived both attempts: the owner can still read it.
+    let get = AxumTestRequest::get(&format!("/api/groups/{group_id}"))
+        .header("authorization", &a1)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        get.status_code(),
+        StatusCode::OK,
+        "owner must still see the group after the cross-tenant attempts"
+    );
+
+    // Cross-tenant by design: an athlete from another tenant MAY join via
+    // invite. Asserting this locks in the intended behaviour so a later
+    // over-broad "tenant-scope everything" change is caught here, not in prod.
+    let join = AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &a2)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router)
+        .await;
+    assert_success(&join, "cross-tenant athlete join (allowed by design)");
+}
