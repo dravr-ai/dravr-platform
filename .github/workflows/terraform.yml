@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Authenticate to GCP (dev terraform runner)
         uses: google-github-actions/auth@v3
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Authenticate to GCP (prod terraform runner)
         uses: google-github-actions/auth@v3
@@ -209,7 +209,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Authenticate to GCP (dev terraform runner)
         uses: google-github-actions/auth@v3
@@ -249,7 +249,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Authenticate to GCP (prod terraform runner)
         uses: google-github-actions/auth@v3

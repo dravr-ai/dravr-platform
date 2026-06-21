@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
@@ -126,7 +126,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}

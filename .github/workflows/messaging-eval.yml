@@ -73,7 +73,7 @@ jobs:
       CARGO_HOME: /home/runner/.cargo
       CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
@@ -151,7 +151,7 @@ jobs:
       # "Failed to connect" reqwest error.
       LLM_REQUEST_TIMEOUT_SECS: "900"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
