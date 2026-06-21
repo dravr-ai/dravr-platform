@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::PostgresDatabase;
-use crate::repositories::ActivityCacheRepository;
+use crate::repositories::{ActivityCacheRepository, BackfillCoverage};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -167,5 +167,64 @@ impl ActivityCacheRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to prune cached activities: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn upsert_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        coverage: BackfillCoverage,
+    ) -> AppResult<()> {
+        // tenant_id/user_id are UUID columns (cf. backfill_push_log): bind the
+        // string form and cast.
+        sqlx::query(
+            r"
+            INSERT INTO activity_backfill_coverage
+                (tenant_id, user_id, provider, oldest_reached_ts, hit_feed_end, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET
+                oldest_reached_ts = EXCLUDED.oldest_reached_ts,
+                hit_feed_end = EXCLUDED.hit_feed_end,
+                updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .bind(coverage.oldest_reached_ts)
+        .bind(coverage.hit_feed_end)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert backfill coverage: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Option<BackfillCoverage>> {
+        let row = sqlx::query(
+            r"
+            SELECT oldest_reached_ts, hit_feed_end
+            FROM activity_backfill_coverage
+            WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND provider = $3
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read backfill coverage: {e}")))?;
+
+        Ok(row.map(|r| BackfillCoverage {
+            oldest_reached_ts: r.get("oldest_reached_ts"),
+            hit_feed_end: r.get("hit_feed_end"),
+        }))
     }
 }

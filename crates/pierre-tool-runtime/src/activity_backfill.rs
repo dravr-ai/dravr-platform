@@ -24,6 +24,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
+use pierre_database::repositories::BackfillCoverage;
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -78,6 +79,25 @@ fn backfill_retention_days(after: Option<i64>) -> i64 {
     };
     let span = (Utc::now() - after_dt).num_days() + BACKFILL_RETENTION_MARGIN_DAYS;
     base.max(span)
+}
+
+/// Infer whether a completed backfill scrape exhausted the provider feed (no
+/// older data) rather than stopping because it reached the requested floor or
+/// hit the fetch limit.
+///
+/// Feed-end = the oldest activity fetched is still newer than `after_ts` (it did
+/// not reach the requested floor) AND the scrape did not fill `fetch_limit` (so
+/// it was not count-capped — it ran out of feed). When it reached `after`
+/// (`oldest <= after`) the floor is the request, not the feed end. `pub` so the
+/// inference is exercisable by the integration test suite.
+#[must_use]
+pub fn backfill_hit_feed_end(
+    oldest_reached_ts: i64,
+    after_ts: i64,
+    fetched_count: usize,
+    fetch_limit: usize,
+) -> bool {
+    oldest_reached_ts > after_ts && fetched_count < fetch_limit
 }
 
 /// In-flight backfill keys (`user_id:provider`) so repeated asks while a job is
@@ -182,6 +202,42 @@ async fn fetch_backfill_activities(
     }
 }
 
+/// Record how deep a completed backfill reached for `(tenant, user, provider)`
+/// so the historical gate can serve a complete window or self-heal a shallow one.
+///
+/// Best-effort: a write failure is logged, never propagated. No-op when the job
+/// carries no `after` (only the dated gate path records coverage) or fetched
+/// nothing. `hit_feed_end` is inferred via [`backfill_hit_feed_end`].
+async fn record_backfill_coverage(
+    job: &ActivityBackfillJob,
+    activities: &[Activity],
+    fetched_count: usize,
+) {
+    let Some(after_ts) = job.query_params.after else {
+        return;
+    };
+    let Some(oldest) = activities.iter().map(Activity::start_date).min() else {
+        return;
+    };
+    let oldest_reached_ts = oldest.timestamp();
+    let fetch_limit = job.query_params.limit.unwrap_or(usize::MAX);
+    let hit_feed_end =
+        backfill_hit_feed_end(oldest_reached_ts, after_ts, fetched_count, fetch_limit);
+    let coverage = BackfillCoverage {
+        oldest_reached_ts,
+        hit_feed_end,
+    };
+    if let Err(e) = job
+        .resources
+        .repos()
+        .activity_cache
+        .upsert_backfill_coverage(job.user_id, &job.tenant_id, &job.provider_name, coverage)
+        .await
+    {
+        warn!(error = %e, "Activity backfill: failed to record coverage");
+    }
+}
+
 /// Page the provider's feed to the requested `after` and write the historical
 /// activities through to the durable cache. All failures are logged and
 /// swallowed — this runs detached from any request.
@@ -217,6 +273,10 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
     .await
     .and_then(|c| usize::try_from(c).ok())
     .unwrap_or(fetched_count);
+
+    // Record how deep this backfill reached so the historical gate can tell a
+    // complete window from a shallow recent slice and self-heal a partial one.
+    record_backfill_coverage(job, &activities, fetched_count).await;
 
     info!(
         user_id = %job.user_id,

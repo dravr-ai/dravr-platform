@@ -22,6 +22,7 @@
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -54,6 +55,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::activity_detail_threshold;
 use pierre_core::errors::AppResult;
+use pierre_database::repositories::BackfillCoverage;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_intelligence::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
@@ -88,6 +90,38 @@ const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
 #[must_use]
 const fn historical_window_read_limit() -> usize {
     HISTORICAL_WINDOW_READ_LIMIT
+}
+
+/// Default fetch limit a background backfill passes to the provider so the scrape
+/// pages the WHOLE requested window instead of stopping at the user's display
+/// limit. The sciotte date-bounded scrape stops on `in_window_count >= limit`
+/// OR `oldest <= after`; with a small (display) limit it caps at the recent tail
+/// and never reaches the window start. A generous limit makes `oldest <= after`
+/// the binding condition, so the scrape pages the full season.
+const DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT: usize = 2_000;
+
+/// Fetch limit a background backfill requests, from
+/// `PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT` (falls back to
+/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]). Operators raise this for athletes
+/// with very deep histories; zero/unparseable values fall back to the default.
+fn historical_backfill_fetch_limit() -> usize {
+    env::var("PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT)
+}
+
+/// Whether a cached historical window is deep enough to serve as-is.
+///
+/// Cached rows alone are not enough — a prior limit-capped backfill leaves only
+/// the recent slice of a deep window. The window is covered when a backfill
+/// reached at least as far back as `after_ts`, OR exhausted the provider feed
+/// (`hit_feed_end`, so no older data exists). No coverage record ⇒ not covered.
+/// `pub` so the gate decision is exercisable by the integration test suite.
+#[must_use]
+pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
+    coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
 }
 
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
@@ -515,7 +549,22 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     &coverage_params,
                 )
                 .await;
-                let covered = window.is_some();
+                // Depth coverage: cached rows alone aren't enough — a prior
+                // limit-capped backfill leaves only the recent slice of a deep
+                // window (the "2022 starts in July" bug). The window is covered
+                // only when a backfill reached at least as deep as `after`, OR
+                // exhausted the provider feed (no older data exists). Absent a
+                // coverage record the window is treated as not-yet-backfilled.
+                let after_ts = after.unwrap_or(0);
+                let coverage = context
+                    .resources
+                    .repos()
+                    .activity_cache
+                    .get_backfill_coverage(context.user_id, &tenant_id, &provider_name)
+                    .await
+                    .unwrap_or(None);
+                let depth_covered = historical_depth_covered(coverage, after_ts);
+                let covered = window.is_some() && depth_covered;
 
                 info!(
                     user_id = %context.user_id,
@@ -523,24 +572,35 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     ?after,
                     ?before,
                     covered,
+                    depth_covered,
                     "get_activities historical gate decision"
                 );
 
-                if let Some(mut served) = window {
-                    // The requested depth is cached — serve the single deterministic
-                    // window read, capping only the RETURNED length by the user's
-                    // display limit (never the cache read), so the set is complete
-                    // and identical across repeated calls.
+                if let Some(mut served) = window.filter(|_| depth_covered) {
+                    // The requested depth is cached AND a backfill confirmed it
+                    // reaches `after` (or the feed end) — serve the single
+                    // deterministic window read, capping only the RETURNED length
+                    // by the user's display limit (never the cache read), so the
+                    // set is complete and identical across repeated calls.
                     served.truncate(limit);
                     (served, None)
                 } else {
+                    // Cold cache OR a shallow (limit-capped / never-backfilled)
+                    // window: page the WHOLE window in the background. The fetch
+                    // limit is decoupled from the user's display limit so the
+                    // sciotte date-bounded scrape pages until `oldest <= after`
+                    // (or the feed end) instead of stopping at the recent tail
+                    // once `in_window_count >= limit`. A partial cache self-heals:
+                    // the completion push then re-answers with the full window.
+                    let mut backfill_params = query_params.clone();
+                    backfill_params.limit = Some(historical_backfill_fetch_limit());
                     let started = spawn_activity_backfill(ActivityBackfillJob {
                         resources: context.resources.clone(),
                         user_id: context.user_id,
                         tenant_id,
                         tenant_id_str: tenant_id_str.clone(),
                         provider_name: provider_name.clone(),
-                        query_params: query_params.clone(),
+                        query_params: backfill_params,
                         pierre_conversation_id: context.conversation_id.clone(),
                     });
                     return Ok(ToolResult::ok(json!({
