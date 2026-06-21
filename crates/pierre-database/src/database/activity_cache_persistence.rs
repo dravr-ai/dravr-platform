@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::database::Database;
-use crate::repositories::ActivityCacheRepository;
+use crate::repositories::{ActivityCacheRepository, BackfillCoverage};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -180,5 +180,67 @@ impl ActivityCacheRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to prune cached activities: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn upsert_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        coverage: BackfillCoverage,
+    ) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r"
+            INSERT INTO activity_backfill_coverage
+                (tenant_id, user_id, provider, oldest_reached_ts, hit_feed_end, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tenant_id, user_id, provider) DO UPDATE SET
+                oldest_reached_ts = excluded.oldest_reached_ts,
+                hit_feed_end = excluded.hit_feed_end,
+                updated_at = excluded.updated_at
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .bind(coverage.oldest_reached_ts)
+        .bind(i64::from(coverage.hit_feed_end))
+        .bind(&now)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert backfill coverage: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Option<BackfillCoverage>> {
+        let row = sqlx::query(
+            r"
+            SELECT oldest_reached_ts, hit_feed_end
+            FROM activity_backfill_coverage
+            WHERE tenant_id = ? AND user_id = ? AND provider = ?
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read backfill coverage: {e}")))?;
+
+        Ok(row.map(|r| {
+            let oldest_reached_ts: i64 = r.get("oldest_reached_ts");
+            let hit_feed_end: i64 = r.get("hit_feed_end");
+            BackfillCoverage {
+                oldest_reached_ts,
+                hit_feed_end: hit_feed_end != 0,
+            }
+        }))
     }
 }

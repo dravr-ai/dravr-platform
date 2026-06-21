@@ -10,6 +10,20 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use uuid::Uuid;
 
+/// How deep a historical backfill has reached for a `(tenant, user, provider)`.
+///
+/// Lets the historical-activity gate distinguish "cached but only the recent
+/// slice of a deep window" (re-backfill) from "cached and the provider feed ends
+/// here" (covered, never re-scrape).
+#[derive(Debug, Clone, Copy)]
+pub struct BackfillCoverage {
+    /// Oldest activity start (unix seconds) the deepest backfill fetched.
+    pub oldest_reached_ts: i64,
+    /// `true` when that scrape exhausted the provider feed (next-page disabled
+    /// before reaching the requested `after`), so no older data exists.
+    pub hit_feed_end: bool,
+}
+
 /// Persistence for activities fetched from any provider, enabling
 /// stale-while-revalidate reads on the chat path.
 ///
@@ -65,4 +79,25 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
         cutoff: DateTime<Utc>,
     ) -> AppResult<u64>;
+
+    /// Record how deep a completed backfill reached for `(tenant, user,
+    /// provider)`. Overwrites any prior row — coverage only deepens, because a
+    /// query shallower than the recorded floor is already covered and never
+    /// reaches this write.
+    async fn upsert_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        coverage: BackfillCoverage,
+    ) -> AppResult<()>;
+
+    /// Read the recorded backfill coverage for `(tenant, user, provider)`, or
+    /// `None` when no deep backfill has run for this athlete+provider yet.
+    async fn get_backfill_coverage(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Option<BackfillCoverage>>;
 }
