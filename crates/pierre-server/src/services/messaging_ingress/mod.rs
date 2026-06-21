@@ -105,9 +105,12 @@ fn extract_thread_id(metadata: &Value) -> Option<String> {
 /// (env-override model policy, five tool-loop iterations, messaging
 /// context prompt appended). Channel-specific overrides can be added by
 /// branching inside this helper without touching pipeline code.
-pub(super) fn build_messaging_profile(dispatch: &PendingDispatch) -> ChannelProfile {
-    let suffix = dispatch.resources.messaging_context_prompt();
-    match dispatch.channel_type {
+pub(crate) fn build_messaging_profile(
+    resources: &Arc<ServerContext>,
+    channel_type: ChannelType,
+) -> ChannelProfile {
+    let suffix = resources.messaging_context_prompt();
+    match channel_type {
         ChannelType::Telegram => ChannelProfile::telegram(suffix),
         ChannelType::WhatsApp => ChannelProfile::whatsapp(suffix),
         ChannelType::Discord => ChannelProfile::discord(suffix),

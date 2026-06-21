@@ -14,7 +14,7 @@ use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
-use crate::services::backfill_notifier::ServerBackfillNotifier;
+use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -87,6 +87,8 @@ use std::env;
 #[cfg(feature = "client-messaging")]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(feature = "client-messaging")]
+use std::sync::OnceLock;
 #[cfg(feature = "provider-sciotte")]
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -413,10 +415,18 @@ impl ServerContext {
         // repos + strings registry the approval notifier uses. Stored on the
         // context so the detached historical-backfill task can push a "your
         // history is ready" notice back to the originating channel.
+        //
+        // The chat-pipeline re-entry handle (which lets that push synthesize a
+        // real coach answer) needs the composition-root `Arc<ServerContext>`,
+        // which doesn't exist yet — so the notifier and the context share this
+        // empty `OnceLock` slot, filled post-`Arc` by `install_backfill_reentry`.
+        #[cfg(feature = "client-messaging")]
+        let backfill_reentry: Arc<OnceLock<Arc<dyn ChatReentry>>> = Arc::new(OnceLock::new());
         #[cfg(feature = "client-messaging")]
         let backfill_notifier = Some(ServerBackfillNotifier::from_handles(
             common.repos.clone(),
             contremaitre_messaging_strings_registry.clone(),
+            backfill_reentry.clone(),
         ));
 
         let mcp = super::slices::McpSlice {
@@ -428,6 +438,8 @@ impl ServerContext {
             messaging_strings_registry: contremaitre_messaging_strings_registry,
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
+            #[cfg(feature = "client-messaging")]
+            backfill_reentry,
             contremaitre_config: ContremaitreConfig::from_env(),
         };
 

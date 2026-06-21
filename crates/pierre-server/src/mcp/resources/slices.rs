@@ -107,6 +107,11 @@ use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(feature = "client-messaging")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "client-messaging")]
+use crate::services::backfill_notifier::ChatReentry;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::AbortHandle;
 
@@ -295,6 +300,14 @@ pub struct McpSlice {
     /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
     #[cfg(feature = "client-messaging")]
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
+    /// Chat-pipeline re-entry handle for the backfill-completion push, shared
+    /// (same `Arc`) with [`ServerBackfillNotifier`] so it can synthesize a real
+    /// coach answer instead of a templated list. Empty until the composition
+    /// root installs it post-`Arc` in `spawn_background_workers` (the handle
+    /// needs the `Arc<ServerContext>`, absent when the notifier is built).
+    /// Mirrors the SSE protocol-factory install.
+    #[cfg(feature = "client-messaging")]
+    pub backfill_reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
     /// Contremaitre configuration for GitHub sync and webhook verification.
     pub contremaitre_config: Option<ContremaitreConfig>,
 }

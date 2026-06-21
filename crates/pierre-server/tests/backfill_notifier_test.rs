@@ -26,10 +26,14 @@ use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
     OutgoingMessage,
 };
-use pierre_core::models::{Activity, ActivityBuilder, SportType, Tenant, TenantId, User};
+use pierre_core::models::{
+    Activity, ActivityBuilder, AddMessageParams, SportType, Tenant, TenantId, User,
+};
 use pierre_database::backends::{factory::Database, CreateSessionParams};
 use pierre_database::{DatabaseProvider, RepositoryRegistry};
-use pierre_mcp_server::services::backfill_notifier::{AdapterResolver, ServerBackfillNotifier};
+use pierre_mcp_server::services::backfill_notifier::{
+    AdapterResolver, ChatReentry, ReentryRequest, ServerBackfillNotifier,
+};
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::error::MessagingResult;
 use pierre_messaging::turn::ConversationTurnId;
@@ -327,6 +331,113 @@ async fn push_routes_to_originating_chat() {
     // Resolver was asked for the owning tenant's telegram channel.
     let resolved = resolver.resolved.lock().unwrap();
     assert_eq!(resolved.as_slice(), &[(tenant_id, "telegram".to_owned())]);
+}
+
+/// Fake re-entry that returns a canned coach answer and records the prompt it
+/// was handed, so the test can assert the notifier (a) re-asked the user's own
+/// question and (b) delivered the synthesized reply rather than the list.
+struct FakeReentry {
+    reply: String,
+    seen_prompt: Mutex<Option<String>>,
+}
+
+#[async_trait]
+impl ChatReentry for FakeReentry {
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String> {
+        *self.seen_prompt.lock().unwrap() = Some(req.prompt.to_owned());
+        Some(self.reply.clone())
+    }
+}
+
+/// With a re-entry handle installed and a re-askable user question in the
+/// conversation, the completion push delivers the synthesized in-persona coach
+/// answer — re-asking the user's own question (so the same window is queried) —
+/// instead of the templated activity list.
+#[tokio::test]
+async fn push_synthesizes_coach_reply_when_reentry_installed() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    // The question that triggered the backfill — the re-entry must re-ask it.
+    let question = "Donne moi mes courses en 2022";
+    db.repositories()
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: question,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            structured_content: None,
+        })
+        .await
+        .unwrap();
+
+    // Warm the durable cache so the push takes the synthesize branch (a cold
+    // read would fall through to the "ask me again" nudge instead).
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a1", "Trail run", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let reentry = Arc::new(FakeReentry {
+        reply: "Voici un résumé coaché de ta saison 2022 …".to_owned(),
+        seen_prompt: Mutex::new(None),
+    });
+    let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
+        repos,
+        strings(),
+        resolver,
+        reentry.clone(),
+    );
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            1,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1, "exactly one notice should be sent");
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    assert_eq!(
+        body, "Voici un résumé coaché de ta saison 2022 …",
+        "should send the synthesized coach reply, not the templated list"
+    );
+    // It re-asked the user's own question (carrying the 2022 window).
+    assert_eq!(
+        reentry.seen_prompt.lock().unwrap().as_deref(),
+        Some(question)
+    );
 }
 
 /// Staleness guard: after the session is repointed at a different conversation
