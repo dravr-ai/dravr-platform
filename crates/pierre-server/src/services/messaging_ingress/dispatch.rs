@@ -327,7 +327,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     );
     tracing::trace!(text = %dispatch.text_content, "messaging dispatch user message");
 
-    let profile = build_messaging_profile(&dispatch);
+    let profile = build_messaging_profile(&dispatch.resources, dispatch.channel_type);
     // Reuse the turn id canot generated at the webhook boundary
     // (stored on `dispatch.turn_id`). The inbound webhook is the
     // boundary for platform-side observability: a single inbound

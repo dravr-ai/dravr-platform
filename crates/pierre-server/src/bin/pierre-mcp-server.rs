@@ -829,6 +829,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         }
     }
 
+    // Install the chat-pipeline re-entry handle on the backfill-completion
+    // notifier now that the composition-root Arc<ServerContext> exists. The
+    // notifier is built pre-Arc (inside ServerContext::new), so the handle —
+    // which needs the Arc to drive `pierre_chat_pipeline::run` — is plumbed in
+    // here, holding a Weak<ServerContext> to avoid a DI-graph cycle. Mirrors the
+    // SSE protocol-factory install above. Lets a finished historical backfill
+    // push a real in-persona coach answer instead of a templated activity list.
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::services::backfill_notifier::install_backfill_reentry;
+        install_backfill_reentry(&resources);
+    }
+
     // Spawn LLM startup health probe — populates resources.llm_health so
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route

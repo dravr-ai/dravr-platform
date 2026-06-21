@@ -36,16 +36,17 @@
 
 use std::fmt::Write as _;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
 use chrono::{Duration, TimeZone, Utc};
+use pierre_chat_pipeline::{PipelineHooks, TurnInput};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
     KEY_BACKFILL_READY,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, ConversationTurnId as CoreTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
@@ -55,6 +56,9 @@ use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+use crate::mcp::resources::ServerContext;
+use crate::services::messaging_ingress::build_messaging_profile;
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -69,6 +73,12 @@ const BACKFILL_WINDOW_READ_LIMIT: i64 = 500;
 /// window read still has a finite floor. The backfill always passes the job's
 /// `after`, so this is only a defensive fallback.
 const BACKFILL_FALLBACK_WINDOW_DAYS: i64 = 90;
+
+/// How many recent messages to scan when recovering the user's question for the
+/// chat re-entry. The triggering question is the latest `user`-role turn; a
+/// small lookback tolerates a trailing assistant/tool turn without an unbounded
+/// read.
+const REENTRY_HISTORY_LOOKBACK: i64 = 10;
 
 /// Resolves a `(tenant, channel)` to an outbound adapter + its config.
 ///
@@ -133,6 +143,117 @@ impl AdapterResolver for ConfigAdapterResolver {
     }
 }
 
+/// Routing pieces needed to re-enter the chat pipeline for a completed
+/// backfill — borrowed so the request allocates nothing.
+pub struct ReentryRequest<'a> {
+    /// User the turn runs as.
+    pub user_id: Uuid,
+    /// Tenant for both conversation/message lookups and tool execution. The
+    /// backfill notifier carries a single tenant (the user's own tenant, which
+    /// equals the channel tenant for the common single-tenant case); the rare
+    /// cross-tenant-bot split is not modelled here.
+    pub tenant_id: TenantId,
+    /// Pierre conversation id the synthesized answer is appended to.
+    pub conversation_id: &'a str,
+    /// Channel the originating turn came from — selects the channel profile.
+    pub channel_type: ChannelType,
+    /// BCP-47 short locale resolved from the messaging session.
+    pub locale: &'a str,
+    /// The user's own question, re-asked verbatim so the coach queries the
+    /// same window (e.g. "2022") against the now-warm activity cache.
+    pub prompt: &'a str,
+}
+
+/// Re-runs one chat-pipeline turn so the backfill-completion push can deliver a
+/// real in-persona coach answer instead of a templated activity list.
+///
+/// Extracted as a trait — mirroring [`AdapterResolver`] — so the notifier's
+/// "synthesize, else fall back to the templated list" branch is unit-testable
+/// against a fake that returns a canned reply without booting the pipeline.
+#[async_trait]
+pub trait ChatReentry: Send + Sync {
+    /// Run the turn and return the assistant reply text, or `None` when
+    /// synthesis is unavailable or failed (the caller then falls back to the
+    /// templated list). Implementations log their own failures.
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String>;
+}
+
+/// Production [`ChatReentry`]: drives `pierre_chat_pipeline::run` through the
+/// composition-root [`ServerContext`].
+///
+/// Holds a [`Weak`] handle to break the DI-graph cycle — the context owns the
+/// backfill notifier (via `ToolRuntime`), which shares the slot this handle is
+/// installed into, so a strong reference back to the context would leak the
+/// whole container. On a missed upgrade (shutdown in flight) synthesis is
+/// skipped and the notifier falls back to the templated list.
+pub struct PipelineChatReentry {
+    /// Weak handle to the composition root; upgraded per call.
+    ctx: Weak<ServerContext>,
+}
+
+impl PipelineChatReentry {
+    /// Wrap a weak handle to the composition root.
+    #[must_use]
+    pub fn new(ctx: Weak<ServerContext>) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl ChatReentry for PipelineChatReentry {
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String> {
+        let resources = self.ctx.upgrade()?;
+        let profile = build_messaging_profile(&resources, req.channel_type);
+        let mut ctx = resources.chat_pipeline_context();
+        // Honor the tenant's BYO LLM key for the synthesized turn, exactly as a
+        // live messaging turn does.
+        if let Some(provider) = resources
+            .resolve_byo_chat_provider(req.tenant_id, req.user_id)
+            .await
+        {
+            ctx.chat_provider = Some(provider);
+        }
+        let turn_input = TurnInput {
+            conversation_id: req.conversation_id.to_owned(),
+            user_id: req.user_id.to_string(),
+            conversation_tenant_id: req.tenant_id,
+            tool_tenant_id: req.tenant_id,
+            content: req.prompt.to_owned(),
+            locale: Some(req.locale.to_owned()),
+            // Fresh correlation id — this is a new (proactive) turn.
+            turn_id: CoreTurnId::new(),
+        };
+        // No AG-UI hooks: this is a detached background turn, not a live
+        // request with a status placeholder to edit.
+        let hooks = PipelineHooks::none();
+        match pierre_chat_pipeline::run(&ctx, turn_input, &profile, &hooks).await {
+            Ok(result) if !result.content.trim().is_empty() => Some(result.content),
+            Ok(_) => None,
+            Err(e) => {
+                warn!(error = %e, "Backfill push: chat re-entry pipeline run failed");
+                None
+            }
+        }
+    }
+}
+
+/// Install the production [`PipelineChatReentry`] on the context's backfill
+/// notifier slot, now that the composition-root `Arc<ServerContext>` exists.
+///
+/// Called once from the binary's post-`Arc` wiring (mirroring the SSE
+/// protocol-factory install): the notifier is built inside `ServerContext::new`
+/// — before the `Arc` — so the pipeline-re-entry handle, which needs the `Arc`,
+/// is plumbed in afterward through the shared [`OnceLock`] slot. A second call
+/// is a startup logic bug, logged not fatal.
+#[cfg(feature = "client-messaging")]
+pub fn install_backfill_reentry(resources: &Arc<ServerContext>) {
+    let reentry: Arc<dyn ChatReentry> =
+        Arc::new(PipelineChatReentry::new(Arc::downgrade(resources)));
+    if resources.mcp.backfill_reentry.set(reentry).is_err() {
+        warn!("Backfill re-entry handle already installed; skipping");
+    }
+}
+
 /// Backfill-completion notifier: pushes a localized "your history is ready"
 /// notice back to the exact channel conversation that triggered the backfill.
 pub struct ServerBackfillNotifier {
@@ -144,16 +265,26 @@ pub struct ServerBackfillNotifier {
     strings: Arc<MessagingStringsRegistry>,
     /// Adapter resolver (config-driven in production, faked in tests).
     resolver: Arc<dyn AdapterResolver>,
+    /// Chat-pipeline re-entry handle, shared (same `Arc`) with the context's
+    /// `mcp.backfill_reentry` slot and installed post-`Arc` by
+    /// [`install_backfill_reentry`]. Empty until then (and in tests that don't
+    /// inject one) — the push then falls back to the templated activity list.
+    reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
 }
 
 impl ServerBackfillNotifier {
     /// Build the production notifier from the shared repository registry and the
     /// messaging-strings registry. The adapter resolver loads each tenant's
     /// stored channel config on demand.
+    ///
+    /// `reentry` is the slot shared with `ServerContext::mcp.backfill_reentry`;
+    /// it is empty here (the pipeline-re-entry handle needs the composition-root
+    /// `Arc`, installed later by [`install_backfill_reentry`]).
     #[must_use]
     pub fn from_handles(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
+        reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
     ) -> Arc<dyn BackfillNotifier> {
         let resolver: Arc<dyn AdapterResolver> = Arc::new(ConfigAdapterResolver {
             repos: repos.clone(),
@@ -162,12 +293,14 @@ impl ServerBackfillNotifier {
             repos,
             strings,
             resolver,
+            reentry,
         })
     }
 
-    /// Build a notifier with an explicit adapter resolver. Test seam so the
-    /// resolve + route logic can run against a fake adapter that captures the
-    /// outbound message instead of hitting a channel API.
+    /// Build a notifier with an explicit adapter resolver and no re-entry handle.
+    /// Test seam so the resolve + route + templated-list path can run against a
+    /// fake adapter that captures the outbound message instead of hitting a
+    /// channel API.
     #[must_use]
     pub fn with_resolver(
         repos: Arc<RepositoryRegistry>,
@@ -178,6 +311,29 @@ impl ServerBackfillNotifier {
             repos,
             strings,
             resolver,
+            reentry: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Build a notifier with an explicit adapter resolver and a pre-installed
+    /// re-entry handle. Test seam for the coach-synthesis path: inject a fake
+    /// [`ChatReentry`] and assert the notifier sends its reply instead of the
+    /// templated list.
+    #[must_use]
+    pub fn with_resolver_and_reentry(
+        repos: Arc<RepositoryRegistry>,
+        strings: Arc<MessagingStringsRegistry>,
+        resolver: Arc<dyn AdapterResolver>,
+        reentry: Arc<dyn ChatReentry>,
+    ) -> Self {
+        let slot = Arc::new(OnceLock::new());
+        // Infallible: a freshly-created slot is empty.
+        let _ = slot.set(reentry);
+        Self {
+            repos,
+            strings,
+            resolver,
+            reentry: slot,
         }
     }
 
@@ -309,6 +465,72 @@ impl ServerBackfillNotifier {
 
         body
     }
+
+    /// Fetch the user's most recent question in this conversation so the
+    /// re-entry can re-ask it verbatim — carrying the same window (e.g. "2022")
+    /// the coach must query against the now-warm cache.
+    ///
+    /// The chat repo returns newest-first, so the latest non-empty `user`-role
+    /// message is the question that triggered the backfill. `None` when the read
+    /// fails or there is no user turn — the caller falls back to the list.
+    async fn recent_user_question(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) -> Option<String> {
+        let messages = self
+            .repos
+            .chat
+            .get_recent_messages(
+                conversation_id,
+                &user_id.to_string(),
+                tenant_id,
+                REENTRY_HISTORY_LOOKBACK,
+            )
+            .await
+            .inspect_err(|e| {
+                warn!(error = %e, "Backfill push: recent-message read failed for re-entry");
+            })
+            .ok()?;
+        messages
+            .into_iter()
+            .find(|m| m.role == "user" && !m.content.trim().is_empty())
+            .map(|m| m.content)
+    }
+
+    /// Try to synthesize a real coach answer by re-entering the chat pipeline
+    /// with the user's own question, now that the activity cache is warm.
+    ///
+    /// Loop-safe: re-asking a deep window after the cache is warmed serves
+    /// inline from the durable cache (`covered == true`) and never re-spawns a
+    /// backfill, so the re-entry cannot retrigger another completion push.
+    /// Returns `None` (caller falls back to the templated list) when no re-entry
+    /// handle is installed, the conversation has no re-askable question, or the
+    /// pipeline produced nothing.
+    async fn try_synthesize_coach_reply(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        channel_type: ChannelType,
+        locale: &str,
+    ) -> Option<String> {
+        let reentry = self.reentry.get()?;
+        let prompt = self
+            .recent_user_question(user_id, tenant_id, conversation_id)
+            .await?;
+        reentry
+            .synthesize_reply(ReentryRequest {
+                user_id,
+                tenant_id,
+                conversation_id,
+                channel_type,
+                locale,
+                prompt: &prompt,
+            })
+            .await
+    }
 }
 
 /// Render one activity as a compact `• name · YYYY-MM-DD · Sport · 10.0 km`
@@ -371,18 +593,34 @@ impl BackfillNotifier for ServerBackfillNotifier {
             }
         }
 
-        // Push the ACTUAL warmed list read straight from the durable cache the
-        // backfill just populated — no chat-pipeline re-entry, no LLM call. If
-        // the window reads back empty (it shouldn't, post-backfill), fall back
-        // to the templated "ask me again" nudge so the user still hears that
-        // their history loaded.
+        // Read the warmed window straight from the durable cache the backfill
+        // just populated. Used both to confirm the data landed (empty => the
+        // "ask me again" nudge) and to render the templated-list fallback.
         let warmed = self
             .read_warmed_window(user_id, tenant_id, provider, after_ts)
             .await;
         let body = if warmed.is_empty() {
+            // Cache read came back empty (it shouldn't, post-backfill): fall back
+            // to the templated "your history is ready, ask again" nudge so the
+            // user still hears that their history loaded.
             let count = activity_count.to_string();
             self.strings.render(KEY_BACKFILL_READY, &locale, &[&count])
+        } else if let Some(coach_reply) = self
+            .try_synthesize_coach_reply(
+                user_id,
+                tenant_id,
+                pierre_conversation_id,
+                channel_type,
+                &locale,
+            )
+            .await
+        {
+            // Best path: re-enter the chat pipeline with the user's own question
+            // (the cache is now warm) so they get a real in-persona coach answer.
+            coach_reply
         } else {
+            // No re-entry handle, no re-askable question, or the pipeline run
+            // produced nothing — degrade gracefully to the Rust-rendered list.
             self.render_list_body(&locale, &warmed)
         };
 
