@@ -1,5 +1,5 @@
 # ABOUTME: PostgreSQL integration test workflow with smart path triggers.
-# ABOUTME: Only runs when database code or migrations change, saving CI minutes.
+# ABOUTME: Runs when backend code (database, routes, messaging, a2a, chat-pipeline crates) or migrations change.
 name: "CI: Backend (PostgreSQL)"
 
 on:
@@ -10,6 +10,13 @@ on:
       - 'crates/pierre-server/src/database/**'
       - 'crates/pierre-server/tests/**'
       - 'crates/pierre-server/src/routes/**'
+      # Routes/messaging/a2a/chat-pipeline were extracted out of pierre-server
+      # into their own crates; without these globs a change there skips the
+      # entire backend suite on push/PR and false-greens.
+      - 'crates/pierre-routes-*/**'
+      - 'crates/pierre-messaging/**'
+      - 'crates/pierre-a2a/**'
+      - 'crates/pierre-chat-pipeline/**'
       - 'crates/pierre-core/src/models/**'
       - 'migrations/**'
       - 'migrations_pg/**'
@@ -24,6 +31,11 @@ on:
       - 'crates/pierre-server/src/database/**'
       - 'crates/pierre-server/tests/**'
       - 'crates/pierre-server/src/routes/**'
+      # Keep in sync with the push paths above — extracted backend crates.
+      - 'crates/pierre-routes-*/**'
+      - 'crates/pierre-messaging/**'
+      - 'crates/pierre-a2a/**'
+      - 'crates/pierre-chat-pipeline/**'
       - 'crates/pierre-core/src/models/**'
       - 'migrations/**'
       - 'migrations_pg/**'
