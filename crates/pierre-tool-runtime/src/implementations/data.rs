@@ -406,6 +406,39 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let tenant_id = TenantId::from(tenant_uuid);
             let tenant_id_str = context.tenant_id.map(|t| t.to_string());
 
+            // ── Activity read model: three layers, two read paths — NOT three
+            //    caches of the same data. (A tempting misread is "the response cache
+            //    is redundant over the durable store, delete it" — it is load-bearing;
+            //    see why below.) ────────────────────────────────────────────────────
+            //
+            //  1. CacheKey response cache — `context.resources.cache()`, the
+            //     pierre-cache `Cache`: in-memory OR Redis per `REDIS_URL`. dev/prod
+            //     run Redis, so it is SHARED across replicas and survives a redeploy —
+            //     a TTL'd entry serves a freshly-rolled revision (TTL governs it, not
+            //     the revision). Stores the raw `Vec<Activity>` keyed by (tenant, user,
+            //     provider, page, before, after, sport_type) and re-runs
+            //     `build_activities_success_response` per hit, so weather/mode/format
+            //     stay fresh (no "stale formatted response" — only normal TTL age).
+            //     Read on the RECENT path just below; on a MISS the recent path does a
+            //     LIVE provider fetch — for sciotte a full ~tens-of-seconds Chrome
+            //     scrape. This is the ONLY read-cache between a recent coaching turn
+            //     and that scrape; a miss is a near-free `get -> None`, a hit saves the
+            //     scrape (asymmetric payoff — low hit-rate does not mean low value).
+            //
+            //  2. Durable `activity_cache` (SQL rows) — the persistent store. Read
+            //     ONLY in the historical branch (`read_cached_window`), written-through
+            //     on the recent path. It does NOT backstop the recent read path, so it
+            //     is not interchangeable with layer 1.
+            //
+            //  3. `activity_backfill_coverage` (SQL) — completeness signal ("is this
+            //     deep window whole, or just its recent slice?"), read in the
+            //     historical branch. The only defensible consolidation here is folding
+            //     this into `activity_cache` as a per-window marker (2 tables -> 1) —
+            //     not removing layer 1.
+            //
+            //  Recent window      -> layer 1 -> (miss) live provider fetch.
+            //  Historical `after` -> the gate below: layers 2 + 3, coverage-aware.
+            //
             // Cache key includes time filters to prevent stale-window hits.
             // Safe: limit is bounded by MAX_ACTIVITY_LIMIT which fits in u32.
             let per_page = u32::try_from(limit).unwrap_or(DEFAULT_ACTIVITY_LIMIT_U32);
@@ -473,10 +506,20 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .flatten()
                 .and_then(|u| u.timezone);
 
+            // A deep historical `after` must reach the coverage-aware gate below,
+            // never a cached response. The gate reads the durable window + backfill
+            // coverage and re-scrapes a stale/partial slice; a CacheKey response
+            // (shared across replicas, TTL'd) would short-circuit that and keep
+            // serving the old slice even after the coverage was purged (the "2022
+            // stuck at Jul–Dec after the coverage purge" bug). The gate still serves
+            // covered windows from the durable cache, so this costs no extra scrape.
+            let is_historical = after.is_some_and(is_historical_backfill_window);
+
             // Cache hit short-circuits the auth+fetch round-trip. Skip when
-            // auto-promoting because the cache key does not include mode — a
-            // cached summary cannot satisfy a detail-promoted response.
-            if !auto_promote_to_detail {
+            // auto-promoting (the cache key omits mode, so a cached summary cannot
+            // satisfy a detail-promoted response) or for a historical window (it
+            // must route through the gate, not a stale cached response).
+            if !auto_promote_to_detail && !is_historical {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
                     cache_key: &cache_key,
@@ -507,7 +550,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // background backfill and tell the caller to ask again shortly. The gate
             // fires ONLY for scrape-backed mirror providers (sciotte) — OAuth API
             // providers (Strava, Fitbit, …) fetch deep windows inline (fast API).
-            let route_to_backfill = if after.is_some_and(is_historical_backfill_window) {
+            let route_to_backfill = if is_historical {
                 let backend = backend_resolver::resolve_backend(
                     &context.resources.repos().auth_repos(),
                     context.user_id,
