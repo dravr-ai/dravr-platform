@@ -892,8 +892,15 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   private async openUrlInBrowserWithFocus(url: string): Promise<void> {
-    // Check if browser opening is disabled (testing mode)
-    if (this.config.disableBrowser) {
+    // Check if browser opening is disabled (testing mode). The env kill switch
+    // (PIERRE_DISABLE_BROWSER / CI / GITHUB_ACTIONS) suppresses the popup even
+    // when the config flag wasn't threaded through, so non-interactive runs
+    // never open (and never OOM) a browser tab. Real MCP hosts set none of these.
+    const envDisabled =
+      process.env.PIERRE_DISABLE_BROWSER === "true" ||
+      process.env.CI === "true" ||
+      process.env.GITHUB_ACTIONS === "true";
+    if (this.config.disableBrowser || envDisabled) {
       this.log(
         "Browser opening disabled - OAuth URL available at callback server",
       );
