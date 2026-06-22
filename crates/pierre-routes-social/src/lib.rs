@@ -165,6 +165,10 @@ impl SocialRestRoutes {
                 "/api/social/friends/{id}",
                 delete(Self::handle_unfriend::<C>),
             )
+            .route(
+                "/api/social/friends/{id}/block",
+                post(Self::handle_block_user::<C>),
+            )
             // Social settings
             .route("/api/social/settings", get(Self::handle_get_settings::<C>))
             .route(

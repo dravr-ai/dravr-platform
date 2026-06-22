@@ -565,6 +565,42 @@ impl SocialRestRoutes {
         Ok((StatusCode::NO_CONTENT, ()).into_response())
     }
 
+    /// Handle POST /api/social/friends/:id/block - Block the other party
+    ///
+    /// Either participant may block the other from any connection state. The
+    /// connection moves to `Blocked`, which the accepted-friends queries already
+    /// exclude, so the two users drop out of each other's lists and feeds.
+    pub(crate) async fn handle_block_user<C: SocialCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let social = Self::get_social_manager(&resources)?;
+
+        let connection_id = Uuid::parse_str(&id)
+            .map_err(|_| AppError::invalid_input("Invalid connection ID format"))?;
+
+        let connection = social
+            .get_friend_connection(connection_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("Friend connection {id}")))?;
+
+        // Either party can block the other.
+        if !connection.involves_user(auth.user_id) {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "You are not part of this connection",
+            ));
+        }
+
+        social
+            .update_friend_connection_status(connection_id, auth.user_id, FriendStatus::Blocked)
+            .await?;
+
+        Ok((StatusCode::NO_CONTENT, ()).into_response())
+    }
+
     /// Handle GET /api/social/users/search - Search for users
     pub(crate) async fn handle_search_users<C: SocialCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,

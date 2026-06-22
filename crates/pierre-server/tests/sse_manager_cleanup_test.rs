@@ -8,14 +8,29 @@
 
 mod common;
 
-use common::create_test_server_resources;
+use common::{create_test_server_resources, create_test_user_with_email};
+use pierre_core::models::OAuthNotification;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::sse::protocol::McpProtocolStreamFactory;
 use pierre_runtime_context::SseCtx;
 use pierre_sse::manager::SseManager;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
 use uuid::Uuid;
+
+/// Build an OAuth-completion notification for `user_id` / `provider`.
+fn oauth_notification(user_id: Uuid, provider: &str) -> OAuthNotification {
+    OAuthNotification {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
+        provider: provider.to_owned(),
+        success: true,
+        message: format!("{provider} connected successfully"),
+        expires_at: None,
+        created_at: chrono::Utc::now(),
+        read_at: None,
+    }
+}
 
 /// Build an `SseManager` with the `McpProtocolStreamFactory` pre-installed so
 /// `register_protocol_stream` doesn't trip the uninstalled-factory panic,
@@ -200,5 +215,95 @@ async fn test_cleanup_inactive_connections() -> anyhow::Result<()> {
 
     // Connection should be cleaned up
     assert_eq!(manager.active_protocol_streams(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_oauth_notification_reaches_user_protocol_stream() -> anyhow::Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
+
+    // A real user + JWT: register_protocol_stream extracts the user_id from the
+    // token and tracks the session under it. A fake token yields user_id = None,
+    // leaving user_sessions empty, so the notification would have no target.
+    let (user_id, user) =
+        create_test_user_with_email(&resources.coach.database, "oauth-notify@example.com").await?;
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &resources.auth.jwks_manager)?;
+    let session_id = "oauth_session".to_owned();
+
+    let mut receiver = manager
+        .register_protocol_stream(
+            session_id.clone(),
+            Some(format!("Bearer {token}")),
+            ctx.clone(),
+        )
+        .await?;
+
+    let notification = oauth_notification(user_id, "strava");
+    manager
+        .send_oauth_notification_to_protocol_streams(user_id, &notification)
+        .await?;
+
+    let message = timeout(Duration::from_millis(500), receiver.recv()).await??;
+    assert!(message.contains("strava"), "payload was: {message}");
+
+    manager.unregister_protocol_stream(&session_id);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_oauth_notification_isolation_between_users() -> anyhow::Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (manager, ctx) = build_manager_and_ctx(100, &resources);
+
+    let (user1_id, user1) =
+        create_test_user_with_email(&resources.coach.database, "oauth-iso-1@example.com").await?;
+    let (_user2_id, user2) =
+        create_test_user_with_email(&resources.coach.database, "oauth-iso-2@example.com").await?;
+    let token1 = resources
+        .auth
+        .auth_manager
+        .generate_token(&user1, &resources.auth.jwks_manager)?;
+    let token2 = resources
+        .auth
+        .auth_manager
+        .generate_token(&user2, &resources.auth.jwks_manager)?;
+
+    let mut recv1 = manager
+        .register_protocol_stream(
+            "u1_session".to_owned(),
+            Some(format!("Bearer {token1}")),
+            ctx.clone(),
+        )
+        .await?;
+    let mut recv2 = manager
+        .register_protocol_stream(
+            "u2_session".to_owned(),
+            Some(format!("Bearer {token2}")),
+            ctx.clone(),
+        )
+        .await?;
+
+    let notification = oauth_notification(user1_id, "fitbit");
+    manager
+        .send_oauth_notification_to_protocol_streams(user1_id, &notification)
+        .await?;
+
+    // user1's stream receives the notification.
+    let msg1 = timeout(Duration::from_millis(500), recv1.recv()).await??;
+    assert!(msg1.contains("fitbit"), "payload was: {msg1}");
+
+    // user2 must NOT receive user1's notification (multi-tenant isolation).
+    let leaked = timeout(Duration::from_millis(150), recv2.recv()).await;
+    assert!(
+        leaked.is_err(),
+        "user2 must not receive user1's OAuth notification"
+    );
+
+    manager.unregister_protocol_stream("u1_session");
+    manager.unregister_protocol_stream("u2_session");
     Ok(())
 }

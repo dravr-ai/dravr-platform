@@ -98,7 +98,7 @@ export interface MobileOAuthInitResponse {
 /**
  * Creates the OAuth API methods bound to an axios instance.
  */
-export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
+export function createOAuthApi(axios: AxiosInstance) {
   return {
     /**
      * Get the connection status of all OAuth providers.
@@ -108,18 +108,6 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       const response = await axios.get<ProviderStatus[]>(ENDPOINTS.OAUTH.STATUS);
       // Backend returns array directly, wrap for consistency
       return { providers: response.data };
-    },
-
-    /**
-     * Get the OAuth authorization URL for a provider (web).
-     */
-    getAuthorizeUrl(provider: string, redirectUri?: string): string {
-      const baseUrl = getBaseUrl();
-      const url = new URL(`${baseUrl}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}`);
-      if (redirectUri) {
-        url.searchParams.set('redirect_uri', redirectUri);
-      }
-      return url.toString();
     },
 
     /**
@@ -255,10 +243,6 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
     // Aliases for backward compatibility
     getOAuthStatus() {
       return this.getStatus();
-    },
-
-    getOAuthAuthorizeUrl(provider: string, redirectUri?: string) {
-      return this.getAuthorizeUrl(provider, redirectUri);
     },
   };
 }

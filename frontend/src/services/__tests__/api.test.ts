@@ -25,7 +25,6 @@ vi.mock('@pierre/api-client', () => {
       coaches: { list: vi.fn() },
       oauth: {
         getStatus: vi.fn(),
-        getAuthorizeUrl: vi.fn(),
         getProvidersStatus: vi.fn(),
         disconnectProvider: vi.fn(),
         getAuthorizeUrlForProvider: vi.fn(),

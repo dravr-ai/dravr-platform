@@ -70,8 +70,6 @@ export const ENDPOINTS = {
     /** Diff between versions */
     VERSION_DIFF: (id: string, fromVersion: number, toVersion: number) =>
       `/api/coaches/${id}/versions/${fromVersion}/diff/${toVersion}`,
-    /** Coach assignments */
-    ASSIGNMENTS: (id: string) => `/api/coaches/${id}/assignments`,
     /** Onboarding coach proposal (inferred profile + top-3 coaches) */
     PROPOSAL: '/api/coaches/proposal',
     /** Generate coach from conversation */
@@ -96,8 +94,6 @@ export const ENDPOINTS = {
   OAUTH: {
     /** Get OAuth connection status */
     STATUS: '/api/oauth/status',
-    /** Get OAuth authorize URL (web) */
-    AUTHORIZE: (provider: string) => `/api/oauth/${provider}/authorize`,
     /** Initialize mobile OAuth flow */
     MOBILE_INIT: (provider: string) => `/api/oauth/mobile/init/${provider}`,
     /** Disconnect provider (revoke tokens) */
