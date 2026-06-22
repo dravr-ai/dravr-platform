@@ -154,7 +154,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Optional LLM provider (when configured).
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
 
-    /// Hot-reloadable evidence registry for Tier 5.5 claim verification.
+    /// Hot-reloadable evidence registry for claim verification.
     ///
     /// Gated behind the `contremaitre` feature because the registry only
     /// exists when the contremaitre GitHub-sync subsystem is wired in.

@@ -1,4 +1,4 @@
-// ABOUTME: Admin route exposing per-coach Tier 5.5 content grades for store ranking review
+// ABOUTME: Admin route exposing per-coach claim-verification content grades for store ranking review
 // ABOUTME: Wraps services::coach_grading::compute_coach_grades behind ViewConfiguration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -1,4 +1,4 @@
-// ABOUTME: Thin service layer that maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
+// ABOUTME: Thin service layer that maps ClaimVerdict rows into chat-facing wire shapes
 // ABOUTME: Pure repository-backed helper consumed by the chat route handler in pierre-server
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,7 +18,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::CoachRepos;
 
-/// User-facing wire shape for a Tier 5.5 claim verdict.
+/// User-facing wire shape for a claim verdict.
 ///
 /// Mirrors the admin row but is exposed via the chat route so end users
 /// can render Evidence Strength chips on their own messages without
@@ -62,7 +62,7 @@ pub struct ChatVerdictListResponse {
     pub total: usize,
 }
 
-/// Verify the caller owns the conversation, then return all Tier 5.5
+/// Verify the caller owns the conversation, then return all claim
 /// verdicts attached to messages in that conversation.
 ///
 /// # Errors

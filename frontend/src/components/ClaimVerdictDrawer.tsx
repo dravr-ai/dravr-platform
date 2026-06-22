@@ -1,4 +1,4 @@
-// ABOUTME: Slide-in drawer showing full detail of a single Tier 5.5 claim verdict
+// ABOUTME: Slide-in drawer showing full detail of a single claim verdict
 // ABOUTME: Used by ClaimVerdictsTab to drill into claim text, evidence refs, and explanation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

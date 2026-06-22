@@ -1,4 +1,4 @@
-// ABOUTME: Hot-reloadable evidence registry for the Tier 5.5 bullshit detector
+// ABOUTME: Hot-reloadable evidence registry for the bullshit detector
 // ABOUTME: Mirrors ToolDescriptionRegistry — YAML frontmatter markdown files, keyed by (category, slug)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! # Evidence Registry
 //!
-//! Tier 5.5 counterpart to [`super::PromptRegistry`] and [`super::ToolDescriptionRegistry`].
+//! Evidence-registry counterpart to [`super::PromptRegistry`] and [`super::ToolDescriptionRegistry`].
 //!
 //! Holds one [`EvidenceCorpus`] per claim category, populated at startup
 //! from `dravr-contremaitre` and updated via webhook push events.

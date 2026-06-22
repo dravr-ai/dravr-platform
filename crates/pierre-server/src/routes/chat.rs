@@ -111,7 +111,7 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/messages",
                 post(send_message::send_message),
             )
-            // Tier 5.5 claim verdicts attached to messages in this conversation
+            // Claim verdicts attached to messages in this conversation
             .route(
                 "/api/chat/conversations/{conversation_id}/verdicts",
                 get(chat_verdicts::get_verdicts_handler),

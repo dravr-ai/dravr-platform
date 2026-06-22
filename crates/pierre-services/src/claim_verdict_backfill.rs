@@ -1,12 +1,12 @@
 // ABOUTME: Sprint C17 — ClaimVerdict backfill over historical chat_messages
-// ABOUTME: Walks assistant messages tenant-wide, runs the Tier 5.5 heuristic pipeline, persists verdicts
+// ABOUTME: Walks assistant messages tenant-wide, runs the claim-verification heuristic pipeline, persists verdicts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! ClaimVerdict backfill worker.
 //!
-//! Tier 5.5 verdicts are only written as new coach replies land via
+//! Claim verdicts are only written as new coach replies land via
 //! `chat_pipeline::stages::verification::apply_claim_verification`. That leaves Sprint
 //! C14 coach grading starved of statistical power for tenants with
 //! existing history: every coach starts as `Provisional` until the

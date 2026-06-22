@@ -1,4 +1,4 @@
-// ABOUTME: Tier 5.5 claim verification service — lazy-loaded evidence corpus + pipeline runner
+// ABOUTME: Claim verification service — lazy-loaded evidence corpus + pipeline runner
 // ABOUTME: Embeds 26 markdown propositions via include_str!; corpus moves to dravr-contremaitre in Phase A follow-up
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -281,7 +281,7 @@ pub fn verify_reply_heuristic_with(
     if claims.is_empty() {
         return Vec::new();
     }
-    // Pass the full sibling set so Layer 4 (consistency) can cross-check each
+    // Pass the full sibling set so the consistency-check layer can cross-check each
     // claim against the others in the same reply.
     claims
         .iter()
@@ -322,7 +322,7 @@ pub fn verify_reply_with_config_and_corpus(
     if claims.is_empty() {
         return Vec::new();
     }
-    // Cross-check Layer 4 against every extracted claim, not just the enabled
+    // Cross-check the consistency-check layer against every extracted claim, not just the enabled
     // ones — a self-contradiction is worth flagging even if the sibling falls
     // in a category the coach opted out of persisting.
     claims
@@ -341,8 +341,8 @@ pub fn verify_reply_with_config_and_corpus(
 ///
 /// Identical category filtering and per-category `min_strength` handling to
 /// [`verify_reply_with_config_and_corpus`], but each inconclusive claim (one
-/// that layers 1–4 could not resolve) is handed to `judge` as the Layer 5
-/// fallback. Pass `judge: None` to keep the run fully deterministic — in that
+/// that the pure-Rust layers could not resolve) is handed to `judge` as the
+/// LLM-judge fallback. Pass `judge: None` to keep the run fully deterministic — in that
 /// case this is the async equivalent of the synchronous variant.
 ///
 /// # Errors
@@ -366,8 +366,8 @@ pub async fn verify_reply_with_config_and_judge(
     let mut out = Vec::new();
     for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
         let min_strength = config.for_category(claim.category).min_strength;
-        // Cross-check Layer 4 against every extracted claim, matching the
-        // synchronous variant's semantics. Layer 2.5 fires when `athlete` is
+        // Cross-check the consistency-check layer against every extracted claim, matching the
+        // synchronous variant's semantics. The personalized layer fires when `athlete` is
         // supplied (the chat pipeline builds it from the athlete's physiology).
         let outcome =
             check_claim_judged(claim, &claims, corpus, min_strength, judge, athlete).await?;
@@ -383,7 +383,7 @@ pub fn verify_single_claim(
     claim: &ExtractedClaim,
     minimum_strength: EvidenceStrength,
 ) -> VerdictOutcome {
-    // A claim verified in isolation has no siblings, so Layer 4 (consistency)
+    // A claim verified in isolation has no siblings, so the consistency-check layer
     // has nothing to compare against and the verdict falls through to evidence.
     check_claim(
         claim,
@@ -404,7 +404,7 @@ pub fn verify_single_claim_with(
     minimum_strength: EvidenceStrength,
     corpus: &EvidenceCorpus,
 ) -> VerdictOutcome {
-    // Single-claim path: no siblings for Layer 4 to cross-check against.
+    // Single-claim path: no siblings for the consistency-check layer to cross-check against.
     check_claim(
         claim,
         slice::from_ref(claim),
@@ -421,9 +421,9 @@ pub fn verify_single_claim_with(
 pub fn warm_corpus() {
     let c = corpus();
     if c.is_empty() {
-        warn!("Tier 5.5 evidence corpus is empty — verification will fall through to Unsupported");
+        warn!("evidence corpus is empty — verification will fall through to Unsupported");
     } else {
         let count = c.len();
-        tracing::info!("Tier 5.5 evidence corpus loaded: {count} propositions");
+        tracing::info!("evidence corpus loaded: {count} propositions");
     }
 }

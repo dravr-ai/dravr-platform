@@ -1,4 +1,4 @@
-// ABOUTME: End-to-end test for Tier 5.5 Layer 2.5 — DB physiology + activities → snapshot → personalized verdict → persist
+// ABOUTME: End-to-end test for the personalized-physiology layer — DB physiology + activities → snapshot → personalized verdict → persist
 // ABOUTME: Exercises build_athlete_metrics over real repos, then the verdict pipeline, then the claim_verdicts round-trip
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -110,7 +110,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     assert!(metrics.data_days >= 14, "data_days={}", metrics.data_days);
 
     // Run the verdict pipeline: a 2:30/km threshold prescription is absurdly
-    // fast for VO2max 50 → Layer 2.5 fires Contradicted before evidence.
+    // fast for VO2max 50 → the personalized layer fires Contradicted before evidence.
     let strategy = ConservativeStrategy::default();
     let ctx = PersonalizedContext {
         metrics: &metrics,
@@ -149,7 +149,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
 
 #[tokio::test]
 async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
-    // No profile, no activities → snapshot is not usable → Layer 2.5 stays silent.
+    // No profile, no activities → snapshot is not usable → the personalized layer stays silent.
     common::init_server_config();
     let database = common::create_test_database().await?;
     let repos = database.repositories();

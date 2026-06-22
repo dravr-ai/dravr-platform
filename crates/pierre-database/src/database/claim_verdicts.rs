@@ -1,4 +1,4 @@
-// ABOUTME: SQLite implementation of the Tier 5.5 ClaimVerdictRepository trait
+// ABOUTME: SQLite implementation of the ClaimVerdictRepository trait
 // ABOUTME: Persists post-LLM claim verification output from the bullshit detector
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

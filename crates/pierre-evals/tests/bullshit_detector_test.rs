@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for the Tier 5.5 bullshit detector pipeline
+// ABOUTME: Integration tests for the bullshit detector pipeline
 // ABOUTME: Covers rhetoric filter, deterministic bounds, evidence retrieval, and config loading
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

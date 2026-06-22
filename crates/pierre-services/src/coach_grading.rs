@@ -1,4 +1,4 @@
-// ABOUTME: Phase D Sprint C14 — coach content grading derived from Tier 5.5 verdict history
+// ABOUTME: Phase D Sprint C14 — coach content grading derived from claim verdict history
 // ABOUTME: Computes per-coach quality scores from claim_verdicts for store ranking + admin review
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Coach content grading service.
 //!
 //! Walks the recent `claim_verdicts` for a tenant and produces a
-//! per-coach grade summarizing how often the Tier 5.5 detector
+//! per-coach grade summarizing how often the bullshit detector
 //! supported, contradicted, or flagged a coach's claims. The grade is
 //! a single `0.0..=1.0` score the store can rank by, plus a letter
 //! grade for human display.

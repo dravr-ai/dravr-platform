@@ -27,7 +27,7 @@ interface MessageItemProps {
    *  select buttons on `/coach`). Rendered below the message body.
    *  Not persisted — only present on the turn that produced them. */
   actions?: MessageActionItem[];
-  /** Tier 5.5 claim verdicts attached to this message, if any. */
+  /** Claim verdicts attached to this message, if any. */
   verdicts?: ChatVerdictRow[];
   /** Label shown above assistant turns — the active coach's name, or
    *  'Dravr' when the conversation has no coach attached. */
@@ -305,7 +305,7 @@ const MessageItem = memo(function MessageItem({
             ))}
           </div>
         )}
-        {/* Tier 5.5 verdict chips — one summary chip + per-claim drawer triggers */}
+        {/* Claim verdict chips — one summary chip + per-claim drawer triggers */}
         {!isUser && verdictSummary && messageVerdicts.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button

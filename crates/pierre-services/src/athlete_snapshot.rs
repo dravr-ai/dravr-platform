@@ -1,4 +1,4 @@
-// ABOUTME: Builds an AthleteMetrics snapshot (Layer 2.5 input) from a user's stored physiology + recent activities
+// ABOUTME: Builds an AthleteMetrics snapshot (personalized-layer input) from a user's stored physiology + recent activities
 // ABOUTME: Reads the physiological profile + activity cache, runs cageux pace/zone math + the training-history TSB compute
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! # Athlete snapshot builder
 //!
 //! [`build_athlete_metrics`] assembles the [`AthleteMetrics`] snapshot that the
-//! Tier 5.5 personalized layer (Layer 2.5) scores claims against. It is the one
+//! personalized-physiology layer scores claims against. It is the one
 //! place that reaches for the athlete's data — the `pierre_evals` crate stays
 //! dependency-light and only sees the resulting plain struct.
 //!
@@ -20,7 +20,7 @@
 //!
 //! Any missing input degrades to `None` for that metric; a profile-less or
 //! history-thin user yields a snapshot whose [`AthleteMetrics::is_usable`] is
-//! false, so Layer 2.5 stays silent.
+//! false, so the personalized layer stays silent.
 
 use chrono::{Duration, Utc};
 use pierre_core::models::TenantId;
@@ -115,7 +115,7 @@ pub async fn build_athlete_metrics(
     };
 
     // data_days = distinct calendar days with an activity — the density signal
-    // gating whether Layer 2.5 trusts the snapshot enough to contradict a coach.
+    // gating whether the personalized layer trusts the snapshot enough to contradict a coach.
     let mut activity_days: Vec<_> = activities
         .iter()
         .map(|a| a.start_date().date_naive())

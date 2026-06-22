@@ -34,7 +34,7 @@ pub mod cageux_config;
 pub mod config;
 /// Structured error types mapped to `AppError` via `ErrorCode`
 pub mod errors;
-/// Hot-reloadable Tier 5.5 evidence registry for the bullshit detector
+/// Hot-reloadable evidence registry for the bullshit detector
 pub mod evidence_registry;
 /// GitHub Contents API client (used for admin writes; reads now go via [`store`])
 pub mod github;

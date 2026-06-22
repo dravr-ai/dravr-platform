@@ -1,10 +1,10 @@
-// ABOUTME: Layer 2 of the bullshit detector — hard-coded per-category physiological bounds
+// ABOUTME: The deterministic-bounds layer of the bullshit detector — hard-coded per-category physiological bounds
 // ABOUTME: Pure Rust, no LLM. Cheap first-pass sanity check on every claim.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Deterministic Bounds (Layer 2)
+//! # Deterministic Bounds (population bounds)
 //!
 //! Implausibility filter. For each category, extracts numeric values and
 //! their units from the claim text and compares them against conservative
@@ -15,7 +15,7 @@
 //!
 //! These bounds are intentionally wide: they should catch only obvious
 //! nonsense ("HR max of 300 bpm", "take 500g of creatine per day"),
-//! leaving Layer 3 evidence retrieval to deal with the subtle cases.
+//! leaving the evidence-retrieval layer to deal with the subtle cases.
 
 use crate::claim_extractor::ExtractedClaim;
 use pierre_memory::ClaimCategory;
@@ -31,7 +31,7 @@ pub struct BoundViolation {
 /// Check a claim against the deterministic bounds for its category.
 ///
 /// Returns `Some(BoundViolation)` if a bound is clearly violated, `None`
-/// otherwise (meaning the claim is free to continue to Layer 3).
+/// otherwise (meaning the claim is free to continue to the evidence-retrieval layer).
 #[must_use]
 pub fn check(claim: &ExtractedClaim) -> Option<BoundViolation> {
     match claim.category {

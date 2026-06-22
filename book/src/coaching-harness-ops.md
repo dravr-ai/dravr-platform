@@ -17,7 +17,7 @@ require stronger permissions as noted.
 **Route:** `GET /admin/claim-verdicts?tenant_id=...`
 **Permission:** `ViewConfiguration`
 
-Triage surface for Tier 5.5 verdicts. Lists the most recent rows in
+Triage surface for claim verdicts. Lists the most recent rows in
 `claim_verdicts` with status / category / coach / limit filters.
 
 **Filter reference**
@@ -242,15 +242,15 @@ follow-up sprint.
 | Variable | Default | Used by |
 |---|---|---|
 | `PIERRE_EVALS_FIXTURES_DIR` | `crates/pierre-evals/fixtures` | Sprint C16 eval browser |
-| `CONTREMAITRE_GITHUB_REPO` | unset | Tier 5.5 evidence registry sync |
-| `CONTREMAITRE_GITHUB_TOKEN` | unset | Tier 5.5 evidence registry sync |
+| `CONTREMAITRE_GITHUB_REPO` | unset | evidence registry sync |
+| `CONTREMAITRE_GITHUB_TOKEN` | unset | evidence registry sync |
 
 ### Feature flags
 
 | Flag | Default | Gates |
 |---|---|---|
 | `tools-memory` | on | Tier 3 coach memory MCP tools + `MemoryPanel` backend |
-| `tools-verification` | on | Tier 5.5 verification pipeline + `EvalHarnessTab` |
+| `tools-verification` | on | claim verification pipeline + `EvalHarnessTab` |
 | `tools-groups` | on | Group coaching context injection |
 
 ### Permission flags
@@ -299,7 +299,7 @@ The `Provisional` grade is computed on the **scored** verdict count
 (supported + unsupported + contradicted), not the raw `total_verdicts`
 count. If all the coach's verdicts are `rhetorical` or `unverifiable`
 they don't count toward the threshold. This usually means the
-rhetoric filter (Layer 1) is catching everything before the
+rhetoric filter is catching everything before the
 deterministic layer fires — normal for coaches whose content is
 mostly motivational rather than factual.
 

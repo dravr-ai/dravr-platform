@@ -27,7 +27,7 @@ interface MessageListProps {
    *  filled by the current turn's response only. */
   messageActions?: Map<string, MessageActionItem[]>;
   insightMessageIds: Set<string>;
-  /** Tier 5.5 claim verdicts for the active conversation, keyed by message_id. */
+  /** Claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ChatVerdictRow[];
   /** Label shown above assistant turns — the active coach's name, or
    *  'Dravr' when the conversation has no coach attached. */

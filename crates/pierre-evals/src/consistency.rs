@@ -1,12 +1,13 @@
-// ABOUTME: Layer 4 of the bullshit detector — cross-checks a claim against its sibling claims
+// ABOUTME: The consistency-check layer of the bullshit detector — cross-checks a claim against its sibling claims
 // ABOUTME: Pure Rust, no LLM. Catches a reply that contradicts itself across separate sentences.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Consistency Cross-Check (Layer 4)
+//! # Consistency Cross-Check
 //!
-//! Layers 1–3 judge each claim in isolation. Layer 4 looks at the *other*
+//! The rhetoric, deterministic-bounds, and evidence-retrieval layers judge each
+//! claim in isolation. The consistency-check layer looks at the *other*
 //! claims extracted from the same coach reply and flags a claim that directly
 //! contradicts a sibling. A reply that says "your VO2max is 58" in one
 //! sentence and "your VO2max is 72" in another is internally inconsistent

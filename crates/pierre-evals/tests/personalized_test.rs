@@ -1,4 +1,4 @@
-// ABOUTME: Tests for Tier 5.5 Layer 2.5 — personalized physiology checks + pluggable tolerance/action strategies
+// ABOUTME: Tests for the personalized-physiology layer — personalized physiology checks + pluggable tolerance/action strategies
 // ABOUTME: Proves the layer fires Supported/Contradicted against the athlete's own ranges and stays silent on thin data
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -33,7 +33,7 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
 }
 
 /// A snapshot with enough history (`data_days >= MIN_DATA_DAYS`) and a populated
-/// set of metrics so Layer 2.5 is allowed to fire. Threshold pace 5:00–5:15/km,
+/// set of metrics so the personalized layer is allowed to fire. Threshold pace 5:00–5:15/km,
 /// VDOT 52.
 fn usable_metrics() -> AthleteMetrics {
     AthleteMetrics {
@@ -286,7 +286,7 @@ fn empty_snapshot_is_not_usable() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration: Layer 2.5 fires inside the verdict pipeline (check_claim)
+// Integration: the personalized layer fires inside the verdict pipeline (check_claim)
 // ---------------------------------------------------------------------------
 
 #[test]

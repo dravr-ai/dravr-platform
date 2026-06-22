@@ -1,11 +1,11 @@
 # Coaching Harness — Overview
 
-**Status:** shipped (Phase A, B, C, D complete; Tiers 0–6 + 5.5 landed on `main`).
+**Status:** shipped (Phase A, B, C, D complete; Tiers 0–6 plus the claim-verification stage landed on `main`).
 
 The coaching harness is the set of subsystems that turns Pierre's chat
 dispatch pipeline into a production-grade AI coaching platform. It
 adds long-term memory, conversation compaction, cross-channel
-sessions, Tier 5 evaluation infrastructure, a Tier 5.5 "bullshit
+sessions, Tier 5 evaluation infrastructure, a "bullshit
 detector" for factual claims, text guardrails, prompt-injection
 defenses, per-coach content grading, and a full admin GUI for
 operators.
@@ -102,7 +102,7 @@ step is an actual function call, not a conceptual phase.
            │       └─ execute_mcp_tool()             │
            │  15. scan_assistant_reply()          ◄──┼── C9/C11 detect leak
            │  16. apply_text_guardrails()         ◄──┼── Tier 6
-           │  17. apply_claim_verification()      ◄──┼── Tier 5.5
+           │  17. apply_claim_verification()      ◄──┼── claim verif.
            │  18. persist_assistant_response()       │
            │  19. finalize_session_state()           │
            │  20. spawn_extract_for_turn()        ◄──┼── Tier 2 background
@@ -114,7 +114,7 @@ The critical reading for new engineers is
 Every major hook in the list above is a single function call in that
 file, and the ordering matters — C9/C11 fingerprinting must happen
 **before** tool calls so the prompt the LLM sees is the one we scan
-against, and Tier 5.5 verification must happen **after** the guardrails
+against, and claim verification must happen **after** the guardrails
 so the detector sees the final user-visible reply.
 
 ## The data stores
@@ -126,7 +126,7 @@ Seven new tables land with the harness. All are tenant-scoped.
 - `coach_notes` — Tier 3 coach-authored notes about users
 - `coach_followups` — Tier 3 promised future check-ins
 - `coach_sessions` — Tier 4 long-lived (user, coach) containers above conversations
-- `claim_verdicts` — Tier 5.5 detector output (claim text, category, verdict, layer)
+- `claim_verdicts` — claim-verification detector output (claim text, category, verdict, layer)
 - `system_settings` — Sprint C3 harness config JSON (compaction + guardrails tunables)
 
 Schemas are in `migrations/20260413000002_harness_memory_foundations.sql`
@@ -153,10 +153,10 @@ queries.
   `coach_notes`, `memory_worker`, `myth_busting`, `coach_grading`,
   `eval_harness`. None of these touch the dispatch path. See
   `crates/pierre-server/src/routes/admin/`.
-- **Contremaitre sync** (Tier 5.5 Phase A). GitHub-backed registry
+- **Contremaitre sync** (claim verification, Phase A). GitHub-backed registry
   that periodically pulls updated prompts, tool descriptions, and
   evidence propositions into the running server. The `EvidenceRegistry`
-  is the runtime source of truth for the Tier 5.5 evidence retriever;
+  is the runtime source of truth for the claim-verification evidence retriever;
   the `EMBEDDED_PROPOSITIONS` constant is a fallback when the registry
   is empty.
 

@@ -128,7 +128,7 @@ enum Command {
         action: commands::key::KeyCommand,
     },
 
-    /// Coaching harness operator commands (Tier 5.5 backfill, etc.)
+    /// Coaching harness operator commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
         #[command(subcommand)]

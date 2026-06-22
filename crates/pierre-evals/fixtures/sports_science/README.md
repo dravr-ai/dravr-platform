@@ -2,7 +2,7 @@
 
 **⚠️ READ ME BEFORE EDITING ANY FILE IN THIS DIRECTORY**
 
-This directory holds the **compile-time fallback** for the Tier 5.5 bullshit
+This directory holds the **compile-time fallback** for the bullshit
 detector's evidence corpus. It is **not the source of truth**.
 
 ## Two-source pattern

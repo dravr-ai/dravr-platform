@@ -262,7 +262,7 @@ async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
     let mut store_coaches: Vec<StoreCoach> = page.items.into_iter().map(StoreCoach::from).collect();
 
     // Re-rank the returned page by coach grade (Sprint C22). Grades
-    // are computed from the viewer tenant's recent Tier 5.5 verdicts
+    // are computed from the viewer tenant's recent claim verdicts
     // so low-quality coaches fall below higher-graded peers even if
     // they shipped with more installs. Failures degrade to the
     // existing install_count ordering.

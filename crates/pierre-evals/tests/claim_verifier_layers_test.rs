@@ -40,7 +40,7 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
 /// assert the judge fired (or did NOT fire) without a network call.
 ///
 /// Mock is confined to test code per the project mock policy: it stands in for
-/// a real `LlmProvider` to exercise the Layer 5 fallback deterministically.
+/// a real `LlmProvider` to exercise the LLM-judge fallback deterministically.
 struct CannedJudge {
     body: String,
     calls: AtomicUsize,
@@ -94,7 +94,7 @@ impl LlmProvider for CannedJudge {
     }
 
     async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
-        // The Layer 5 judge only calls `complete`; streaming is unused.
+        // The LLM-judge layer only calls `complete`; streaming is unused.
         Err(AppError::internal("canned judge does not stream"))
     }
 
@@ -104,7 +104,7 @@ impl LlmProvider for CannedJudge {
 }
 
 // ---------------------------------------------------------------------------
-// Layer 4 — consistency
+// The consistency-check layer
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -181,7 +181,7 @@ fn consistency_ignores_cross_category_numbers() {
 async fn consistency_layer_fires_in_full_pipeline() {
     // Two training-prescription claims with diverging easy-pace numbers.
     // Neither trips a deterministic bound, neither matches the evidence corpus,
-    // so Layer 4 must be what fires the verdict.
+    // so the consistency-check layer must be what fires the verdict.
     let claims = vec![
         claim(
             "Your easy run pace should be around 5 minutes per kilometre.",
@@ -215,7 +215,7 @@ fn check_claim_without_siblings_skips_consistency() {
         "Your easy run pace should be around 5 minutes per kilometre.",
         ClaimCategory::TrainingPrescription,
     );
-    // No siblings — Layer 4 has nothing to compare against, so the verdict
+    // No siblings — the consistency-check layer has nothing to compare against, so the verdict
     // falls through to the evidence layer (no corpus match → Unsupported).
     let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed, None);
     assert_eq!(outcome.layer_fired, VerdictLayer::Evidence);
@@ -223,7 +223,7 @@ fn check_claim_without_siblings_skips_consistency() {
 }
 
 // ---------------------------------------------------------------------------
-// Layer 5 — LLM judge
+// The LLM-judge layer
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -280,7 +280,7 @@ async fn judge_maps_unknown_verdict_to_unverifiable() {
 
 #[tokio::test]
 async fn judge_does_not_fire_when_earlier_layer_resolves() {
-    // Deterministic bound violation resolves at Layer 2; the judge must never
+    // Deterministic bound violation resolves at the deterministic-bounds layer; the judge must never
     // be invoked.
     let c = claim(
         "Your max heart rate is 400 bpm.",
@@ -297,7 +297,11 @@ async fn judge_does_not_fire_when_earlier_layer_resolves() {
     )
     .await
     .expect("pipeline runs");
-    assert_eq!(judge.call_count(), 0, "judge must not fire after Layer 2");
+    assert_eq!(
+        judge.call_count(),
+        0,
+        "judge must not fire after the deterministic-bounds layer"
+    );
     assert_eq!(outcome.layer_fired, VerdictLayer::Deterministic);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
 }

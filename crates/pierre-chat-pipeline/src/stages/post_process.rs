@@ -153,7 +153,7 @@ pub(crate) async fn post_process_assistant_reply(
     )
     .await;
 
-    // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
+    // Stage 17: claim verification (gated behind tools-verification).
     #[cfg(feature = "tools-verification")]
     let pending_verdicts = {
         let verification_config = coach_ctx

@@ -93,7 +93,7 @@ tools-admin = ["tools-coaches", "pierre-tool-runtime/tools-admin"]  # admin tool
 tools-mobility = ["pierre-tool-runtime/tools-mobility"]        # stretching exercises, yoga poses, mobility recommendations
 tools-groups = ["dep:pierre-groups", "pierre-tool-runtime/tools-groups", "pierre-commands?/tools-groups", "pierre-chat-pipeline?/tools-groups"]  # group coaching tools (create, join, manage, analytics) + group_fitness snapshot fetcher
 tools-memory = ["pierre-tool-runtime/tools-memory"]          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
-tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-routes-admin/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # Tier 5.5 bullshit detector: verify_claim tool + dispatch hook
+tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-routes-admin/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # bullshit detector: verify_claim tool + dispatch hook
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]

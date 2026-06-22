@@ -1,4 +1,4 @@
-// ABOUTME: Integration test for the Tier 5.5 ClaimVerdictRepository against an in-memory SQLite DB
+// ABOUTME: Integration test for the ClaimVerdictRepository against an in-memory SQLite DB
 // ABOUTME: Exercises the migration, insert, and list paths end-to-end through RepositoryRegistry
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -73,7 +73,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
 #[tokio::test]
 async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
     // Validates migration 20260619000001: the `layer_fired` CHECK constraint
-    // must accept 'personalized' (Layer 2.5). A wrong constraint fails this
+    // must accept 'personalized' (the personalized layer). A wrong constraint fails this
     // insert at runtime — on SQLite here and on Postgres under the postgresql
     // feature — which is the only place the migration is exercised.
     let db = fresh_db().await?;

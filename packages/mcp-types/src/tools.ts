@@ -1443,7 +1443,7 @@ export interface ValidateRecipeParams {
 
 
 /**
- * Check a factual claim against the Tier 5.5 bullshit detector pipeline (rhetoric → deterministic bounds → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.
+ * Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → personalized physiology → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.
  */
 export interface VerifyClaimParams {
 

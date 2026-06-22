@@ -1,4 +1,4 @@
-// ABOUTME: PostgreSQL implementation of the Tier 5.5 ClaimVerdictRepository trait
+// ABOUTME: PostgreSQL implementation of the ClaimVerdictRepository trait
 // ABOUTME: Mirrors the SQLite path for the bullshit detector verdict persistence
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

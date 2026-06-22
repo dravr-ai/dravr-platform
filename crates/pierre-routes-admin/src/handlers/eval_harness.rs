@@ -1,4 +1,4 @@
-// ABOUTME: Admin routes exposing the pierre-evals fixture browser and Tier 5.5 calibration stats
+// ABOUTME: Admin routes exposing the pierre-evals fixture browser and verdict calibration stats
 // ABOUTME: Read-only — lists fixtures, per-case summaries, and verdict drift over a time window
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -73,7 +73,7 @@ pub struct VerdictStatsQuery {
 
 /// Handle `GET /admin/evals/verdict-stats`.
 ///
-/// Returns per-day and total verdict counts for the Tier 5.5 claim
+/// Returns per-day and total verdict counts for the claim
 /// verification pipeline so the admin "Calibration" panel can show
 /// pass rate and daily drift.
 pub(crate) async fn handle_verdict_stats(

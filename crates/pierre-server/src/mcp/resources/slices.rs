@@ -290,7 +290,7 @@ pub struct McpSlice {
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description registry for hot-reloadable MCP tool schema overlays.
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
-    /// Evidence registry for hot-reloadable Tier 5.5 claim verification corpus.
+    /// Evidence registry for hot-reloadable claim verification corpus.
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// Messaging strings registry for hot-reloadable user-facing canned replies.
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,

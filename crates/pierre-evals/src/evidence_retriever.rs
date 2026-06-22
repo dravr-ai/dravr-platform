@@ -1,12 +1,12 @@
-// ABOUTME: Layer 3 of the bullshit detector — retrieves evidence from the curated sports-science corpus
+// ABOUTME: The evidence-retrieval layer of the bullshit detector — retrieves evidence from the curated sports-science corpus
 // ABOUTME: Loads markdown propositions with YAML frontmatter; keyword+category filter for Phase A
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Evidence Retriever (Layer 3)
+//! # Evidence Retriever
 //!
-//! The Tier 5.5 evidence layer holds a curated corpus of atomic propositions,
+//! The evidence layer holds a curated corpus of atomic propositions,
 //! each tagged with a [`ClaimCategory`], a reference id (DOI / PMID / position
 //! stand), and an [`EvidenceStrength`]. At query time the retriever filters
 //! by category and returns the best matches scored by simple keyword overlap.

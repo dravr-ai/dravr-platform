@@ -90,7 +90,7 @@ pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestStrings(pub HashMap<String, HashMap<String, ManifestEntry>>);
 
-/// Tier 5.5 evidence entries (version 3+).
+/// Evidence registry entries (version 3+).
 ///
 /// Evidence is nested `domain → category → slug → entry`. The only domain
 /// in Phase A is `sports_science`; Phase D may add `physical_therapy`,

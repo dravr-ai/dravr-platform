@@ -1,4 +1,4 @@
-// ABOUTME: External tests for the Layer 1 deterministic checks (deterministic.rs)
+// ABOUTME: External tests for the eval-harness deterministic checks (deterministic.rs)
 // ABOUTME: Covers empty/missing/forbidden/too-long failures and the all-pass path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

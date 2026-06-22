@@ -30,7 +30,7 @@ use pierre_services::claim_verdict_backfill::{
 /// `pierre-cli harness <subcommand>` dispatch.
 #[derive(Subcommand)]
 pub enum HarnessCommand {
-    /// Backfill Tier 5.5 `claim_verdicts` from historical `chat_messages`.
+    /// Backfill `claim_verdicts` from historical `chat_messages`.
     ///
     /// Runs the pure-Rust heuristic verification pipeline
     /// (`extract_heuristic` + rhetoric + deterministic + evidence) over

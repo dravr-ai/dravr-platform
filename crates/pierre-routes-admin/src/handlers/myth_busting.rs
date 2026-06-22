@@ -1,5 +1,5 @@
 // ABOUTME: Admin routes for myth-busting summary + promote-topic feedback loop into Tier 6 guardrails
-// ABOUTME: Reads Tier 5.5 verdicts and writes recurring claim phrases into harness_config.blocked_topics
+// ABOUTME: Reads claim verdicts and writes recurring claim phrases into harness_config.blocked_topics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

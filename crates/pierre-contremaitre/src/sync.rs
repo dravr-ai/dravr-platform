@@ -771,7 +771,7 @@ async fn fetch_and_apply_tool_description(
 }
 
 // =============================================================================
-// Evidence sync (Tier 5.5 — domain → category → slug)
+// Evidence sync (claim verification — domain → category → slug)
 // =============================================================================
 
 /// Iterate the manifest's evidence tree and apply each proposition,

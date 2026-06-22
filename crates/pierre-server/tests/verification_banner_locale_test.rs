@@ -1,4 +1,4 @@
-// ABOUTME: Locks the resolve_banner_locale contract — the Tier 5.5 banner must match the reply's language
+// ABOUTME: Locks the resolve_banner_locale contract — the claim-verification banner must match the reply's language
 // ABOUTME: Regression test for the 2026-05-01 sweep where an English session ended with a French postscript
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(missing_docs)]
 
-//! `resolve_banner_locale` is what stops Tier 5.5 from emitting a
+//! `resolve_banner_locale` is what stops claim verification from emitting a
 //! French banner on an English reply (or vice versa). The function
 //! lives next to the verification stage because the banner is
 //! appended verbatim to the LLM's reply — its language must match.

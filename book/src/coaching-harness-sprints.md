@@ -73,15 +73,15 @@ on either database backend.
 |---|---|
 | `a88f7de3` | `TextGuardrails` (safe_default with medical keywords, 5000 char cap), wired into messaging dispatch as `apply_text_guardrails` post-LLM check |
 
-## Tier 5.5 — Bullshit detector (Phase A)
+## Claim verification — bullshit detector (Phase A)
 
 | Commit | Subject |
 |---|---|
-| `e8a9dfb9` | Tier 5.5 bullshit detector backend (Phase A) |
-| `c1f56363` | Tier 5.5 CI red + Phase B per-coach verification wiring |
-| `1f0b2c0f` | Tier 5.5 corpus to markdown with YAML frontmatter |
-| `1af8b0b0` | Tool count drift guard for Tier 3 + Tier 5.5 tools |
-| `1303ee2e` | Tier 5.5 `EvidenceRegistry` + contremaitre sync |
+| `e8a9dfb9` | bullshit detector backend (Phase A) |
+| `c1f56363` | claim-verification CI red + Phase B per-coach verification wiring |
+| `1f0b2c0f` | corpus to markdown with YAML frontmatter |
+| `1af8b0b0` | Tool count drift guard for Tier 3 + claim-verification tools |
+| `1303ee2e` | `EvidenceRegistry` + contremaitre sync |
 
 The `1303ee2e` commit is where the evidence corpus becomes hot-
 reloadable via the dravr-contremaitre GitHub-backed registry. It
@@ -101,7 +101,7 @@ commit on `feature/harness-prep`.
 
 | Commit | Subject |
 |---|---|
-| `592d1dfe` | Phase B Sprint C1 — admin `ClaimVerdictsTab` for Tier 5.5 triage |
+| `592d1dfe` | Phase B Sprint C1 — admin `ClaimVerdictsTab` for claim verdict triage |
 
 Backend: `crates/pierre-server/src/routes/admin/claim_verdicts.rs`
 with two handlers (list recent, list by conversation). Frontend:
@@ -127,7 +127,7 @@ into the same config document.
 
 | Commit | Subject |
 |---|---|
-| `66c6c056` | Phase B Sprint C4 — in-chat Tier 5.5 verdict chips + drawer |
+| `66c6c056` | Phase B Sprint C4 — in-chat claim verdict chips + drawer |
 
 Backend: `services::chat_verdicts::get_verdicts_handler` (extracted
 from `routes/chat.rs` to keep the file under the 1750-line route
@@ -274,8 +274,8 @@ exfiltration evidence.
 
 | Commit | Subject |
 |---|---|
-| `57cd322f` | Phase D Sprint C13 — myth-busting summary over Tier 5.5 verdicts |
-| `9e68f61d` | Phase D Sprint C14 — coach content grading from Tier 5.5 verdicts |
+| `57cd322f` | Phase D Sprint C13 — myth-busting summary over claim verdicts |
+| `9e68f61d` | Phase D Sprint C14 — coach content grading from claim verdicts |
 
 Both ship as pure-read aggregations over `claim_verdicts`. Neither
 adds new storage or runs as a background worker — "proactive worker"

@@ -1,4 +1,4 @@
-// ABOUTME: Tests for the Tier 5.5 ClaimVerdictsTab admin triage surface
+// ABOUTME: Tests for the ClaimVerdictsTab admin triage surface
 // ABOUTME: Mocks the admin API and asserts filter + drawer behavior
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

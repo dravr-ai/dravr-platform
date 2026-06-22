@@ -1,4 +1,4 @@
-// ABOUTME: External tests for the Layer 2 per-category bounds checker (deterministic_bounds.rs)
+// ABOUTME: External tests for the deterministic-bounds per-category checker (deterministic_bounds.rs)
 // ABOUTME: Verifies absurd physiological/nutrition/supplement values are flagged, safe ones pass
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -1,12 +1,12 @@
-// ABOUTME: Layer 1 of the bullshit detector — discards rhetorical / non-propositional utterances
+// ABOUTME: The rhetoric filter of the bullshit detector — discards rhetorical / non-propositional utterances
 // ABOUTME: Pure Rust, no LLM. Runs on every claim to filter motivational flourishes.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Rhetoric Detector (Layer 1)
+//! # Rhetoric Detector
 //!
-//! The first gate in the Tier 5.5 bullshit detector pipeline. Given a sentence
+//! The first gate in the bullshit detector pipeline. Given a sentence
 //! or atomic claim extracted from a coach reply, decides whether it is:
 //!
 //! - **Rhetorical** — motivational ("you're crushing it!"), greeting,
@@ -15,8 +15,9 @@
 //! - **Propositional** — a factual claim that deserves verification.
 //!
 //! The detector is intentionally conservative: false negatives (letting a
-//! rhetorical phrase through) are cheap because Layer 2 and 3 will also
-//! decline to fire a verdict on them. False positives (marking a real
+//! rhetorical phrase through) are cheap because the deterministic-bounds
+//! and evidence-retrieval layers will also decline to fire a verdict on
+//! them. False positives (marking a real
 //! claim as rhetorical) are worse because they bypass verification, so the
 //! heuristics favour "still verify" over "drop on the floor".
 
@@ -71,7 +72,7 @@ const QUESTION_MARKERS: &[&str] = &[
 pub enum RhetoricVerdict {
     /// The claim is rhetorical and should skip deeper verification layers.
     Rhetorical,
-    /// The claim is propositional and should pass to Layer 2 (deterministic).
+    /// The claim is propositional and should pass to the deterministic-bounds layer.
     Propositional,
 }
 
@@ -100,7 +101,7 @@ pub fn classify(claim: &str) -> RhetoricVerdict {
     }
 
     // Imperatives with no factual predicate ("try this", "give it a shot")
-    // tend to lack any of the category-specific nouns. Layer 2 will catch
+    // tend to lack any of the category-specific nouns. The deterministic-bounds layer will catch
     // them by scoring zero on all category patterns, so we let them through
     // here — false negatives in this gate are safe by design.
     RhetoricVerdict::Propositional

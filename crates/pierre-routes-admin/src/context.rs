@@ -69,7 +69,7 @@ pub struct AdminApiContext {
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry (MCP tool schema rewrites).
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
-    /// Tier 5.5 claim verification evidence corpus registry.
+    /// Claim verification evidence corpus registry.
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// User-facing canned reply / messaging-strings registry.
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
@@ -107,7 +107,7 @@ pub struct AdminApiContextInit {
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
-    /// Tier 5.5 claim verification evidence corpus registry
+    /// Claim verification evidence corpus registry
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// User-facing canned reply registry
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,

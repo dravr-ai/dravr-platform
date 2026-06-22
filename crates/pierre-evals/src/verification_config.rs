@@ -1,4 +1,4 @@
-// ABOUTME: Per-coach configuration for the Tier 5.5 bullshit detector pipeline
+// ABOUTME: Per-coach configuration for the bullshit detector pipeline
 // ABOUTME: Loaded from YAML frontmatter in the coach's system prompt; defaults are safe
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! # Verification Config
 //!
-//! A compact struct describing how the Tier 5.5 pipeline should behave for
+//! A compact struct describing how the verification pipeline should behave for
 //! a given coach. Coaches can opt out entirely (rhetorical personas), raise
 //! the Evidence Strength threshold for specific categories, or choose how
 //! the dispatch path reacts to an `Unsupported` or `Contradicted` verdict
@@ -75,7 +75,7 @@ pub struct VerificationConfig {
     /// How to react to a non-supported verdict.
     #[serde(default)]
     pub fallback_behavior: VerificationFallback,
-    /// Strategy + tuning for the personalized physiology layer (Layer 2.5).
+    /// Strategy + tuning for the personalized-physiology layer.
     #[serde(default)]
     pub personalized: PersonalizedConfig,
 }
@@ -157,8 +157,8 @@ fn parse_verification_config_yaml(frontmatter: &str) -> Option<VerificationConfi
     parsed.verification_config
 }
 
-/// Which [`ToleranceStrategy`] Layer 2.5 uses to decide when a claim
-/// contradicts the athlete's range. Selected per-coach via YAML.
+/// Which [`ToleranceStrategy`] the personalized-physiology layer uses to decide
+/// when a claim contradicts the athlete's range. Selected per-coach via YAML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToleranceMode {
@@ -171,7 +171,7 @@ pub enum ToleranceMode {
     Tight,
 }
 
-/// What a personalized (Layer 2.5) verdict does to the reply. Selected
+/// What a personalized verdict does to the reply. Selected
 /// per-coach via YAML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -185,10 +185,10 @@ pub enum ActionMode {
     UserWarn,
 }
 
-/// Per-coach configuration for the personalized physiology layer (Layer 2.5).
+/// Per-coach configuration for the personalized-physiology layer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PersonalizedConfig {
-    /// Master switch for Layer 2.5.
+    /// Master switch for the personalized-physiology layer.
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Which tolerance strategy decides contradictions.

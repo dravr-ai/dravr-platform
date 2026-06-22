@@ -10,7 +10,7 @@
 //! Discord, Slack, and other messaging channels. This registry covers:
 //!
 //! - Chat-pipeline fallbacks (generic error, empty reply, guardrail rewrites,
-//!   Tier 5.5 verification warnings)
+//!   claim-verification warnings)
 //! - Slash-command handler output (`/status`, `/help`, `/logout`, `/privacy`,
 //!   `/group`, `/coach`) — every user-visible string goes through the registry
 //!   so operators can hot-reload translations via the contremaitre repo without
@@ -66,9 +66,9 @@ pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
 /// Key: text-guardrails rejected a blocked-topic response.
 pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic";
-/// Key: Tier 5.5 `Warn` fallback suffix appended below the LLM reply.
+/// Key: claim-verification `Warn` fallback suffix appended below the LLM reply.
 pub const KEY_VERIFICATION_WARN_SUFFIX: &str = "messaging.verification.warn_suffix";
-/// Key: Tier 5.5 `Block` fallback that fully replaces the LLM reply.
+/// Key: claim-verification `Block` fallback that fully replaces the LLM reply.
 pub const KEY_VERIFICATION_BLOCK_FALLBACK: &str = "messaging.verification.block_fallback";
 /// Key: canonical refusal for off-scope requests.
 ///

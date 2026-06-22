@@ -8,48 +8,54 @@
 
 //! # Pierre Evaluation Harness
 //!
-//! Tooling for evaluating dravr's coaching responses with three layers of
-//! checks per the gist (Part 7):
+//! Tooling for evaluating dravr's coaching responses with three kinds of
+//! checks:
 //!
-//! 1. **Deterministic** — schema/structure validation, persona keyword
-//!    presence, prompt-injection pattern detection.
-//! 2. **LLM-as-judge** — rubric-based scoring against golden fixtures.
-//! 3. **Multi-turn** — sliding-window scoring over a synthetic
-//!    conversation.
+//! - **Deterministic** — schema/structure validation, persona keyword
+//!   presence, prompt-injection pattern detection.
+//! - **LLM-as-judge** — rubric-based scoring against golden fixtures.
+//! - **Multi-turn** — sliding-window scoring over a synthetic conversation.
 //!
-//! Layers 1 and 3 are pure-Rust and live entirely in this crate. Layer 2
-//! delegates to [`pierre_llm::judge`] (lifted in Tier −1) so the same JSON
-//! parsing plumbing is reused everywhere a structured verdict is needed.
+//! The deterministic and multi-turn checks are pure-Rust and live entirely in
+//! this crate; the LLM-as-judge check delegates to [`pierre_llm::judge`] so the
+//! same JSON parsing plumbing is reused everywhere a structured verdict is needed.
+//!
+//! The crate also houses the **claim-verification** ("bullshit detector") stages
+//! that run post-LLM over a coach reply — rhetoric filter, deterministic bounds,
+//! personalized physiology, evidence retrieval, consistency check, and the LLM
+//! judge — synthesized by [`verdict_engine`] into a single verdict.
 
-/// Tier 5.5 Layer 0 — claim extraction from coach replies.
+/// Claim verifier: claim extraction from coach replies.
 pub mod claim_extractor;
-/// Tier 5.5 Layer 4 — consistency cross-check against sibling claims.
+/// Claim verifier: consistency cross-check against sibling claims.
 pub mod consistency;
-/// Deterministic structural and content checks (Layer 1).
+/// Eval harness: deterministic structural and content checks.
 pub mod deterministic;
-/// Tier 5.5 Layer 2 — deterministic per-category bounds.
+/// Claim verifier: deterministic per-category bounds against population limits.
 pub mod deterministic_bounds;
-/// Tier 5.5 Layer 3 — evidence retrieval from the curated sports-science corpus.
+/// Claim verifier: evidence retrieval from the curated sports-science corpus.
 pub mod evidence_retriever;
-/// Tier 5.5 Layer 6 — user-facing explanation rendering.
+/// Claim verifier: user-facing explanation rendering.
 pub mod explanation_gen;
-/// Golden fixture loader (Layer 2 / 3 source data).
+/// Eval harness: golden fixture loader.
 pub mod fixtures;
-/// LLM-as-judge invocation backed by `pierre_llm::judge`.
+/// LLM-as-judge invocation backed by `pierre_llm::judge` (used by both the eval
+/// harness and the claim verifier).
 pub mod judge;
-/// Multi-turn sliding-window evaluator (Layer 3).
+/// Eval harness: multi-turn sliding-window evaluator.
 pub mod multi_turn;
-/// Tier 5.5 Layer 2.5 — claim checked against the athlete's own computed physiology.
+/// Claim verifier: claim checked against the athlete's own computed physiology.
 pub mod personalized;
 /// Aggregated rubric-driven scoring report.
 pub mod report;
-/// Tier 5.5 Layer 1 — rhetoric vs propositional classifier.
+/// Claim verifier: rhetoric vs propositional classifier.
 pub mod rhetoric_detector;
 /// Rubric definitions used by the judge.
 pub mod rubrics;
-/// Tier 5.5 pipeline synthesis — runs claims through layers 1–5 and emits a verdict.
+/// Claim verifier: pipeline synthesis — runs a claim through the verifier stages
+/// and emits a single verdict.
 pub mod verdict_engine;
-/// Tier 5.5 per-coach verification config loaded from YAML frontmatter.
+/// Claim verifier: per-coach verification config loaded from YAML frontmatter.
 pub mod verification_config;
 
 pub use claim_extractor::{extract_heuristic, extract_with_llm, ExtractedClaim};

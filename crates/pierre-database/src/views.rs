@@ -138,7 +138,7 @@ pub struct CoachRepos {
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
     /// Coaching harness memory (compaction, facts, notes, followups, sessions)
     pub memory: Arc<dyn HarnessMemoryRepository>,
-    /// Tier 5.5 claim verdicts from the bullshit detector pipeline
+    /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
 }
 
