@@ -318,7 +318,18 @@ module "backend" {
       # over ACP instead of fragile text-based <tool_call> simulation. This both
       # makes the headless provider advertise SDK_TOOL_CALLING and enables the
       # per-turn MCP-bridge token minting.
-      COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"
+      #
+      # TEMPORARILY DISABLED (2026-06-22): the native MCP-bridge path has two
+      # open defects that break the messaging coach — (1) the originating
+      # conversation id is not carried through the bridged tool calls, so a
+      # chat-triggered historical-activity backfill is spawned untagged and the
+      # completion push never fires; (2) the model echoes the raw tool-result
+      # scaffolding instead of synthesizing, which the strip nukes to empty ->
+      # "Hmm, je n'ai pas réussi". Falling back to the text <tool_call> loop
+      # routes tool calls through the conversation-id-bound UniversalExecutor
+      # (push works) and the working synthesis strip. Re-enable once both native
+      # -path defects are fixed.
+      COPILOT_HEADLESS_MCP_TOOL_CALLING = "false"
 
       # Copilot runs the MCP tool loop in Autopilot mode (call -> results ->
       # synthesize in one turn), which makes individual ACP messages run longer
