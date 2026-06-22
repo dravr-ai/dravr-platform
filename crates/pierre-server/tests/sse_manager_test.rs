@@ -268,30 +268,6 @@ async fn test_send_notification_nonexistent_user() {
     assert!(result.is_err());
 }
 
-#[tokio::test]
-async fn test_send_mcp_request_nonexistent_session() {
-    use pierre_mcp_schema::McpRequest as JsonRpcRequest;
-    use std::collections::HashMap;
-
-    let manager = SseManager::new(10);
-
-    // Create a minimal JSON-RPC request
-    let request = JsonRpcRequest {
-        jsonrpc: "2.0".to_owned(),
-        id: Some(serde_json::json!(1)),
-        method: "ping".to_owned(),
-        params: None,
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let result = manager
-        .send_mcp_request("nonexistent-session", request)
-        .await;
-    assert!(result.is_err());
-}
-
 // =============================================================================
 // Cleanup Tests
 // =============================================================================

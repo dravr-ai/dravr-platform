@@ -89,7 +89,7 @@ export const ENDPOINTS = {
   // ==================== PROMPTS ====================
   PROMPTS: {
     /** Get prompt suggestions */
-    SUGGESTIONS: '/api/prompts/suggestions',
+    SUGGESTIONS: '/api/social/insights/suggestions',
   },
 
   // ==================== OAUTH ====================
@@ -121,13 +121,13 @@ export const ENDPOINTS = {
     /** Pending friend requests (received) */
     FRIENDS_PENDING: '/api/social/friends/pending',
     /** Friend requests (sent/received) */
-    FRIENDS_REQUESTS: '/api/social/friends/requests',
+    FRIENDS_REQUESTS: '/api/social/friends',
     /** Specific friend request */
-    FRIEND_REQUEST: (id: string) => `/api/social/friends/requests/${id}`,
+    FRIEND_REQUEST: (id: string) => `/api/social/friends/${id}`,
     /** Accept friend request */
-    FRIEND_REQUEST_ACCEPT: (id: string) => `/api/social/friends/requests/${id}/accept`,
+    FRIEND_REQUEST_ACCEPT: (id: string) => `/api/social/friends/${id}/accept`,
     /** Reject/decline friend request */
-    FRIEND_REQUEST_REJECT: (id: string) => `/api/social/friends/requests/${id}/reject`,
+    FRIEND_REQUEST_REJECT: (id: string) => `/api/social/friends/${id}/decline`,
     /** Specific friend (for removal) */
     FRIEND: (id: string) => `/api/social/friends/${id}`,
     /** Block a user */
@@ -137,9 +137,9 @@ export const ENDPOINTS = {
     /** Social feed */
     FEED: '/api/social/feed',
     /** Share an insight */
-    SHARE: '/api/social/share',
+    SHARE: '/api/social/insights',
     /** Specific shared insight */
-    SHARED_INSIGHT: (id: string) => `/api/social/share/${id}`,
+    SHARED_INSIGHT: (id: string) => `/api/social/insights/${id}`,
     /** List my insights */
     INSIGHTS: '/api/social/insights',
     /** Specific insight */
@@ -149,7 +149,7 @@ export const ENDPOINTS = {
     /** Adapt an insight */
     INSIGHT_ADAPT: (id: string) => `/api/social/insights/${id}/adapt`,
     /** Get adapted insight */
-    ADAPT: (id: string) => `/api/social/adapt/${id}`,
+    ADAPT: (id: string) => `/api/social/insights/${id}/adapt`,
     /** List adapted insights */
     ADAPTED: '/api/social/adapted',
     /** Social settings */
