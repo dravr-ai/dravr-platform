@@ -258,34 +258,16 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
 
     let fetched_count = activities.len();
     let retention_days = backfill_retention_days(job.query_params.after);
-    // Persist BEFORE recording coverage, and only record coverage when the write
-    // actually lands. A failed (or partial) write-through that still stamps
-    // coverage leaves the gate believing the window is complete while the rows
-    // are missing — the gate then serves the stale slice and never self-heals
-    // (the "2022 stuck at 46" class). On `None` (write failed) we bail without
-    // recording coverage or pushing, so the next ask re-backfills the window.
-    let Some(persisted) = write_through_activity_cache(
-        &executor.auth_service,
-        job.user_id,
-        job.tenant_id,
-        &job.provider_name,
-        &activities,
-        retention_days,
-    )
-    .await
+    // Persist BEFORE recording coverage, and only proceed when the write lands.
+    // A failed/partial write that still stamped coverage would leave the gate
+    // believing the window is complete while the rows are missing — it would then
+    // serve the stale slice and never self-heal (the "2022 stuck at 46" class).
+    let Some(activity_count) =
+        persist_backfill_activities(job, &executor, &activities, fetched_count, retention_days)
+            .await
     else {
-        warn!(
-            user_id = %job.user_id,
-            provider = %job.provider_name,
-            fetched_count,
-            "Activity backfill: durable write-through failed; not recording coverage so the gate re-backfills"
-        );
         return;
     };
-    // The persisted count is the NET DISTINCT rows actually stored (deduped by
-    // activity_id), which can be below `fetched_count` when the provider feed
-    // repeats an id within the batch — the honest figure the user sees.
-    let activity_count = usize::try_from(persisted).unwrap_or(fetched_count);
 
     // Record how deep this backfill reached — now that the rows are durably
     // persisted — so the historical gate can tell a complete window from a
@@ -307,28 +289,70 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         "Activity backfill: wrote historical activities to durable cache"
     );
 
-    // Chat-triggered backfill: push a "your history is ready" notice back to the
-    // originating channel. Best-effort — the notifier owns its own error
-    // handling and `activity_count` is the net distinct rows persisted (deduped
-    // by activity_id), the honest figure the user sees. No-op for MCP-direct /
-    // A2A callers (no conversation id) or when no notifier is wired (messaging
-    // compiled out / not configured).
-    if let (Some(conversation_id), Some(notifier)) = (
+    notify_backfill_complete(job, activity_count).await;
+}
+
+/// Write the scraped historical activities through to the durable cache and
+/// return the net distinct rows persisted (deduped by `activity_id`), or `None`
+/// when the write-through fails. A failed/partial write must not let the caller
+/// record coverage — recording it would leave the gate believing the window is
+/// complete while the rows are missing (the "2022 stuck at 46" class), so the
+/// caller bails on `None` and the next ask re-backfills the window.
+async fn persist_backfill_activities(
+    job: &ActivityBackfillJob,
+    executor: &UniversalExecutor,
+    activities: &[Activity],
+    fetched_count: usize,
+    retention_days: i64,
+) -> Option<usize> {
+    let Some(persisted) = write_through_activity_cache(
+        &executor.auth_service,
+        job.user_id,
+        job.tenant_id,
+        &job.provider_name,
+        activities,
+        retention_days,
+    )
+    .await
+    else {
+        warn!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            fetched_count,
+            "Activity backfill: durable write-through failed; not recording coverage so the gate re-backfills"
+        );
+        return None;
+    };
+    // The persisted count is the NET DISTINCT rows actually stored (deduped by
+    // `activity_id`), below `fetched_count` when the feed repeats an id in the
+    // batch — the honest figure the user sees.
+    Some(usize::try_from(persisted).unwrap_or(fetched_count))
+}
+
+/// Push a "your history is ready" notice back to the originating channel for a
+/// chat-triggered backfill. Best-effort — the notifier owns its own error
+/// handling and `activity_count` is the net distinct rows persisted (deduped by
+/// `activity_id`), the honest figure the user sees. No-op for direct MCP / A2A
+/// callers (no conversation id) or when no notifier is wired (messaging compiled
+/// out / not configured).
+async fn notify_backfill_complete(job: &ActivityBackfillJob, activity_count: usize) {
+    let (Some(conversation_id), Some(notifier)) = (
         job.pierre_conversation_id.as_deref(),
         job.resources.backfill_notifier(),
-    ) {
-        // The historical-window `after` (unix seconds) keys the durable
-        // cross-replica dedup claim; `0` when the request had no `after`.
-        let after_ts = job.query_params.after.unwrap_or(0);
-        notifier
-            .push_backfill_complete(
-                job.user_id,
-                job.tenant_id,
-                conversation_id,
-                &job.provider_name,
-                after_ts,
-                activity_count,
-            )
-            .await;
-    }
+    ) else {
+        return;
+    };
+    // The historical-window `after` (unix seconds) keys the durable
+    // cross-replica dedup claim; `0` when the request had no `after`.
+    let after_ts = job.query_params.after.unwrap_or(0);
+    notifier
+        .push_backfill_complete(
+            job.user_id,
+            job.tenant_id,
+            conversation_id,
+            &job.provider_name,
+            after_ts,
+            activity_count,
+        )
+        .await;
 }
