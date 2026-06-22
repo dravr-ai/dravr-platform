@@ -247,8 +247,15 @@ impl SocialRepository for Database {
         id: Uuid,
         user_id: Uuid,
     ) -> AppResult<Option<SharedInsight>> {
-        // Scope visibility: the insight creator or friends who can see it via visibility rules
-        // For now, we check the creator OR friends (via friend_connections)
+        // Visibility scoping: the creator, OR a public insight, OR a friends_only
+        // insight where an accepted friendship exists.
+        //
+        // `visibility = 'public'` is intentionally readable by ANY caller,
+        // including across tenants and without a friendship — a SANCTIONED global
+        // exception (the platform runs a global consumer social graph; see the
+        // Social Multi-Tenant Isolation ADR). Unlike the friend-request bridge,
+        // a public insight carries no per-reader consent by design. Do NOT
+        // tenant-scope this branch without revisiting that product decision.
         let row = sqlx::query(
             r"
             SELECT si.id, si.user_id, si.visibility, si.insight_type, si.sport_type, si.content,
@@ -517,20 +524,29 @@ impl SocialRepository for Database {
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>> {
         let search_pattern = format!("%{query}%");
 
+        // Discovery is OPT-IN: an INNER JOIN on `discoverable = 1` means a user
+        // with no `user_social_settings` row (the default) is NOT discoverable.
+        // (Dropping the prior `OR discoverable IS NULL` branch is the opt-in
+        // cutover.) Email is matched EXACTLY (not `LIKE %q%`) so search cannot
+        // be used to enumerate a stranger's email by probing substrings, while
+        // still allowing "add a friend by their full email". Display name keeps
+        // substring matching. The graph is intentionally cross-tenant (global
+        // consumer graph), so there is deliberately no tenant filter here.
         let rows = sqlx::query(
             r"
             SELECT u.id, u.email, u.display_name
             FROM users u
-            LEFT JOIN user_social_settings uss ON u.id = uss.user_id
-            WHERE (uss.discoverable = 1 OR uss.discoverable IS NULL)
+            JOIN user_social_settings uss ON u.id = uss.user_id
+            WHERE uss.discoverable = 1
               AND u.user_status = 'active'
               AND u.id != $1
-              AND (u.email LIKE $2 OR u.display_name LIKE $2)
+              AND (LOWER(u.email) = LOWER($2) OR u.display_name LIKE $3)
             ORDER BY u.display_name, u.email
-            LIMIT $3
+            LIMIT $4
             ",
         )
         .bind(exclude_user_id.to_string())
+        .bind(query)
         .bind(&search_pattern)
         .bind(i64::from(limit))
         .fetch_all(self.pool())

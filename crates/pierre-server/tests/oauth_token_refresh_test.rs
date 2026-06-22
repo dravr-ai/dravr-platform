@@ -149,6 +149,7 @@
 
 mod common;
 
+use axum::{routing::post, Json, Router};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -158,7 +159,7 @@ use pierre_config::environment::{
     ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{Tenant, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_intelligence::{
@@ -172,7 +173,9 @@ use pierre_mcp_server::{
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use serial_test::serial;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{env, path::PathBuf, sync::Arc};
+use tokio::net::TcpListener;
 use uuid::Uuid;
 
 /// Create a test ServerConfig with missing OAuth credentials for failure testing
@@ -557,19 +560,38 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
     (executor, database)
 }
 
-/// Test that `get_activities` uses token refresh
-#[tokio::test]
-#[serial]
-async fn test_get_activities_with_expired_token() {
-    common::init_server_config();
-    let (executor, database) = create_test_executor().await;
+/// Sets env vars for the duration of a test and removes them on Drop — even if
+/// an assertion panics — so a failing `#[serial]` test cannot leak global env
+/// state into the next one. (Credentials and the token-URL override are both
+/// process-global, so cleanup must be panic-safe, not an end-of-fn `remove_var`.)
+struct EnvGuard {
+    keys: Vec<&'static str>,
+}
 
-    // Create user
-    let user_id = Uuid::new_v4();
+impl EnvGuard {
+    fn set(vars: &[(&'static str, String)]) -> Self {
+        let keys = vars.iter().map(|(k, _)| *k).collect();
+        for (k, v) in vars {
+            env::set_var(k, v);
+        }
+        Self { keys }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for k in &self.keys {
+            env::remove_var(k);
+        }
+    }
+}
+
+/// Create an active user directly in the DB for refresh tests.
+async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
     let user = User {
         id: user_id,
-        email: "test@example.com".to_owned(),
-        display_name: Some("Test User".to_owned()),
+        email: email.to_owned(),
+        display_name: Some("Refresh Test User".to_owned()),
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
         is_active: true,
@@ -592,63 +614,143 @@ async fn test_get_activities_with_expired_token() {
         manages_roster: false,
         timezone: None,
     };
-    let repos = database.repositories();
-    repos.users.create(&user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
+}
 
-    // Store expired token
-    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
+/// Create a tenant with no provider OAuth credentials, so token refresh resolves
+/// credentials via the env defaults (rather than erroring on a missing tenant).
+async fn create_bare_tenant(database: &Database, tenant_id: TenantId, owner: Uuid) {
+    let tenant = Tenant {
+        id: tenant_id,
+        name: "Refresh Test Tenant".to_owned(),
+        slug: format!("refresh-test-{tenant_id}"),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: owner,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+}
+
+/// Refresh success leg (the gap `test_get_activities_with_expired_token` left
+/// open by accepting failure): an EXPIRED Strava token must trigger EXACTLY ONE
+/// call to the provider token endpoint, and the refreshed token must be persisted
+/// with a new access token, a future expiry, and the rotated refresh token.
+///
+/// The production seam (`PIERRE_STRAVA_TOKEN_URL`) redirects the refresh POST to a
+/// local mock, so the call is deterministic and touches no network. The static
+/// `api_client` middleware is a passthrough (no retry), so one refresh == one POST.
+#[tokio::test]
+#[serial]
+async fn strava_expired_token_refreshes_exactly_once_and_persists() {
+    common::init_server_config();
+
+    // Local mock token endpoint: counts hits, returns a Strava token payload with
+    // an ABSOLUTE future `expires_at` (Strava encodes expiry as a unix timestamp).
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_route = Arc::clone(&hits);
+    let future_unix = (chrono::Utc::now() + chrono::Duration::hours(6)).timestamp();
+    let app = Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let hits = Arc::clone(&hits_route);
+            async move {
+                hits.fetch_add(1, Ordering::SeqCst);
+                Json(json!({
+                    "access_token": "mock_new_access_token",
+                    "refresh_token": "mock_new_refresh_token",
+                    "token_type": "Bearer",
+                    "expires_at": future_unix,
+                    "expires_in": 21600,
+                }))
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    // Point the production seam at the mock and supply env credentials. The guard
+    // removes all three even if an assertion panics.
+    let _env = EnvGuard::set(&[
+        (
+            "PIERRE_STRAVA_TOKEN_URL",
+            format!("http://{addr}/oauth/token"),
+        ),
+        ("STRAVA_CLIENT_ID", "test_client".to_owned()),
+        ("STRAVA_CLIENT_SECRET", "test_secret".to_owned()),
+    ]);
+
+    // Seed an active user, a credential-less tenant, and an EXPIRED Strava token.
+    let (executor, database) = create_test_executor().await;
+    let user_id = Uuid::new_v4();
+    let tenant_str = "550e8400-e29b-41d4-a716-446655440000";
+    let tenant_id: TenantId = tenant_str.parse().unwrap();
+    create_active_user(&database, user_id, "refresh-once@example.com").await;
+    create_bare_tenant(&database, tenant_id, user_id).await;
+
     let oauth_token = UserOAuthToken::new(
         user_id,
-        "00000000-0000-0000-0000-000000000000".to_owned(),
+        tenant_str.to_owned(),
         oauth_providers::STRAVA.to_owned(),
         "expired_access_token".to_owned(),
-        Some("refresh_token_123".to_owned()),
-        Some(expires_at),
+        Some("old_refresh_token".to_owned()),
+        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
         Some("read,activity:read_all".to_owned()),
     );
-    repos.oauth_tokens.upsert_token(&oauth_token).await.unwrap();
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await
+        .unwrap();
 
-    // Set up environment for OAuth provider
-    env::set_var("STRAVA_CLIENT_ID", "test_client");
-    env::set_var("STRAVA_CLIENT_SECRET", "test_secret");
+    // Drive the refresh path directly.
+    let token = executor
+        .auth_service
+        .get_valid_token(user_id, "strava", Some(tenant_str))
+        .await
+        .expect("get_valid_token must not error")
+        .expect("a valid token must be returned after refresh");
 
-    // Create request for get_activities
-    let request = UniversalRequest {
-        user_id: user_id.to_string(),
-        tool_name: "get_activities".to_owned(),
-        parameters: json!({
-            "limit": 10,
-            "provider": "strava"
-        }),
-        protocol: "test".to_owned(),
-        tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
-    };
+    // Exactly one call to the provider token endpoint.
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the refresh endpoint must be hit exactly once"
+    );
 
-    // Execute tool - it should attempt to refresh the token
-    let response = executor.execute_tool(request).await;
-
-    // In a real scenario with a mock server, this would succeed after refresh
-    // For now, we expect an OAuth error indicating refresh was attempted
-    match response {
-        Ok(resp) => {
-            // If successful, check that result mentions OAuth error
-            if let Some(result) = resp.result {
-                if let Some(arr) = result.as_array() {
-                    if let Some(first) = arr.first() {
-                        if let Some(error) = first.get("error") {
-                            assert!(error.as_str().unwrap().contains("OAuth"));
-                        }
-                    }
-                }
-            }
-        }
-        Err(_) => {
-            // Expected in test environment without mock server
-        }
-    }
+    // The persisted token is the refreshed one (re-read to prove the DB write).
+    let stored = database
+        .repositories()
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .expect("token still present after refresh");
+    assert_eq!(stored.access_token, "mock_new_access_token");
+    assert_ne!(stored.access_token, "expired_access_token");
+    assert!(
+        stored.expires_at.unwrap() > chrono::Utc::now(),
+        "refreshed token must have a future expiry"
+    );
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("mock_new_refresh_token"),
+        "refresh token must be rotated to the new value"
+    );
+    assert_eq!(
+        token.access_token, stored.access_token,
+        "returned token must mirror what was persisted"
+    );
 }
 
 /// Test connection status with OAuth manager integration

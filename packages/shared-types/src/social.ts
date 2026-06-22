@@ -226,8 +226,9 @@ export interface PendingRequestWithInfo {
   accepted_at: string | null;
   /** The other user's display name (initiator for received, receiver for sent) */
   user_display_name: string | null;
-  /** The other user's email */
-  user_email: string;
+  /** The other user's email. Omitted for pending requests: the counterpart is
+   *  not yet an accepted friend, so their email is withheld until acceptance. */
+  user_email?: string;
   /** The other user's ID */
   user_id: string;
 }

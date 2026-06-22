@@ -132,8 +132,12 @@ pub struct PendingRequestWithInfoResponse {
     pub accepted_at: Option<String>,
     /// The other user's display name (initiator for received, receiver for sent)
     pub user_display_name: Option<String>,
-    /// The other user's email
-    pub user_email: String,
+    /// The other user's email. Omitted for pending requests: the counterpart is
+    /// not yet an accepted friend, so exposing their email pre-acceptance would
+    /// leak PII (cross-tenant in the global graph). Populated only once a
+    /// friendship is accepted (which moves the row out of "pending").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_email: Option<String>,
     /// The other user's ID
     pub user_id: String,
 }
@@ -264,7 +268,11 @@ impl SocialRestRoutes {
             })
             .collect::<Vec<_>>();
 
-        // Batch-fetch friend user info (social connections enforce tenant scope).
+        // Batch-fetch friend user info. The friend graph is intentionally
+        // cross-tenant (a global consumer graph; see the social_schema migration
+        // note), so this is a deliberate global lookup — NOT tenant-scoped.
+        // Email here is appropriate: every listed connection is an accepted
+        // friend (`get_friends_paginated` returns only `status='accepted'`).
         let friend_users = resources.repos().users.get_global_many(&friend_ids).await?;
 
         // Build response with friend user info
@@ -369,15 +377,13 @@ impl SocialRestRoutes {
             .get_global_many(&counterpart_ids)
             .await?;
 
-        // Build sent requests with receiver's user info
+        // Build sent requests with receiver's user info. Email is withheld:
+        // the receiver has not accepted, so they are not yet a friend.
         let mut sent = Vec::with_capacity(sent_conns.len());
         for conn in sent_conns {
-            let receiver_id_str = conn.receiver_id.to_string();
-            let (user_display_name, user_email) =
-                counterpart_users.get(&conn.receiver_id).map_or_else(
-                    || (None, format!("user-{receiver_id_str}")),
-                    |user| (user.display_name.clone(), user.email.clone()),
-                );
+            let user_display_name = counterpart_users
+                .get(&conn.receiver_id)
+                .and_then(|user| user.display_name.clone());
 
             sent.push(PendingRequestWithInfoResponse {
                 id: conn.id.to_string(),
@@ -388,20 +394,20 @@ impl SocialRestRoutes {
                 updated_at: conn.updated_at.to_rfc3339(),
                 accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
                 user_display_name,
-                user_email,
+                user_email: None,
                 user_id: conn.receiver_id.to_string(),
             });
         }
 
-        // Build received requests with initiator's user info
+        // Build received requests with initiator's user info. Email is withheld:
+        // the request is unaccepted, so the initiator is a stranger until the
+        // recipient accepts — exposing their email here is the pre-acceptance
+        // PII leak this gate closes.
         let mut received = Vec::with_capacity(received_conns.len());
         for conn in received_conns {
-            let initiator_id_str = conn.initiator_id.to_string();
-            let (user_display_name, user_email) =
-                counterpart_users.get(&conn.initiator_id).map_or_else(
-                    || (None, format!("user-{initiator_id_str}")),
-                    |user| (user.display_name.clone(), user.email.clone()),
-                );
+            let user_display_name = counterpart_users
+                .get(&conn.initiator_id)
+                .and_then(|user| user.display_name.clone());
 
             received.push(PendingRequestWithInfoResponse {
                 id: conn.id.to_string(),
@@ -412,7 +418,7 @@ impl SocialRestRoutes {
                 updated_at: conn.updated_at.to_rfc3339(),
                 accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
                 user_display_name,
-                user_email,
+                user_email: None,
                 user_id: conn.initiator_id.to_string(),
             });
         }

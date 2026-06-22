@@ -393,7 +393,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             ) : (
               <div className="space-y-3">
                 {pendingReceived.map((request) => {
-                  const displayName = request.user_display_name || request.user_email.split('@')[0];
+                  const displayName = request.user_display_name || request.user_email?.split('@')[0] || 'Athlete';
                   const initials = displayName.substring(0, 2).toUpperCase();
                   return (
                   <div
@@ -449,7 +449,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             ) : (
               <div className="space-y-3">
                 {pendingSent.map((request) => {
-                  const displayName = request.user_display_name || request.user_email.split('@')[0];
+                  const displayName = request.user_display_name || request.user_email?.split('@')[0] || 'Athlete';
                   const initials = displayName.substring(0, 2).toUpperCase();
                   return (
                   <div

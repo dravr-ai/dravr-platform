@@ -106,11 +106,13 @@ export function RequestCard({
   isLoading,
 }: RequestCardProps) {
   const colors = useThemeColors();
-  // PendingRequestWithInfo includes user_display_name, user_email, user_id
+  // PendingRequestWithInfo: user_email is omitted for pending requests (the
+  // counterpart is not yet an accepted friend), so fall back to user_id for a
+  // stable avatar color and to a generic label for the name.
   const userEmail = request.user_email;
   const initials = getInitials(request.user_display_name, userEmail);
-  const avatarColor = getAvatarColor(userEmail);
-  const name = request.user_display_name || userEmail;
+  const avatarColor = getAvatarColor(userEmail ?? request.user_id);
+  const name = request.user_display_name || userEmail || 'Athlete';
 
   return (
     <View
