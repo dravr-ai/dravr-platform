@@ -133,6 +133,23 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/archit
 fi
 
 # ============================================================================
+# TIER 1b: Contremaitre Coupling Sync (compile-free static drift check)
+# ============================================================================
+# Makes the two highest-frequency platform<->contremaitre drifts (messaging
+# locale completeness + notify-event catalogue) PREVENTIVE at pre-push, instead
+# of failing full-suite-only AFTER the squash lands on main. See AGENTS.md.
+if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh" ]]; then
+    echo "Tier 1b: Contremaitre Coupling Sync"
+    echo "------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh"; then
+        echo ""
+        echo "FAIL: Contremaitre coupling check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:
