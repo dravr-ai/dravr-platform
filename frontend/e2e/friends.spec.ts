@@ -98,8 +98,8 @@ async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean }
   // priority because Playwright checks routes in LIFO (last registered first).
   await setupDashboardMocks(page, { role: 'user' });
 
-  // Accept friend request: POST /api/social/friends/requests/{id}/accept
-  await page.route('**/api/social/friends/requests/*/accept', async (route) => {
+  // Accept friend request: POST /api/social/friends/{id}/accept
+  await page.route('**/api/social/friends/*/accept', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -107,8 +107,8 @@ async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean }
     });
   });
 
-  // Reject friend request: POST /api/social/friends/requests/{id}/reject
-  await page.route('**/api/social/friends/requests/*/reject', async (route) => {
+  // Decline friend request: POST /api/social/friends/{id}/decline
+  await page.route('**/api/social/friends/*/decline', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -116,8 +116,8 @@ async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean }
     });
   });
 
-  // Send friend request: POST /api/social/friends/requests
-  await page.route('**/api/social/friends/requests', async (route, request) => {
+  // Send friend request: POST /api/social/friends (matches list GET URL; method-gated)
+  await page.route(/\/api\/social\/friends$/, async (route, request) => {
     if (request.method() === 'POST') {
       await route.fulfill({
         status: 201,
@@ -147,7 +147,7 @@ async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean }
   });
 
   // Remove friend: DELETE /api/social/friends/{userId}
-  // Must match /api/social/friends/{id} but NOT /api/social/friends/pending or /api/social/friends/requests
+  // The user- prefix keeps this off /pending and the /{id}/accept|decline routes (which use req- ids)
   await page.route(/\/api\/social\/friends\/user-/, async (route, request) => {
     if (request.method() === 'DELETE') {
       await route.fulfill({ status: 204 });
@@ -356,7 +356,7 @@ test.describe('Friends - Search Users', () => {
 
   test('clicking Add Friend sends friend request', async ({ page }) => {
     let requestSent = false;
-    await page.route('**/api/social/friends/requests', async (route, request) => {
+    await page.route(/\/api\/social\/friends$/, async (route, request) => {
       if (request.method() === 'POST') {
         requestSent = true;
         await route.fulfill({
@@ -434,7 +434,7 @@ test.describe('Friends - Pending Requests', () => {
 
   test('clicking Accept calls the accept API', async ({ page }) => {
     let acceptCalled = false;
-    await page.route('**/api/social/friends/requests/req-1/accept', async (route) => {
+    await page.route('**/api/social/friends/req-1/accept', async (route) => {
       acceptCalled = true;
       await route.fulfill({
         status: 200,
@@ -455,9 +455,9 @@ test.describe('Friends - Pending Requests', () => {
     expect(acceptCalled).toBe(true);
   });
 
-  test('clicking Decline calls the reject API', async ({ page }) => {
+  test('clicking Decline calls the decline API', async ({ page }) => {
     let declineCalled = false;
-    await page.route('**/api/social/friends/requests/req-1/reject', async (route) => {
+    await page.route('**/api/social/friends/req-1/decline', async (route) => {
       declineCalled = true;
       await route.fulfill({
         status: 200,

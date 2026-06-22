@@ -468,8 +468,8 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
-  // Mock prompts suggestions endpoint (public API for chat prompts)
-  await page.route('**/api/prompts/suggestions', async (route) => {
+  // Mock prompt suggestions endpoint (public API for chat prompts)
+  await page.route('**/api/social/insights/suggestions**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
