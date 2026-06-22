@@ -478,7 +478,38 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
                 enabled: true,
             }
         }
+        p if p == oauth_providers::WHOOP => {
+            let client_id = env::var("WHOOP_CLIENT_ID")
+                .ok()
+                .or_else(|| env::var("PIERRE_WHOOP_CLIENT_ID").ok());
+            let client_secret = env::var("WHOOP_CLIENT_SECRET")
+                .ok()
+                .or_else(|| env::var("PIERRE_WHOOP_CLIENT_SECRET").ok());
+            let scopes_env = env::var("PIERRE_WHOOP_SCOPES").ok();
+            let scopes = parse_scopes_with_defaults(
+                scopes_env,
+                vec![
+                    "read:recovery".to_owned(),
+                    "read:workout".to_owned(),
+                    "read:sleep".to_owned(),
+                    "offline".to_owned(),
+                ],
+            );
+
+            OAuthProviderConfig {
+                client_id,
+                client_secret,
+                redirect_uri: env::var("WHOOP_REDIRECT_URI").ok(),
+                scopes,
+                enabled: true,
+            }
+        }
         _ => {
+            // NOTE: Terra is intentionally not handled here yet — it has no
+            // env-default credential path wired, so it falls through to the
+            // empty default. Whoop previously fell through here too, which left
+            // `get_default_oauth_credentials("whoop")` unable to resolve creds
+            // and silently broke WHOOP token refresh on the env-default path.
             debug!(
                 "Unknown provider '{}', returning default config",
                 provider_name
