@@ -109,15 +109,19 @@ async function setupInsightMocks(page: Page, options: { emptySuggestions?: boole
     });
   });
 
-  // Share insight directly: POST /api/social/share
-  await page.route('**/api/social/share', async (route) => {
-    await route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        insight: mockFeedWithInsight.items[0].insight,
-      }),
-    });
+  // Share insight directly: POST /api/social/insights (shares the list URL; method-gated)
+  await page.route('**/api/social/insights', async (route, request) => {
+    if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          insight: mockFeedWithInsight.items[0].insight,
+        }),
+      });
+    } else {
+      await route.fallback();
+    }
   });
 
   // Social feed: GET /api/social/feed

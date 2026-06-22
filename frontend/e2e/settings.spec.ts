@@ -345,8 +345,8 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock prompts suggestions (needed by Chat welcome view)
-  await page.route('**/api/prompts/suggestions', async (route) => {
+  // Mock prompt suggestions (needed by Chat welcome view)
+  await page.route('**/api/social/insights/suggestions**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
