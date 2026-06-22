@@ -1,4 +1,4 @@
--- ABOUTME: Claim verification — verdicts emitted by the bullshit detector pipeline
+-- ABOUTME: Tier 5.5 claim verification — verdicts emitted by the bullshit detector pipeline
 -- ABOUTME: Stores post-LLM claim checks with category, evidence strength, and explanation
 
 CREATE TABLE IF NOT EXISTS claim_verdicts (

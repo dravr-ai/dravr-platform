@@ -1,4 +1,4 @@
--- ABOUTME: Add 'personalized' (the personalized-physiology layer) to the claim_verdicts.layer_fired CHECK constraint
+-- ABOUTME: Add 'personalized' (Layer 2.5) to the claim_verdicts.layer_fired CHECK constraint
 -- ABOUTME: SQLite cannot ALTER a CHECK constraint, so rebuild the table preserving rows + indexes
 
 CREATE TABLE IF NOT EXISTS claim_verdicts_new (
