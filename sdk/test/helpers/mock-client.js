@@ -129,18 +129,31 @@ class MockMCPClient extends EventEmitter {
   }
 
   async stop() {
-    if (this.process) {
-      return new Promise((resolve) => {
-        this.process.on('exit', resolve);
-        this.process.kill('SIGTERM');
-        setTimeout(() => {
-          if (!this.process.killed) {
-            this.process.kill('SIGKILL');
-          }
+    if (!this.process) return;
+    const proc = this.process;
+    this.process = null;
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (!settled) {
+          settled = true;
           resolve();
-        }, 5000);
-      });
-    }
+        }
+      };
+      proc.on('exit', finish);
+      proc.kill('SIGTERM');
+      // Unconditional SIGKILL fallback. `proc.killed` only means "a signal was
+      // delivered", NOT "the process exited" — gating SIGKILL on it lets a bridge
+      // that ignores SIGTERM (e.g. blocked in async work) survive as an orphan.
+      setTimeout(() => {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // already exited
+        }
+        finish();
+      }, 3000);
+    });
   }
 }
 

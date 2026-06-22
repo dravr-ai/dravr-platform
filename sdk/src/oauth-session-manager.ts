@@ -689,6 +689,29 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    // Non-interactive guard. When browser opening is disabled (the --no-browser
+    // flag, PIERRE_DISABLE_BROWSER, or CI) an interactive OAuth flow can never
+    // complete — a human has to approve in the browser. Refuse BEFORE starting a
+    // callback server or awaiting the (never-arriving) callback. Suppressing only
+    // the popup is not enough: the callback server would still bind a port and the
+    // bridge would hang forever on it, orphaning the process (leaked port) and — on
+    // hosts where the popup isn't suppressed — accreting browser tabs until Chrome
+    // OOMs. Real MCP hosts (Claude Desktop etc.) set none of these, so interactive
+    // OAuth still works there.
+    const envDisabled =
+      process.env.PIERRE_DISABLE_BROWSER === "true" ||
+      process.env.CI === "true" ||
+      process.env.GITHUB_ACTIONS === "true";
+    if (this.config?.disableBrowser || envDisabled) {
+      this.log(
+        "Browser disabled - refusing interactive OAuth authorization (non-interactive mode)",
+      );
+      this.log(`Authorization URL (not opened): ${authorizationUrl.toString()}`);
+      throw new Error(
+        "Interactive OAuth authorization required but browser opening is disabled (non-interactive mode)",
+      );
+    }
+
     this.log(`Starting OAuth 2.0 authorization flow`);
 
     // Start callback server to receive authorization response

@@ -16,6 +16,12 @@
 export { PierreMcpClient, BridgeConfig } from './bridge';
 
 /**
+ * Export the OAuth client provider used by the bridge for programmatic embedding
+ * and for testing the non-interactive (browser-disabled) authorization guard.
+ */
+export { PierreOAuthClientProvider } from './oauth-session-manager';
+
+/**
  * Export structured error types for typed error handling
  */
 export { PierreError, PierreErrorCode } from './errors';
