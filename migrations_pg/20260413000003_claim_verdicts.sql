@@ -1,4 +1,4 @@
--- ABOUTME: Claim verification (PostgreSQL) — verdicts from the bullshit detector pipeline
+-- ABOUTME: Tier 5.5 claim verification (PostgreSQL) — verdicts from the bullshit detector pipeline
 -- ABOUTME: Stores post-LLM claim checks with category, evidence strength, layer provenance
 
 CREATE TABLE IF NOT EXISTS claim_verdicts (
