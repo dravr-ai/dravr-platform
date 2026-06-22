@@ -180,13 +180,12 @@ export interface PierreApiService {
  */
 export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
   const axios = createAxiosClient(adapter);
-  const getBaseUrl = () => adapter.httpConfig.baseURL;
 
   return {
     auth: createAuthApi(axios, adapter.authStorage),
     chat: createChatApi(axios),
     coaches: createCoachesApi(axios),
-    oauth: createOAuthApi(axios, getBaseUrl),
+    oauth: createOAuthApi(axios),
     social: createSocialApi(axios),
     store: createStoreApi(axios),
     user: createUserApi(axios),

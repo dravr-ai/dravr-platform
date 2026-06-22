@@ -89,7 +89,7 @@ export function useOAuthHandler(): UseOAuthHandlerReturn {
 
     try {
       const providerId = providerName.toLowerCase();
-      const authUrl = await oauthApi.getAuthorizeUrl(providerId);
+      const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerId);
       if (popup && !popup.closed) {
         popup.location.href = authUrl;
       } else {

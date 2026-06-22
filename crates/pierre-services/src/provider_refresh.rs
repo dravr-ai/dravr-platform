@@ -50,6 +50,23 @@ pub trait SyncNotifier: Send + Sync {
         user_id: Uuid,
         notification: &OAuthNotification,
     ) -> Result<(), AppError>;
+
+    /// Push an `OAuthNotification` to the user's active MCP protocol streams,
+    /// if any — the live signal that lets an MCP/SSE client refresh provider
+    /// state the moment an OAuth flow completes. Defaults to a no-op so non-SSE
+    /// notifiers need no change.
+    ///
+    /// # Errors
+    /// Returns an error when no protocol stream is registered for `user_id`.
+    /// Callers treat this as best-effort and log at debug level.
+    async fn send_oauth_notification_to_protocol_streams(
+        &self,
+        user_id: Uuid,
+        notification: &OAuthNotification,
+    ) -> Result<(), AppError> {
+        let _ = (user_id, notification);
+        Ok(())
+    }
 }
 
 /// Central service for provider data refresh decisions and execution.

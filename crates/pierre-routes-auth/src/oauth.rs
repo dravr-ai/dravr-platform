@@ -14,14 +14,14 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use tracing::{error, field, field::Empty, info, warn, Span};
+use tracing::{debug, error, field, field::Empty, info, warn, Span};
 use urlencoding::encode;
 
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::oauth_flow::{
@@ -107,6 +107,34 @@ pub async fn handle_oauth_callback(
         Ok(response) => {
             #[cfg(feature = "health-sync")]
             spawn_health_backfill(&resources, &response.user_id, &response.provider);
+
+            // Push a live OAuth-completion signal to this user's MCP protocol
+            // streams so connected clients refresh provider state immediately.
+            // Best-effort: a missing stream must never fail the OAuth flow.
+            if let Ok(user_uuid) = uuid::Uuid::parse_str(&response.user_id) {
+                let notification = OAuthNotification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    user_id: response.user_id.clone(),
+                    provider: response.provider.clone(),
+                    success: true,
+                    message: format!("{} connected successfully", response.provider),
+                    expires_at: None,
+                    created_at: chrono::Utc::now(),
+                    read_at: None,
+                };
+                if let Err(e) = resources
+                    .sync_notifier
+                    .send_oauth_notification_to_protocol_streams(user_uuid, &notification)
+                    .await
+                {
+                    debug!(
+                        user_id = %response.user_id,
+                        provider = %response.provider,
+                        error = %e,
+                        "No MCP protocol streams to notify of OAuth completion"
+                    );
+                }
+            }
 
             // Priority: mobile redirect URL > frontend URL > render template
             // Mobile apps pass redirect URL through OAuth state for deep linking

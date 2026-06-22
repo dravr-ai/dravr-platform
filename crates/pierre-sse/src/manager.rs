@@ -20,7 +20,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::OnceLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_middleware::redact_session_id;
@@ -395,6 +395,59 @@ impl SseManager {
             info!("Cleaned up inactive connection: {}", connection_id);
         }
     }
+
+    /// Push an OAuth-completion notification to every active MCP protocol
+    /// stream owned by `user_id`. Lets MCP/SSE clients refresh provider state
+    /// the moment an OAuth flow finishes, instead of polling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user has no registered protocol streams, or if
+    /// every stream send failed. Callers treat this as best-effort.
+    pub async fn send_oauth_notification_to_protocol_streams(
+        &self,
+        user_id: Uuid,
+        notification: &OAuthNotification,
+    ) -> Result<(), AppError> {
+        let session_ids = self
+            .user_sessions
+            .get(&user_id)
+            .map(|entry| entry.value().clone());
+
+        if let Some(sessions) = session_ids {
+            let mut sent_count = 0;
+
+            for session_id in &sessions {
+                if let Some(stream) = self.protocol_streams.get(session_id) {
+                    if let Err(e) = stream.send_oauth_notification(notification).await {
+                        warn!(
+                            "Failed to send OAuth notification to session {}: {}",
+                            redact_session_id(session_id),
+                            e
+                        );
+                    } else {
+                        sent_count += 1;
+                    }
+                }
+            }
+
+            if sent_count > 0 {
+                info!(
+                    "Sent OAuth notification to {} protocol stream(s) for user {}",
+                    sent_count, user_id
+                );
+                Ok(())
+            } else {
+                Err(AppError::not_found(format!(
+                    "Active protocol streams for user {user_id}"
+                )))
+            }
+        } else {
+            Err(AppError::not_found(format!(
+                "Protocol streams for user {user_id}"
+            )))
+        }
+    }
 }
 
 // Bridge so pierre-services::provider_refresh can push sync-completed
@@ -409,5 +462,13 @@ impl SyncNotifier for SseManager {
         notification: &OAuthNotification,
     ) -> Result<(), AppError> {
         Self::send_notification(self, user_id, notification).await
+    }
+
+    async fn send_oauth_notification_to_protocol_streams(
+        &self,
+        user_id: Uuid,
+        notification: &OAuthNotification,
+    ) -> Result<(), AppError> {
+        Self::send_oauth_notification_to_protocol_streams(self, user_id, notification).await
     }
 }

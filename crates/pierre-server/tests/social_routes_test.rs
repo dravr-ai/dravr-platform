@@ -348,3 +348,54 @@ async fn test_sent_pending_requests_have_receiver_info() {
     );
     assert!(!request.user_id.is_empty(), "user_id should not be empty");
 }
+
+#[tokio::test]
+async fn test_block_friend_removes_from_list() {
+    let (router, auth_token1, auth_token2, _user1_id, user2_id) = setup_two_users().await;
+
+    // User1 sends a request, User2 accepts -> accepted friendship.
+    let response = AxumTestRequest::post("/api/social/friends")
+        .header("authorization", &auth_token1)
+        .json(&json!({ "receiver_id": user2_id }))
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let request_result: serde_json::Value = response.json();
+    let connection_id = request_result["id"].as_str().unwrap();
+
+    let response = AxumTestRequest::post(&format!("/api/social/friends/{connection_id}/accept"))
+        .header("authorization", &auth_token2)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+
+    // User2 blocks User1.
+    let response = AxumTestRequest::post(&format!("/api/social/friends/{connection_id}/block"))
+        .header("authorization", &auth_token2)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::NO_CONTENT);
+
+    // The blocked connection drops out of User1's accepted-friends list.
+    let response = AxumTestRequest::get("/api/social/friends")
+        .header("authorization", &auth_token1)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let friends: ListFriendsResponse = response.json();
+    assert_eq!(friends.friends.len(), 0);
+}
+
+#[tokio::test]
+async fn test_block_nonexistent_connection_returns_not_found() {
+    let (router, _auth_token1, auth_token2, _user1_id, _user2_id) = setup_two_users().await;
+
+    // A well-formed but unknown connection id must not be blockable.
+    let fake_connection_id = "11111111-1111-4111-8111-111111111111";
+    let response =
+        AxumTestRequest::post(&format!("/api/social/friends/{fake_connection_id}/block"))
+            .header("authorization", &auth_token2)
+            .send(router)
+            .await;
+    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+}
