@@ -70,8 +70,8 @@ async fn test_protocol_stream_cleanup_removes_from_user_sessions() -> anyhow::Re
     assert_eq!(manager.active_protocol_streams(), 2);
 
     // 2. Session removed from user_sessions
-    // (We can't directly access user_sessions, but we can verify via OAuth notification sending)
-    // If session_1 is still in user_sessions, send_oauth_notification_to_protocol_streams would try to send to it
+    // (user_sessions is private; removal is verified indirectly through the
+    // active_protocol_streams() count dropping as each session is unregistered)
 
     // Unregister remaining sessions
     manager.unregister_protocol_stream(&session_id_2);

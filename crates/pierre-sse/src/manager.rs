@@ -20,7 +20,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::OnceLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use pierre_middleware::redact_session_id;
@@ -316,85 +316,6 @@ impl SseManager {
         } else {
             Err(AppError::not_found(format!(
                 "Notification stream for user {user_id}"
-            )))
-        }
-    }
-
-    /// Send OAuth notification to all MCP protocol streams for a user
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if sending to any stream fails
-    pub async fn send_oauth_notification_to_protocol_streams(
-        &self,
-        user_id: Uuid,
-        notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        let session_ids = self
-            .user_sessions
-            .get(&user_id)
-            .map(|entry| entry.value().clone());
-
-        if let Some(sessions) = session_ids {
-            let mut sent_count = 0;
-
-            for session_id in &sessions {
-                if let Some(stream) = self.protocol_streams.get(session_id) {
-                    if let Err(e) = stream.send_oauth_notification(notification).await {
-                        warn!(
-                            "Failed to send OAuth notification to session {}: {}",
-                            redact_session_id(session_id),
-                            e
-                        );
-                    } else {
-                        sent_count += 1;
-                    }
-                }
-            }
-
-            if sent_count > 0 {
-                info!(
-                    "Sent OAuth notification to {} protocol stream(s) for user {}",
-                    sent_count, user_id
-                );
-                Ok(())
-            } else {
-                Err(AppError::not_found(format!(
-                    "Active protocol streams for user {user_id}"
-                )))
-            }
-        } else {
-            Err(AppError::not_found(format!(
-                "Protocol streams for user {user_id}"
-            )))
-        }
-    }
-
-    /// Send MCP request to a protocol stream
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No protocol stream is found for the specified session ID
-    /// - The underlying stream fails to handle the request
-    pub async fn send_mcp_request(
-        &self,
-        session_id: &str,
-        request: McpRequest,
-    ) -> Result<(), AppError> {
-        if let Some(stream) = self.protocol_streams.get(session_id) {
-            stream.handle_request(request).await?;
-
-            // Update last activity
-            let connection_id = format!("protocol_{session_id}");
-            if let Some(mut metadata) = self.connection_metadata.get_mut(&connection_id) {
-                metadata.last_activity = Utc::now();
-            }
-
-            Ok(())
-        } else {
-            Err(AppError::not_found(format!(
-                "Protocol stream for session {session_id}"
             )))
         }
     }

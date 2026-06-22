@@ -11,7 +11,6 @@ use pierre_database::database::oauth_notifications::OAuthNotification;
 use pierre_mcp_schema::{McpRequest, McpResponse};
 use pierre_runtime_context::SseCtx;
 use pierre_sse::manager::{ProtocolStream, ProtocolStreamFactory};
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{
     broadcast::{self, Sender},
@@ -90,35 +89,6 @@ impl McpProtocolStream {
             sender
                 .send(json_data)
                 .map_err(|e| AppError::internal(format!("Failed to send MCP response: {e}")))?;
-
-            Ok(())
-        } else {
-            Err(AppError::internal("No active sender for protocol stream"))
-        }
-    }
-
-    /// Send error event through SSE stream
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No active sender is available for this stream
-    /// - JSON serialization fails
-    /// - Sending the error event fails
-    pub async fn send_error(&self, error_message: &str) -> Result<(), AppError> {
-        let error_response =
-            McpResponse::error(Some(Value::Null), -32603, error_message.to_owned());
-
-        let sender_guard = self.sender.read().await;
-
-        if let Some(sender) = sender_guard.as_ref() {
-            // Send only the JSON data - SSE formatting handled by Axum SSE helper
-            let json_data = serde_json::to_string(&error_response)
-                .map_err(|e| AppError::internal(format!("Failed to serialize error: {e}")))?;
-
-            sender
-                .send(json_data)
-                .map_err(|e| AppError::internal(format!("Failed to send error event: {e}")))?;
 
             Ok(())
         } else {
