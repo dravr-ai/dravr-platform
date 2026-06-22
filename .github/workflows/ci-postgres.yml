@@ -1,23 +1,16 @@
 # ABOUTME: PostgreSQL integration test workflow with smart path triggers.
-# ABOUTME: Runs when backend code (database, routes, messaging, a2a, chat-pipeline crates) or migrations change.
+# ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
 on:
   push:
     branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
-      - 'crates/pierre-database/**'
-      - 'crates/pierre-server/src/database/**'
-      - 'crates/pierre-server/tests/**'
-      - 'crates/pierre-server/src/routes/**'
-      # Routes/messaging/a2a/chat-pipeline were extracted out of pierre-server
-      # into their own crates; without these globs a change there skips the
-      # entire backend suite on push/PR and false-greens.
-      - 'crates/pierre-routes-*/**'
-      - 'crates/pierre-messaging/**'
-      - 'crates/pierre-a2a/**'
-      - 'crates/pierre-chat-pipeline/**'
-      - 'crates/pierre-core/src/models/**'
+      # Any crate change runs the backend suite. The prior explicit list
+      # silently dropped each newly-extracted crate (a recurring false-green),
+      # so crates/** trades a few CI minutes for never skipping the backend
+      # suite on a backend change again.
+      - 'crates/**'
       - 'migrations/**'
       - 'migrations_pg/**'
       - 'Cargo.toml'
@@ -27,16 +20,8 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'crates/pierre-database/**'
-      - 'crates/pierre-server/src/database/**'
-      - 'crates/pierre-server/tests/**'
-      - 'crates/pierre-server/src/routes/**'
-      # Keep in sync with the push paths above — extracted backend crates.
-      - 'crates/pierre-routes-*/**'
-      - 'crates/pierre-messaging/**'
-      - 'crates/pierre-a2a/**'
-      - 'crates/pierre-chat-pipeline/**'
-      - 'crates/pierre-core/src/models/**'
+      # Keep in sync with the push paths above — any crate change.
+      - 'crates/**'
       - 'migrations/**'
       - 'migrations_pg/**'
       - 'Cargo.toml'

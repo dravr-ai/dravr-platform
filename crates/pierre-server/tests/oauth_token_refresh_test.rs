@@ -753,6 +753,201 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
     );
 }
 
+/// One provider's expected refresh behaviour, exercised by
+/// [`assert_refresh_once_and_persists`].
+struct RefreshSeamCase {
+    /// Provider key used for the token row, the seam env var, and the lookup.
+    provider: &'static str,
+    /// The `PIERRE_<PROVIDER>_TOKEN_URL` seam variable to redirect at the mock.
+    token_url_env: &'static str,
+    /// Credential env vars the default-credential path reads.
+    client_id_env: &'static str,
+    client_secret_env: &'static str,
+    /// JSON body the mock token endpoint returns (provider-shaped).
+    mock_response: serde_json::Value,
+    /// Access token the mock returns and the DB must persist.
+    expected_access: &'static str,
+    /// Refresh token the DB must hold after refresh. When the response omits a
+    /// new refresh token, this is the ORIGINAL (input) token, preserved.
+    expected_refresh: &'static str,
+    /// Unique seed email so concurrent cases don't collide.
+    email: &'static str,
+}
+
+/// Shared refresh-success-leg assertion for every bearer provider: an EXPIRED
+/// token must trigger EXACTLY ONE call to the (mocked) provider token endpoint,
+/// and the refreshed token must be persisted with a new access token, a future
+/// expiry, and the expected refresh token. The `PIERRE_<PROVIDER>_TOKEN_URL` seam
+/// redirects the refresh POST to a local mock — deterministic, no network — and
+/// the static `api_client` middleware is a passthrough (no retry), so one refresh
+/// equals one POST.
+async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
+    common::init_server_config();
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_route = Arc::clone(&hits);
+    let body = case.mock_response.clone();
+    let app = Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let hits = Arc::clone(&hits_route);
+            let body = body.clone();
+            async move {
+                hits.fetch_add(1, Ordering::SeqCst);
+                Json(body)
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let _env = EnvGuard::set(&[
+        (case.token_url_env, format!("http://{addr}/oauth/token")),
+        (case.client_id_env, "test_client".to_owned()),
+        (case.client_secret_env, "test_secret".to_owned()),
+    ]);
+
+    let (executor, database) = create_test_executor().await;
+    let user_id = Uuid::new_v4();
+    let tenant_str = "550e8400-e29b-41d4-a716-446655440000";
+    let tenant_id: TenantId = tenant_str.parse().unwrap();
+    create_active_user(&database, user_id, case.email).await;
+    create_bare_tenant(&database, tenant_id, user_id).await;
+
+    let oauth_token = UserOAuthToken::new(
+        user_id,
+        tenant_str.to_owned(),
+        case.provider.to_owned(),
+        "expired_access_token".to_owned(),
+        Some("old_refresh_token".to_owned()),
+        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        Some("read,activity:read_all".to_owned()),
+    );
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await
+        .unwrap();
+
+    let token = executor
+        .auth_service
+        .get_valid_token(user_id, case.provider, Some(tenant_str))
+        .await
+        .expect("get_valid_token must not error")
+        .expect("a valid token must be returned after refresh");
+
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "{} refresh endpoint must be hit exactly once",
+        case.provider
+    );
+
+    let stored = database
+        .repositories()
+        .oauth_tokens
+        .get_token(user_id, tenant_id, case.provider)
+        .await
+        .unwrap()
+        .expect("token still present after refresh");
+    assert_eq!(stored.access_token, case.expected_access);
+    assert_ne!(stored.access_token, "expired_access_token");
+    assert!(
+        stored.expires_at.unwrap() > chrono::Utc::now(),
+        "{} refreshed token must have a future expiry",
+        case.provider
+    );
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some(case.expected_refresh),
+        "{} refresh token must match the expected value",
+        case.provider
+    );
+    assert_eq!(
+        token.access_token, stored.access_token,
+        "returned token must mirror what was persisted"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn fitbit_expired_token_refreshes_exactly_once_and_persists() {
+    // Fitbit encodes expiry as a relative `expires_in` (seconds).
+    assert_refresh_once_and_persists(RefreshSeamCase {
+        provider: "fitbit",
+        token_url_env: "PIERRE_FITBIT_TOKEN_URL",
+        client_id_env: "FITBIT_CLIENT_ID",
+        client_secret_env: "FITBIT_CLIENT_SECRET",
+        mock_response: json!({
+            "access_token": "fitbit_new_access",
+            "refresh_token": "fitbit_new_refresh",
+            "token_type": "Bearer",
+            "expires_in": 28800,
+            "scope": "activity heartrate",
+            "user_id": "fitbit_user_123",
+        }),
+        expected_access: "fitbit_new_access",
+        expected_refresh: "fitbit_new_refresh",
+        email: "refresh-fitbit@example.com",
+    })
+    .await;
+}
+
+/// WHOOP refresh — BOTH cases in one test: the normal case (response carries a
+/// new refresh token, which must be rotated) and the omit case (no refresh token
+/// in the response, so the seeded input token must be preserved per
+/// `client.rs`: `response.refresh_token.or_else(|| input)`).
+///
+/// The two cases run sequentially in a single test on purpose: each
+/// `assert_refresh_once_and_persists` call sets and then drops the shared
+/// `PIERRE_WHOOP_TOKEN_URL`, so running them as two separate tests would race on
+/// that process-global var (`#[serial]` does not reliably serialize these async
+/// tests). Each provider therefore owns exactly one test and a unique env var,
+/// so cross-provider tests never collide even when run concurrently.
+#[tokio::test]
+#[serial]
+async fn whoop_refresh_with_and_without_new_token() {
+    // Response carries a new refresh token -> rotated.
+    assert_refresh_once_and_persists(RefreshSeamCase {
+        provider: "whoop",
+        token_url_env: "PIERRE_WHOOP_TOKEN_URL",
+        client_id_env: "WHOOP_CLIENT_ID",
+        client_secret_env: "WHOOP_CLIENT_SECRET",
+        mock_response: json!({
+            "access_token": "whoop_new_access",
+            "refresh_token": "whoop_new_refresh",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "read:recovery read:workout",
+        }),
+        expected_access: "whoop_new_access",
+        expected_refresh: "whoop_new_refresh",
+        email: "refresh-whoop@example.com",
+    })
+    .await;
+
+    // No `refresh_token` field -> the seeded "old_refresh_token" must persist.
+    assert_refresh_once_and_persists(RefreshSeamCase {
+        provider: "whoop",
+        token_url_env: "PIERRE_WHOOP_TOKEN_URL",
+        client_id_env: "WHOOP_CLIENT_ID",
+        client_secret_env: "WHOOP_CLIENT_SECRET",
+        mock_response: json!({
+            "access_token": "whoop_new_access_2",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }),
+        expected_access: "whoop_new_access_2",
+        expected_refresh: "old_refresh_token",
+        email: "refresh-whoop-omit@example.com",
+    })
+    .await;
+}
+
 /// Test connection status with OAuth manager integration
 #[tokio::test]
 #[serial]
