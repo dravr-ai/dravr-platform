@@ -1083,16 +1083,19 @@ export class PierreMcpClient {
         };
       }
 
-      // CRITICAL: Prevent interactive OAuth flow ONLY in CI/CD environments
-      // Block OAuth if:
-      // 1. No TTY (not a terminal session)
-      // 2. Running in CI/CD (CI=true or GITHUB_ACTIONS=true)
-      // This prevents hanging in automated tests while allowing OAuth in MCP hosts like Claude Code Desktop
+      // CRITICAL: Refuse the interactive OAuth flow when it cannot complete.
+      // Refuse if either:
+      // 1. CI/CD (CI=true or GITHUB_ACTIONS=true) with no TTY — would hang automated tests, OR
+      // 2. PIERRE_DISABLE_BROWSER=true — explicit kill switch for non-interactive runs (e.g.
+      //    local/jest test suites) so they fail fast instead of repeatedly popping (and OOM-ing)
+      //    a browser tab to /oauth2/login.
+      // Real MCP hosts (Claude Code Desktop etc.) set neither, so OAuth still works there.
       const isCI =
         process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
+      const browserDisabled = process.env.PIERRE_DISABLE_BROWSER === "true";
       const hasTTY = process.stdin.isTTY;
 
-      if (!existingTokens && !hasTTY && isCI) {
+      if (!existingTokens && ((!hasTTY && isCI) || browserDisabled)) {
         this.log(
           "Refusing to start interactive OAuth flow in CI/CD environment (would hang automated tests)",
         );
@@ -1371,8 +1374,15 @@ export class PierreMcpClient {
   }
 
   private async openUrlInBrowserWithFocus(url: string): Promise<void> {
-    // Check if browser opening is disabled (testing mode)
-    if (this.config.disableBrowser) {
+    // Check if browser opening is disabled (testing mode). The env kill switch
+    // (PIERRE_DISABLE_BROWSER / CI / GITHUB_ACTIONS) suppresses the popup even
+    // when the config flag wasn't threaded through, so non-interactive runs
+    // never open (and never OOM) a browser tab. Real MCP hosts set none of these.
+    const envDisabled =
+      process.env.PIERRE_DISABLE_BROWSER === "true" ||
+      process.env.CI === "true" ||
+      process.env.GITHUB_ACTIONS === "true";
+    if (this.config.disableBrowser || envDisabled) {
       this.log(
         "Browser opening disabled - OAuth URL available at callback server",
       );
