@@ -258,11 +258,13 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
 
     let fetched_count = activities.len();
     let retention_days = backfill_retention_days(job.query_params.after);
-    // The persisted count is the NET DISTINCT rows actually stored (deduped by
-    // activity_id), which can be below `fetched_count` when the provider feed
-    // repeats an id within the batch. Surface the persisted figure to the user;
-    // fall back to the fetched length only if the write-through failed.
-    let activity_count = write_through_activity_cache(
+    // Persist BEFORE recording coverage, and only record coverage when the write
+    // actually lands. A failed (or partial) write-through that still stamps
+    // coverage leaves the gate believing the window is complete while the rows
+    // are missing — the gate then serves the stale slice and never self-heals
+    // (the "2022 stuck at 46" class). On `None` (write failed) we bail without
+    // recording coverage or pushing, so the next ask re-backfills the window.
+    let Some(persisted) = write_through_activity_cache(
         &executor.auth_service,
         job.user_id,
         job.tenant_id,
@@ -271,11 +273,24 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) {
         retention_days,
     )
     .await
-    .and_then(|c| usize::try_from(c).ok())
-    .unwrap_or(fetched_count);
+    else {
+        warn!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            fetched_count,
+            "Activity backfill: durable write-through failed; not recording coverage so the gate re-backfills"
+        );
+        return;
+    };
+    // The persisted count is the NET DISTINCT rows actually stored (deduped by
+    // activity_id), which can be below `fetched_count` when the provider feed
+    // repeats an id within the batch — the honest figure the user sees.
+    let activity_count = usize::try_from(persisted).unwrap_or(fetched_count);
 
-    // Record how deep this backfill reached so the historical gate can tell a
-    // complete window from a shallow recent slice and self-heal a partial one.
+    // Record how deep this backfill reached — now that the rows are durably
+    // persisted — so the historical gate can tell a complete window from a
+    // shallow recent slice and self-heal a partial one, and its "covered"
+    // verdict can never outrun the data actually in the cache.
     record_backfill_coverage(job, &activities, fetched_count).await;
 
     info!(
