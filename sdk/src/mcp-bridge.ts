@@ -1092,7 +1092,9 @@ export class PierreMcpClient {
       // Real MCP hosts (Claude Code Desktop etc.) set neither, so OAuth still works there.
       const isCI =
         process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
-      const browserDisabled = process.env.PIERRE_DISABLE_BROWSER === "true";
+      const browserDisabled =
+        process.env.PIERRE_DISABLE_BROWSER === "true" ||
+        this.config.disableBrowser === true;
       const hasTTY = process.stdin.isTTY;
 
       if (!existingTokens && ((!hasTTY && isCI) || browserDisabled)) {
