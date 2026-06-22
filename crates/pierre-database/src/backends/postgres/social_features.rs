@@ -825,20 +825,29 @@ impl SocialRepository for PostgresDatabase {
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>> {
         let search_pattern = format!("%{query}%");
 
+        // Discovery is OPT-IN: INNER JOIN on `discoverable = true` excludes users
+        // with no `user_social_settings` row (the default), replacing the prior
+        // `OR discoverable IS NULL` permissive branch. Email is matched EXACTLY
+        // (case-insensitive via LOWER, and `=` so `%`/`_` in the query are NOT
+        // wildcards) to prevent enumerating a stranger's email by substring,
+        // while still allowing "add by full email". Display name keeps ILIKE
+        // substring matching. The graph is intentionally cross-tenant (global
+        // consumer graph), so there is deliberately no tenant filter.
         let rows = sqlx::query(
             r"
             SELECT u.id, u.email, u.display_name
             FROM users u
-            LEFT JOIN user_social_settings uss ON u.id = uss.user_id
-            WHERE (uss.discoverable = true OR uss.discoverable IS NULL)
+            JOIN user_social_settings uss ON u.id = uss.user_id
+            WHERE uss.discoverable = true
               AND u.user_status = 'active'
               AND u.id != $1
-              AND (u.email ILIKE $2 OR u.display_name ILIKE $2)
+              AND (LOWER(u.email) = LOWER($2) OR u.display_name ILIKE $3)
             ORDER BY u.display_name, u.email
-            LIMIT $3
+            LIMIT $4
             ",
         )
         .bind(exclude_user_id)
+        .bind(query)
         .bind(&search_pattern)
         .bind(i64::from(limit))
         .fetch_all(self.pool())

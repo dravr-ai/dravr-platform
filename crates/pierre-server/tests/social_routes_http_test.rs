@@ -1424,6 +1424,116 @@ async fn test_search_users_missing_auth() {
 }
 
 // ============================================================================
+// Tenant-isolation / PII guards (Option C: global graph, opt-in discovery)
+// ============================================================================
+
+/// A pending friend request must NOT expose the counterpart's email: until the
+/// request is accepted, the counterpart is a stranger (potentially in another
+/// tenant, since the graph is global), so leaking their email is a PII bug.
+#[tokio::test]
+async fn test_pending_request_omits_counterpart_email() {
+    let setup = SocialRoutesTestSetup::new().await.expect("Setup failed");
+    let (user2_id, user2_jwt) = setup
+        .create_second_user()
+        .await
+        .expect("Failed to create second user");
+    let routes = setup.routes();
+
+    // user1 sends a friend request to user2.
+    AxumTestRequest::post("/api/social/friends")
+        .header("authorization", &setup.auth_header())
+        .json(&json!({ "receiver_id": user2_id.to_string() }))
+        .send(routes.clone())
+        .await;
+
+    // user2 views pending requests: the received request must NOT carry user1's
+    // email (the `user_email` field is omitted for un-accepted requests).
+    let response = AxumTestRequest::get("/api/social/friends/pending")
+        .header("authorization", &format!("Bearer {user2_jwt}"))
+        .send(routes)
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let received = body["received"].as_array().expect("received array");
+    assert_eq!(received.len(), 1, "user2 should see one received request");
+    assert!(
+        received[0].get("user_email").is_none(),
+        "pending request must not leak the requester's email, got: {}",
+        received[0]
+    );
+    // The display name is still present so the recipient can identify the sender.
+    assert!(received[0].get("user_display_name").is_some());
+}
+
+/// Discovery is opt-in (a user with no settings row is invisible) and the email
+/// match is EXACT (a substring must not match), so search cannot be used to
+/// enumerate a stranger's email.
+#[tokio::test]
+async fn test_discovery_is_opt_in_and_email_match_is_exact() {
+    let setup = SocialRoutesTestSetup::new().await.expect("Setup failed");
+    let (_user2_id, user2_jwt) = setup
+        .create_second_user()
+        .await
+        .expect("Failed to create second user");
+    let routes = setup.routes();
+    let user2_auth = format!("Bearer {user2_jwt}");
+
+    // user2 (active, email friend@example.com) has no social-settings row yet, so
+    // they are NOT discoverable even by their exact email (opt-in).
+    let before = AxumTestRequest::get("/api/social/users/search?q=friend%40example.com")
+        .header("authorization", &setup.auth_header())
+        .send(routes.clone())
+        .await;
+    assert_eq!(before.status(), 200);
+    assert_eq!(
+        before.json::<serde_json::Value>()["users"]
+            .as_array()
+            .expect("users array")
+            .len(),
+        0,
+        "a user with no settings row must not be discoverable (opt-in)"
+    );
+
+    // user2 opts in.
+    AxumTestRequest::put("/api/social/settings")
+        .header("authorization", &user2_auth)
+        .json(&json!({ "discoverable": true }))
+        .send(routes.clone())
+        .await;
+
+    // An email SUBSTRING must still not match (exact-match prevents enumeration).
+    let partial = AxumTestRequest::get("/api/social/users/search?q=friend%40exa")
+        .header("authorization", &setup.auth_header())
+        .send(routes.clone())
+        .await;
+    assert_eq!(partial.status(), 200);
+    assert_eq!(
+        partial.json::<serde_json::Value>()["users"]
+            .as_array()
+            .expect("users array")
+            .len(),
+        0,
+        "an email substring must not match (exact-match only)"
+    );
+
+    // The full exact email now finds the opted-in, active user.
+    let exact = AxumTestRequest::get("/api/social/users/search?q=friend%40example.com")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+    assert_eq!(exact.status(), 200);
+    assert_eq!(
+        exact.json::<serde_json::Value>()["users"]
+            .as_array()
+            .expect("users array")
+            .len(),
+        1,
+        "exact email finds an opted-in, active user"
+    );
+}
+
+// ============================================================================
 // Integration Tests - Full Workflows
 // ============================================================================
 

@@ -113,17 +113,13 @@ async fn test_pending_requests_returns_user_info() {
     assert_eq!(result.received.len(), 1);
 
     let request = &result.received[0];
-    // Verify user info is present (sender's info)
+    // Pending requests withhold the counterpart's email until acceptance
+    // (pre-acceptance PII); only non-sensitive identifiers are exposed.
     assert!(
-        !request.user_email.is_empty(),
-        "user_email should not be empty"
+        request.user_email.is_none(),
+        "pending request must not expose the sender's email"
     );
     assert!(!request.user_id.is_empty(), "user_id should not be empty");
-    assert!(
-        request.user_email.contains("user1"),
-        "Should contain sender's email: {}",
-        request.user_email
-    );
 }
 
 #[tokio::test]
@@ -345,15 +341,10 @@ async fn test_sent_pending_requests_have_receiver_info() {
     assert_eq!(result.sent.len(), 1);
 
     let request = &result.sent[0];
-    // Verify receiver's user info is present
+    // The receiver has not accepted, so their email is withheld.
     assert!(
-        !request.user_email.is_empty(),
-        "user_email should not be empty"
+        request.user_email.is_none(),
+        "pending request must not expose the receiver's email"
     );
     assert!(!request.user_id.is_empty(), "user_id should not be empty");
-    assert!(
-        request.user_email.contains("user2"),
-        "Should contain receiver's email: {}",
-        request.user_email
-    );
 }

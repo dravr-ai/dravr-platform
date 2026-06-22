@@ -13,7 +13,19 @@ use pierre_core::errors::{AppError, AppResult};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::env;
 use url::Url;
+
+/// Resolve a provider's OAuth token endpoint, honoring a
+/// `PIERRE_<PROVIDER>_TOKEN_URL` environment override.
+///
+/// Production leaves the variable unset and uses the real `default`, so runtime
+/// behavior is unchanged. Integration tests set the override to a local mock
+/// server so the token-refresh path can be exercised deterministically without
+/// reaching the live provider.
+fn token_url_or(env_key: &str, default: &'static str) -> String {
+    env::var(env_key).unwrap_or_else(|_| default.to_owned())
+}
 
 /// OAuth 2.0 client configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -532,8 +544,12 @@ pub mod strava {
             ("grant_type", "refresh_token"),
         ];
 
+        let token_url = super::token_url_or(
+            "PIERRE_STRAVA_TOKEN_URL",
+            "https://www.strava.com/oauth/token",
+        );
         let http_response = client
-            .post("https://www.strava.com/oauth/token")
+            .post(&token_url)
             .form(&params)
             .send()
             .await
@@ -749,8 +765,12 @@ pub mod fitbit {
             ("grant_type", "refresh_token"),
         ];
 
+        let token_url = super::token_url_or(
+            "PIERRE_FITBIT_TOKEN_URL",
+            "https://api.fitbit.com/oauth2/token",
+        );
         let http_response = client
-            .post("https://api.fitbit.com/oauth2/token")
+            .post(&token_url)
             .form(&params)
             .send()
             .await
@@ -830,8 +850,9 @@ pub mod whoop {
             ("grant_type", "refresh_token"),
         ];
 
+        let token_url = super::token_url_or("PIERRE_WHOOP_TOKEN_URL", WHOOP_TOKEN_URL);
         let http_response = client
-            .post(WHOOP_TOKEN_URL)
+            .post(&token_url)
             .form(&params)
             .send()
             .await
