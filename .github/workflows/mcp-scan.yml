@@ -31,6 +31,12 @@ jobs:
   mcp-scan:
     name: Scan MCP Config & Skills
     runs-on: ubuntu-latest
+    # SNYK_TOKEN is mapped at job level so each scan step can gate on its presence.
+    # GitHub withholds repo secrets from dependabot/fork PRs, where the token is empty;
+    # the scanner hard-exits without it, so those contexts skip rather than red. main and
+    # first-party branches (push events) get the secret and run the full scan.
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -40,11 +46,9 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Scan MCP server configuration
+        if: ${{ env.SNYK_TOKEN != '' }}
         run: uvx snyk-agent-scan@latest .mcp.json
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Scan Claude skills
+        if: ${{ env.SNYK_TOKEN != '' }}
         run: uvx snyk-agent-scan@latest --skills .claude/skills
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
