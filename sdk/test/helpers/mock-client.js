@@ -131,7 +131,9 @@ class MockMCPClient extends EventEmitter {
   async stop() {
     if (!this.process) return;
     const proc = this.process;
-    this.process = null;
+    // Keep `this.process` referencing the child (do NOT null it) so callers can
+    // still inspect `.killed` / `.exitCode` after stop() — integration tests assert
+    // termination that way.
     await new Promise((resolve) => {
       let settled = false;
       const finish = () => {
@@ -141,7 +143,13 @@ class MockMCPClient extends EventEmitter {
         }
       };
       proc.on('exit', finish);
-      proc.kill('SIGTERM');
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // already exited
+        finish();
+        return;
+      }
       // Unconditional SIGKILL fallback. `proc.killed` only means "a signal was
       // delivered", NOT "the process exited" — gating SIGKILL on it lets a bridge
       // that ignores SIGTERM (e.g. blocked in async work) survive as an orphan.
