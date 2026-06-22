@@ -1,4 +1,4 @@
-// ABOUTME: Tests the Tier 5.5 caveat-banner selection (actionable_problems + warning_bullets)
+// ABOUTME: Tests the claim-verification caveat-banner selection (actionable_problems + warning_bullets)
 // ABOUTME: Prescriptions: Unsupported is suppressed, Contradicted kept; list is severity-sorted and capped
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

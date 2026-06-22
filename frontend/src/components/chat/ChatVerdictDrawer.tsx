@@ -1,4 +1,4 @@
-// ABOUTME: User-facing drawer showing the Tier 5.5 verdict detail for a single chat message
+// ABOUTME: User-facing drawer showing the claim verdict detail for a single chat message
 // ABOUTME: Includes the "Ask me about this claim" call-to-action that pre-fills the chat input
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

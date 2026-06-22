@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the claim verdict (Tier 5.5 bullshit detector) persistence domain
+// ABOUTME: Repository trait definitions for the claim verdict (bullshit detector) persistence domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -68,7 +68,7 @@ pub struct VerdictDailyBucket {
 /// [`ClaimVerdictRepository::aggregate_verdict_stats`].
 ///
 /// Drives the admin "Verdict calibration" panel in the eval harness
-/// tab — shows the live Tier 5.5 verdict mix and how it drifts day to
+/// tab — shows the live claim verdict mix and how it drifts day to
 /// day over the requested window.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct VerdictCalibrationStats {
@@ -82,7 +82,7 @@ pub struct VerdictCalibrationStats {
     pub daily: Vec<VerdictDailyBucket>,
 }
 
-/// Tier 5.5 claim verdict repository — persists post-LLM detector output.
+/// Claim verdict repository — persists post-LLM detector output.
 #[async_trait]
 pub trait ClaimVerdictRepository: Send + Sync {
     /// Persist a new claim verdict.

@@ -1,4 +1,4 @@
-// ABOUTME: Phase D Sprint C13 — admin myth-busting tab summarizing Tier 5.5 unsupported claims
+// ABOUTME: Phase D Sprint C13 — admin myth-busting tab summarizing unsupported claims
 // ABOUTME: Top recurring claim texts, top offending coaches, top categories from claim_verdicts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

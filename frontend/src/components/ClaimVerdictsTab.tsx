@@ -1,4 +1,4 @@
-// ABOUTME: Tier 5.5 admin tab — triage flagged claim verdicts from the bullshit detector
+// ABOUTME: Claim-verification admin tab — triage flagged claim verdicts from the bullshit detector
 // ABOUTME: Lists claim_verdicts with status/category/coach filters, drill-down drawer for details
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

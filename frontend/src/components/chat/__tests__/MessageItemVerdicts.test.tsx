@@ -1,4 +1,4 @@
-// ABOUTME: Sprint C4 tests — MessageItem renders Tier 5.5 verdict chips on assistant messages
+// ABOUTME: Sprint C4 tests — MessageItem renders claim verdict chips on assistant messages
 // ABOUTME: Asserts chip visibility, drawer-open callback, and ask-about-claim shortcut
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -47,7 +47,7 @@ function verdictForMessage(messageId: string, overrides: Partial<ChatVerdictRow>
   };
 }
 
-describe('MessageItem Tier 5.5 verdict chip', () => {
+describe('MessageItem claim verdict chip', () => {
   it('does not render a chip when no verdicts exist', () => {
     render(<MessageItem message={assistantMessage()} verdicts={[]} />);
     expect(screen.queryByText(/verdict/)).not.toBeInTheDocument();

@@ -210,7 +210,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     setMessageFeedbackComment(comments);
   }, [messagesData]);
 
-  // Tier 5.5 — claim verdicts attached to messages in the selected conversation.
+  // Claim verdicts attached to messages in the selected conversation.
   // Refetched alongside messages so a coach reply that triggers verification
   // surfaces its chip without a manual reload.
   const { data: verdictsData } = useQuery({
@@ -247,7 +247,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     return coachesListData?.coaches?.find(c => c.id === coachId)?.title ?? null;
   }, [conversationsData, coachesListData, selectedConversation, pendingCoachId]);
 
-  // Drawer state for the Tier 5.5 verdict detail surface.
+  // Drawer state for the claim verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ChatVerdictRow | null>(null);
 
   // Live pipeline progress for the in-flight turn. The hook subscribes

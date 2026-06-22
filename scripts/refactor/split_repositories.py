@@ -125,7 +125,7 @@ DOMAINS = [
     ('harness_memory', 'coaching harness memory (Tier 0 foundations)', [
         'UpsertUserFactParams','InsertCompactionBlockParams','InsertCoachNoteParams','InsertCoachFollowupParams','HarnessMemoryRepository',
     ]),
-    ('claim_verdicts', 'claim verdict (Tier 5.5 bullshit detector) persistence', [
+    ('claim_verdicts', 'claim verdict (bullshit detector) persistence', [
         'InsertClaimVerdictParams','VerdictStatusBreakdown','VerdictDailyBucket','VerdictCalibrationStats','ClaimVerdictRepository',
     ]),
     ('weather', 'weather cache persistence', [

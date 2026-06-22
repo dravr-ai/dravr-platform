@@ -1,4 +1,4 @@
-// ABOUTME: Tests for EvalHarnessTab fixture browser and Tier 5.5 verdict calibration panel
+// ABOUTME: Tests for EvalHarnessTab fixture browser and verdict calibration panel
 // ABOUTME: Mocks adminApi + useAuth and asserts summary counters, case drill-down, pass rate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

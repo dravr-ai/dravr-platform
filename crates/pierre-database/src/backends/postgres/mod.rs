@@ -18,7 +18,7 @@ pub mod admin;
 pub mod api_key;
 /// Chat repository implementation
 pub mod chat;
-/// Tier 5.5 claim verdict repository implementation
+/// Claim verdict repository implementation
 pub mod claim_verdicts;
 /// Coaches repository implementation
 pub mod coaches;

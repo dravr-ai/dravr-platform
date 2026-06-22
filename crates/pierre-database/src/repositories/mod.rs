@@ -14,7 +14,7 @@ pub mod admin;
 pub mod api_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
-/// Repository traits for claim verdict (Tier 5.5 bullshit detector) persistence.
+/// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
 /// Repository traits for coaches catalogue, coaching groups, store listings.
 pub mod coaches;

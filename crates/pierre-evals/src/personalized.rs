@@ -1,13 +1,14 @@
-// ABOUTME: Layer 2.5 of the bullshit detector — checks a claim against the athlete's OWN computed physiology
+// ABOUTME: The personalized-physiology layer of the bullshit detector — checks a claim against the athlete's OWN computed physiology
 // ABOUTME: Pluggable ToleranceStrategy decides when a claimed number contradicts the athlete's VDOT-derived ranges
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Personalized physiology (Layer 2.5)
+//! # Personalized physiology
 //!
-//! Where Layer 2 ([`crate::deterministic_bounds`]) checks a claim against
-//! *population* bounds ("HR max of 300 bpm is impossible"), Layer 2.5 checks it
+//! Where the deterministic-bounds layer ([`crate::deterministic_bounds`]) checks
+//! a claim against *population* bounds ("HR max of 300 bpm is impossible"), this
+//! layer checks it
 //! against the *individual athlete's* computed physiology: VDOT-derived training
 //! paces, HR zones, FTP, VO2max, and recent training load. This is what makes
 //! "checked against your VDOT 52" literally true — a 4:00/km threshold
@@ -37,7 +38,7 @@
 //!
 //! A VDOT computed from a single stale activity is a garbage estimate, and
 //! firing "contradicted" off it is worse than staying silent. [`check`] returns
-//! `None` (the claim falls through to Layer 3 unchanged) whenever the snapshot
+//! `None` (the claim falls through to the evidence-retrieval layer unchanged) whenever the snapshot
 //! is backed by fewer than [`MIN_DATA_DAYS`] days of history.
 
 use crate::claim_extractor::ExtractedClaim;
@@ -45,8 +46,8 @@ use crate::deterministic_bounds::extract_number_near;
 use crate::verdict_engine::VerdictOutcome;
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
-/// Minimum days of activity history backing the snapshot before Layer 2.5 is
-/// allowed to fire. Below this the estimates are too noisy to contradict a
+/// Minimum days of activity history backing the snapshot before the personalized
+/// layer is allowed to fire. Below this the estimates are too noisy to contradict a
 /// coach against.
 pub const MIN_DATA_DAYS: u32 = 14;
 
@@ -219,7 +220,7 @@ fn normalize_range((a, b): (f64, f64)) -> (f64, f64) {
     }
 }
 
-/// Everything Layer 2.5 needs, bundled so the pipeline can thread a single
+/// Everything the personalized layer needs, bundled so the pipeline can thread a single
 /// `Option<&PersonalizedContext>` (where `None` skips the layer entirely).
 pub struct PersonalizedContext<'a> {
     /// The athlete's computed physiology snapshot.
@@ -232,11 +233,11 @@ pub struct PersonalizedContext<'a> {
 /// (when known), and a short label for the explanation text.
 type PaceProbe = (&'static [&'static str], Option<(f64, f64)>, &'static str);
 
-/// Run Layer 2.5 over a single claim.
+/// Run the personalized layer over a single claim.
 ///
 /// Returns `Some(verdict)` when the claim makes a checkable numeric assertion
 /// about a metric the snapshot covers and the strategy reaches a confident
-/// call; `None` otherwise (the claim then flows to Layer 3 unchanged).
+/// call; `None` otherwise (the claim then flows to the evidence-retrieval layer unchanged).
 #[must_use]
 pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<VerdictOutcome> {
     let m = ctx.metrics;
@@ -347,7 +348,7 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
 }
 
 /// Build the verdict for a resolved probe. `Indeterminate` collapses to `None`
-/// so the claim flows through to Layer 3 instead of firing a weak verdict.
+/// so the claim flows through to the evidence-retrieval layer instead of firing a weak verdict.
 fn verdict_for(
     ctx: &PersonalizedContext<'_>,
     range: (f64, f64),

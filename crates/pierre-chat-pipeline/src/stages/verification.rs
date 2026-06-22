@@ -1,10 +1,10 @@
-// ABOUTME: Tier 5.5 claim verification stage — runs the bullshit detector pipeline over the assistant reply
+// ABOUTME: Claim verification stage — runs the bullshit detector pipeline over the assistant reply
 // ABOUTME: Provides apply_claim_verification — emits ClaimVerdict rows for evidence-strength chips
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tier 5.5 claim verification.
+//! Claim verification.
 //!
 //! Runs the `pierre_evals` heuristic pipeline over the assistant reply to
 //! detect unsupported claims, persists verdicts for the admin dashboard,
@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 /// Localizes the verification warn / block-fallback strings.
 ///
-/// The Tier 5.5 banner is appended verbatim to the LLM's reply, so the
+/// The claim-verification banner is appended verbatim to the LLM's reply, so the
 /// banner's language must match the reply's language — otherwise an
 /// English session ends with a French postscript (or vice versa).
 ///
@@ -164,7 +164,7 @@ fn actionable_flag(claim: &ExtractedClaim, outcome: &VerdictOutcome) -> Option<b
 
 /// The dispatch action for a single verdict.
 ///
-/// Personalized (Layer 2.5) verdicts route through the coach's
+/// Personalized verdicts route through the coach's
 /// [`ContradictionPolicy`]; every other layer keeps the existing
 /// `fallback_behavior` mapping, so non-personalized behavior is unchanged.
 fn resolved_action(outcome: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction {
@@ -232,7 +232,7 @@ pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
         tracing::info!(
             shown = flagged.len(),
             total = total_flagged,
-            "Tier 5.5 truncated the flagged-claim warning list"
+            "claim verification truncated the flagged-claim warning list"
         );
     }
     flagged
@@ -243,7 +243,7 @@ pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
 
 /// Inputs to [`apply_claim_verification`].
 ///
-/// Bundles the Tier 5.5 turn context so the function signature stays under
+/// Bundles the claim-verification turn context so the function signature stays under
 /// clippy's `too_many_arguments` ceiling. All fields are borrowed from
 /// caller-owned state — no ownership transfer, no cloning.
 pub struct ClaimVerificationParams<'a> {
@@ -255,13 +255,13 @@ pub struct ClaimVerificationParams<'a> {
     pub config: &'a VerificationConfig,
     /// Resolved locale for Warn/Block fallback strings, `None` → default.
     pub locale: Option<&'a str>,
-    /// User whose physiology backs the Layer 2.5 personalized snapshot.
+    /// User whose physiology backs the personalized snapshot.
     pub user_id: &'a str,
     /// Tenant owning the user's data (multi-tenant scoping for snapshot reads).
     pub tenant_id: TenantId,
 }
 
-/// Result of running Tier 5.5 verification on an assistant reply.
+/// Result of running claim verification on an assistant reply.
 ///
 /// Callers must persist `pending_verdicts` after the assistant message is
 /// durable; each verdict carries the claim and outcome fields needed to build
@@ -306,12 +306,12 @@ pub async fn apply_claim_verification(
     }
 
     let corpus = resolve_corpus(&ctx.evidence_registry);
-    // Layer 5 LLM judge runs only when a provider is configured; otherwise the
+    // The LLM-judge layer runs only when a provider is configured; otherwise the
     // pipeline stays fully deterministic and inconclusive claims settle on the
     // evidence layer's verdict.
     let judge = ctx.llm_provider.as_deref();
 
-    // Layer 2.5 — build the athlete snapshot + tolerance strategy when the coach
+    // The personalized layer — build the athlete snapshot + tolerance strategy when the coach
     // enabled personalized verification. The snapshot owns its data so its
     // borrow lives through the verify call; an unusable snapshot (thin history)
     // makes the layer a silent no-op. Kept in fn-scope so `personalized` can
@@ -337,7 +337,7 @@ pub async fn apply_claim_verification(
     {
         Ok(verdicts) => verdicts,
         Err(e) => {
-            tracing::warn!(error = %e, "Tier 5.5 verification failed — skipping claim verdicts");
+            tracing::warn!(error = %e, "claim verification failed — skipping claim verdicts");
             return ClaimVerificationOutcome {
                 content: reply.to_owned(),
                 pending_verdicts: Vec::new(),
@@ -385,7 +385,7 @@ pub async fn apply_claim_verification(
             ResolvedAction::BlockRetry => {
                 tracing::warn!(
                     flagged_claims = problems.len(),
-                    "Tier 5.5 block fallback fired — replacing reply"
+                    "claim-verification block fallback fired — replacing reply"
                 );
                 ctx.messaging_strings_registry
                     .get(KEY_VERIFICATION_BLOCK_FALLBACK, locale)
@@ -399,7 +399,7 @@ pub async fn apply_claim_verification(
     }
 }
 
-/// Build the Layer 2.5 inputs (athlete snapshot + tolerance strategy) for a turn.
+/// Build the personalized-layer inputs (athlete snapshot + tolerance strategy) for a turn.
 ///
 /// Returns `None` when personalized verification is disabled, the user id is
 /// unparseable, or the snapshot is too thin to trust

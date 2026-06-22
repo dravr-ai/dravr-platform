@@ -1,10 +1,10 @@
-// ABOUTME: Layer 0 of the bullshit detector — decomposes a coach reply into atomic claims
+// ABOUTME: The claim-extraction stage of the bullshit detector — decomposes a coach reply into atomic claims
 // ABOUTME: Uses pierre_llm::judge::ask_for_json when an LLM is available; static rules otherwise
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Claim Extractor (Layer 0)
+//! # Claim Extractor
 //!
 //! Given a raw coach response, returns a list of atomic propositions, each
 //! tagged with a [`ClaimCategory`]. The extractor has two modes:
@@ -14,7 +14,7 @@
 //!   structured list.
 //! - **Heuristic** (`extract_heuristic`) — pure-Rust fallback that splits
 //!   on sentence boundaries and category-classifies via keyword matching.
-//!   Used when Layer 0 must run without an LLM (dev, tests, cost cap).
+//!   Used when extraction must run without an LLM (dev, tests, cost cap).
 
 use pierre_core::errors::AppResult;
 use pierre_llm::judge::ask_for_json;

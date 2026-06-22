@@ -10,7 +10,7 @@
 //! coverage:
 //! - `coach_note_add`, `coach_followup_schedule` — coach-authored memory writes
 //! - `remember_fact`, `recall_user_memory` — Letta-style active memory
-//! - `verify_claim` — Tier 5.5 bullshit detector
+//! - `verify_claim` — bullshit detector
 //! - `analyze_weather_impact` — weather-correlation analytics (provider-gated)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

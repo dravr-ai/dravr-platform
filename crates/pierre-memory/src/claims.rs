@@ -1,4 +1,4 @@
-// ABOUTME: Claim verdicts emitted by the Tier 5.5 bullshit detector pipeline
+// ABOUTME: Claim verdicts emitted by the claim-verification (bullshit detector) pipeline
 // ABOUTME: Pure types — persistence in pierre-database, pipeline in pierre-evals
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -168,19 +168,19 @@ impl EvidenceStrength {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerdictLayer {
-    /// Layer 1 — rhetoric / question / greeting filter, no LLM.
+    /// Rhetoric / question / greeting filter — the first stage, no LLM.
     Rhetoric,
-    /// Layer 2 — deterministic per-category bounds (pure Rust).
+    /// Deterministic per-category bounds against population limits (pure Rust).
     Deterministic,
-    /// Layer 2.5 — claim checked against the athlete's own computed
-    /// physiology (VDOT-derived training paces, HR/power zones, recent load).
+    /// Claim checked against the athlete's own computed physiology
+    /// (VDOT-derived training paces, HR/power zones, recent load).
     /// Pure Rust; fires only when a personalized snapshot is supplied.
     Personalized,
-    /// Layer 3 — evidence RAG against the curated corpus.
+    /// Evidence RAG against the curated sports-science corpus.
     Evidence,
-    /// Layer 4 — cross-check against other claims in the same reply.
+    /// Cross-check against other claims in the same reply.
     Consistency,
-    /// Layer 5 — LLM-as-judge fallback when earlier layers were inconclusive.
+    /// LLM-as-judge fallback when the earlier stages were inconclusive.
     Judge,
 }
 
@@ -213,7 +213,7 @@ impl VerdictLayer {
     }
 }
 
-/// A single verdict emitted by the Tier 5.5 claim verification pipeline.
+/// A single verdict emitted by the claim-verification pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimVerdict {
     /// Stable identifier.

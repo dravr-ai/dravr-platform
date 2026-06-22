@@ -1,5 +1,5 @@
 // ABOUTME: LLM-as-judge invocation backed by pierre_llm::judge::ask_for_json
-// ABOUTME: Rubric scoring for the eval harness plus the bullshit detector's Layer 5 claim judge
+// ABOUTME: Rubric scoring for the eval harness plus the bullshit detector's LLM-judge claim layer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,8 @@
 //!
 //! - [`judge_response`] — rubric-based 1–5 scoring of a whole coach reply
 //!   against the golden fixtures, used by the eval report layer.
-//! - [`judge_claim`] — the bullshit detector's **Layer 5** fallback. When
-//!   layers 1–4 cannot reach a confident verdict on a single claim, the
+//! - [`judge_claim`] — the bullshit detector's **LLM-judge** fallback. When
+//!   the earlier layers cannot reach a confident verdict on a single claim, the
 //!   claim is handed to the LLM with the retrieved evidence (if any) and
 //!   asked to return a structured supported / contradicted / unverifiable
 //!   judgement.
@@ -144,7 +144,7 @@ fn build_system_prompt(rubrics: &[Rubric]) -> String {
     s
 }
 
-/// JSON shape the Layer 5 claim judge is asked to return.
+/// JSON shape the LLM-judge claim layer is asked to return.
 #[derive(Debug, Clone, Deserialize)]
 struct RawClaimJudgement {
     verdict: String,
@@ -179,9 +179,9 @@ Return strict JSON of the form:
 Be conservative: prefer "unverifiable" over guessing. Use the exact verdict strings above."#;
 
 /// Judge a single claim with the configured LLM provider — the bullshit
-/// detector's Layer 5 fallback.
+/// detector's LLM-judge fallback.
 ///
-/// `evidence_context` carries any propositions Layer 3 retrieved (possibly
+/// `evidence_context` carries any propositions the evidence-retrieval layer retrieved (possibly
 /// empty) so the judge can ground its verdict instead of relying on parametric
 /// memory alone. The raw verdict string is mapped to a [`ClaimStatus`];
 /// anything the model returns outside the three known verdicts is treated as

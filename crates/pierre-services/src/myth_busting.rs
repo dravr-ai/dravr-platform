@@ -1,4 +1,4 @@
-// ABOUTME: Phase D Sprint C13 — myth-busting summary service over Tier 5.5 claim verdicts
+// ABOUTME: Phase D Sprint C13 — myth-busting summary service over claim verdicts
 // ABOUTME: Aggregates unsupported/contradicted claims tenant-wide for admin pattern review
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! Myth-busting summary service.
 //!
-//! The Tier 5.5 claim verdict pipeline writes one row per coach claim
+//! The claim verdict pipeline writes one row per coach claim
 //! it inspects. This service runs purely on read: it reads the most
 //! recent verdicts, filters to unsupported / contradicted entries,
 //! and rolls them up into the patterns admins care about (top claim

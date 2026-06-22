@@ -14,7 +14,7 @@
 //! resources (Discord/Slack gateways, messaging ingress, endurance
 //! training history compute, chat verdict materialization).
 
-/// Chat verdict service: maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
+/// Chat verdict service: maps ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
 
 /// User-facing memory fact service: list and forget what the coach remembers (Sprint C5)

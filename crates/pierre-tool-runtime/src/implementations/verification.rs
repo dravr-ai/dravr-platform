@@ -1,4 +1,4 @@
-// ABOUTME: Tier 5.5 verify_claim MCP tool — exposes the bullshit detector pipeline as a tool call
+// ABOUTME: verify_claim MCP tool — exposes the claim-verification (bullshit detector) pipeline as a tool call
 // ABOUTME: Coach persona can call it mid-turn to sanity-check a claim before emitting it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! # Verification Tools
 //!
 //! Currently ships one tool — [`VerifyClaimTool`] — that runs a caller-
-//! provided claim through the Tier 5.5 detector pipeline and returns a
+//! provided claim through the claim-verification detector pipeline and returns a
 //! structured verdict. Persistence of the verdict to `claim_verdicts` is
 //! done by the same pipeline the dispatch hook uses, so the admin "flagged
 //! claims" surface stays consistent whether a claim was verified by the
@@ -66,7 +66,7 @@ fn optional_string_field(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
-/// Run the Tier 5.5 detector pipeline on a single claim.
+/// Run the claim-verification detector pipeline on a single claim.
 pub struct VerifyClaimTool;
 
 #[async_trait]
@@ -130,7 +130,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
         };
         tool_definition(
             "verify_claim",
-            "Check a factual claim against the Tier 5.5 bullshit detector pipeline (rhetoric → deterministic bounds → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.",
+            "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → personalized physiology → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.",
             schema,
             Some(verify_annotations()),
         )
@@ -221,7 +221,7 @@ const fn matches_status(s: ClaimStatus) -> &'static str {
     s.as_str()
 }
 
-/// Build the Tier 5.5 verification tools for registration.
+/// Build the claim-verification tools for registration.
 #[must_use]
 pub fn create_verification_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
     vec![Box::new(VerifyClaimTool)]

@@ -147,7 +147,7 @@ pub struct ChatPipelineContext {
     pub prompt_registry: Arc<PromptRegistry>,
     /// Hot-reloadable tool description overlays.
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
-    /// Hot-reloadable Tier 5.5 claim verification corpus.
+    /// Hot-reloadable claim verification corpus.
     pub evidence_registry: Arc<EvidenceRegistry>,
     /// Hot-reloadable messaging-strings registry (canned replies, banners).
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
@@ -873,7 +873,7 @@ async fn run_turn(
         persist_assistant_response(database, &assistant_params, input.conversation_tenant_id)
             .await?;
 
-    // Stage 19.5: Persist Tier 5.5 verdicts now that the assistant message is durable.
+    // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]
     if !post_processed.pending_verdicts.is_empty() {
         persist_pending_verdicts(

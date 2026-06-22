@@ -38,7 +38,7 @@ tools-memory = []          # coach-authored memory (notes, followups, fact recal
 tools-nutrition = ["dep:pierre-external"]  # daily_nutrition, nutrient_timing, food search (USDA via pierre-external)
 tools-recipes = ["dep:pierre-external"]  # recipe tools (USDA validation via pierre-external)
 tools-sleep = []           # sleep_quality, recovery_score, rest_day
-tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]  # Tier 5.5 verify_claim
+tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]  # verify_claim claim-verification tool
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors"] }

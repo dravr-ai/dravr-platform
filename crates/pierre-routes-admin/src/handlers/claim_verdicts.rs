@@ -1,4 +1,4 @@
-// ABOUTME: Admin routes for triaging Tier 5.5 claim verdicts from the bullshit detector
+// ABOUTME: Admin routes for triaging claim verdicts from the bullshit detector
 // ABOUTME: Provides list/filter/detail endpoints over the claim_verdicts table
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! Admin claim verdict triage routes.
 //!
-//! Surfaces the rows written by the Tier 5.5 detector pipeline
+//! Surfaces the rows written by the detector pipeline
 //! (`services::claim_verification::apply_claim_verification`) so tenant
 //! admins can review flagged claims, see which coach emitted them, and
 //! drill into the supporting evidence.

@@ -1,4 +1,4 @@
-// ABOUTME: Layer 1 deterministic checks — substring assertions, length caps, persona keywords
+// ABOUTME: Eval-harness deterministic checks — substring assertions, length caps, persona keywords
 // ABOUTME: Pure-Rust, runs on 100% of responses without any LLM dependency
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

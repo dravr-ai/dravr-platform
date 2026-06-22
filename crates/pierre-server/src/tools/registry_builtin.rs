@@ -113,7 +113,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_memory_tools(registry);
 
-    // Verification tools (Tier 5.5 bullshit detector)
+    // Verification tools (bullshit detector)
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
 
@@ -140,7 +140,7 @@ fn register_memory_tools(registry: &mut ToolRegistry) {
     );
 }
 
-/// Register Tier 5.5 verification tools.
+/// Register verification tools.
 #[cfg(feature = "tools-verification")]
 fn register_verification_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::verification::create_verification_tools;

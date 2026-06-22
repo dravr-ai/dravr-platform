@@ -1,4 +1,4 @@
-// ABOUTME: Layer 6 of the bullshit detector — builds the user-facing explanation for a verdict
+// ABOUTME: The explanation stage of the bullshit detector — builds the user-facing explanation for a verdict
 // ABOUTME: Pure Rust templater for Phase A; LLM rewriting deferred to Phase D
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

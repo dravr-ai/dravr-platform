@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for the Tier 5.5 EvidenceRegistry contremaitre mirror
+// ABOUTME: Integration tests for the EvidenceRegistry contremaitre mirror
 // ABOUTME: Exercises update/remove/list/corpus_for/full_corpus without hitting the GitHub API
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

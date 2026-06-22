@@ -1,4 +1,4 @@
-// ABOUTME: Synthesizes layers 1-5 of the bullshit detector pipeline into a single ClaimVerdict
+// ABOUTME: Synthesizes the bullshit detector pipeline layers into a single ClaimVerdict
 // ABOUTME: Runs rhetoric → deterministic → evidence → consistency → LLM judge in order
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,37 +10,37 @@
 //! order and returns a single [`VerdictOutcome`]. Short-circuits on the
 //! first confident verdict:
 //!
-//! 1. **Rhetoric** — [`rhetoric_detector::classify`]. If rhetorical,
-//!    emit `ClaimStatus::Rhetorical` with `VerdictLayer::Rhetoric` and stop.
-//! 2. **Deterministic** — hard-coded per-category sanity bounds. If any
-//!    bound is violated, emit `ClaimStatus::Contradicted` with
-//!    `VerdictLayer::Deterministic`.
-//! 2.5. **Personalized** — when an athlete snapshot is supplied, check the
-//!    claim against that athlete's own VDOT-derived paces, zones, and load. A
-//!    clear mismatch emits `ClaimStatus::Contradicted`, a match emits
-//!    `ClaimStatus::Supported`, both with `VerdictLayer::Personalized`.
-//! 3. **Evidence** — retrieval against [`EvidenceCorpus`]. If a match at
-//!    or above the configured minimum strength, emit
-//!    `ClaimStatus::Supported` with `VerdictLayer::Evidence` and stop.
-//! 4. **Consistency** — [`consistency::find_contradiction`] cross-checks
-//!    the claim against the other claims in the same reply. If a sibling
-//!    directly contradicts it, emit `ClaimStatus::Contradicted` with
-//!    `VerdictLayer::Consistency`.
-//! 5. **Judge** — [`judge::judge_claim`] LLM fallback, invoked only when
-//!    layers 1–4 were inconclusive *and* a provider was injected. Emits the
-//!    judge's `ClaimStatus` with `VerdictLayer::Judge`.
+//! - **The rhetoric filter** — [`rhetoric_detector::classify`]. If rhetorical,
+//!   emit `ClaimStatus::Rhetorical` with `VerdictLayer::Rhetoric` and stop.
+//! - **The deterministic-bounds layer** — hard-coded per-category population
+//!   bounds. If any bound is violated, emit `ClaimStatus::Contradicted` with
+//!   `VerdictLayer::Deterministic`.
+//! - **The personalized-physiology layer** — when an athlete snapshot is
+//!   supplied, check the claim against that athlete's own VDOT-derived paces,
+//!   zones, and load. A clear mismatch emits `ClaimStatus::Contradicted`, a
+//!   match emits `ClaimStatus::Supported`, both with `VerdictLayer::Personalized`.
+//! - **The evidence-retrieval layer** — retrieval against [`EvidenceCorpus`].
+//!   If a match at or above the configured minimum strength, emit
+//!   `ClaimStatus::Supported` with `VerdictLayer::Evidence` and stop.
+//! - **The consistency-check layer** — [`consistency::find_contradiction`]
+//!   cross-checks the claim against the other claims in the same reply. If a
+//!   sibling directly contradicts it, emit `ClaimStatus::Contradicted` with
+//!   `VerdictLayer::Consistency`.
+//! - **The LLM-judge layer** — [`judge::judge_claim`] LLM fallback, invoked
+//!   only when the earlier layers were inconclusive *and* a provider was
+//!   injected. Emits the judge's `ClaimStatus` with `VerdictLayer::Judge`.
 //!
 //! Three entry points share the same layer logic:
 //!
-//! - [`check_claim`] runs a single claim through layers 1–4 (the LLM-free
-//!   path). Sibling claims for Layer 4 are passed in; Layer 5 needs an LLM
-//!   provider so it never runs here — an inconclusive claim falls through to
-//!   the evidence verdict.
+//! - [`check_claim`] runs a single claim through every pure-Rust layer (the
+//!   LLM-free path). Sibling claims for the consistency-check layer are passed
+//!   in; the LLM-judge layer needs an LLM provider so it never runs here — an
+//!   inconclusive claim falls through to the evidence verdict.
 //! - [`check_claim_judged`] is the async, single-claim counterpart that also
-//!   runs Layer 5 when a provider is supplied.
-//! - [`check_reply`] runs a whole reply's claims through all five layers,
-//!   threading each claim's siblings into Layer 4 and the optional judge
-//!   provider into Layer 5.
+//!   runs the LLM-judge layer when a provider is supplied.
+//! - [`check_reply`] runs a whole reply's claims through every layer,
+//!   threading each claim's siblings into the consistency-check layer and the
+//!   optional judge provider into the LLM-judge layer.
 
 use crate::claim_extractor::ExtractedClaim;
 use crate::consistency::find_contradiction;
@@ -70,33 +70,34 @@ pub struct VerdictOutcome {
     pub evidence_refs: Option<String>,
 }
 
-/// Result of running the four pure-Rust layers (rhetoric, deterministic,
+/// Result of running the pure-Rust layers (rhetoric, deterministic,
 /// evidence, consistency). Either one of them reached a confident verdict, or
 /// they were all inconclusive and the retrieved evidence is carried forward so
-/// the optional Layer 5 judge can ground its decision.
+/// the optional LLM-judge layer can ground its decision.
 enum LayerResult {
-    /// A confident verdict from layers 1–4.
+    /// A confident verdict from the pure-Rust layers.
     Resolved(VerdictOutcome),
-    /// Layers 1–4 were inconclusive; carries the evidence Layer 3 retrieved.
+    /// The pure-Rust layers were inconclusive; carries the evidence the
+    /// evidence-retrieval layer retrieved.
     Inconclusive(Vec<EvidenceMatch>),
 }
 
-/// Check a claim against pipeline layers 1–4 in order, stopping at the first
-/// confident verdict.
+/// Check a claim against the pure-Rust pipeline layers in order, stopping at
+/// the first confident verdict.
 ///
 /// `siblings` is the other claims in the same coach reply (pass the full slice
-/// including `claim` — it is skipped by identity) so Layer 4 can detect a
-/// self-contradiction. For a claim checked in true isolation, pass an empty
-/// slice; Layer 4 then has nothing to compare against and the verdict falls
-/// through to the evidence layer.
+/// including `claim` — it is skipped by identity) so the consistency-check
+/// layer can detect a self-contradiction. For a claim checked in true
+/// isolation, pass an empty slice; the consistency-check layer then has nothing
+/// to compare against and the verdict falls through to the evidence layer.
 ///
 /// `minimum_strength` controls the Evidence Strength threshold at which an
 /// evidence-layer match counts as "supported". Below that, and absent a
 /// sibling contradiction, the verdict falls through to `Unsupported`.
 ///
-/// This is the LLM-free path: Layer 5 (judge) needs an LLM provider, so this
-/// function never makes a network call. Use [`check_reply`] to additionally
-/// run Layer 5 over a whole coach reply.
+/// This is the LLM-free path: the LLM-judge layer needs an LLM provider, so
+/// this function never makes a network call. Use [`check_reply`] to
+/// additionally run the LLM-judge layer over a whole coach reply.
 #[must_use]
 pub fn check_claim(
     claim: &ExtractedClaim,
@@ -115,17 +116,18 @@ pub fn check_claim(
 
 /// Run all five pipeline layers over every claim in a coach reply.
 ///
-/// Each claim is checked against layers 1–3 individually, then Layer 4
-/// (consistency) cross-checks it against its `claims` siblings, and Layer 5
-/// (judge) is invoked as the fallback when the first four layers were
-/// inconclusive and `judge` is `Some`. Pass `judge: None` to keep the
-/// pipeline fully deterministic (no LLM call), in which case inconclusive
-/// claims settle on the evidence layer's `Unsupported` verdict.
+/// Each claim is checked against the rhetoric, deterministic-bounds, and
+/// evidence-retrieval layers individually, then the consistency-check layer
+/// cross-checks it against its `claims` siblings, and the LLM-judge layer is
+/// invoked as the fallback when the earlier layers were inconclusive and
+/// `judge` is `Some`. Pass `judge: None` to keep the pipeline fully
+/// deterministic (no LLM call), in which case inconclusive claims settle on the
+/// evidence layer's `Unsupported` verdict.
 ///
 /// # Errors
 ///
-/// Propagates the LLM error from Layer 5 when the judge is invoked and the
-/// provider call (or its JSON parse) fails.
+/// Propagates the LLM error from the LLM-judge layer when the judge is invoked
+/// and the provider call (or its JSON parse) fails.
 pub async fn check_reply(
     claims: &[ExtractedClaim],
     corpus: &EvidenceCorpus,
@@ -149,17 +151,17 @@ pub async fn check_reply(
 
 /// Run all five pipeline layers over a single claim with explicit siblings.
 ///
-/// The async, judge-enabled counterpart of [`check_claim`]: layers 1–4 run
-/// exactly as in the sync path, and when they are inconclusive Layer 5 invokes
-/// `judge` (when `Some`). This is the per-claim entry the config-aware
-/// verification service uses so each claim can carry its category's own
-/// `minimum_strength` while still being cross-checked against the full sibling
-/// set.
+/// The async, judge-enabled counterpart of [`check_claim`]: the pure-Rust
+/// layers run exactly as in the sync path, and when they are inconclusive the
+/// LLM-judge layer invokes `judge` (when `Some`). This is the per-claim entry
+/// the config-aware verification service uses so each claim can carry its
+/// category's own `minimum_strength` while still being cross-checked against the
+/// full sibling set.
 ///
 /// # Errors
 ///
-/// Propagates the LLM error from Layer 5 when the judge is invoked and the
-/// provider call (or its JSON parse) fails.
+/// Propagates the LLM error from the LLM-judge layer when the judge is invoked
+/// and the provider call (or its JSON parse) fails.
 pub async fn check_claim_judged(
     claim: &ExtractedClaim,
     siblings: &[ExtractedClaim],
@@ -176,7 +178,7 @@ pub async fn check_claim_judged(
     }
 }
 
-/// Run the four pure-Rust layers (rhetoric, deterministic, evidence,
+/// Run the pure-Rust layers (rhetoric, deterministic, evidence,
 /// consistency) over a single claim. Returns the confident verdict, or
 /// [`LayerResult::Inconclusive`] carrying the evidence for the judge.
 fn run_layers_1_to_4(
@@ -186,12 +188,12 @@ fn run_layers_1_to_4(
     minimum_strength: EvidenceStrength,
     personalized: Option<&PersonalizedContext<'_>>,
 ) -> LayerResult {
-    // Layers 1–2.
+    // The rhetoric filter and deterministic-bounds layer.
     if let Some(early) = run_rhetoric_and_deterministic(claim) {
         return LayerResult::Resolved(early);
     }
 
-    // Layer 2.5 — personalized physiology. Fires only when the caller supplied
+    // The personalized-physiology layer. Fires only when the caller supplied
     // an athlete snapshot; otherwise the claim flows straight to evidence.
     if let Some(ctx) = personalized {
         if let Some(outcome) = personalized_check(claim, ctx) {
@@ -199,13 +201,13 @@ fn run_layers_1_to_4(
         }
     }
 
-    // Layer 3 — evidence retrieval. A confident support stops the pipeline.
+    // The evidence-retrieval layer. A confident support stops the pipeline.
     let matches = corpus.retrieve(&claim.text, claim.category, 3);
     if let Some(supported) = evidence_support(&matches, minimum_strength) {
         return LayerResult::Resolved(supported);
     }
 
-    // Layer 4 — consistency cross-check against sibling claims.
+    // The consistency-check layer cross-checks against sibling claims.
     if let Some(conflict) = find_contradiction(claim, siblings) {
         return LayerResult::Resolved(VerdictOutcome {
             status: ClaimStatus::Contradicted,
@@ -220,8 +222,8 @@ fn run_layers_1_to_4(
     LayerResult::Inconclusive(matches)
 }
 
-/// Layer 5: invoke the LLM judge when a provider is available, otherwise
-/// settle on the evidence layer's inconclusive verdict.
+/// The LLM-judge layer: invoke the LLM judge when a provider is available,
+/// otherwise settle on the evidence layer's inconclusive verdict.
 async fn run_judge_or_settle(
     claim: &ExtractedClaim,
     matches: &[EvidenceMatch],
@@ -243,11 +245,11 @@ async fn run_judge_or_settle(
     })
 }
 
-/// Run Layers 1 (rhetoric) and 2 (deterministic) over a claim. Returns
-/// `Some(outcome)` when either layer fires a confident verdict, `None` when
-/// the claim should continue to the evidence layer.
+/// Run the rhetoric filter and the deterministic-bounds layer over a claim.
+/// Returns `Some(outcome)` when either layer fires a confident verdict, `None`
+/// when the claim should continue to the evidence layer.
 fn run_rhetoric_and_deterministic(claim: &ExtractedClaim) -> Option<VerdictOutcome> {
-    // Layer 1 — rhetoric.
+    // The rhetoric filter.
     if classify_rhetoric(&claim.text) == RhetoricVerdict::Rhetorical {
         return Some(VerdictOutcome {
             status: ClaimStatus::Rhetorical,
@@ -260,7 +262,7 @@ fn run_rhetoric_and_deterministic(claim: &ExtractedClaim) -> Option<VerdictOutco
         });
     }
 
-    // Layer 2 — deterministic bounds.
+    // The deterministic-bounds layer.
     if let Some(violation) = deterministic_bounds::check(claim) {
         return Some(VerdictOutcome {
             status: ClaimStatus::Contradicted,
@@ -275,9 +277,9 @@ fn run_rhetoric_and_deterministic(claim: &ExtractedClaim) -> Option<VerdictOutco
     None
 }
 
-/// Layer 3 success path: returns `Some(Supported)` when the best match meets
-/// `minimum_strength`, `None` when the evidence is absent or too weak (the
-/// claim then flows to consistency / judge).
+/// Evidence-retrieval success path: returns `Some(Supported)` when the best
+/// match meets `minimum_strength`, `None` when the evidence is absent or too
+/// weak (the claim then flows to consistency / judge).
 fn evidence_support(
     matches: &[EvidenceMatch],
     minimum_strength: EvidenceStrength,
@@ -302,7 +304,7 @@ fn evidence_support(
     })
 }
 
-/// Terminal verdict when layers 1–4 were inconclusive and no judge ran.
+/// Terminal verdict when the pure-Rust layers were inconclusive and no judge ran.
 /// Either no evidence was retrieved or the best match was below threshold.
 fn inconclusive_evidence_verdict(
     matches: &[EvidenceMatch],
@@ -333,7 +335,7 @@ fn inconclusive_evidence_verdict(
     }
 }
 
-/// Render retrieved evidence as a plain-text block for the Layer 5 judge.
+/// Render retrieved evidence as a plain-text block for the LLM-judge layer.
 fn evidence_context(matches: &[EvidenceMatch]) -> String {
     matches
         .iter()

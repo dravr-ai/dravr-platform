@@ -5,6 +5,15 @@ what it does, which files own it, the design decisions, and the
 invariants that tests lock in. Start with the
 [Overview](coaching-harness-overview.md) if you haven't already.
 
+> **A note on "tier".** These are the *coaching-harness* tiers (memory →
+> compaction → … → guardrails). They are unrelated to the CI pre-push
+> "tiers" in `AGENTS.md` and the dev-validation "tiers" in
+> [development.md](development.md) — the word is reused across three
+> independent ladders. Within the claim-verification stage below, the
+> internal pipeline steps are named by function (rhetoric filter,
+> deterministic bounds, personalized physiology, evidence retrieval,
+> consistency check, LLM judge) rather than numbered.
+
 ## Tier 0 — Memory foundations
 
 **Purpose:** Give the harness a typed, tenant-scoped, multi-backend
@@ -231,7 +240,10 @@ needs its own execution queue. The current scope is "read-only
 browser so an operator can see which scenarios ship with the
 release and what each case asserts".
 
-## Tier 5.5 — Bullshit detector
+## Tier 5.5 — Claim verification (the "bullshit detector")
+
+Sits between the Tier 5 eval harness and the Tier 6 text guardrails — it
+runs post-LLM, before the guardrails.
 
 **Purpose:** Verify the factual claims a coach emits post-LLM and
 block or flag unsupported / contradicted / dangerous claims before
@@ -241,18 +253,20 @@ the user sees them.
 
 - `crates/pierre-evals/src/claim_extractor.rs` — decomposes the reply
   into atomic propositions tagged by category.
-- `crates/pierre-evals/src/rhetoric_detector.rs` — Layer 1 filter
+- `crates/pierre-evals/src/rhetoric_detector.rs` — the rhetoric filter
   that drops figures of speech, questions, greetings.
-- `crates/pierre-evals/src/deterministic_bounds.rs` — Layer 2
-  per-category hard bounds (HRmax, VO2max, protein intake, etc.).
-- `crates/pierre-evals/src/personalized.rs` — Layer 2.5 personalized
-  physiology checks against the athlete's own VDOT-derived paces,
+- `crates/pierre-evals/src/deterministic_bounds.rs` — the
+  deterministic-bounds stage: per-category hard limits (HRmax, VO2max,
+  protein intake, etc.).
+- `crates/pierre-evals/src/personalized.rs` — the personalized-physiology
+  stage: checks against the athlete's own VDOT-derived paces,
   zones, and load; pluggable `ToleranceStrategy` + `ContradictionPolicy`.
 - `crates/pierre-services/src/athlete_snapshot.rs` —
-  `build_athlete_metrics` assembles the per-user snapshot Layer 2.5
-  scores against (physiology profile + activity cache + cageux compute).
-- `crates/pierre-evals/src/evidence_retriever.rs` — Layer 3 RAG over
-  the curated sports-science corpus.
+  `build_athlete_metrics` assembles the per-user snapshot the
+  personalized stage scores against (physiology profile + activity cache
+  + cageux compute).
+- `crates/pierre-evals/src/evidence_retriever.rs` — the evidence-retrieval
+  stage: RAG over the curated sports-science corpus.
 - `crates/pierre-evals/src/verdict_engine.rs` — synthesizes the
   layers into a `VerdictOutcome` with evidence strength.
 - `crates/pierre-evals/src/verification_config.rs` — per-coach YAML
@@ -274,7 +288,7 @@ the user sees them.
    drop figures of speech before any LLM cost is incurred.
 3. **Deterministic bounds** — hard category-specific checks
    (`HR > 220 BPM` → false, `100g protein/kg bw` → false).
-4. **Personalized physiology (Layer 2.5)** — check the claim against
+4. **Personalized physiology** — check the claim against
    *this athlete's* own VDOT-derived paces, zones, FTP, and load. Pure
    Rust; fires only when a per-user snapshot is supplied.
 5. **Evidence retrieval** — RAG over the curated sports-science
@@ -290,9 +304,10 @@ Weak / None). The `ClaimVerdictRepository::insert_claim_verdict` call
 persists the row; both admin and end users see it rendered as a chip
 on the offending message via the Sprint C1 and C4 UI work.
 
-**Layer 2.5 — Personalized physiology**
+**Personalized physiology**
 
-Where Layer 2 checks claims against *population* bounds, Layer 2.5 checks
+Where the deterministic-bounds stage checks claims against *population*
+bounds, the personalized stage checks
 them against the *individual athlete's* computed physiology — VDOT-derived
 training paces, HR zones, FTP, VO2max, and recent training-stress balance.
 A 4:00/km threshold prescription is contradicted for an athlete whose VDOT
@@ -328,7 +343,7 @@ verification_config:
   surfacing it to the athlete; `user_warn` always appends a banner.
 
 Both defaults read the coach YAML, so out of the box a personalized verdict
-behaves exactly like any other Tier 5.5 verdict.
+behaves exactly like any other claim verdict.
 
 ## Tier 6 — Text guardrails
 

@@ -16,7 +16,7 @@ pub mod analytics;
 pub mod api_keys;
 /// Chat conversation and message storage
 pub mod chat;
-/// Tier 5.5 claim verdicts from the bullshit detector pipeline
+/// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
 /// Coach authors (creator profiles for Store)
 pub mod coach_authors;

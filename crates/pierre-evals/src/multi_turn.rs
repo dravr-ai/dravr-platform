@@ -1,5 +1,5 @@
 // ABOUTME: Multi-turn evaluator — slides a 3–5 turn window across a fixture, scores each turn
-// ABOUTME: Layer 3 of the eval harness; aggregates per-turn rubric verdicts into a fixture report
+// ABOUTME: The eval harness's multi-turn stage; aggregates per-turn rubric verdicts into a fixture report
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -40,9 +40,9 @@ pub struct MultiTurnReport {
 pub struct TurnResult {
     /// Turn index inside the case.
     pub turn_index: usize,
-    /// Layer 1 deterministic results.
+    /// Deterministic-check results.
     pub deterministic: DeterministicReport,
-    /// Layer 2 LLM-judge verdict.
+    /// LLM-judge verdict.
     pub verdict: JudgeVerdict,
 }
 

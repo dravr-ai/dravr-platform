@@ -1,4 +1,4 @@
-// ABOUTME: Admin eval harness tab — pierre-evals fixture browser and Tier 5.5 verdict calibration
+// ABOUTME: Admin eval harness tab — pierre-evals fixture browser and verdict calibration
 // ABOUTME: Read-only view of static fixtures and live verdict drift for Phase B/D tenant admins
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -472,7 +472,7 @@ interface CalibrationPanelProps {
 
 /**
  * Verdict calibration panel — surfaces pass rate, status mix, and daily
- * drift for the Tier 5.5 claim verification pipeline. Sources its data
+ * drift for the claim verification pipeline. Sources its data
  * from `GET /admin/evals/verdict-stats` over a 30-day window.
  */
 function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationPanelProps) {

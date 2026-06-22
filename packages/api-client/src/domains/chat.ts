@@ -29,7 +29,7 @@ export interface MessagesResponse {
 }
 
 /**
- * User-facing wire shape for a Tier 5.5 claim verdict attached to a
+ * User-facing wire shape for a claim verdict attached to a
  * conversation message. Mirrors the admin row shape but stays inside the
  * chat domain so the dispatch UI can render chips without going through
  * the admin permission gate.
@@ -217,7 +217,7 @@ export function createChatApi(axios: AxiosInstance) {
     },
 
     /**
-     * Fetch the Tier 5.5 claim verdicts attached to the messages in a
+     * Fetch the claim verdicts attached to the messages in a
      * conversation. Returns an empty array if the verification pipeline
      * has not produced any verdicts yet (or the feature is disabled).
      */

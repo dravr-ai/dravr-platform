@@ -28,11 +28,11 @@ pub mod auth;
 /// Product analytics (`PostHog`) for messaging funnel, tool usage, and command tracking
 pub mod analytics;
 
-/// Athlete physiology snapshot builder for Tier 5.5 Layer 2.5 (personalized).
+/// Athlete physiology snapshot builder for the personalized-physiology layer.
 #[cfg(feature = "tools-verification")]
 pub mod athlete_snapshot;
 
-/// Claim verification: Tier 5.5 bullshit detector pipeline + evidence corpus singleton
+/// Claim verification: bullshit detector pipeline + evidence corpus singleton
 #[cfg(feature = "tools-verification")]
 pub mod claim_verification;
 
@@ -40,7 +40,7 @@ pub mod claim_verification;
 #[cfg(feature = "tools-verification")]
 pub mod claim_verdict_backfill;
 
-/// Chat verdict service: maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
+/// Chat verdict service: maps ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
 
 /// Chat provider factory.
@@ -63,7 +63,7 @@ pub mod chat_stream;
 /// pending followups become overdue and marks them delivered.
 pub mod coach_followup_scheduler;
 
-/// Per-coach content grading derived from Tier 5.5 verdict history
+/// Per-coach content grading derived from claim verdict history
 pub mod coach_grading;
 
 /// Coach markdown import: URL fetching, security validation, warnings, definition conversion
@@ -124,7 +124,7 @@ pub mod messaging_status_bridge;
 #[cfg(feature = "client-messaging")]
 pub mod channel_error_reply;
 
-/// Myth-busting summary over Tier 5.5 verdicts (top recurring claims, coaches, categories)
+/// Myth-busting summary over claim verdicts (top recurring claims, coaches, categories)
 pub mod myth_busting;
 
 /// OAuth flow orchestration: state validation, token exchange, credential storage

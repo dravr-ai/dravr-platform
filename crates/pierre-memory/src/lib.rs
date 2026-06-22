@@ -25,10 +25,10 @@
 //!   the raw history when the context window fills up
 //! - [`CoachSession`] — a long-lived container above `chat_conversation` that
 //!   binds a user + coach pair across channels
-//! - [`ClaimVerdict`] — the output of the Tier 5.5 bullshit detector pipeline
+//! - [`ClaimVerdict`] — the output of the bullshit detector pipeline
 //!   for a single claim emitted by a coach persona
 
-/// Claim verdicts from the Tier 5.5 verification pipeline.
+/// Claim verdicts from the verification pipeline.
 pub mod claims;
 /// Summaries that replace earlier conversation turns in long sessions.
 pub mod compaction;

@@ -28,7 +28,7 @@
 //! - `routes` — `discover_routes` OSM + Overpass route discovery
 //!   (`tools-analytics`)
 //! - `sync` — `refresh_provider_data`, `get_data_freshness` (`tools-connection`)
-//! - `verification` — Tier 5.5 `verify_claim` tool (`tools-verification`)
+//! - `verification` — `verify_claim` tool (`tools-verification`)
 
 /// Shared bridge helpers for `McpTool::execute` impls that delegate to legacy
 /// boxed-future handler functions (`build_universal_request`,
@@ -124,6 +124,6 @@ pub mod sleep;
 #[cfg(feature = "tools-connection")]
 pub mod sync;
 
-/// Tier 5.5 verification tools: `verify_claim` (`tools-verification` feature).
+/// Verification tools: `verify_claim` (`tools-verification` feature).
 #[cfg(feature = "tools-verification")]
 pub mod verification;

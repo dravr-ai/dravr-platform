@@ -14,7 +14,7 @@ publish = false
 default = []
 # Forwarded to pierre-database/pierre-core for backend dispatch
 postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
-# Tier 5.5 bullshit detector services (claim_verification, claim_verdict_backfill, eval_harness)
+# Bullshit detector services (claim_verification, claim_verdict_backfill, eval_harness)
 tools-verification = ["dep:pierre-evals"]
 # Messaging-related services (messaging_outbound, messaging_seed, channel_error_reply, messaging_status_bridge)
 client-messaging = [

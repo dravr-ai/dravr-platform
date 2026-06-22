@@ -1135,7 +1135,7 @@ export const adminApi = {
     return response.data;
   },
 
-  /** Fetch Tier 5.5 verdict calibration stats for the calibration panel (Sprint C20). */
+  /** Fetch verdict calibration stats for the calibration panel (Sprint C20). */
   async getVerdictCalibrationStats(
     tenantId: string,
     windowDays = 30,
@@ -1325,7 +1325,7 @@ export interface MythBustingSummary {
   top_categories: CategoryPattern[];
 }
 
-/** Letter grade for a coach based on Tier 5.5 verdict history. */
+/** Letter grade for a coach based on claim verdict history. */
 export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
 
 /** Per-coach grade row from `GET /admin/coach-grading/summary`. */
@@ -1392,7 +1392,7 @@ export interface FollowupRow {
   delivered_at: string | null;
 }
 
-/** Wire-format representation of a Tier 5.5 claim verdict row. */
+/** Wire-format representation of a claim verdict row. */
 export interface ClaimVerdictRow {
   id: string;
   tenant_id: string;

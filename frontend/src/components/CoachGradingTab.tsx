@@ -1,4 +1,4 @@
-// ABOUTME: Phase D Sprint C14 — admin tab listing per-coach Tier 5.5 content grades
+// ABOUTME: Phase D Sprint C14 — admin tab listing per-coach claim-verification content grades
 // ABOUTME: Worst grades first so admins can review coaches at the bottom of the leaderboard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

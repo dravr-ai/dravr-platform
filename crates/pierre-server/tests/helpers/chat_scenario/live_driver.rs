@@ -24,7 +24,7 @@
 //!
 //! The driver is not a substitute for the production chat pipeline —
 //! `chat_pipeline::run` carries memory recall, persistence, post-process
-//! guardrails, and Tier 5.5 verification. The live driver exists to
+//! guardrails, and claim verification. The live driver exists to
 //! catch *LLM-shaped* regressions (vocabulary contracts, refusal text,
 //! tool-call discipline, fabrication on freshness pushback) end-to-end
 //! against a real model.
