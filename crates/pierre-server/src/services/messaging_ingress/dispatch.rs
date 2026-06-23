@@ -337,7 +337,10 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let turn_input = TurnInput {
         conversation_id: dispatch.session.conversation.clone(),
         user_id: dispatch.session.user_id.clone(),
-        conversation_tenant_id: dispatch.channel_tenant_id,
+        // The conversation lives under the session tenant (user's own for DMs);
+        // the pipeline reads/writes it with this tenant. Tools still execute
+        // under user_tenant_id (the same value for DMs).
+        conversation_tenant_id: dispatch.session_tenant_id,
         tool_tenant_id: dispatch.user_tenant_id,
         content: dispatch.text_content.clone(),
         locale: Some(dispatch.locale.clone()),
@@ -680,7 +683,9 @@ async fn persist_outbound_message(
     let correlation_str = outgoing.turn_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
-        tenant_id: dispatch.channel_tenant_id,
+        // Outbound row shares the session/conversation tenant so the whole turn
+        // (inbound + assistant) is readable as one unit under one tenant.
+        tenant_id: dispatch.session_tenant_id,
         session_id: &dispatch.session.session_id,
         direction: "outbound",
         channel_type: &dispatch.channel,
@@ -734,7 +739,11 @@ async fn try_enqueue_for_retry(
     let correlation_str = outgoing.turn_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
-        tenant_id: dispatch.channel_tenant_id,
+        // Message row shares the session tenant (see persist_outbound_message);
+        // the queue row below stays on channel_tenant_id so the retry worker
+        // loads the bot's channel config to re-send. The queue->message FK is
+        // single-column (message_id), so the differing tenants don't break it.
+        tenant_id: dispatch.session_tenant_id,
         session_id: &dispatch.session.session_id,
         direction: "outbound",
         channel_type: &dispatch.channel,

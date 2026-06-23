@@ -139,7 +139,10 @@ pub(super) async fn forge_fresh_session_conversation(
 pub(super) async fn handle_reset(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
-    tenant_id: TenantId,
+    // The session's tenant (user's own for DMs) — the fresh conversation must be
+    // forged here so the live dispatch, which reads under the same tenant, finds
+    // it. Forging under the bot tenant would make every post-reset turn self-heal.
+    session_tenant_id: TenantId,
     channel_type: ChannelType,
     channel: &str,
     sender_id: &str,
@@ -151,7 +154,7 @@ pub(super) async fn handle_reset(
         db,
         &session.session_id,
         &session.user_id,
-        tenant_id,
+        session_tenant_id,
         channel,
     )
     .await
@@ -245,7 +248,16 @@ async fn resolve_default_coach_id(resources: &ServerContext, user_id_str: &str) 
 /// per-member consent).
 pub(super) async fn resolve_linked_session(
     resources: &ServerContext,
+    // Bot/channel-owner tenant the webhook carries — used ONLY for the
+    // channel-link lookup (the link row is stored under the bot tenant, which
+    // may differ from the user's own tenant when the bot is admin-owned).
     tenant_id: TenantId,
+    // The linked user's OWN tenant (their personal workspace). Used as the
+    // session tenant for DIRECT messages, so a DM's session + conversation +
+    // messages align with the user's activity cache and the backfill-completion
+    // push can find the session by the user's tenant rather than the bot's.
+    // Group sessions stay on the channel tenant (see `session_tenant` below).
+    user_tenant_id: TenantId,
     channel_type: &str,
     sender_id: &str,
     chat_ref: ChannelChatRef<'_>,
@@ -258,7 +270,8 @@ pub(super) async fn resolve_linked_session(
     // retains messaging_sessions/messages for support and audit, so an
     // orphaned session can outlive its link. Checking the link first prevents
     // post-logout messages from leaking into the previously linked user's
-    // chat history.
+    // chat history. Looked up under the BOT tenant — that is where the link
+    // lives.
     let channel_link = db
         .get_channel_link(tenant_id, channel_type, sender_id)
         .await?;
@@ -270,19 +283,32 @@ pub(super) async fn resolve_linked_session(
         .ok_or_else(|| AppError::internal("Channel link missing user_id"))?
         .to_owned();
 
-    // Existing session, scoped to this specific chat. A user with a
-    // Telegram DM AND a Telegram group chat gets two sessions — one per
-    // (tenant, channel, user, chat) — because of migration
-    // 20260505000001_messaging_sessions_per_chat.
+    // A DM session belongs to exactly ONE user, so it lives under that user's
+    // own tenant — aligning it with the user's activity cache and letting the
+    // backfill-completion push find it. A GROUP session is shared by members who
+    // may span tenants, and its coaching_group must resolve to ONE row for
+    // everyone, so it stays under the channel/bot tenant (unchanged behaviour).
+    // get_channel_link above always uses the bot tenant regardless — that is
+    // where the link lives.
+    let session_tenant = if is_direct_message {
+        user_tenant_id
+    } else {
+        tenant_id
+    };
+
+    // Existing session, scoped to this specific chat, looked up under the
+    // session tenant chosen above. A user with a Telegram DM AND a Telegram
+    // group chat gets two sessions — one per (tenant, channel, user, chat) —
+    // because of migration 20260505000001_messaging_sessions_per_chat.
     if let Some(session) = db
-        .get_session_by_channel_identity(tenant_id, channel_type, sender_id, chat_ref.chat_id)
+        .get_session_by_channel_identity(session_tenant, channel_type, sender_id, chat_ref.chat_id)
         .await?
     {
         return resume_existing_session(
             resources,
             session,
             &linked_user_id,
-            tenant_id,
+            session_tenant,
             channel_type,
             chat_ref,
             is_direct_message,
@@ -291,11 +317,12 @@ pub(super) async fn resolve_linked_session(
         .map(Some);
     }
 
-    // No existing session — open a fresh one for the linked user.
+    // No existing session — open a fresh one for the linked user under the
+    // session tenant (user's own tenant for DMs, channel tenant for groups).
     open_new_session(
         resources,
         &linked_user_id,
-        tenant_id,
+        session_tenant,
         channel_type,
         sender_id,
         chat_ref,
