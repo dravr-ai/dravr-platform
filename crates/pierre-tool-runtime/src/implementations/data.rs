@@ -635,16 +635,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     ?before,
                     covered,
                     depth_covered,
+                    window_len = window.as_ref().map_or(0, Vec::len),
                     "get_activities historical gate decision"
                 );
 
-                if let Some(mut served) = window.filter(|_| depth_covered) {
+                if let Some(served) = window.filter(|_| depth_covered) {
                     // The requested depth is cached AND a backfill confirmed it
-                    // reaches `after` (or the feed end) — serve the single
-                    // deterministic window read, capping only the RETURNED length
-                    // by the user's display limit (never the cache read), so the
-                    // set is complete and identical across repeated calls.
-                    served.truncate(limit);
+                    // reaches `after` (or the feed end). Serve the COMPLETE window;
+                    // the user's display limit is applied AFTER the sport filter
+                    // (below), never here, so a sport-filtered ask like "my 2022
+                    // runs" can't have its older runs displaced out of the limit
+                    // window by other-sport activities that were never going to be
+                    // returned (the "2022 runs stuck at 46" bug).
                     (served, None)
                 } else {
                     // Cold cache OR a shallow (limit-capped / never-backfilled)
@@ -738,6 +740,20 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Stable newest-first ordering matches the provider default and
             // mirrors what cached responses also produce.
             filtered_activities.sort_by_key(|a| Reverse(a.start_date()));
+
+            // Apply the user's display limit AFTER the sport filter. The gate above
+            // serves the COMPLETE window; truncating before this filter let other
+            // -sport activities consume the limit budget and push older matching
+            // activities out (e.g. a year of runs collapsing to the recent 46).
+            // The live-fetch path already returns a provider-limited set, so this
+            // is a no-op there. Logged so the served size is observable.
+            info!(
+                provider = %provider_name,
+                filtered_len = filtered_activities.len(),
+                limit,
+                "get_activities served list (post sport-filter, pre display-limit)"
+            );
+            filtered_activities.truncate(limit);
 
             // Auto-promote small-limit queries to detailed by issuing
             // get_activity_detailed per id. N+1 fetch bounded by
