@@ -136,13 +136,24 @@ pub(crate) struct PendingDispatch {
     pub(super) auth_result: AuthResult,
     /// Resolved session info
     pub(super) session: ResolvedSession,
-    /// Channel config tenant — used for conversation/message persistence (the
-    /// conversation was created under this tenant).
+    /// Channel/bot-owner tenant — used ONLY for channel-scoped delivery
+    /// machinery: the channel-link lookup, the channel-config load, the outbound
+    /// send + its retry queue, and usage counters. The bot credential lives here.
     pub(super) channel_tenant_id: TenantId,
     /// User's own tenant — used for tool execution (OAuth, activities, etc.).
     /// May differ from `channel_tenant_id` when the user belongs to a different
     /// tenant than the bot that owns the webhook.
     pub(super) user_tenant_id: TenantId,
+    /// Tenant that OWNS the conversation + messages for this turn. For a DIRECT
+    /// message this is `user_tenant_id` (the session lives under the user's own
+    /// tenant, aligning chat history with the activity cache and letting the
+    /// backfill push find it); for a GROUP session it is `channel_tenant_id` (a
+    /// shared group must resolve to one tenant for members who may span tenants).
+    /// `resolve_linked_session` created/resumed the session under exactly this
+    /// tenant — the conversation read, every message write, and the reset forge
+    /// MUST use it, or the pipeline ownership check (`get_conversation` filtering
+    /// on `tenant_id`) misses and the turn fails with "Conversation not found".
+    pub(super) session_tenant_id: TenantId,
     /// Channel type enum
     pub(super) channel_type: ChannelType,
     /// Channel name string (e.g., "slack")
@@ -523,6 +534,25 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     };
 
+    // The user's own tenant for tool execution comes straight from AuthResult —
+    // authenticate_channel already resolved it (first tenant membership,
+    // falling back to the webhook tenant), the same way the JWT path's
+    // active_tenant_id flows. No second lookup.
+    let user_tenant_id = auth_result
+        .active_tenant_id
+        .map_or(tenant_id, TenantId::from_uuid);
+    // The tenant that owns the session + conversation + messages for this turn.
+    // resolve_linked_session stored the session here (the user's own tenant for a
+    // DM, the channel tenant for a group), so every conversation read, message
+    // write, and reset forge below must use it too — otherwise the pipeline's
+    // ownership check misses the row and the turn fails. Computed before the
+    // inbound store and reset so those land under the right tenant.
+    let session_tenant_id = if message.is_direct_message {
+        user_tenant_id
+    } else {
+        tenant_id
+    };
+
     // Reset command: rotate onto a fresh conversation so a user can abandon a
     // long or degraded thread. Handled here rather than via the generic slash
     // dispatcher because it mutates the messaging session binding the dispatcher
@@ -533,7 +563,7 @@ async fn persist_single_message(
         let mut reset_response = handle_reset(
             resources,
             db,
-            tenant_id,
+            session_tenant_id,
             channel_type,
             channel,
             &message.sender_id,
@@ -565,7 +595,7 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     }
 
-    let stored = store_inbound_message(db, tenant_id, &session, channel, message).await?;
+    let stored = store_inbound_message(db, session_tenant_id, &session, channel, message).await?;
     if !stored {
         return Err(());
     }
@@ -577,14 +607,6 @@ async fn persist_single_message(
         content_type_label(&message.content),
     );
     emit_messaging_intent(&session.user_id, tenant_id, channel, "normal_chat");
-
-    // The user's tenant for tool execution comes straight from AuthResult —
-    // authenticate_channel already resolved it (first tenant membership,
-    // falling back to the webhook tenant), the same way the JWT path's
-    // active_tenant_id flows. No second lookup.
-    let user_tenant_id = auth_result
-        .active_tenant_id
-        .map_or(tenant_id, TenantId::from_uuid);
 
     // Resolve the user's preferred locale once per dispatch so every
     // downstream stage (guardrails, verification, empty-reply) speaks the
@@ -622,6 +644,7 @@ async fn persist_single_message(
                     session,
                     channel_tenant_id: tenant_id,
                     user_tenant_id,
+                    session_tenant_id,
                     channel_type,
                     channel: channel.to_owned(),
                     sender_id: message.sender_id.clone(),
@@ -772,6 +795,18 @@ async fn resolve_or_prompt(
         return Ok(None);
     };
 
+    // The user's OWN tenant (their personal workspace). For DIRECT messages it
+    // becomes the session tenant — so a DM's session aligns with the user's
+    // activity cache and a backfill-completion push can find it — instead of the
+    // bot/channel tenant the webhook carries. authenticate_channel already
+    // resolved it (active_tenant_id), the same value tool execution uses. Group
+    // sessions, the channel-link lookup, and the outbound send stay on the bot
+    // tenant (the bot credential belongs to the bot owner, who may differ from
+    // the user; a group's coaching_group must resolve to one row for everyone).
+    let user_tenant_id = auth_result
+        .active_tenant_id
+        .map_or(tenant_id, TenantId::from_uuid);
+
     let chat_ref = ChannelChatRef {
         chat_id: message.conversation_id.as_deref(),
         chat_title: message.chat_title.as_deref(),
@@ -779,6 +814,7 @@ async fn resolve_or_prompt(
     match resolve_linked_session(
         resources,
         tenant_id,
+        user_tenant_id,
         channel,
         &message.sender_id,
         chat_ref,
@@ -822,7 +858,9 @@ async fn resolve_or_prompt(
 /// Returns `Ok(true)` if stored, `Err(())` on duplicate or DB error (already logged).
 async fn store_inbound_message(
     db: &dyn MessagingRepository,
-    tenant_id: TenantId,
+    // The session's tenant (user's own for DMs, channel tenant for groups) —
+    // the inbound row must share the tenant of its session + conversation.
+    session_tenant_id: TenantId,
     session: &ResolvedSession,
     channel: &str,
     message: &IncomingMessage,
@@ -838,7 +876,7 @@ async fn store_inbound_message(
 
     let params = InsertMessageParams {
         id: &msg_id,
-        tenant_id,
+        tenant_id: session_tenant_id,
         session_id: &session.session_id,
         direction: "inbound",
         channel_type: channel,
