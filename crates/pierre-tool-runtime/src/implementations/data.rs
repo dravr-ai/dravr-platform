@@ -124,6 +124,25 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
     coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
 }
 
+/// Whether a `get_activities` query may use the `CacheKey` response cache.
+///
+/// One decision governs BOTH the read short-circuit and the write-through, so
+/// the two never diverge. Two query shapes must bypass the response cache:
+///
+/// * `auto_promote_to_detail` — the cache key omits `mode`, so a cached summary
+///   cannot satisfy a detail-promoted response, and a detail payload must not be
+///   written under a key a summary request would later read.
+/// * `is_historical` — a deep historical window must route through the
+///   coverage-aware gate, never a TTL'd response that could keep serving a stale
+///   slice after the coverage was purged. Excluding it from the WRITE too keeps
+///   the cache from accumulating historical entries that are never read back.
+///
+/// `pub` so the read/write contract is exercisable by the integration test suite.
+#[must_use]
+pub fn response_cache_eligible(auto_promote_to_detail: bool, is_historical: bool) -> bool {
+    !auto_promote_to_detail && !is_historical
+}
+
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
 fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
     let end = args
@@ -519,7 +538,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // auto-promoting (the cache key omits mode, so a cached summary cannot
             // satisfy a detail-promoted response) or for a historical window (it
             // must route through the gate, not a stale cached response).
-            if !auto_promote_to_detail && !is_historical {
+            if response_cache_eligible(auto_promote_to_detail, is_historical) {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
                     cache_key: &cache_key,
@@ -756,11 +775,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 mode
             };
 
-            // Cache only when cache-safe (explicit mode or not auto-promoted).
-            // The cache key does not include mode, so auto-promoted detailed
-            // payloads must not be written under the same key a summary request
-            // would read.
-            if !auto_promote_to_detail {
+            // Write-through under the SAME eligibility as the read above: skip the
+            // auto-promoted detail payload (the key omits mode) and the historical
+            // window (its serve never reads this cache, so a write here is dead —
+            // it would only accrete never-read historical entries).
+            if response_cache_eligible(auto_promote_to_detail, is_historical) {
                 cache_activities_result(cache, &cache_key, &filtered_activities, per_page).await;
             }
 

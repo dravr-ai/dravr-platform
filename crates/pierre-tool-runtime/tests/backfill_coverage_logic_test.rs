@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for the historical-backfill depth-coverage + feed-end inference
-// ABOUTME: The two pure decisions behind the self-healing gate (serve vs re-backfill)
+// ABOUTME: Unit tests for the historical-gate pure decisions — depth-coverage, feed-end, response-cache eligibility
+// ABOUTME: The decisions behind the self-healing gate (serve vs re-backfill) and what bypasses the response cache
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,9 @@
 
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_backfill::backfill_hit_feed_end;
-use pierre_tool_runtime::implementations::data::historical_depth_covered;
+use pierre_tool_runtime::implementations::data::{
+    historical_depth_covered, response_cache_eligible,
+};
 
 // Jan 1 2022 and a few reference points (unix seconds).
 const JAN_2022: i64 = 1_640_995_200;
@@ -82,4 +84,33 @@ fn not_feed_end_when_count_capped_at_the_limit() {
     // Filled the fetch limit: the scrape was count-capped, not exhausted — a
     // deeper window might still exist, so do not claim feed-end.
     assert!(!backfill_hit_feed_end(JUL_2022, JAN_2022, 2_000, 2_000));
+}
+
+#[test]
+fn recent_summary_query_uses_the_response_cache() {
+    // Not auto-promoted and not historical: the ordinary recent path — the
+    // response cache is its only read-cache between a turn and a live fetch.
+    assert!(response_cache_eligible(false, false));
+}
+
+#[test]
+fn historical_query_bypasses_the_response_cache() {
+    // Regression for 9bff5a72a: a deep historical `after` must NOT consult the
+    // response cache — a TTL'd hit short-circuited the coverage-aware gate and
+    // kept serving the stale slice after the coverage purge ("2022 stuck at
+    // Jul–Dec"). Excluding it from the WRITE too stops dead never-read entries.
+    assert!(!response_cache_eligible(false, true));
+}
+
+#[test]
+fn detail_promoted_query_bypasses_the_response_cache() {
+    // The cache key omits `mode`, so a detail-promoted payload must neither be
+    // read from nor written under a key a summary request would use.
+    assert!(!response_cache_eligible(true, false));
+}
+
+#[test]
+fn detail_promoted_historical_query_bypasses_the_response_cache() {
+    // Both exclusions at once still bypasses the cache.
+    assert!(!response_cache_eligible(true, true));
 }
