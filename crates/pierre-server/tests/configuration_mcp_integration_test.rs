@@ -229,9 +229,10 @@ async fn test_configuration_tools_count_in_total() {
     // /routes JSON tools and the workout-template/prescribed-workout pair —
     // bringing the non-config count from 81 to 90 and total to 96.
     // 2026-06-06: get_weather_forecast tool added (90→91, total 96→97).
+    // 2026-06-23: get_group_member_activities tool added (91→92, total 97→98).
     assert_eq!(
-        fitness_tools, 91,
-        "Expected exactly 91 non-configuration tools"
+        fitness_tools, 92,
+        "Expected exactly 92 non-configuration tools"
     );
-    assert_eq!(tools.len(), 97, "Expected total of 97 tools"); // 91 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 98, "Expected total of 98 tools"); // 92 non-configuration + 6 configuration
 }
