@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for A2A (Agent-to-Agent) protocol routes
-// ABOUTME: Tests all A2A endpoints without authentication requirements
+// ABOUTME: Covers unauthenticated endpoints plus the authenticated message/send execution path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -300,4 +300,66 @@ async fn test_a2a_status_always_active() {
         let body: serde_json::Value = response.json();
         assert_eq!(body["status"], "active");
     }
+}
+
+/// Build the A2A HTTP router from already-seeded resources (mirrors
+/// `a2a_routes` but lets the caller seed a user/tenant first so the request
+/// can be authenticated).
+fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
+    let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let state = A2ARoutesState {
+        ctx: resources.clone(),
+        client_manager: resources.a2a.a2a_client_manager.clone(),
+        auth_middleware: resources.auth.auth_middleware.clone(),
+        tool_runtime,
+    };
+    A2ARoutes::routes(state)
+}
+
+#[tokio::test]
+async fn test_a2a_jsonrpc_message_send_authenticated_executes_and_replies() {
+    // `test_a2a_jsonrpc_message_send_requires_auth` proves the unauthenticated
+    // call surfaces -32001. This proves the *authenticated happy path*: a
+    // valid JWT-bearing caller reaches the real, tenant-scoped message/send
+    // execution path and receives an agent reply Message rather than an auth
+    // error — the gap the auth-rejection test leaves open. message/send routes
+    // a plain-text message (no tool intent) to a real echo reply, so the assert
+    // is deterministic and needs no provider or LLM.
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-auth@example.com")
+        .await
+        .expect("seed user + tenant + JWT with active_tenant_id");
+    let routes = a2a_router_from(&resources);
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "message/send",
+        "params": { "parts": [{ "type": "text", "content": "hello agent" }] },
+        "id": 7
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+
+    // Authenticated: NOT the -32001 the unauth path returns.
+    assert!(
+        envelope["error"].is_null(),
+        "authenticated message/send must not error, got: {envelope:?}"
+    );
+    let parts = &envelope["result"]["message"]["parts"];
+    assert!(
+        parts.is_array() && !parts.as_array().unwrap().is_empty(),
+        "authenticated message/send must return a reply message with parts, got: {envelope:?}"
+    );
+    // The agent's reply echoes the sent text back through the real handler.
+    let reply = serde_json::to_string(&envelope["result"]).unwrap_or_default();
+    assert!(
+        reply.contains("hello agent"),
+        "authenticated reply must echo the sent text, got: {envelope:?}"
+    );
 }
