@@ -301,7 +301,7 @@ async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
 /// plain string; the column write previously demanded a string and bound NULL
 /// for every such row, so a `GROUP BY sport_type` reported them as `(null)`
 /// even though the canonical value was intact in `data_json`. Named variants
-/// stay plain snake_case strings; `Other` unwraps to its inner provider string.
+/// stay plain `snake_case` strings; `Other` unwraps to its inner provider string.
 #[tokio::test]
 async fn activity_cache_other_sport_type_populates_indexed_column() {
     common::init_server_config();
