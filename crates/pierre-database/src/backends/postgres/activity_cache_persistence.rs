@@ -14,11 +14,21 @@ use sqlx::Row;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-/// Best-effort string form of an activity's sport type for the indexed column.
+/// String form of an activity's sport type for the indexed column.
+/// `SportType` is an externally-tagged enum: named variants serialize as a JSON
+/// string (`"run"`, `"trail_running"`), but the catch-all `Other(String)`
+/// serializes as an object (`{"other": "<provider_type>"}`). Unwrap that object
+/// to the inner provider string so unmapped sports (e.g. a Strava type cageux
+/// has no named variant for) get a real column value instead of `NULL` — the
+/// canonical value always remains in `data_json` regardless.
 fn sport_type_string(activity: &Activity) -> Option<String> {
-    serde_json::to_value(activity.sport_type())
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
+    match serde_json::to_value(activity.sport_type()).ok()? {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Object(map) => {
+            map.get("other").and_then(|v| v.as_str()).map(str::to_owned)
+        }
+        _ => None,
+    }
 }
 
 #[async_trait]

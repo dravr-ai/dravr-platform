@@ -20,6 +20,8 @@ mod common;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_database::backends::factory::Database;
+use sqlx::Row;
 
 fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
     let start = Utc::now() - Duration::days(age_days);
@@ -290,4 +292,84 @@ async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
     // The window read is newest-first and stable.
     assert_eq!(first[0].id(), "h49", "newest 2022 row first");
     assert_eq!(first[K - 1].id(), "h0", "oldest 2022 row last");
+}
+
+/// Regression: an activity whose sport falls through to `SportType::Other(_)`
+/// — a provider type cageux has no named variant for — must still populate the
+/// indexed `sport_type` column. `SportType` is externally tagged, so `Other`
+/// serializes to a JSON object `{"other": "<provider_type>"}` rather than a
+/// plain string; the column write previously demanded a string and bound NULL
+/// for every such row, so a `GROUP BY sport_type` reported them as `(null)`
+/// even though the canonical value was intact in `data_json`. Named variants
+/// stay plain snake_case strings; `Other` unwraps to its inner provider string.
+#[tokio::test]
+async fn activity_cache_other_sport_type_populates_indexed_column() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::new();
+    let repo = &repos.activity_cache;
+
+    let start = Utc.with_ymd_and_hms(2022, 7, 1, 8, 0, 0).unwrap();
+    let named = ActivityBuilder::new(
+        "named".to_owned(),
+        "named run".to_owned(),
+        SportType::Run,
+        start,
+        3_600,
+        "strava".to_owned(),
+    )
+    .build();
+    // A Strava type cageux has no named variant for (e.g. an e-bike ride):
+    // sciotte maps it to `SportType::Other("e_bike_ride")`.
+    let other = ActivityBuilder::new(
+        "other".to_owned(),
+        "other ride".to_owned(),
+        SportType::Other("e_bike_ride".to_owned()),
+        start,
+        3_600,
+        "strava".to_owned(),
+    )
+    .build();
+
+    repo.upsert_activities(user_id, &tenant_id, "strava", &[named, other])
+        .await
+        .unwrap();
+
+    // Named variant: plain snake_case string, unchanged behaviour.
+    assert_eq!(
+        read_sport_column(&database, "named").await,
+        Some("run".to_owned())
+    );
+    // `Other(_)`: the inner provider string — NOT NULL. This is the bug fixed.
+    assert_eq!(
+        read_sport_column(&database, "other").await,
+        Some("e_bike_ride".to_owned())
+    );
+}
+
+/// Read the raw indexed `sport_type` column for an activity. The public read
+/// path only surfaces `data_json`, so the column is queried directly. The fix
+/// lives in both the `SQLite` and `PostgreSQL` persistence layers, so this is
+/// backend-aware and verifies whichever backend the suite runs against.
+async fn read_sport_column(database: &Database, activity_id: &str) -> Option<String> {
+    #[cfg(feature = "postgresql")]
+    if let Some(pool) = database.postgres_pool() {
+        return sqlx::query("SELECT sport_type FROM cached_activities WHERE activity_id = $1")
+            .bind(activity_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            .get::<Option<String>, _>("sport_type");
+    }
+    let sqlite = database
+        .sqlite_database()
+        .expect("test database is SQLite when the postgresql feature is off");
+    sqlx::query("SELECT sport_type FROM cached_activities WHERE activity_id = ?")
+        .bind(activity_id)
+        .fetch_one(sqlite.pool())
+        .await
+        .unwrap()
+        .get::<Option<String>, _>("sport_type")
 }
