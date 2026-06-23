@@ -110,6 +110,7 @@ impl GroupContextStrategy for IndividualFocusContext {
                 for peer in visible_peers {
                     let _ = writeln!(text, "- {}", peer.summary_text.trim());
                 }
+                write_peer_fetch_instructions(&mut text);
             }
         }
 
@@ -146,6 +147,9 @@ impl GroupContextStrategy for GroupOverviewContext {
         let _ = writeln!(text, "Roster:");
         for card in members {
             let _ = writeln!(text, "- {}", card.summary_text.trim());
+        }
+        if group.active_count > 1 {
+            write_peer_fetch_instructions(&mut text);
         }
 
         // Flag members needing attention
@@ -211,6 +215,23 @@ fn resolve_requester_name(group: &GroupContext, members: &[MemberSummaryCard]) -
         .iter()
         .find(|m| m.user_id == group.requester_user_id)
         .map_or_else(|| "the current user".to_owned(), |m| m.display_name.clone())
+}
+
+/// Tell the coach how to pull a peer's detailed or older activities. The
+/// injected roster cards only carry a short snapshot (this week + the last few
+/// activities); a specific past race or an older date range is not in them. The
+/// `get_activities` tool always runs as the requester and silently returns the
+/// requester's OWN data for a peer (the cause of peer activities being
+/// misattributed), so the coach must use the consent-gated
+/// `get_group_member_activities` tool to read a peer's data.
+fn write_peer_fetch_instructions(text: &mut String) {
+    let _ = writeln!(
+        text,
+        "To read a peer's detailed or older activities (e.g. a specific past race or a date \
+         range not shown above), call the `get_group_member_activities` tool with their roster \
+         name. Do NOT use `get_activities` for a peer — it only ever returns YOUR own data, \
+         never theirs."
+    );
 }
 
 /// Append the "what to do when asked about an absent member" instructions

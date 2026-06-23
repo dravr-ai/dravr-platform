@@ -86,6 +86,10 @@ pub mod fitness_support;
 #[cfg(feature = "tools-goals")]
 pub mod goals;
 
+/// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
+#[cfg(feature = "tools-groups")]
+pub mod groups;
+
 /// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;

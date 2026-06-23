@@ -77,6 +77,10 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-goals")]
     register_goals_tools(registry);
 
+    // Group tools (consent-gated peer activity fetch)
+    #[cfg(feature = "tools-groups")]
+    register_group_tools(registry);
+
     // Configuration tools
     #[cfg(feature = "tools-config")]
     register_config_tools(registry);
@@ -240,6 +244,27 @@ fn register_goals_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered goals tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register group tools (consent-gated peer activity fetch)
+#[cfg(feature = "tools-groups")]
+fn register_group_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::groups::create_group_tools;
+
+    debug!(
+        "Registering group tools (registry has {} tools)",
+        registry.len()
+    );
+
+    // Register all group tools with the "groups" category
+    for tool in create_group_tools() {
+        registry.register_with_category(Arc::from(tool), "groups");
+    }
+
+    info!(
+        "Registered group tools (registry now has {} tools)",
         registry.len()
     );
 }

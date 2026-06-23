@@ -482,6 +482,11 @@ async fn create_test_server_resources_inner(
     let admin_jwt_secret = "test_admin_secret";
     let config = Arc::new(ServerConfig {
         usda_api_key: env::var("USDA_API_KEY").ok(),
+        // ServerConfig::default() leaves this at 0 (the derived usize default);
+        // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
+        // every activity-fetch path (group snapshots, AllProvidersMerge) read
+        // LIMIT 0 and return nothing, so give tests a realistic value.
+        activity_fetch_limit: 100,
         ..ServerConfig::default()
     });
 

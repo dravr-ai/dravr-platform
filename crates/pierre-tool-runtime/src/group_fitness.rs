@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
-use pierre_core::models::{Activity, Tenant, TenantId};
+use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
@@ -477,8 +477,9 @@ pub async fn fetch_member_snapshots(
 /// Fetch display name for a user from the global user database.
 ///
 /// Returns the user's display name if set, email prefix if not, or "Unknown"
-/// if the user cannot be fetched.
-async fn fetch_user_display_name(data: &DataContext, user_id: Uuid) -> String {
+/// if the user cannot be fetched. `pub(crate)` so the group peer-fetch tool
+/// resolves a member by the SAME display name the snapshot roster shows the LLM.
+pub(crate) async fn fetch_user_display_name(data: &DataContext, user_id: Uuid) -> String {
     match data.repos().users.get_global(user_id).await {
         Ok(Some(user)) => user
             .display_name
@@ -708,73 +709,70 @@ async fn try_fetch_from_provider(
     Some(activities)
 }
 
-/// Resolve a group member's own tenant for OAuth credential lookup.
+/// Collect the distinct tenants in which a member actually holds a provider
+/// connection, falling back to `fallback_tenant_id` only when they hold none.
 ///
-/// Cross-tenant group members need their own tenant to find their provider
-/// connections and OAuth tokens. Prefers the requester's tenant (`fallback`)
-/// when the member is a shared participant — this is the tenant providing the
-/// shared group context, and any other membership is unrelated to this call.
-/// Only picks a different tenant when the member does not share the
-/// requester's tenant, and even then only when exactly one alternative exists,
-/// which removes the order-dependent ambiguity that previously caused
-/// cross-tenant reads for members belonging to multiple tenants.
-async fn resolve_member_tenant(data: &DataContext, user_id: Uuid, fallback: TenantId) -> TenantId {
-    match data.repos().tenants.list_for_user(user_id).await {
-        Ok(tenants) => pick_member_tenant_id(user_id, fallback, &tenants),
-        Err(e) => {
-            info!(
+/// A member's OAuth token + `provider_connections` row are pinned to the tenant
+/// that was active when they connected the provider (their earliest-joined
+/// tenant — see `oauth_flow::get_user_and_tenant`), which is NOT necessarily the
+/// group-host/requester tenant. Enumerating the member's own connection tenants
+/// (from a cross-tenant lookup) and fetching each under its OWN tenant makes the
+/// group snapshot resolve identically to the member's 1-1 chat, instead of
+/// guessing a single tenant relative to the requester and silently reading
+/// nothing when the guess misses.
+fn member_connection_tenants(
+    user_id: Uuid,
+    connections: &[ProviderConnection],
+    fallback_tenant_id: TenantId,
+) -> Vec<TenantId> {
+    let mut tenants: Vec<TenantId> = Vec::new();
+    for conn in connections {
+        match conn.tenant_id.parse::<TenantId>() {
+            Ok(t) if !tenants.contains(&t) => tenants.push(t),
+            Ok(_) => {}
+            Err(e) => info!(
                 user_id = %user_id,
+                tenant = %conn.tenant_id,
                 error = %e,
-                fallback_tenant = %fallback,
-                "Snapshot: failed to resolve member tenant — using fallback tenant for OAuth lookup"
-            );
-            fallback
+                "Snapshot: skipping connection with unparseable tenant id"
+            ),
         }
     }
-}
-
-/// Pure tenant-selection policy extracted from [`resolve_member_tenant`].
-///
-/// Encodes the "prefer shared tenant, then unique alternative, else fallback"
-/// rule separately from the repository call so it stays below the cognitive
-/// complexity threshold and is easier to reason about at a glance.
-fn pick_member_tenant_id(user_id: Uuid, fallback: TenantId, tenants: &[Tenant]) -> TenantId {
     if tenants.is_empty() {
-        info!(user_id = %user_id, "Snapshot: member has no tenant memberships, using fallback");
-        return fallback;
+        tenants.push(fallback_tenant_id);
     }
-    if tenants.iter().any(|t| t.id == fallback) {
-        return fallback;
-    }
-    if let [only] = tenants {
-        log_member_tenant_resolution(user_id, only.id, fallback);
-        return only.id;
-    }
-    info!(
-        user_id = %user_id,
-        tenant_count = tenants.len(),
-        "Snapshot: member does not share requester's tenant and has multiple memberships; using fallback to avoid ambiguous resolution"
-    );
-    fallback
+    tenants
 }
 
-fn log_member_tenant_resolution(user_id: Uuid, resolved: TenantId, fallback: TenantId) {
-    if resolved != fallback {
-        info!(
-            user_id = %user_id,
-            member_tenant = %resolved,
-            requester_tenant = %fallback,
-            "Using member's own tenant for snapshot fetch"
-        );
+/// Fetch + merge a member's activities across every tenant where they hold a
+/// provider connection.
+///
+/// Each tenant is fetched via [`fetch_member_activities`] (its own
+/// stale-while-revalidate cache read + write-through), then results are merged
+/// and deduplicated. The same provider connected under two tenants can surface
+/// a workout twice, so a final dedup runs across the merged set even though each
+/// per-tenant fetch already dedups within itself.
+async fn fetch_member_activities_across_tenants(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenants: &[TenantId],
+) -> Vec<Activity> {
+    let mut all = Vec::new();
+    for &tenant_id in tenants {
+        all.extend(fetch_member_activities(runtime, user_id, tenant_id).await);
     }
+    if tenants.len() > 1 {
+        return TimeWindowDeduplicator::from_env().deduplicate(all);
+    }
+    all
 }
 
 /// Fetch a single member's fitness snapshot.
 ///
-/// Resolves the member's own tenant for OAuth credential lookup, then
-/// attempts to find connected providers and compute training load from
-/// their recent activities. Returns a snapshot with `None` metrics
-/// if no provider is connected or if the fetch fails.
+/// Resolves the member's connections across all their tenants, fetches and
+/// merges activities under each connection's own tenant, and computes training
+/// load. Returns a snapshot with `None` metrics if no provider is connected or
+/// if the fetch fails.
 async fn fetch_single_member_snapshot(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -784,9 +782,25 @@ async fn fetch_single_member_snapshot(
     let data = runtime.data();
     let display_name = fetch_user_display_name(&data, user_id).await;
 
-    let tenant_id = resolve_member_tenant(&data, user_id, fallback_tenant_id).await;
+    // Cross-tenant lookup: a member's connections live under their own tenant,
+    // which may differ from the requester/group-host tenant. See
+    // [`member_connection_tenants`] for why guessing a single tenant fails.
+    let connections = data
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, None)
+        .await
+        .unwrap_or_else(|e| {
+            info!(
+                user_id = %user_id,
+                error = %e,
+                "Snapshot: cross-tenant connection lookup failed; treating member as having no connections"
+            );
+            Vec::new()
+        });
 
-    let activities = fetch_member_activities(runtime, user_id, tenant_id).await;
+    let tenants = member_connection_tenants(user_id, &connections, fallback_tenant_id);
+    let activities = fetch_member_activities_across_tenants(runtime, user_id, &tenants).await;
     // Emit one log line per fetched activity so an operator can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
@@ -819,16 +833,13 @@ async fn fetch_single_member_snapshot(
 
     // Surface any provider whose connection died non-recoverably so the group coach can
     // name it ("Phil's WHOOP needs reconnecting") instead of treating the dead source as
-    // merely quiet. Best-effort: a read failure leaves the list empty (no false alarms).
-    snapshot.needs_reauth_providers = data
-        .repos()
-        .provider_connections
-        .get_for_user(user_id, Some(tenant_id))
-        .await
-        .unwrap_or_default()
-        .into_iter()
+    // merely quiet. Drawn from the same cross-tenant connection set so a dead provider is
+    // named regardless of which tenant it lives in (a tenant-scoped re-query here was the
+    // bug: it read nothing when the member's connection lived in a non-host tenant).
+    snapshot.needs_reauth_providers = connections
+        .iter()
         .filter(|c| c.status.requires_reauth())
-        .map(|c| c.provider)
+        .map(|c| c.provider.clone())
         .collect();
     snapshot
 }
