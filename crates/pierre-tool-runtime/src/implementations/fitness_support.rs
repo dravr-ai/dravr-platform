@@ -895,6 +895,18 @@ fn sport_type_matches(
     normalised_filter: &str,
 ) -> bool {
     if let Some(canonical) = canonical_filter {
+        // A generic run/course filter covers the whole on-foot running family —
+        // road Run, TrailRunning, treadmill VirtualRun — because the same effort
+        // is tagged inconsistently on the provider (an athlete who runs almost
+        // only on trails still has many logged as a plain "Run"). A specific
+        // TrailRunning / VirtualRun filter stays exact, so "trail runs" means
+        // trails only.
+        if *canonical == SportType::Run {
+            return matches!(
+                activity_sport,
+                SportType::Run | SportType::TrailRunning | SportType::VirtualRun
+            );
+        }
         return activity_sport == canonical;
     }
     let activity_str = to_value(activity_sport).map_or_else(
