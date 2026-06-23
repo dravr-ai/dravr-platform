@@ -662,6 +662,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "get_data_freshness",
     "get_fitness_config",
     "get_food_details",
+    "get_group_member_activities",
     "get_health_snapshots",
     "get_nutrient_timing",
     "get_recipe",
