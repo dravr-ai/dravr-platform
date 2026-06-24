@@ -7,7 +7,7 @@
 #![allow(missing_docs)]
 
 use pierre_database::repositories::BackfillCoverage;
-use pierre_tool_runtime::activity_backfill::backfill_hit_feed_end;
+use pierre_tool_runtime::activity_backfill::backfill_covered_floor_ts;
 use pierre_tool_runtime::implementations::data::{
     historical_depth_covered, response_cache_eligible,
 };
@@ -16,6 +16,7 @@ use pierre_tool_runtime::implementations::data::{
 const JAN_2022: i64 = 1_640_995_200;
 const JUL_2022: i64 = 1_657_000_000; // mid-2022, newer than JAN_2022
 const DEC_2021: i64 = 1_640_000_000; // older than JAN_2022
+const JAN_2024: i64 = 1_704_067_200; // Jan 1 2024 00:00:00
 
 #[test]
 fn no_coverage_record_is_not_covered() {
@@ -66,24 +67,49 @@ fn feed_end_short_of_floor_is_covered() {
 }
 
 #[test]
-fn feed_end_when_paged_out_short_without_filling_limit() {
-    // Paged past the recent window, oldest still newer than `after`, and the
-    // fetch did not fill the limit => the feed ran out (no older data).
-    assert!(backfill_hit_feed_end(JUL_2022, JAN_2022, 46, 2_000));
+fn covered_floor_is_the_requested_after_when_not_count_capped() {
+    // A year query asks back to Jan 1 00:00 but the oldest activity sits in
+    // mid-year; the scrape was not count-capped, so it returned the WHOLE
+    // window. The covered floor is the requested `after` (Jan 2022), NOT the
+    // oldest activity (Jul 2022) — otherwise the same year re-scrapes forever
+    // because oldest > after.
+    assert_eq!(
+        backfill_covered_floor_ts(JAN_2022, JUL_2022, 46, 2_000),
+        JAN_2022
+    );
 }
 
 #[test]
-fn not_feed_end_when_reached_the_floor() {
-    // Oldest reached <= after: it stopped because it reached the requested
-    // floor, not because the feed ended.
-    assert!(!backfill_hit_feed_end(DEC_2021, JAN_2022, 200, 2_000));
+fn covered_floor_is_the_oldest_activity_when_count_capped() {
+    // Filled the fetch limit: the scrape stopped early, so it can only claim
+    // down to the oldest activity it actually fetched, not the requested floor.
+    assert_eq!(
+        backfill_covered_floor_ts(JAN_2022, JUL_2022, 2_000, 2_000),
+        JUL_2022
+    );
 }
 
 #[test]
-fn not_feed_end_when_count_capped_at_the_limit() {
-    // Filled the fetch limit: the scrape was count-capped, not exhausted — a
-    // deeper window might still exist, so do not claim feed-end.
-    assert!(!backfill_hit_feed_end(JUL_2022, JAN_2022, 2_000, 2_000));
+fn covered_floor_clamps_to_oldest_when_scrape_overshoots_the_floor() {
+    // Defensive: if a scrape returns an activity older than the requested
+    // `after`, the deeper of the two is covered.
+    assert_eq!(
+        backfill_covered_floor_ts(JAN_2022, DEC_2021, 200, 2_000),
+        DEC_2021
+    );
+}
+
+#[test]
+fn shallow_year_coverage_does_not_cover_a_deeper_year() {
+    // Regression for the "No push / 2022 served empty" outage: a 2024-bounded
+    // backfill records covered floor = Jan 2024. A later 2022 ask must NOT read
+    // as covered (oldest_reached_ts > after, hit_feed_end false) — it has to
+    // re-backfill and push, not serve an empty slice from the 2024-only cache.
+    let c = BackfillCoverage {
+        oldest_reached_ts: JAN_2024,
+        hit_feed_end: false,
+    };
+    assert!(!historical_depth_covered(Some(c), JAN_2022));
 }
 
 #[test]

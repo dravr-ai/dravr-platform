@@ -13,14 +13,20 @@ use uuid::Uuid;
 /// How deep a historical backfill has reached for a `(tenant, user, provider)`.
 ///
 /// Lets the historical-activity gate distinguish "cached but only the recent
-/// slice of a deep window" (re-backfill) from "cached and the provider feed ends
-/// here" (covered, never re-scrape).
+/// slice of a deep window" (re-backfill) from "cached down to the requested
+/// floor" (covered, serve inline).
 #[derive(Debug, Clone, Copy)]
 pub struct BackfillCoverage {
-    /// Oldest activity start (unix seconds) the deepest backfill fetched.
+    /// Deepest floor (unix seconds) a backfill has confirmed covered. When the
+    /// scrape returned the whole requested window (not count-capped) this is the
+    /// requested `after`, not the oldest activity fetched — so a sparse year
+    /// whose oldest activity sits just after Jan 1 00:00 still reads as covered.
     pub oldest_reached_ts: i64,
-    /// `true` when that scrape exhausted the provider feed (next-page disabled
-    /// before reaching the requested `after`), so no older data exists.
+    /// `true` only when the provider EXPLICITLY reports its feed exhausted
+    /// (next-page disabled), so no older data exists and a deeper ask is covered
+    /// without re-scraping. The date-floored scrape path cannot prove this (it
+    /// stops at `after`, never below it), so it leaves this `false`; the gate
+    /// still honors a `true` set by a provider that does report feed-end.
     pub hit_feed_end: bool,
 }
 

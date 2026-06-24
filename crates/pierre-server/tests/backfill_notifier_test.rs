@@ -29,7 +29,7 @@ use pierre_core::models::messaging::{
 use pierre_core::models::{
     Activity, ActivityBuilder, AddMessageParams, SportType, Tenant, TenantId, User,
 };
-use pierre_database::backends::{factory::Database, CreateSessionParams};
+use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
 use pierre_database::{DatabaseProvider, RepositoryRegistry};
 use pierre_mcp_server::services::backfill_notifier::{
     AdapterResolver, ChatReentry, ReentryRequest, ServerBackfillNotifier,
@@ -133,6 +133,34 @@ async fn seed_session(
         .await
         .unwrap();
     session_id
+}
+
+/// Seed a channel link binding a channel identity to its owner (bot) tenant.
+///
+/// This is the row the notifier reverse-looks-up (`get_channel_link_tenant`) to
+/// discover which tenant owns the channel config when the DM session itself
+/// lives under a different (user) tenant.
+async fn seed_channel_link(
+    db: &Database,
+    user_id: &str,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_user_id: &str,
+) {
+    let link_id = Uuid::new_v4().to_string();
+    let params = CreateChannelLinkParams {
+        id: &link_id,
+        tenant_id,
+        user_id,
+        channel_type,
+        channel_user_id,
+        display_name: None,
+    };
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 }
 
 /// Build a cached activity with an explicit `start_date` so a test can place it
@@ -331,6 +359,81 @@ async fn push_routes_to_originating_chat() {
     // Resolver was asked for the owning tenant's telegram channel.
     let resolved = resolver.resolved.lock().unwrap();
     assert_eq!(resolved.as_slice(), &[(tenant_id, "telegram".to_owned())]);
+}
+
+/// Cross-tenant bot regression: the DM session lives under the USER's own tenant
+/// (post the one-tenant-per-DM-unit fix) while the Telegram bot — and thus the
+/// channel config — is owned by a SEPARATE bot tenant. The completion push must
+/// load the channel config/adapter against the BOT tenant (resolved from the
+/// channel link), not the user tenant; otherwise it dies with "No channel config
+/// for backfill-ready notice" and the user never receives the push. This is the
+/// exact outage observed on dev: the session was found (under the user tenant)
+/// but the notice could not be sent.
+#[tokio::test]
+async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+
+    // The user and their OWN tenant (where the session + activity cache live).
+    let (user_uuid, user_tenant) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    // A separate bot/channel-owner tenant (the admin-owned Telegram bot).
+    let (_bot_owner, bot_tenant) = seed_user(&db).await;
+    assert_ne!(
+        user_tenant, bot_tenant,
+        "test requires distinct user and bot tenants"
+    );
+
+    let conversation_id = seed_conversation(&db, &user_id, user_tenant).await;
+    // Session stored under the USER tenant (the DM relocation).
+    seed_session(
+        &db,
+        &user_id,
+        user_tenant,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+    // Channel link binding the Telegram identity to the BOT tenant — the row the
+    // notifier reverse-looks-up to find the channel-config owner.
+    seed_channel_link(&db, &user_id, bot_tenant, "telegram", "tg_user_777").await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
+
+    // Push runs under the USER tenant — exactly what the backfill job carries.
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            user_tenant,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            12,
+        )
+        .await;
+
+    // The notice was delivered (it could NOT be before the fix) to the chat.
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(
+        sent.len(),
+        1,
+        "the cross-tenant push must deliver one notice"
+    );
+    assert_eq!(sent[0].recipient_id, "tg_chat_888");
+
+    // ...and the channel config was resolved against the BOT tenant, not the
+    // user tenant. Resolving under the user tenant is the precise bug: that
+    // tenant has no telegram config, so the send is dropped.
+    let resolved = resolver.resolved.lock().unwrap();
+    assert_eq!(
+        resolved.as_slice(),
+        &[(bot_tenant, "telegram".to_owned())],
+        "config must resolve under the bot tenant, not the user tenant"
+    );
 }
 
 /// Fake re-entry that returns a canned coach answer and records the prompt it
