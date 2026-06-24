@@ -59,6 +59,31 @@ async fn nutrition_turn_drops_mobility_keeps_pinned_and_nutrition() {
     assert!(!outcome.dropped.is_empty());
 }
 
+#[cfg(feature = "tools-groups")]
+#[tokio::test]
+async fn peer_fetch_tool_survives_prefilter_via_pin() {
+    // Peer-fetch intent is a person's name ("Raph"), which activates no keyword
+    // category, and the tool's "groups" category is in neither KEYWORD_RULES nor
+    // any coach scope. It stays callable only because it is in PINNED_CORE — so a
+    // group-chat turn asking about a peer must keep it regardless of phrasing.
+    let registry = registry();
+    let outcome = enabled_prefilter()
+        .select(
+            &registry,
+            "show me Raph's runs from last weekend",
+            Some("training"),
+        )
+        .await;
+
+    assert!(
+        contains(&outcome.keep, "get_group_member_activities"),
+        "consent-gated peer fetch was dropped by the prefilter; it must be pinned \
+         (PINNED_CORE) because peer-fetch intent activates no keyword category. \
+         kept={:?}",
+        outcome.keep
+    );
+}
+
 #[tokio::test]
 async fn analysis_turn_keeps_data_analytics_drops_recipes() {
     let registry = registry();
