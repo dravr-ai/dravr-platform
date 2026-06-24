@@ -317,6 +317,11 @@ impl ToolRegistry {
             "recipes",
             "mobility",
             "memory",
+            // Consent-gated peer activity fetch (get_group_member_activities) —
+            // the only path that reads a group peer's data. Must be chat-callable
+            // or the coach is steered (by the group prompt) toward a tool the LLM
+            // can never see, and silently falls back to the requester's own data.
+            "groups",
         ];
 
         let allowed_names: HashSet<&str> = CHAT_CALLABLE_CATEGORIES

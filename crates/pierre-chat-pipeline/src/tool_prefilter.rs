@@ -26,6 +26,13 @@ const PINNED_CORE: &[&str] = &[
     "get_athlete",
     "get_stats",
     "get_activity_intelligence",
+    // Consent-gated peer activity fetch. Pinned (not keyword-activated) because
+    // peer-fetch intent is a person's name ("show me Raph's runs"), which no
+    // keyword rule can capture, and its "groups" category is activated by neither
+    // KEYWORD_RULES nor any coach scope. Safe to always offer: read-only and
+    // triple-consent-gated, it returns a clean "no matching member" error outside
+    // a shared group.
+    "get_group_member_activities",
 ];
 
 /// Keyword→category rules mapping Pierre's tool categories to the message terms

@@ -139,6 +139,34 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
     );
 }
 
+#[cfg(feature = "tools-groups")]
+#[test]
+fn test_chat_callable_surface_includes_group_peer_fetch() {
+    // get_group_member_activities is the ONLY path that reads a group peer's
+    // data, and the group coach prompt (write_peer_fetch_instructions) steers
+    // the LLM to call it. It registers under the "groups" category, so it is
+    // chat-callable only if "groups" is in CHAT_CALLABLE_CATEGORIES. When it was
+    // not, the coach was steered toward a tool the LLM could never see and
+    // silently fell back to get_activities (the requester's own data) — the
+    // exact "no callable tool" failure this surface is meant to prevent.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    assert!(
+        chat_surface.contains("get_group_member_activities"),
+        "get_group_member_activities (consent-gated peer fetch) is not chat-callable.\n\
+         It is the only path that reads a peer's data and the group prompt steers \
+         the LLM to it. Add its category (\"groups\") to CHAT_CALLABLE_CATEGORIES \
+         in ToolRegistry::chat_callable_schemas()."
+    );
+}
+
 #[test]
 fn test_chat_callable_surface_excludes_admin_and_management_tools() {
     // Tools that should NOT be callable from chat: coach create/delete/assign
