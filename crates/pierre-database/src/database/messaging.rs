@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::uuid_utils::parse_uuid;
 use serde_json::Value;
 use sqlx::Row;
 
@@ -1080,6 +1081,46 @@ impl Database {
         }))
     }
 
+    /// Resolve the owner tenant of a channel link by channel identity.
+    ///
+    /// Cross-tenant (mirrors `get_configs_by_channel_type_impl`): the backfill
+    /// push runs under the user's own tenant but loads the channel config from
+    /// the BOT/channel-owner tenant. `ORDER BY linked_at LIMIT 1` resolves a
+    /// multiply-bound identity deterministically to its earliest binding.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails or the stored `tenant_id` is not a
+    /// valid UUID.
+    pub async fn get_channel_link_tenant_impl(
+        &self,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<TenantId>> {
+        let row = sqlx::query(
+            r"
+            SELECT tenant_id
+            FROM messaging_channel_links
+            WHERE channel_type = ? AND channel_user_id = ?
+            ORDER BY linked_at
+            LIMIT 1
+            ",
+        )
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to resolve channel link tenant: {e}")))?;
+
+        match row {
+            Some(r) => {
+                let raw: String = r.get("tenant_id");
+                Ok(Some(TenantId::from_uuid(parse_uuid(&raw)?)))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// List all channel links for a user
     ///
     /// # Errors
@@ -1392,6 +1433,15 @@ impl MessagingRepository for Database {
 
     async fn get_configs_by_channel_type(&self, channel_type: &str) -> AppResult<Vec<Value>> {
         self.get_configs_by_channel_type_impl(channel_type).await
+    }
+
+    async fn get_channel_link_tenant(
+        &self,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<TenantId>> {
+        self.get_channel_link_tenant_impl(channel_type, channel_user_id)
+            .await
     }
 
     async fn channel_identity_claimed_by_other_tenant(

@@ -81,23 +81,32 @@ fn backfill_retention_days(after: Option<i64>) -> i64 {
     base.max(span)
 }
 
-/// Infer whether a completed backfill scrape exhausted the provider feed (no
-/// older data) rather than stopping because it reached the requested floor or
-/// hit the fetch limit.
+/// The depth a completed backfill may claim as covered, in unix seconds.
 ///
-/// Feed-end = the oldest activity fetched is still newer than `after_ts` (it did
-/// not reach the requested floor) AND the scrape did not fill `fetch_limit` (so
-/// it was not count-capped — it ran out of feed). When it reached `after`
-/// (`oldest <= after`) the floor is the request, not the feed end. `pub` so the
-/// inference is exercisable by the integration test suite.
+/// When the scrape did NOT fill `fetch_limit` it returned every activity in the
+/// requested `[after, before]` window, so it reached the requested floor
+/// `after_ts` itself — record that floor. Crucially this is the REQUESTED floor,
+/// not the oldest activity fetched: at a clean period boundary (a year query has
+/// `after` = Jan 1 00:00:00) the oldest activity sits just above `after_ts`, so
+/// recording the activity timestamp would leave the window looking uncovered and
+/// re-scrape forever. When the scrape filled the limit it stopped early
+/// (count-capped), so the deepest it can honestly claim is the oldest activity
+/// fetched. `pub` so the decision is exercisable by the integration test suite.
 #[must_use]
-pub fn backfill_hit_feed_end(
-    oldest_reached_ts: i64,
+pub fn backfill_covered_floor_ts(
     after_ts: i64,
+    oldest_reached_ts: i64,
     fetched_count: usize,
     fetch_limit: usize,
-) -> bool {
-    oldest_reached_ts > after_ts && fetched_count < fetch_limit
+) -> i64 {
+    if fetched_count < fetch_limit {
+        // Not count-capped: the whole window came back, so the requested floor
+        // was reached. `min` is defensive — the scrape only returns activities
+        // at or after `after_ts`, so `oldest_reached_ts >= after_ts` normally.
+        after_ts.min(oldest_reached_ts)
+    } else {
+        oldest_reached_ts
+    }
 }
 
 /// In-flight backfill keys (`user_id:provider`) so repeated asks while a job is
@@ -207,7 +216,7 @@ async fn fetch_backfill_activities(
 ///
 /// Best-effort: a write failure is logged, never propagated. No-op when the job
 /// carries no `after` (only the dated gate path records coverage) or fetched
-/// nothing. `hit_feed_end` is inferred via [`backfill_hit_feed_end`].
+/// nothing. The covered depth is computed via [`backfill_covered_floor_ts`].
 async fn record_backfill_coverage(
     job: &ActivityBackfillJob,
     activities: &[Activity],
@@ -221,11 +230,23 @@ async fn record_backfill_coverage(
     };
     let oldest_reached_ts = oldest.timestamp();
     let fetch_limit = job.query_params.limit.unwrap_or(usize::MAX);
-    let hit_feed_end =
-        backfill_hit_feed_end(oldest_reached_ts, after_ts, fetched_count, fetch_limit);
     let coverage = BackfillCoverage {
-        oldest_reached_ts,
-        hit_feed_end,
+        oldest_reached_ts: backfill_covered_floor_ts(
+            after_ts,
+            oldest_reached_ts,
+            fetched_count,
+            fetch_limit,
+        ),
+        // The scrape path cannot PROVE the provider feed is exhausted: a
+        // date-floored scrape stops at `after`, never paging below it, so
+        // "fewer than the limit" only means the requested window was exhausted,
+        // not the whole feed. Inferring feed-end from the count falsely marked
+        // every deeper query covered, serving an empty slice from a shallow
+        // cache (a 2024-bounded scrape masking real 2022/2023 data). Reaching
+        // the requested floor is already captured by oldest_reached_ts above;
+        // hit_feed_end stays reserved for an explicit provider feed-exhaustion
+        // signal, which the gate still honors when set.
+        hit_feed_end: false,
     };
     if let Err(e) = job
         .resources

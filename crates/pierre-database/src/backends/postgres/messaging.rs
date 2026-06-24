@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::uuid_utils::parse_uuid;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -952,6 +953,41 @@ impl MessagingRepository for PostgresDatabase {
                 "linked_at": linked_at.to_rfc3339(),
             })
         }))
+    }
+
+    async fn get_channel_link_tenant(
+        &self,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<TenantId>> {
+        // Cross-tenant lookup justified like get_configs_by_channel_type: the
+        // backfill-completion push runs under the user's own tenant but loads
+        // the channel config from the BOT/channel-owner tenant, which the link
+        // (channel identity -> owner) is the authoritative source for. LIMIT 1
+        // by linked_at so a channel identity bound under more than one bot
+        // tenant resolves deterministically to the earliest binding.
+        let row = sqlx::query(
+            r"
+            SELECT tenant_id::text AS tenant_id
+            FROM messaging_channel_links
+            WHERE channel_type = $1 AND channel_user_id = $2
+            ORDER BY linked_at
+            LIMIT 1
+            ",
+        )
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to resolve channel link tenant: {e}")))?;
+
+        match row {
+            Some(r) => {
+                let raw: String = r.get("tenant_id");
+                Ok(Some(TenantId::from_uuid(parse_uuid(&raw)?)))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn list_user_channel_links(

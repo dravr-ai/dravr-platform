@@ -314,6 +314,24 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<Option<Value>>;
 
+    /// Resolve the tenant that OWNS the channel link for a channel identity,
+    /// regardless of which tenant is asking.
+    ///
+    /// Cross-tenant by necessity (mirrors `get_configs_by_channel_type`): the
+    /// backfill-completion push runs under the user's OWN tenant but must load
+    /// the channel config + outbound adapter from the BOT/channel-owner tenant.
+    /// The channel link is the authoritative
+    /// `(channel_type, channel_user_id) -> owner tenant` map, so this resolves
+    /// that owner when the caller does not already hold it. Returns the earliest
+    /// link's tenant if a channel identity is (rarely) bound under more than one
+    /// bot tenant, and `None` when no link exists (a single-tenant self-host
+    /// where the session's own tenant already owns the config).
+    async fn get_channel_link_tenant(
+        &self,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<TenantId>>;
+
     /// List all channel links for a user
     async fn list_user_channel_links(
         &self,

@@ -148,10 +148,12 @@ impl AdapterResolver for ConfigAdapterResolver {
 pub struct ReentryRequest<'a> {
     /// User the turn runs as.
     pub user_id: Uuid,
-    /// Tenant for both conversation/message lookups and tool execution. The
-    /// backfill notifier carries a single tenant (the user's own tenant, which
-    /// equals the channel tenant for the common single-tenant case); the rare
-    /// cross-tenant-bot split is not modelled here.
+    /// Tenant for both conversation/message lookups and tool execution — the
+    /// user's own tenant. The cross-tenant-bot split (the channel config living
+    /// on a separate bot tenant) is handled in `push_backfill_complete`'s
+    /// channel resolution, not here: the re-entry only ever needs the user
+    /// tenant, since the conversation, messages, and activity cache are all
+    /// stored under it.
     pub tenant_id: TenantId,
     /// Pierre conversation id the synthesized answer is appended to.
     pub conversation_id: &'a str,
@@ -254,6 +256,26 @@ pub fn install_backfill_reentry(resources: &Arc<ServerContext>) {
     }
 }
 
+/// Routing pieces resolved for a completed backfill: where to deliver the
+/// notice plus which tenant owns the channel config/adapter.
+struct ResolvedRoute {
+    /// Channel slug (e.g. `"telegram"`) for config load + logging.
+    channel_str: String,
+    /// Parsed channel type for adapter selection + the outgoing message.
+    channel_type: ChannelType,
+    /// Channel-native conversation id the notice routes to (the exact chat).
+    recipient: String,
+    /// BCP-47 short locale for the notice body.
+    locale: String,
+    /// Tenant that owns the channel config + outbound adapter — the
+    /// BOT/channel-owner tenant. Differs from the session's own tenant for a
+    /// cross-tenant bot (a user DMs an admin-owned bot); equals it for a
+    /// single-tenant self-host. Used ONLY for the config load + send; the
+    /// session lookup, warmed-cache read, and chat re-entry all stay on the
+    /// user's own tenant.
+    channel_tenant_id: TenantId,
+}
+
 /// Backfill-completion notifier: pushes a localized "your history is ready"
 /// notice back to the exact channel conversation that triggered the backfill.
 pub struct ServerBackfillNotifier {
@@ -341,15 +363,14 @@ impl ServerBackfillNotifier {
     /// when the conversation has moved/gone (the staleness guard) or the row is
     /// missing channel routing.
     ///
-    /// Returns the routing pieces — `(channel_str, channel_type, recipient,
-    /// locale)` — so the caller can read the warmed cache, compose the body, and
-    /// send. Kept separate from body composition + send so the routing decision
-    /// is unit-testable without a channel adapter.
+    /// Returns a [`ResolvedRoute`] so the caller can read the warmed cache,
+    /// compose the body, and send. Kept separate from body composition + send so
+    /// the routing decision is unit-testable without a channel adapter.
     async fn resolve_route(
         &self,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
-    ) -> Option<(String, ChannelType, String, String)> {
+    ) -> Option<ResolvedRoute> {
         let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
         let session = match db
             .get_session_by_pierre_conversation_id(tenant_id, pierre_conversation_id)
@@ -370,6 +391,7 @@ impl ServerBackfillNotifier {
         };
 
         let channel_str = session.get("channel_type").and_then(Value::as_str)?;
+        let channel_user_id = session.get("channel_user_id").and_then(Value::as_str)?;
         // Route to the EXACT originating chat (DM or group), never a broadcast
         // by user_id: the channel-native conversation id is the recipient.
         let recipient = session
@@ -385,12 +407,30 @@ impl ServerBackfillNotifier {
             return None;
         };
 
-        Some((
-            channel_str.to_owned(),
+        // The channel config + outbound adapter live on the BOT/channel-owner
+        // tenant, which differs from `tenant_id` (the user's own tenant the
+        // session now lives under, post the one-tenant-per-DM-unit fix) whenever
+        // the user DMs an admin-owned bot. Resolve that owner from the channel
+        // link — the authoritative channel-identity -> tenant map. Absent a link
+        // (single-tenant self-host where the user owns the bot), the session's
+        // own tenant owns the config, so fall back to `tenant_id`.
+        let channel_tenant_id = db
+            .get_channel_link_tenant(channel_str, channel_user_id)
+            .await
+            .inspect_err(|e| {
+                warn!(error = %e, "Backfill push: channel-link tenant lookup failed");
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(tenant_id);
+
+        Some(ResolvedRoute {
+            channel_str: channel_str.to_owned(),
             channel_type,
-            recipient.to_owned(),
-            locale.to_owned(),
-        ))
+            recipient: recipient.to_owned(),
+            locale: locale.to_owned(),
+            channel_tenant_id,
+        })
     }
 
     /// Read the warmed window's cached activities straight from the durable
@@ -562,8 +602,13 @@ impl BackfillNotifier for ServerBackfillNotifier {
         after_ts: i64,
         activity_count: usize,
     ) {
-        let Some((channel_str, channel_type, recipient, locale)) =
-            self.resolve_route(tenant_id, pierre_conversation_id).await
+        let Some(ResolvedRoute {
+            channel_str,
+            channel_type,
+            recipient,
+            locale,
+            channel_tenant_id,
+        }) = self.resolve_route(tenant_id, pierre_conversation_id).await
         else {
             return;
         };
@@ -635,9 +680,12 @@ impl BackfillNotifier for ServerBackfillNotifier {
             thread_id: None,
         };
 
+        // Load the channel config + adapter from the BOT/channel-owner tenant
+        // (resolved via the channel link), NOT the user's own tenant — the
+        // Telegram bot config lives under the bot tenant for a cross-tenant bot.
         let Some((adapter, channel_config)) = self
             .resolver
-            .resolve(tenant_id, &channel_str, channel_type)
+            .resolve(channel_tenant_id, &channel_str, channel_type)
             .await
         else {
             return;
