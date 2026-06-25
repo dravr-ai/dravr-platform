@@ -58,7 +58,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::messaging_ingress::build_messaging_profile;
+use crate::services::messaging_ingress::{build_messaging_profile, compose_messaging_reply};
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -166,6 +166,20 @@ pub struct ReentryRequest<'a> {
     pub prompt: &'a str,
 }
 
+/// A synthesized backfill-push reply.
+///
+/// Carries the coach's analysis plus the rendered activity list the re-entry's
+/// `get_activities` produced (sorted per the re-asked question). The list is
+/// prepended to the analysis on delivery so the user SEES their activities,
+/// mirroring the live messaging path.
+pub struct ReentryReply {
+    /// The coach's in-persona analysis text.
+    pub content: String,
+    /// The `get_activities` `activity_list` prose captured from the turn, when
+    /// the re-entry called the tool. `None` when no list was produced.
+    pub activity_list: Option<String>,
+}
+
 /// Re-runs one chat-pipeline turn so the backfill-completion push can deliver a
 /// real in-persona coach answer instead of a templated activity list.
 ///
@@ -174,10 +188,10 @@ pub struct ReentryRequest<'a> {
 /// against a fake that returns a canned reply without booting the pipeline.
 #[async_trait]
 pub trait ChatReentry: Send + Sync {
-    /// Run the turn and return the assistant reply text, or `None` when
-    /// synthesis is unavailable or failed (the caller then falls back to the
-    /// templated list). Implementations log their own failures.
-    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String>;
+    /// Run the turn and return the assistant reply (analysis + any activity
+    /// list), or `None` when synthesis is unavailable or failed (the caller then
+    /// falls back to the templated list). Implementations log their own failures.
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply>;
 }
 
 /// Production [`ChatReentry`]: drives `pierre_chat_pipeline::run` through the
@@ -203,7 +217,7 @@ impl PipelineChatReentry {
 
 #[async_trait]
 impl ChatReentry for PipelineChatReentry {
-    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String> {
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         let resources = self.ctx.upgrade()?;
         let profile = build_messaging_profile(&resources, req.channel_type);
         let mut ctx = resources.chat_pipeline_context();
@@ -229,7 +243,12 @@ impl ChatReentry for PipelineChatReentry {
         // request with a status placeholder to edit.
         let hooks = PipelineHooks::none();
         match pierre_chat_pipeline::run(&ctx, turn_input, &profile, &hooks).await {
-            Ok(result) if !result.content.trim().is_empty() => Some(result.content),
+            // Carry the activity_list the re-asked question produced (sorted per
+            // the user's wording) so the push prepends it like a live turn does.
+            Ok(result) if !result.content.trim().is_empty() => Some(ReentryReply {
+                content: result.content,
+                activity_list: result.activity_list,
+            }),
             Ok(_) => None,
             Err(e) => {
                 warn!(error = %e, "Backfill push: chat re-entry pipeline run failed");
@@ -555,7 +574,7 @@ impl ServerBackfillNotifier {
         conversation_id: &str,
         channel_type: ChannelType,
         locale: &str,
-    ) -> Option<String> {
+    ) -> Option<ReentryReply> {
         let reentry = self.reentry.get()?;
         let prompt = self
             .recent_user_question(user_id, tenant_id, conversation_id)
@@ -661,8 +680,15 @@ impl BackfillNotifier for ServerBackfillNotifier {
             .await
         {
             // Best path: re-enter the chat pipeline with the user's own question
-            // (the cache is now warm) so they get a real in-persona coach answer.
-            coach_reply
+            // (the cache is now warm) so they get a real in-persona coach answer,
+            // with the activity list (sorted per their wording) prepended exactly
+            // as the live messaging path does.
+            compose_messaging_reply(
+                coach_reply.activity_list.as_deref(),
+                coach_reply.content,
+                &self.strings,
+                &locale,
+            )
         } else {
             // No re-entry handle, no re-askable question, or the pipeline run
             // produced nothing — degrade gracefully to the Rust-rendered list.

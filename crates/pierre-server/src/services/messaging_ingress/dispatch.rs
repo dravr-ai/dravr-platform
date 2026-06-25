@@ -35,7 +35,8 @@ use pierre_services::usage_counter::UsageCounterService;
 
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::{
-    build_messaging_profile, content_body_text, PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
+    build_messaging_profile, compose_messaging_reply, content_body_text, PendingDispatch,
+    CONVERSATION_DISPATCH_LOCKS,
 };
 
 /// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
@@ -460,10 +461,23 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Increment usage counters (message count, token count, tool call count)
     increment_messaging_usage_counters(&dispatch, &dispatch_result).await;
 
+    // Prepend the activity list to the coach's analysis so the user actually
+    // SEES their activities. The web/mobile UI auto-renders this list as a card;
+    // text channels have no such card, so without this the coach's "the list is
+    // already shown" assumption leaves messaging users with analysis only. The
+    // list follows the request's `sort_by` order and is adaptively capped for
+    // small screens.
+    let reply_body = compose_messaging_reply(
+        dispatch_result.activity_list.as_deref(),
+        dispatch_result.content,
+        &dispatch.resources.mcp.messaging_strings_registry,
+        &dispatch.locale,
+    );
+
     // Guard: skip sending empty responses. The LLM occasionally returns empty
-    // content (e.g., when the input is too technical or the context is exhausted).
-    // Telegram rejects empty message text with HTTP 400.
-    if dispatch_result.content.trim().is_empty() {
+    // content (e.g., when the input is too technical or the context is exhausted)
+    // and no list — Telegram rejects empty message text with HTTP 400.
+    if reply_body.trim().is_empty() {
         warn!(
             conversation_id = %dispatch.session.conversation,
             "LLM returned empty response, sending fallback"
@@ -481,7 +495,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         &dispatch,
         messaging_agui.as_ref(),
         &channel_config,
-        dispatch_result.content,
+        reply_body,
         dispatch_result.turn_id,
     )
     .await;

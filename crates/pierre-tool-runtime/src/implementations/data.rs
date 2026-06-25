@@ -20,14 +20,14 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Activity, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
 
@@ -127,7 +127,7 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
 /// Whether a `get_activities` query may use the `CacheKey` response cache.
 ///
 /// One decision governs BOTH the read short-circuit and the write-through, so
-/// the two never diverge. Two query shapes must bypass the response cache:
+/// the two never diverge. Three query shapes must bypass the response cache:
 ///
 /// * `auto_promote_to_detail` — the cache key omits `mode`, so a cached summary
 ///   cannot satisfy a detail-promoted response, and a detail payload must not be
@@ -136,11 +136,52 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
 ///   coverage-aware gate, never a TTL'd response that could keep serving a stale
 ///   slice after the coverage was purged. Excluding it from the WRITE too keeps
 ///   the cache from accumulating historical entries that are never read back.
+/// * `is_custom_sort` — the cache key omits `sort_by`, and the cached-serve path
+///   re-orders by date, so a cached entry cannot satisfy a "longest/oldest/…"
+///   ask. A non-default sort therefore bypasses the cache on both read and write.
 ///
 /// `pub` so the read/write contract is exercisable by the integration test suite.
 #[must_use]
-pub fn response_cache_eligible(auto_promote_to_detail: bool, is_historical: bool) -> bool {
-    !auto_promote_to_detail && !is_historical
+pub fn response_cache_eligible(
+    auto_promote_to_detail: bool,
+    is_historical: bool,
+    is_custom_sort: bool,
+) -> bool {
+    !auto_promote_to_detail && !is_historical && !is_custom_sort
+}
+
+/// Order a fetched activity list in place by the requested key.
+///
+/// Applied BEFORE the display limit so a "longest to shortest" ask keeps the
+/// longest activities rather than the most recent. Recognized keys:
+/// `date_desc` (default, newest first), `date_asc`, `distance_desc`,
+/// `distance_asc`, `duration_desc`, `duration_asc`. An unknown value falls back
+/// to `date_desc`. A missing distance sorts as 0 m, so an activity with no
+/// recorded distance lands last on a `distance_desc` sort. `pub` so the ordering
+/// is exercisable by the integration test suite.
+pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
+    // f64 distances have no total order (NaN), so the distance arms keep
+    // `sort_by` with `partial_cmp`; the Ord-keyed arms (date, duration) use
+    // `sort_by_key` to satisfy clippy::unnecessary_sort_by.
+    let distance = |a: &Activity| a.distance_meters().unwrap_or(0.0);
+    match sort_by {
+        "date_asc" => activities.sort_by_key(Activity::start_date),
+        "distance_desc" => activities.sort_by(|a, b| {
+            distance(b)
+                .partial_cmp(&distance(a))
+                .unwrap_or(Ordering::Equal)
+        }),
+        "distance_asc" => activities.sort_by(|a, b| {
+            distance(a)
+                .partial_cmp(&distance(b))
+                .unwrap_or(Ordering::Equal)
+        }),
+        "duration_desc" => activities.sort_by_key(|a| Reverse(a.duration_seconds())),
+        "duration_asc" => activities.sort_by_key(Activity::duration_seconds),
+        // "date_desc" and any unrecognized value: newest first (the historical
+        // default that cached responses also produce).
+        _ => activities.sort_by_key(|a| Reverse(a.start_date())),
+    }
 }
 
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
@@ -301,6 +342,17 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             },
         );
 
+        properties.insert(
+            "sort_by".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Order of the returned list, applied BEFORE `limit` so the truncated set keeps the right activities. One of: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc' (shortest first), 'duration_desc' (longest time first), 'duration_asc' (shortest time first). Map the user's wording: 'de la plus longue à la plus courte' / 'longest to shortest' => distance_desc; 'oldest first' / 'du début' => date_asc.".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
@@ -309,7 +361,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
         tool_definition(
             "get_activities",
-            "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Supports sport-type filtering and pagination.",
+            "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.",
             schema,
             Some(read_only_annotations()),
         )
@@ -412,6 +464,16 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .get("sport_type")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+
+            // Optional ordering of the returned list, applied BEFORE the display
+            // limit so the truncated set reflects the user's "longest/oldest/…"
+            // ask. Defaults to newest-first (`date_desc`), the historical
+            // behaviour. The same order flows into both the structured array and
+            // the rendered `activity_list` prose (see `sort_activities`).
+            let sort_by = args
+                .get("sort_by")
+                .and_then(Value::as_str)
+                .map_or_else(|| "date_desc".to_owned(), str::to_owned);
 
             let query_params = ActivityQueryParams {
                 limit: Some(limit),
@@ -538,7 +600,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // auto-promoting (the cache key omits mode, so a cached summary cannot
             // satisfy a detail-promoted response) or for a historical window (it
             // must route through the gate, not a stale cached response).
-            if response_cache_eligible(auto_promote_to_detail, is_historical) {
+            if response_cache_eligible(
+                auto_promote_to_detail,
+                is_historical,
+                sort_by != "date_desc",
+            ) {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
                     cache_key: &cache_key,
@@ -737,9 +803,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let mut filtered_activities =
                 filter_activities_by_sport_type(activities, sport_type_filter.as_deref());
 
-            // Stable newest-first ordering matches the provider default and
-            // mirrors what cached responses also produce.
-            filtered_activities.sort_by_key(|a| Reverse(a.start_date()));
+            // Order by the requested key (default newest-first) BEFORE the
+            // display limit, so a "longest to shortest" ask keeps the longest
+            // activities instead of the most recent. The same order is honored
+            // by the rendered activity_list prose downstream.
+            sort_activities(&mut filtered_activities, &sort_by);
 
             // Apply the user's display limit AFTER the sport filter. The gate above
             // serves the COMPLETE window; truncating before this filter let other
@@ -795,7 +863,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // auto-promoted detail payload (the key omits mode) and the historical
             // window (its serve never reads this cache, so a write here is dead —
             // it would only accrete never-read historical entries).
-            if response_cache_eligible(auto_promote_to_detail, is_historical) {
+            if response_cache_eligible(
+                auto_promote_to_detail,
+                is_historical,
+                sort_by != "date_desc",
+            ) {
                 cache_activities_result(cache, &cache_key, &filtered_activities, per_page).await;
             }
 
