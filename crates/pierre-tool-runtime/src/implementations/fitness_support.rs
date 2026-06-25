@@ -207,11 +207,10 @@ fn format_activities_as_list(
         }
     }
 
-    // Sort activities by start_date descending (newest first)
-    let mut sorted_activities: Vec<_> = activities.iter().collect();
-    sorted_activities.sort_by_key(|a| Reverse(a.start_date()));
-
-    for (i, activity) in sorted_activities.iter().enumerate() {
+    // Render in the order the caller already established (get_activities sorts
+    // by the requested `sort_by` before the display limit). Re-sorting here
+    // would override "longest to shortest" / "oldest first" back to date order.
+    for (i, activity) in activities.iter().enumerate() {
         let date = activity.start_date().format("%Y-%m-%d").to_string();
         // Format sport type cleanly - extract inner string for Other variant
         let sport = match activity.sport_type() {

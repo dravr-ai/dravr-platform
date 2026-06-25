@@ -14,6 +14,8 @@ mod linking;
 pub mod locale;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
+/// Compose a messaging reply: prepend the (adaptively capped) activity list to the coach analysis.
+mod reply_compose;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Slash-command dispatch wrapper (channel-link auth/locale + `commands::dispatch::try_dispatch`).
@@ -25,6 +27,7 @@ pub use locale::{detect_turn_locale, resolve_messaging_locale};
 pub(crate) use dispatch::dispatch_and_respond;
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
+pub(crate) use reply_compose::compose_messaging_reply;
 // Re-exported (not just `use`) so the messaging-reset integration test can
 // reach the helper — pierre-server keeps test modules external, not in src/.
 pub use otp::is_reset_command;

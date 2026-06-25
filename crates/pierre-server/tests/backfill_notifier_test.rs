@@ -14,6 +14,7 @@
     clippy::uninlined_format_args
 )]
 
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -32,7 +33,7 @@ use pierre_core::models::{
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
 use pierre_database::{DatabaseProvider, RepositoryRegistry};
 use pierre_mcp_server::services::backfill_notifier::{
-    AdapterResolver, ChatReentry, ReentryRequest, ServerBackfillNotifier,
+    AdapterResolver, ChatReentry, ReentryReply, ReentryRequest, ServerBackfillNotifier,
 };
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::error::MessagingResult;
@@ -441,14 +442,20 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
 /// question and (b) delivered the synthesized reply rather than the list.
 struct FakeReentry {
     reply: String,
+    /// Optional activity-list prose the fake re-entry "produced", so a test can
+    /// assert the push prepends it to the coach reply.
+    activity_list: Option<String>,
     seen_prompt: Mutex<Option<String>>,
 }
 
 #[async_trait]
 impl ChatReentry for FakeReentry {
-    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<String> {
+    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         *self.seen_prompt.lock().unwrap() = Some(req.prompt.to_owned());
-        Some(self.reply.clone())
+        Some(ReentryReply {
+            content: self.reply.clone(),
+            activity_list: self.activity_list.clone(),
+        })
     }
 }
 
@@ -507,6 +514,7 @@ async fn push_synthesizes_coach_reply_when_reentry_installed() {
     let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let reentry = Arc::new(FakeReentry {
         reply: "Voici un résumé coaché de ta saison 2022 …".to_owned(),
+        activity_list: None,
         seen_prompt: Mutex::new(None),
     });
     let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
@@ -540,6 +548,192 @@ async fn push_synthesizes_coach_reply_when_reentry_installed() {
     assert_eq!(
         reentry.seen_prompt.lock().unwrap().as_deref(),
         Some(question)
+    );
+}
+
+/// When the re-entry produces an activity list (the user asked to see/sort their
+/// activities), the push PREPENDS that list to the coach analysis — exactly like
+/// a live messaging turn — so the user SEES the list, not only a summary.
+#[tokio::test]
+async fn push_prepends_activity_list_to_coach_reply() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    let question = "Donne moi mes courses en 2023, de la plus longue à la plus courte";
+    db.repositories()
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: question,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            structured_content: None,
+        })
+        .await
+        .unwrap();
+
+    // Warm the cache so the push takes the synthesize branch.
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a1", "Trail run", 400)],
+    )
+    .await;
+
+    // The list the re-entry's get_activities produced, longest-first (sort_by).
+    let activity_list = "Your Activities:\n\n1. [TrailRun] Ultra X - 2023-06-12 - 42.20 km - 4:30:00\n2. [Run] Tempo - 2023-03-01 - 10.00 km - 0:45:00";
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let reentry = Arc::new(FakeReentry {
+        reply: "Analyse: belle progression sur tes longues sorties.".to_owned(),
+        activity_list: Some(activity_list.to_owned()),
+        seen_prompt: Mutex::new(None),
+    });
+    let notifier =
+        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            2,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1, "exactly one notice should be sent");
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    // The list (longest race first) AND the coach analysis both appear, with the
+    // list BEFORE the analysis — the user sees the activities, not just a summary.
+    let list_pos = body
+        .find("Ultra X")
+        .expect("activity list should be present");
+    let analysis_pos = body
+        .find("Analyse:")
+        .expect("coach analysis should be present");
+    assert!(
+        list_pos < analysis_pos,
+        "the list must come before the analysis: {body}"
+    );
+    assert!(
+        body.contains("42.20 km"),
+        "distance should be shown: {body}"
+    );
+}
+
+/// A long activity list collapses to the top entries + a "…and N more" footer
+/// so a deep history (e.g. 25 rows) doesn't overflow a small messaging screen.
+#[tokio::test]
+async fn push_caps_long_activity_list_for_small_screens() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+    db.repositories()
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: "liste mes courses",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            structured_content: None,
+        })
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a1", "Trail run", 400)],
+    )
+    .await;
+
+    // 25 numbered entries — above the 20-entry full-list threshold.
+    let mut list = String::from("Your Activities:\n");
+    for i in 1..=25 {
+        let _ = write!(
+            list,
+            "\n{i}. [Run] Run {i} - 2023-01-01 - {i}.00 km - 0:30:00"
+        );
+    }
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let reentry = Arc::new(FakeReentry {
+        reply: "Analyse.".to_owned(),
+        activity_list: Some(list),
+        seen_prompt: Mutex::new(None),
+    });
+    let notifier =
+        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            25,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    // Only the top 12 numbered entries survive; the rest collapse into a footer
+    // that names the 13 remaining.
+    let entry_count = body
+        .lines()
+        .filter(|l| {
+            l.split_once(". [")
+                .is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .count();
+    assert_eq!(entry_count, 12, "long list should cap to top 12: {body}");
+    assert!(
+        body.contains("13"),
+        "footer should name the 13 remaining: {body}"
     );
 }
 

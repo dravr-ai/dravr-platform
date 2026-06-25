@@ -611,7 +611,7 @@ export interface GetActiveCoachParams {}
 
 
 /**
- * Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Supports sport-type filtering and pagination.
+ * Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.
  */
 export interface GetActivitiesParams {
 
@@ -635,6 +635,9 @@ export interface GetActivitiesParams {
 
   /** Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider. */
   provider?: string;
+
+  /** Order of the returned list, applied BEFORE `limit` so the truncated set keeps the right activities. One of: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc' (shortest first), 'duration_desc' (longest time first), 'duration_asc' (shortest time first). Map the user's wording: 'de la plus longue à la plus courte' / 'longest to shortest' => distance_desc; 'oldest first' / 'du début' => date_asc. */
+  sort_by?: string;
 
   /** Filter by sport type (e.g., 'run', 'ride', 'swim'). Case-insensitive. */
   sport_type?: string;
