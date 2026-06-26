@@ -212,10 +212,13 @@ fn format_activities_as_list(
     // would override "longest to shortest" / "oldest first" back to date order.
     for (i, activity) in activities.iter().enumerate() {
         let date = activity.start_date().format("%Y-%m-%d").to_string();
-        // Format sport type cleanly - extract inner string for Other variant
+        // Render the sport with its canonical display name (e.g. "trail run",
+        // not the CamelCase Debug "TrailRunning") so the list reads cleanly and
+        // matches the backfill push, which already uses `display_name()`. The
+        // `Other` variant keeps its provider-supplied label.
         let sport = match activity.sport_type() {
             SportType::Other(s) => s.clone(),
-            other => format!("{other:?}"),
+            other => other.display_name().to_owned(),
         };
         let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
         let duration_secs = activity.duration_seconds();
