@@ -4,6 +4,7 @@
 /// <reference types="vitest" />
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -15,7 +16,54 @@ export default defineConfig(({ mode }) => {
   const isE2EMode = process.env.E2E_TEST === 'true'
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      // Add-to-Home-Screen + offline app shell. The service worker precaches
+      // ONLY hashed build assets (the shell) and NEVER caches /api, /oauth,
+      // /admin, /a2a, /ws, /__ — those are tenant-scoped or backend-proxied, and
+      // a shared SW cache would leak one tenant's data into the next session
+      // (multi-tenant isolation rule). No runtimeCaching of API responses at all.
+      VitePWA({
+        registerType: 'autoUpdate',
+        // injectRegister 'auto' (default) wires the registration script into
+        // index.html at build time, so no main.tsx import is needed.
+        includeAssets: ['dravr-favicon.svg', 'apple-touch-icon.png'],
+        manifest: {
+          name: 'Dravr',
+          short_name: 'Dravr',
+          description: 'Fitness intelligence for athletes and coaches.',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
+          orientation: 'portrait',
+          background_color: '#00241a',
+          theme_color: '#00241a',
+          categories: ['health', 'fitness', 'sports'],
+          icons: [
+            { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+        workbox: {
+          // Precache the app shell only. Hash-revisioned static assets — no HTML
+          // API payloads ever enter the cache.
+          globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
+          // SPA deep links (#hash routes live under /) fall back to the cached
+          // shell so an installed app opens offline. Backend/proxied paths are
+          // denylisted so the SW never shadows a real network call to them.
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api/, /^\/oauth/, /^\/admin/, /^\/a2a/, /^\/ws/, /^\/__/],
+          // No runtimeCaching: tenant-scoped /api responses must always hit the
+          // network. Only the immutable shell is cached, via precache above.
+          cleanupOutdatedCaches: true,
+        },
+        // Keep the SW OUT of dev/E2E so it can't intercept the Vite proxy or
+        // fight HMR. It is generated only for production builds (verify via
+        // `bun run build && bun run preview`).
+        devOptions: { enabled: false },
+      }),
+    ],
     server: isE2EMode
       ? {}
       : {

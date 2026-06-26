@@ -191,7 +191,7 @@ function CoachProposalCard({
 /** Shared full-screen onboarding chrome (gradient accent + card). */
 function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
       <div className="max-w-2xl w-full">
         <Card className="overflow-hidden">
           <div className="h-1 w-full boreal-hero-gradient" />

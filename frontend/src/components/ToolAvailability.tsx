@@ -334,7 +334,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
 
       {/* Summary Stats */}
       {summaryData?.data && (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
           <Card variant="dark" className="text-center py-4">
             <div className="text-2xl font-bold text-on-surface">{summaryData.data.total_tools}</div>
             <div className="text-sm text-on-surface-variant">Total Tools</div>

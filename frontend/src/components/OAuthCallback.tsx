@@ -35,7 +35,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
 
   return (
-    <div className="min-h-screen bg-surface-container-low flex items-center justify-center px-4">
+    <div className="min-h-dvh bg-surface-container-low flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-surface rounded-xl shadow-lg overflow-hidden">
         {/* Top gradient bar */}
         <div

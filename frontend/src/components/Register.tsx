@@ -54,7 +54,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         {/* Card with glassmorphism and gradient accent bar */}
         <div

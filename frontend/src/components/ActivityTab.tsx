@@ -201,9 +201,11 @@ export default function ActivityTab() {
           </div>
         </div>
       ) : (
-        <div className="card-dark">
-          {/* Table header */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b ghost-border text-xs font-medium text-on-surface-variant uppercase tracking-wider">
+        <div className="card-dark overflow-x-auto">
+          {/* Table header — min-w keeps the 12-col faux-table legible; the
+              parent card scrolls horizontally on a narrow phone instead of
+              crushing the Category/Time cells. Header + rows share the scroll. */}
+          <div className="grid grid-cols-12 gap-3 px-4 py-3 min-w-[640px] border-b ghost-border text-xs font-medium text-on-surface-variant uppercase tracking-wider">
             <div className="col-span-1">Type</div>
             <div className="col-span-4">Details</div>
             <div className="col-span-2">Category</div>
@@ -222,7 +224,7 @@ export default function ActivityTab() {
                 <div key={entry.id}>
                   <button
                     onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
-                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 border-b ghost-border hover:bg-surface-container-low transition-colors text-left items-center"
+                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 min-w-[640px] border-b ghost-border hover:bg-surface-container-low transition-colors text-left items-center"
                   >
                     {/* Type icon */}
                     <div className="col-span-1">

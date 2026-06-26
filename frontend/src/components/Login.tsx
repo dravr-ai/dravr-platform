@@ -111,7 +111,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   };
 
   return (
-    <div className="min-h-screen flex bg-surface text-on-surface">
+    <div className="min-h-dvh flex bg-surface text-on-surface">
       {/*
         Editorial hero column. The hero stays fixed deep-forest in both
         light and dark mode — it's the brand moment, and its text/tokens

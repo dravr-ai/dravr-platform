@@ -306,14 +306,14 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
       </div>
 
       {/* Sort Options */}
-      <div className="px-6 py-2 bg-surface-container-low border-b ghost-border flex items-center gap-3">
-        <span className="text-sm text-gray-500">Sort by:</span>
+      <div className="px-6 py-2 bg-surface-container-low border-b ghost-border flex items-center gap-3 overflow-x-auto">
+        <span className="text-sm text-gray-500 whitespace-nowrap flex-shrink-0">Sort by:</span>
         {SORT_OPTIONS.map((option) => (
           <button
             key={option.key}
             onClick={() => setSelectedSort(option.key)}
             className={clsx(
-              'px-3 py-1 text-sm rounded transition-colors min-h-[44px] flex items-center',
+              'px-3 py-1 text-sm rounded transition-colors min-h-[44px] flex items-center whitespace-nowrap flex-shrink-0',
               selectedSort === option.key
                 ? 'bg-pierre-violet/20 text-pierre-violet-light font-medium'
                 : 'text-gray-400 hover:text-pierre-violet-light'
