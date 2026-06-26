@@ -15,6 +15,7 @@ pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }

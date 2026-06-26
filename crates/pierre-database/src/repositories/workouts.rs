@@ -102,7 +102,7 @@ pub trait RouteSummaryRepository: Send + Sync {
 /// Each row captures one day of derived training metrics (CTL/ATL/TSB/ACWR/
 /// monotony/strain/`ramp_rate`/`daily_load`) for a single (`tenant_id`, `user_id`).
 /// Computation is the responsibility of
-/// [`pierre_intelligence::training_history_compute`]; this repo only persists.
+/// [`pierre_fitness_compute::training_history_compute`]; this repo only persists.
 #[async_trait]
 pub trait TrainingHistoryRepository: Send + Sync {
     /// Insert or update a single day's row.

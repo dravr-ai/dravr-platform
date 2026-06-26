@@ -14,12 +14,12 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, DailyTrainingState, Dossier, PrescribedWorkout, TenantId, WorkoutTemplate,
 };
-use pierre_intelligence::intervals::{build_intervals, IntervalsExport};
-use pierre_intelligence::latest_snapshot::{
+use pierre_fitness_compute::intervals::{build_intervals, IntervalsExport};
+use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, LatestSnapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
-use pierre_intelligence::routes::{build_route_summary_from_streams, RouteSummary};
-use pierre_intelligence::training_history_compute::MAX_BACKFILL_DAYS;
+use pierre_fitness_compute::routes::{build_route_summary_from_streams, RouteSummary};
+use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
+use pierre_fitness_compute::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 
 #[test]
 fn empty_inputs_yield_no_thresholds() {

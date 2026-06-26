@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::weather::{analyze_weather_impact, WeatherDifficulty};
+use pierre_fitness_compute::weather::{analyze_weather_impact, WeatherDifficulty};
 use pierre_weather::WeatherSample;
 
 #[test]

@@ -45,13 +45,11 @@ use pierre_core::models::{
     SharedInsight, TenantId, TrainingPhase,
 };
 use pierre_database::repositories::SocialRepository;
-use pierre_intelligence::{
-    insight_adapter::UserTrainingContext,
-    insight_validation::{validate_insight_with_policy, ValidationVerdict},
-    social_insights::{
-        InsightContextBuilder, InsightGenerationContext, InsightSuggestion, SharedInsightGenerator,
-    },
+use pierre_fitness_compute::insight_validation::{validate_insight_with_policy, ValidationVerdict};
+use pierre_fitness_compute::social_insights::{
+    InsightContextBuilder, InsightGenerationContext, InsightSuggestion, SharedInsightGenerator,
 };
+use pierre_intelligence::insight_adapter::UserTrainingContext;
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::MiddlewareCtx;

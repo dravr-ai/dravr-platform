@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 2 service — fetch activities + physiology, run intelligence compute, persist + invalidate cache
-// ABOUTME: Wraps pierre_intelligence::training_history_compute with the ServerContext / repos / cache plumbing
+// ABOUTME: Wraps pierre_fitness_compute::training_history_compute with the ServerContext / repos / cache plumbing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DailyTrainingState, TenantId};
-use pierre_intelligence::training_history_compute::{
+use pierre_fitness_compute::training_history_compute::{
     compute_training_history, AthleteInputs, MAX_BACKFILL_DAYS,
 };
 use uuid::Uuid;
@@ -29,7 +29,7 @@ pub const MAX_ACTIVITIES_FOR_BACKFILL: usize = 500;
 /// Compute and persist daily training-history rows for `[from, to]`.
 ///
 /// Pulls the user's activity stream + physiology, hands them to
-/// [`pierre_intelligence::training_history_compute`], then upserts the
+/// [`pierre_fitness_compute::training_history_compute`], then upserts the
 /// resulting rows via `RepositoryRegistry::training_history`.
 ///
 /// Returns the upserted row count for telemetry / tests.

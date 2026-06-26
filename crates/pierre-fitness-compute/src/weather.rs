@@ -24,7 +24,7 @@ use pierre_weather::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::physiological_constants::{
+use dravr_cageux::physiological_constants::{
     weather_impact_factors::{
         COLD_DIFFICULTY, EXTREME_COLD_DIFFICULTY, EXTREME_HOT_DIFFICULTY, HIGH_HUMIDITY_DIFFICULTY,
         MODERATE_WIND_DIFFICULTY, RAIN_DIFFICULTY, SNOW_DIFFICULTY, STRONG_WIND_DIFFICULTY,

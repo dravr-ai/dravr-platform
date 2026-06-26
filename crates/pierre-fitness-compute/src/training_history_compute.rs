@@ -29,8 +29,8 @@
 //! deterministic-output rule: never substitute zero for "insufficient
 //! history".
 
-use crate::AlgorithmConfig;
 use chrono::{Duration, NaiveDate};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
 use pierre_core::models::DailyTrainingState;

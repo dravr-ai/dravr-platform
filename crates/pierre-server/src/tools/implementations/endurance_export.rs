@@ -10,10 +10,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
-use pierre_intelligence::latest_snapshot::{
+use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
-use pierre_intelligence::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
+use pierre_fitness_compute::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};

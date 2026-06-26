@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use pierre_intelligence::location::{ForwardGeocodeResult, LocationService};
-use pierre_intelligence::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
+use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
+use pierre_fitness_compute::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
 
 use crate::capabilities::ToolCapabilities;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};

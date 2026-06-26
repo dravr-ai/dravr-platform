@@ -16,7 +16,7 @@ use pierre_core::models::zones::HrZoneSet;
 use pierre_core::models::{Activity, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
-use pierre_intelligence::latest_snapshot::build_latest_snapshot;
+use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
 use uuid::Uuid;
 
 async fn make_test_db() -> Database {

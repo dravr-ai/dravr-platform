@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_intelligence::training_history_compute::MAX_BACKFILL_DAYS;
+use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use serde_json::{json, Value};
 
 use crate::services::training_history_compute::{

@@ -44,8 +44,8 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_intelligence::weather::{analyze_weather_impact, build_provider};
-use pierre_intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
+use pierre_fitness_compute::weather::{analyze_weather_impact, build_provider};
+use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;

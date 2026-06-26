@@ -47,6 +47,7 @@ pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
