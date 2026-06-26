@@ -228,9 +228,9 @@ variable "frontend_base_url" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances. 2 vCPU gives Chrome-driven sciotte scraping the headroom it needs alongside the Pierre server itself."
+  description = "CPU allocation for backend instances. 1 vCPU once the contremaitre boot-sync moved off the bind path; a concurrency=1 coaching turn is mostly LLM-I/O-wait and fits one core. See terraform.tfvars for the full rationale + apply order."
   type        = string
-  default     = "2"
+  default     = "1"
 }
 
 variable "backend_memory" {

@@ -1,5 +1,5 @@
 // ABOUTME: Contremaitre registry bootstrap + full-sync helper for ServerContext startup
-// ABOUTME: Builds prompt/tool-desc/evidence/messaging-strings registries and runs the initial GitHub/GCS overlay sync
+// ABOUTME: Builds prompt/tool-desc/evidence/messaging-strings registries and kicks off the initial GitHub/GCS overlay sync in the background
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -51,13 +51,14 @@ pub(super) struct ContremaitreSyncRegistries<'a> {
     pub persona_contract: &'a Arc<PersonaContractRegistry>,
 }
 
-/// Run a contremaitre full-sync against the freshly-built registries,
-/// logging the active backend (gcs vs github) and the result/error.
+/// Run a contremaitre full-sync against the live registries, logging the
+/// active backend (gcs vs github) and the result/error.
 ///
-/// Extracted from [`init_contremaitre_registries`] to keep that function's
-/// cognitive-complexity budget under the workspace's clippy threshold;
-/// the block contains an `if-let` plus `match`, which clippy counts as
-/// two arms each.
+/// Shared by every tick of the background poll — including its first,
+/// immediate tick, which is the initial startup overlay. Kept as its own
+/// function so the poll closure stays under the workspace's
+/// cognitive-complexity threshold; the body is an `if-let` plus `match`,
+/// which clippy counts as two arms each.
 pub(super) async fn run_contremaitre_full_sync(
     config: &ContremaitreConfig,
     registries: ContremaitreSyncRegistries<'_>,
@@ -93,13 +94,15 @@ pub(super) async fn run_contremaitre_full_sync(
     }
 }
 
-/// Spawn the background poll that re-runs [`full_sync`] on an interval so
-/// prompt changes fan out to every running instance — and any instance that
-/// missed the push webhook converges anyway — without a redeploy.
+/// Spawn the background poll that runs [`full_sync`] on an interval.
 ///
-/// Owns its config and `Arc` clones of the live registries (the same
-/// instances `ServerContext` serves from), so each tick overlays the latest
-/// contremaitre content into the registries the chat pipeline reads.
+/// Its first tick (immediate) is the initial startup overlay — run off the
+/// bind path so a slow fetch never blocks the server from listening. Every
+/// tick after fans prompt changes out to this instance (and recovers any
+/// instance that missed the push webhook) without a redeploy. Owns its config
+/// and `Arc` clones of the live registries (the same instances
+/// `ServerContext` serves from), so each tick overlays the latest contremaitre
+/// content into the registries the chat pipeline reads.
 fn spawn_contremaitre_poll(
     config: ContremaitreConfig,
     prompt: Arc<PromptRegistry>,
@@ -116,9 +119,11 @@ fn spawn_contremaitre_poll(
     );
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(secs));
-        // The first tick fires immediately; the initial full_sync already ran
-        // at startup, so consume it and only sync on subsequent ticks.
-        ticker.tick().await;
+        // `interval`'s first tick fires immediately, so the initial overlay
+        // sync runs here — in the background, off the server's bind path — and
+        // re-runs every `secs` after. Binding no longer waits on a slow
+        // GitHub/GCS fetch, so a single-vCPU instance still passes the Cloud
+        // Run startup probe.
         loop {
             ticker.tick().await;
             run_contremaitre_full_sync(
@@ -137,14 +142,19 @@ fn spawn_contremaitre_poll(
     });
 }
 
-/// Initialize prompt, tool description, and evidence registries and sync
-/// from contremaitre when configured.
+/// Build the prompt, tool-description, evidence, and messaging-strings
+/// registries, and kick off the contremaitre overlay sync in the background
+/// when configured.
 ///
-/// The cageux config registry is passed in separately so that the cageux
-/// snapshot exists whether or not the `contremaitre` feature is enabled.
-/// When contremaitre IS enabled, its sync also populates the cageux
-/// registry via the manifest's `config.cageux` entry.
-pub(super) async fn init_contremaitre_registries(
+/// The registries are returned immediately holding their compiled-in
+/// defaults; the spawned poll's first (immediate) tick overlays the
+/// GitHub/GCS content shortly after — off the server's bind path, so a slow
+/// sync never delays startup (which would otherwise fail the Cloud Run
+/// startup probe on a single vCPU). The cageux config registry is passed in
+/// separately so the cageux snapshot exists whether or not the `contremaitre`
+/// feature is enabled; when contremaitre IS enabled, its sync also populates
+/// the cageux registry via the manifest's `config.cageux` entry.
+pub(super) fn init_contremaitre_registries(
     cageux_config_registry: &Arc<CageuxConfigRegistry>,
     persona_contract_registry: &Arc<PersonaContractRegistry>,
 ) -> (
@@ -159,20 +169,11 @@ pub(super) async fn init_contremaitre_registries(
     let messaging_strings_registry = Arc::new(MessagingStringsRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
-        run_contremaitre_full_sync(
-            &config,
-            ContremaitreSyncRegistries {
-                prompt: &prompt_registry,
-                tool_desc: &tool_desc_registry,
-                evidence: &evidence_registry,
-                cageux_config: cageux_config_registry,
-                messaging_strings: &messaging_strings_registry,
-                persona_contract: persona_contract_registry,
-            },
-        )
-        .await;
-        // Fan-out / catch-up: keep every instance converged on contremaitre
-        // HEAD without a redeploy, complementing the instant push webhook.
+        // The poll owns the config and Arc clones of the live registries; its
+        // first immediate tick is the initial overlay (background, off the
+        // bind path), and every tick after is the fan-out / catch-up that
+        // keeps each instance converged on contremaitre HEAD without a
+        // redeploy, complementing the instant push webhook.
         spawn_contremaitre_poll(
             config,
             Arc::clone(&prompt_registry),
