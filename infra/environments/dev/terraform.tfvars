@@ -16,12 +16,22 @@ enable_frontend = true
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
-backend_cpu    = "2"
+# 1 vCPU. cpu=2 was historically required because the contremaitre boot-sync ran
+# on the bind path and saturated a single core, so the listener never came up
+# inside Cloud Run's ~55s startup probe (rev 00465). That sync now runs in the
+# background (off the bind path, init_contremaitre_registries -> the poll's first
+# immediate tick), so 1 vCPU boots cleanly; a coaching turn is concurrency=1 and
+# mostly LLM-I/O-wait, so it fits one core. Halves the always-on CPU cost
+# (cpu_idle=false bills the vCPU continuously while an instance is warm).
+# APPLY ORDER: the background-sync binary must be live before applying this.
+# terraform apply is manual — deploy main first, confirm the new revision serves,
+# then apply. cpu_idle stays false (ADR-019); this is a vCPU-count change only.
+backend_cpu    = "1"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
-# bills 2 vCPU continuously (~$140/mo); the dev cost is not worth keeping the
-# contremaitre push webhook off a cold start — the webhook retries and prompts
-# also sync on container startup.
+# bills the vCPU continuously (~$70/mo at 1 vCPU); the dev cost is not worth
+# keeping the contremaitre push webhook off a cold start — the webhook retries
+# and prompts also sync on container startup.
 backend_min_instances = 0
 backend_max_instances = 15
 

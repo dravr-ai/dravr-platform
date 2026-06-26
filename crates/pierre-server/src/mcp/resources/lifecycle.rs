@@ -277,13 +277,16 @@ impl ServerContext {
 
         // Initialize contremaitre registries (prompts + tool descriptions +
         // evidence). The cageux config registry is passed in so the
-        // contremaitre sync can also overlay its snapshot.
+        // contremaitre sync can also overlay its snapshot. The GitHub/GCS
+        // overlay runs in the background (off this bind path), so a slow sync
+        // never stalls startup; registries serve compiled-in defaults until
+        // the first background tick converges.
         let (
             contremaitre_prompt_registry,
             contremaitre_tool_desc_registry,
             contremaitre_evidence_registry,
             contremaitre_messaging_strings_registry,
-        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry).await;
+        ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
