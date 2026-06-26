@@ -39,6 +39,13 @@ pub fn compose_messaging_reply(
 ) -> String {
     match activity_list {
         Some(list) if !list.trim().is_empty() => {
+            // Drop the prose's English "Your Activities:" header. Web/mobile show
+            // it as a card header, but on a (often non-English) text channel it's
+            // redundant noise above the entries — the coach analysis that follows
+            // gives the context.
+            let list = list
+                .strip_prefix("Your Activities:")
+                .map_or(list, str::trim_start);
             let capped = cap_activity_list_for_channel(list, strings, locale);
             if content.trim().is_empty() {
                 capped
