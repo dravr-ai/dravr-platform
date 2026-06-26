@@ -184,7 +184,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                 <div
                   key={item.id}
                   className={clsx(
-                    'flex items-start gap-4 px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors group',
+                    'flex items-start gap-3 sm:gap-4 px-4 sm:px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors group',
                     isUnread && 'bg-violet-500/[0.03]',
                   )}
                   onClick={() => handleNotificationClick(item)}
@@ -218,8 +218,8 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className={clsx('text-sm', isUnread ? 'text-on-surface font-medium' : 'text-on-surface')}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className={clsx('text-sm truncate', isUnread ? 'text-on-surface font-medium' : 'text-on-surface')}>
                         {item.title}
                       </p>
                       {collapsedLabel && (
@@ -252,12 +252,16 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                   {/* Time and actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="text-[11px] text-outline">{formatNotificationTime(item.created_at)}</span>
+                    {/* Always visible on touch (coarse pointers have no :hover);
+                        hover-reveal retained on >=sm pointer-fine devices. 44x44
+                        hit area so it's tappable, not just hoverable. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteNotification(item.id);
                       }}
-                      className="text-on-surface-variant hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-container-low"
+                      className="text-on-surface-variant hover:text-red-400 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded hover:bg-surface-container-low min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
+                      aria-label="Delete notification"
                       title="Delete"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

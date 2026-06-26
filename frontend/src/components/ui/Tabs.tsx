@@ -50,6 +50,7 @@ export const Tabs: React.FC<TabsProps> = ({
     const isActive = tab.id === activeTab;
     const baseClasses = `
       flex items-center gap-2 font-medium transition-all duration-base
+      whitespace-nowrap flex-shrink-0
       ${sizeClasses[size]}
       ${tab.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
     `;
@@ -79,10 +80,14 @@ export const Tabs: React.FC<TabsProps> = ({
     }
   };
 
+  // overflow-x-auto so a wide tab row scrolls horizontally on a narrow phone
+  // instead of forcing the whole document wider (paired with the
+  // whitespace-nowrap + flex-shrink-0 tabs above). Mirrors the pattern already
+  // used by StoreScreen / NotificationsPanel category rows.
   const containerClasses = {
-    underline: 'flex border-b ghost-border',
-    pills: 'flex gap-2 p-1 bg-surface-container-low/60 rounded-lg',
-    bordered: 'flex gap-2',
+    underline: 'flex border-b ghost-border overflow-x-auto',
+    pills: 'flex gap-2 p-1 bg-surface-container-low/60 rounded-lg overflow-x-auto',
+    bordered: 'flex gap-2 overflow-x-auto',
   };
 
   return (

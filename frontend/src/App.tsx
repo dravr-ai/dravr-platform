@@ -196,7 +196,7 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
+      <div className="min-h-dvh bg-surface flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-on-surface-variant">Loading...</p>
@@ -250,7 +250,7 @@ function AppContent() {
     }
 
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="min-h-dvh bg-surface">
         {registrationMessage && (
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4">
             <div className="bg-pierre-activity/20 border border-pierre-activity text-on-surface px-4 py-3 rounded-lg shadow-lg backdrop-blur-sm">
@@ -285,7 +285,7 @@ function AppContent() {
   // Authenticated but suspended
   if (user?.user_status === 'suspended') {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+      <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-surface-container-low/60 backdrop-blur-xl border ghost-border rounded-2xl overflow-hidden">
           <div className="h-1 w-full bg-gradient-to-r from-red-500 to-red-600" />
           <div className="px-8 py-10 text-center">
@@ -319,7 +319,7 @@ function AppContent() {
     !profileTypeChosen
   ) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="min-h-dvh bg-surface">
         <ImpersonationBanner />
         <OnboardingProfileType
           userDisplayName={user?.display_name}
@@ -334,7 +334,7 @@ function AppContent() {
 
   if (onboardingStatus?.needs_provider_connection === true && !skippedOnboarding) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="min-h-dvh bg-surface">
         <ImpersonationBanner />
         <OnboardingConnectProvider
           userDisplayName={user?.display_name}
@@ -354,7 +354,7 @@ function AppContent() {
     !coachProposalDone
   ) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="min-h-dvh bg-surface">
         <ImpersonationBanner />
         <OnboardingCoachProposal
           userDisplayName={user?.display_name}
@@ -370,7 +370,7 @@ function AppContent() {
 
   // Authenticated and active - show dashboard
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-dvh bg-surface">
       <ImpersonationBanner />
       <Dashboard pendingInviteCode={pendingInviteCode} onInviteCodeConsumed={() => setPendingInviteCode(null)} />
     </div>

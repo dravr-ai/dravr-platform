@@ -274,7 +274,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             {onNavigateToFriends && (
               <button
                 onClick={onNavigateToFriends}
-                className="p-2 rounded-lg text-on-surface bg-surface-container-low border ghost-border hover:bg-surface-container transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+                className="p-2 rounded-lg text-on-surface bg-surface-container-low border ghost-border hover:bg-surface-container transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Friends"
                 aria-label="Friends"
               >
@@ -283,7 +283,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             )}
             <button
               onClick={() => shareModal.open()}
-              className="p-2 rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
+              className="p-2 rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
               title="Share Insight"
               aria-label="Share Insight"
             >
@@ -424,8 +424,8 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 )}
 
                 {/* Reactions */}
-                <div className="flex items-center justify-between pt-4 border-t ghost-border">
-                  <div className="flex gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t ghost-border">
+                  <div className="flex flex-wrap gap-2">
                     {(Object.keys(REACTION_CONFIG) as ReactionType[]).map((type) => {
                       const config = REACTION_CONFIG[type];
                       const isActive = item.user_reaction === type;
@@ -456,6 +456,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                     <Button
                       variant={item.user_has_adapted ? 'secondary' : 'primary'}
                       size="sm"
+                      className="whitespace-nowrap"
                       onClick={() => handleAdapt(item.insight.id)}
                       disabled={item.user_has_adapted}
                     >

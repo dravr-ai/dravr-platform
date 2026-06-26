@@ -87,14 +87,14 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={`${sizeClasses[size]} w-full bg-surface-container-low border ghost-border rounded-xl shadow-xl overflow-hidden animate-scale-in`}
+        className={`${sizeClasses[size]} w-full max-h-[90dvh] flex flex-col bg-surface-container-low border ghost-border rounded-xl shadow-xl overflow-hidden animate-scale-in`}
       >
         {/* Gradient accent bar */}
-        <div className="h-1 w-full boreal-hero-gradient" />
+        <div className="h-1 w-full boreal-hero-gradient flex-shrink-0" />
 
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
+          <div className="flex items-center justify-between px-6 py-4 border-b ghost-border flex-shrink-0">
             {title && (
               <h2 id="modal-title" className="text-lg font-semibold text-on-surface">
                 {title}
@@ -115,12 +115,14 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
 
-        {/* Content */}
-        <div className="px-6 py-4 text-on-surface">{children}</div>
+        {/* Content — scrolls within max-h so tall forms never push the footer
+            (submit button) off a short/landscape phone viewport. min-h-0 lets
+            this flex child actually shrink to enable the scroll. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 text-on-surface">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="px-6 py-4 bg-surface/50 border-t ghost-border">{footer}</div>
+          <div className="px-6 py-4 bg-surface/50 border-t ghost-border flex-shrink-0">{footer}</div>
         )}
       </div>
     </div>,

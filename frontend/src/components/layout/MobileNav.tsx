@@ -158,6 +158,49 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
     }
   }, [open]);
 
+  // Focus management for the modal drawer (WCAG 2.4.3 / keyboard-modal): on
+  // open, remember the opener and move focus into the panel; trap Tab within
+  // the panel so it can't reach the still-mounted BottomTabBar behind it; on
+  // close, restore focus to the element that opened it.
+  const asideRef = React.useRef<HTMLElement | null>(null);
+  const openerRef = React.useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const aside = asideRef.current;
+    if (!aside) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        aside.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (active && !aside.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      openerRef.current?.focus?.();
+    };
+  }, [open]);
+
   return (
     <div
       ref={drawerRef}
@@ -173,6 +216,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         aria-hidden="true"
       />
       <aside
+        ref={asideRef}
         role="dialog"
         aria-modal="true"
         aria-label="Secondary navigation"

@@ -38,15 +38,18 @@ export default function MessageInput({
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter to send (without shift)
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // On touch (coarse-pointer) soft keyboards the Return key must insert a
+    // newline — there is a dedicated 44x44 Send button. Enter-to-send is kept
+    // on pointer-fine (desktop/laptop) devices only.
+    const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+    if (e.key === 'Enter' && !e.shiftKey && !coarse) {
       e.preventDefault();
       onSend();
     }
   };
 
   return (
-    <div className="border-t ghost-border p-4 bg-surface-container-low">
+    <div className="border-t ghost-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-surface-container-low">
       <div className="max-w-3xl mx-auto">
         {/* Ideas popover */}
         {showIdeas && (
@@ -91,10 +94,10 @@ export default function MessageInput({
           </button>
         </div>
         <div className="flex items-center justify-center gap-2 mt-2">
-          <p className="text-xs text-outline">
+          <p className="text-xs text-outline hidden sm:block">
             Press Enter to send, Shift+Enter for new line
           </p>
-          <span className="text-on-surface-variant">|</span>
+          <span className="text-on-surface-variant hidden sm:inline">|</span>
           <button
             onClick={onToggleIdeas}
             className="text-xs text-pierre-violet-light hover:text-pierre-cyan-light flex items-center gap-1 transition-colors"

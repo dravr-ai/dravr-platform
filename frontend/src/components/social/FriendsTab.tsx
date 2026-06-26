@@ -194,11 +194,11 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
       </div>
 
       {/* Tab navigation */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('friends')}
           className={clsx(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+            'px-4 py-2 min-h-[44px] whitespace-nowrap flex-shrink-0 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'friends'
               ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
@@ -214,7 +214,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
         <button
           onClick={() => setActiveTab('search')}
           className={clsx(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+            'px-4 py-2 min-h-[44px] whitespace-nowrap flex-shrink-0 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'search'
               ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
@@ -230,7 +230,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
         <button
           onClick={() => setActiveTab('pending')}
           className={clsx(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-colors relative',
+            'px-4 py-2 min-h-[44px] whitespace-nowrap flex-shrink-0 rounded-lg text-sm font-medium transition-colors relative',
             activeTab === 'pending'
               ? 'bg-primary text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
@@ -275,20 +275,20 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
               {friends.map((friend) => (
                 <div
                   key={friend.id}
-                  className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"
+                  className="flex items-center justify-between gap-3 p-4 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface flex-shrink-0"
                       style={{ backgroundColor: getAvatarColor(friend.friend_email) }}
                     >
                       {getInitials(friend.friend_display_name, friend.friend_email)}
                     </div>
-                    <div>
-                      <p className="font-medium text-on-surface">
+                    <div className="min-w-0">
+                      <p className="font-medium text-on-surface truncate">
                         {friend.friend_display_name || friend.friend_email.split('@')[0]}
                       </p>
-                      <p className="text-sm text-outline">
+                      <p className="text-sm text-outline truncate">
                         Friends since {formatRelativeTime(friend.accepted_at || friend.created_at)}
                       </p>
                     </div>
@@ -296,6 +296,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                   <Button
                     variant="danger"
                     size="sm"
+                    className="flex-shrink-0"
                     onClick={() => handleRemoveFriend(friend.friend_user_id)}
                     loading={actionLoading === friend.friend_user_id}
                   >

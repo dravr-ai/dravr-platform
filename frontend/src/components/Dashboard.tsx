@@ -4,10 +4,10 @@
 // ABOUTME: Main dashboard orchestrator with admin sidebar and user mode navigation
 // ABOUTME: Admin lands on Users tab; delegates data fetching to focused panel components
 
-import { useState, lazy, Suspense, useEffect, useMemo, useCallback } from 'react';
+import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
-import { useIsMobile } from '../hooks/useBreakpoint';
+import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
@@ -81,40 +81,36 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const isSuperAdmin = user?.role === 'super_admin';
   // Initialize from URL hash so deep links (#users, #coaches, …) survive
   // page reloads and bookmarks. Falls back to role default.
-  const initialTab = (() => {
-    const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
-    if (hash) return hash;
-    return isAdminUser ? 'users' : 'chat';
-  })();
+  // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
+  // #insights/friends, #chat/<conversationId>) so sub-views are deep-linkable
+  // and the browser / Android hardware Back button pops them.
+  const initialRoute = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
+  const initialSlash = initialRoute.indexOf('/');
+  const initialTabSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
+  const initialSubSeg = initialSlash === -1 ? '' : initialRoute.slice(initialSlash + 1);
+  const initialTab = initialTabSeg || (isAdminUser ? 'users' : 'chat');
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
-  // Mirror activeTab → location.hash so the URL bar reflects the section.
-  // The tab id is the SPA's logical route, so it doubles as the page_view
-  // path for analytics (no query string, so no risk of leaking secrets).
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const current = window.location.hash.replace(/^#/, '');
-    if (current !== activeTab) {
-      window.history.replaceState(null, '', `#${activeTab}`);
-    }
-    track({ name: 'page_view', props: { path: `/${activeTab}` } });
-  }, [activeTab]);
-
-  // React to back/forward and external hash changes.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onHashChange = () => {
-      const next = window.location.hash.replace(/^#/, '');
-      if (next) setActiveTab(next);
-    };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+  // Hash-route mirroring + back/forward handling live below, after the
+  // sub-view state declarations (they reference selectedGroupId / insightsView
+  // / selectedConversation, which are declared later in the component).
   // Sub-view state for insights tab (feed vs friends), matching mobile's social stack
-  const [insightsView, setInsightsView] = useState<'feed' | 'friends'>('feed');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+  const [insightsView, setInsightsView] = useState<'feed' | 'friends'>(
+    initialTabSeg === 'insights' && initialSubSeg === 'friends' ? 'friends' : 'feed',
+  );
+  // User's manual collapse preference (persisted). The EFFECTIVE collapse
+  // (`sidebarCollapsed`, derived below) also forces the rail in the tablet band.
+  const [userSidebarCollapsed, setUserSidebarCollapsed] = useState(() => {
     return localStorage.getItem('pierre.sidebar_collapsed') === 'true';
   });
+  // 768–1023 (small tablet / phone landscape) forces the 72px icon rail — the
+  // full sidebar would eat the narrow viewport. Below 768 the mobile bottom-bar
+  // shell hides the sidebar entirely; at ≥1024 the user's preference governs.
+  // Because every width/render check below reads `sidebarCollapsed`, deriving it
+  // here forces the rail across the whole sidebar (and auto-disables the resize
+  // handle, which only renders when `!sidebarCollapsed`).
+  const isTablet = useIsTablet();
+  const sidebarCollapsed = userSidebarCollapsed || isTablet;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -173,10 +169,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const { unreadCount: notificationUnreadCount } = useUnreadCount();
 
   // Chat conversations state
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<string | null>(
+    initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+  );
 
   // Groups state — null shows list, a group ID shows detail
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
+    initialTabSeg === 'groups' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+  );
 
   // Auto-navigate to Groups tab when an invite link is detected
   useEffect(() => {
@@ -185,6 +185,56 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       setSelectedGroupId(null);
     }
   }, [pendingInviteCode]);
+
+  // ── URL hash routing ──────────────────────────────────────────────────────
+  // Compose the route from the active tab + its open sub-view, so deep links
+  // and the Back button operate on sub-views, not just top-level tabs.
+  const route = (() => {
+    if (activeTab === 'groups' && selectedGroupId) return `groups/${encodeURIComponent(selectedGroupId)}`;
+    if (activeTab === 'insights' && insightsView === 'friends') return 'insights/friends';
+    if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
+    return activeTab;
+  })();
+
+  // Mirror route → location.hash. First sync REPLACES (no spurious back-entry
+  // for the initial / bookmarked route); every later change PUSHES so the
+  // browser back button and Android hardware Back walk back through visited
+  // tabs AND sub-views instead of exiting the app. A back-driven hashchange
+  // updates state, this effect re-runs, `current === route` skips the push —
+  // no loop, no duplicate entry. The route doubles as the page_view path.
+  const hashSyncedOnce = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const current = window.location.hash.replace(/^#/, '');
+    if (current !== route) {
+      if (hashSyncedOnce.current) {
+        window.history.pushState(null, '', `#${route}`);
+      } else {
+        window.history.replaceState(null, '', `#${route}`);
+      }
+    }
+    hashSyncedOnce.current = true;
+    track({ name: 'page_view', props: { path: `/${route}` } });
+  }, [route]);
+
+  // React to back/forward and external hash edits: parse `tab[/subview]` and
+  // restore both the tab and its sub-view. An emptied hash resets to the role
+  // default rather than stranding the previous view.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHashChange = () => {
+      const raw = window.location.hash.replace(/^#/, '');
+      const slash = raw.indexOf('/');
+      const tab = (slash === -1 ? raw : raw.slice(0, slash)) || (isAdminUser ? 'users' : 'chat');
+      const sub = slash === -1 ? '' : raw.slice(slash + 1);
+      setActiveTab(tab);
+      setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);
+      setInsightsView(tab === 'insights' && sub === 'friends' ? 'friends' : 'feed');
+      setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [isAdminUser]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -413,14 +463,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // Admin user view: Full sidebar with tabs - Dark Theme
   return (
-    <div className="min-h-screen bg-surface flex">
+    <div className="min-h-dvh bg-surface flex">
       {/* Vertical Sidebar - Dark.
           Width animates only when toggling collapse; while the user is
           actively dragging the resize handle we suspend the transition
           so the cursor tracks the edge in real time. */}
       <aside
         className={clsx(
-          'hidden md:flex fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex-col z-40 overflow-hidden',
+          'hidden md:flex fixed left-0 top-0 h-dvh bg-surface-container-low border-r ghost-border flex-col z-40 overflow-hidden',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
         style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
@@ -601,11 +651,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             still escape the parent if rendered. */}
         <button
           onClick={() => {
-            const next = !sidebarCollapsed;
+            const next = !userSidebarCollapsed;
             localStorage.setItem('pierre.sidebar_collapsed', String(next));
-            setSidebarCollapsed(next);
+            setUserSidebarCollapsed(next);
           }}
-          className="hidden md:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-primary transition-all duration-200 z-[60]"
+          className="hidden lg:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-primary transition-all duration-200 z-[60]"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -648,7 +698,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           // `min-w-0` is load-bearing: without it, any descendant with an
           // intrinsic content width (long admin tables, wide settings
           // forms) lets <main> blow past the viewport on mobile.
-          'flex-1 min-w-0 h-screen flex flex-col',
+          'flex-1 min-w-0 h-dvh flex flex-col',
           isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
         )}
         style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 72 : sidebarWidth) }}

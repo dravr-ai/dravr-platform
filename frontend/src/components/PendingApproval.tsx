@@ -28,7 +28,7 @@ export default function PendingApproval() {
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
       <div className="max-w-md w-full">
         <Card className="overflow-hidden">
           {/* Gradient accent bar at top */}

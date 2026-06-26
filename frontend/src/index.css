@@ -124,6 +124,20 @@ html.dark {
     line-height: 1.15;
     @apply text-on-surface font-semibold;
   }
+
+  /* iOS Safari auto-zooms the viewport when a focused text control computes
+     to <16px. On coarse (touch) pointers, pin form controls to 16px — the
+     accessibility-correct fix (never user-scalable=no / maximum-scale, which
+     would break pinch-zoom / WCAG 1.4.4). `!important` clears the component
+     layer's smaller `text-sm`/`text-xs` @apply on `.input-field` etc.; desktop
+     (pointer:fine) keeps the design's compact input scale untouched. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 }
 
 @layer components {
@@ -822,5 +836,20 @@ html.dark {
       animation: none;
       opacity: 1;
     }
+  }
+}
+
+/* Global reduced-motion guard — collapses non-essential animation and
+   transitions for users who request it (WCAG 2.3.3). Top-level (outside
+   @layer) so `!important` reliably wins over component keyframes/transitions
+   regardless of layer order. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

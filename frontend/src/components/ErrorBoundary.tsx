@@ -117,7 +117,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
       // Default error UI
       return (
-        <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+        <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
           <div className="max-w-lg w-full">
             {/* Error Card */}
             <div className="bg-surface-container-low rounded-xl shadow-xl overflow-hidden border border-pierre-gray-800">

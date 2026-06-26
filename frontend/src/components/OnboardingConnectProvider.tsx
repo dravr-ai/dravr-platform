@@ -143,7 +143,7 @@ export default function OnboardingConnectProvider({
 
   if (justConnected) {
     return (
-      <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
         <div className="flex flex-col items-center gap-4">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface-variant font-label">
@@ -157,7 +157,7 @@ export default function OnboardingConnectProvider({
   if (awaitingOAuthFor) {
     const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
     return (
-      <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface font-label">
@@ -180,7 +180,7 @@ export default function OnboardingConnectProvider({
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
       <div className="max-w-2xl w-full">
         <Card className="overflow-hidden">
           {/* Gradient accent bar — matches the PendingApproval brand moment. */}
