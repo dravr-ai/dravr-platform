@@ -26,8 +26,9 @@ use chrono::{Duration, Utc};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
+use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_intelligence::config::intelligence::VO2MaxCalculator;
-use pierre_intelligence::{compute_training_history, AlgorithmConfig, AthleteInputs};
+use pierre_intelligence::AlgorithmConfig;
 use uuid::Uuid;
 
 /// Lookback window for the activity read backing `data_days` and the TSB compute.

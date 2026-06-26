@@ -42,5 +42,5 @@ pub(crate) mod user_approval_notifier;
 pub mod backfill_notifier;
 
 /// Endurance Phase 2 training-history compute service — fetches activities + physiology,
-/// runs `pierre_intelligence::training_history_compute`, persists rows.
+/// runs `pierre_fitness_compute::training_history_compute`, persists rows.
 pub mod training_history_compute;

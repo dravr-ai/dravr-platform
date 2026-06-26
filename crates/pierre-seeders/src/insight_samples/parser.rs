@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{InsightType, UserTier};
-use pierre_intelligence::insight_validation::ValidationVerdict;
+use pierre_fitness_compute::insight_validation::ValidationVerdict;
 
 /// Expected behavior per user tier
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

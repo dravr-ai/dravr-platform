@@ -22,8 +22,8 @@ use std::env;
 use std::time::{Duration, Instant};
 
 use pierre_core::models::SportType;
-use pierre_intelligence::location::LocationService;
-use pierre_intelligence::{RouteDiscoveryService, RouteSource, RouteType};
+use pierre_fitness_compute::location::LocationService;
+use pierre_fitness_compute::{RouteDiscoveryService, RouteSource, RouteType};
 
 /// Prévost, Québec — reference point for route-discovery integration tests.
 /// Nominatim resolves this to roughly 45.87, -74.08. Well-trafficked OSM area

@@ -12,7 +12,7 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use pierre_intelligence::location::{ForwardGeocodeResult, LocationService};
+use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
 use pierre_weather::{OpenMeteoForecastProvider, WeatherProvider, WeatherQuery};
 
 use crate::capabilities::ToolCapabilities;

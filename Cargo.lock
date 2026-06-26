@@ -3590,6 +3590,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-fitness-compute"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dravr-cageux",
+ "hex",
+ "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "pierre-weather",
+ "rayon",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tracing",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-formatters"
 version = "0.3.0"
 dependencies = [
@@ -3633,24 +3657,8 @@ dependencies = [
 name = "pierre-intelligence"
 version = "0.3.0"
 dependencies = [
- "async-trait",
- "chrono",
  "dravr-cageux",
- "hex",
  "pierre-core",
- "pierre-database",
- "pierre-llm",
- "pierre-weather",
- "rayon",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "tracing",
- "urlencoding",
- "uuid",
 ]
 
 [[package]]
@@ -3983,6 +3991,7 @@ dependencies = [
  "pierre-config",
  "pierre-core",
  "pierre-database",
+ "pierre-fitness-compute",
  "pierre-groups",
  "pierre-intelligence",
  "pierre-llm",
@@ -4052,6 +4061,7 @@ dependencies = [
  "pierre-coach-parser",
  "pierre-core",
  "pierre-database",
+ "pierre-fitness-compute",
  "pierre-intelligence",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
@@ -4086,6 +4096,7 @@ dependencies = [
  "pierre-database",
  "pierre-enforme",
  "pierre-evals",
+ "pierre-fitness-compute",
  "pierre-intelligence",
  "pierre-llm",
  "pierre-mcp-schema",
@@ -4156,6 +4167,7 @@ dependencies = [
  "pierre-enforme",
  "pierre-evals",
  "pierre-external",
+ "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-intelligence",
  "pierre-llm",
@@ -4250,6 +4262,7 @@ dependencies = [
  "pierre-enforme",
  "pierre-evals",
  "pierre-external",
+ "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",
  "pierre-health",

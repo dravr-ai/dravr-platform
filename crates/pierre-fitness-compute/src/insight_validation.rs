@@ -27,7 +27,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use pierre_intelligence::insight_validation::{
+//! use pierre_fitness_compute::insight_validation::{
 //!     validate_insight_with_policy, ValidationVerdict, InsightSharingPolicy,
 //! };
 //! use pierre_llm::LlmProvider;

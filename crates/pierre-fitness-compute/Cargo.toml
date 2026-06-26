@@ -1,0 +1,40 @@
+# ABOUTME: Platform-side fitness computations over dravr-cageux primitives + provider/context data
+# ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), social insights, geo, weather
+
+[package]
+name = "pierre-fitness-compute"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Platform-side fitness computations for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = ["sqlite"]
+sqlite = ["pierre-database/sqlite"]
+postgresql = ["pierre-database/postgresql"]
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database", default-features = false }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.5.3" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
+tracing = "0.1"
+thiserror = "2.0"
+async-trait = "0.1"
+rayon = "1.11"
+regex = "1.12"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+urlencoding = "2.1"
+
+[lints]
+workspace = true

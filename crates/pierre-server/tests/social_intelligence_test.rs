@@ -10,15 +10,15 @@
 use chrono::{Duration, Utc};
 use pierre_config::social::global as social_insights_global;
 use pierre_core::models::{InsightType, ShareVisibility, SharedInsight, TrainingPhase};
+use pierre_fitness_compute::social_insights::{
+    calculate_milestone_relevance, capitalize_first, InsightContextBuilder,
+    InsightGenerationContext, InsightSuggestion, PersonalRecord, SharedInsightGenerator,
+};
 use pierre_intelligence::{
     friend_activity_cache::{
         CacheConfig, DurationCategory, EffortLevel, FriendActivityCache, FriendActivitySummary,
     },
     insight_adapter::{truncate_string, FitnessLevel, InsightAdapter, UserTrainingContext},
-    social_insights::{
-        calculate_milestone_relevance, capitalize_first, InsightContextBuilder,
-        InsightGenerationContext, InsightSuggestion, PersonalRecord, SharedInsightGenerator,
-    },
 };
 use uuid::Uuid;
 

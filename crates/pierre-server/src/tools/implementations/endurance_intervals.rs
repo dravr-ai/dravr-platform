@@ -10,8 +10,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
-use pierre_intelligence::intervals::build_intervals;
-use pierre_intelligence::routes::build_route_summary_from_streams;
+use pierre_fitness_compute::intervals::build_intervals;
+use pierre_fitness_compute::routes::build_route_summary_from_streams;
 use serde_json::{json, Value};
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};

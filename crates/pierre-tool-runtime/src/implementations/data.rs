@@ -56,13 +56,13 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::config::fitness::activity_detail_threshold;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::BackfillCoverage;
+use pierre_fitness_compute::weather::build_provider as build_weather_provider;
+use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_intelligence::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
     safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
 };
-use pierre_intelligence::weather::build_provider as build_weather_provider;
-use pierre_intelligence::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;

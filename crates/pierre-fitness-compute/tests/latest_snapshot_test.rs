@@ -11,7 +11,7 @@ use chrono::{Duration, Utc};
 use dravr_cageux::models::activity::{Activity, ActivityBuilder, TimeSeriesData};
 use dravr_cageux::models::sport::SportType;
 use pierre_core::models::zones::HrZoneSet;
-use pierre_intelligence::latest_snapshot::{build_latest_snapshot, MAX_WINDOW_DAYS};
+use pierre_fitness_compute::latest_snapshot::{build_latest_snapshot, MAX_WINDOW_DAYS};
 
 struct SyntheticActivity<'a> {
     id: &'a str,

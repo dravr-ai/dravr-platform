@@ -10,8 +10,8 @@
 use chrono::{TimeZone, Utc};
 use dravr_cageux::models::activity::{Activity, ActivityBuilder, Lap};
 use dravr_cageux::models::sport::SportType;
-use pierre_intelligence::intervals::build_intervals;
-use pierre_intelligence::routes::{
+use pierre_fitness_compute::intervals::build_intervals;
+use pierre_fitness_compute::routes::{
     build_route_summary, build_route_summary_from_streams, ClimbCategory,
 };
 

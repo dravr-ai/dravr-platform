@@ -8,12 +8,12 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::models::activity::{Activity, ActivityBuilder};
 use dravr_cageux::models::sport::SportType;
-use pierre_intelligence::training_history_compute::{
+use pierre_fitness_compute::training_history_compute::{
     compute_training_history, AthleteInputs, MAX_BACKFILL_DAYS,
 };
-use pierre_intelligence::AlgorithmConfig;
 
 /// Default algorithm config (EMA 42/7) for the dense training-history rollup.
 fn algos() -> AlgorithmConfig {
