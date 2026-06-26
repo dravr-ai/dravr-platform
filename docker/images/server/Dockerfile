@@ -51,7 +51,7 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # fixed base-package CVE to force a fresh `apt-get update && upgrade` that pulls
 # the patched version (e.g. chromium 149.0.7827.53 closes CVE-2026-10988/10989/
 # 10995/11102).
-ARG APT_SECURITY_EPOCH=2026-06-20
+ARG APT_SECURITY_EPOCH=2026-06-26
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
