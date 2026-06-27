@@ -64,6 +64,17 @@ const PROVIDER_LINK_TOKEN_AUDIENCE: &str = "pierre-hosted-login";
 /// Scope prefix for provider link-token scope claims (e.g. `provider:sciotte:login`)
 const PROVIDER_LINK_TOKEN_SCOPE_PREFIX: &str = "provider:";
 
+/// Sentinel provider name for a *generic connect* link-token.
+///
+/// A token minted with this provider carries the scope `provider:connect:login`
+/// and authorizes the whole hosted connect picker — both the credential
+/// (Sciotte) endpoints and the OAuth-init endpoint — rather than a single
+/// provider's login. The concrete provider is chosen by the user on the hosted
+/// page. [`verify_link_token`] accepts a connect-scoped token wherever a
+/// provider-specific token is accepted (the connect scope is a superset), while
+/// a provider-specific token is NOT accepted at the connect/OAuth endpoints.
+pub const CONNECT_PROVIDER: &str = "connect";
+
 /// Claims carried in a provider link-token JWT
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderLinkTokenClaims {
@@ -147,7 +158,50 @@ pub fn mint_link_token(
         .map_err(|e| AppError::internal(format!("Failed to encode provider link-token: {e}")))
 }
 
-/// Verify an HS256 provider link-token and check scope matches the expected provider
+/// Mint a *generic connect* link-token for the hosted connect picker.
+///
+/// Unlike [`mint_link_token`], this is called **in-process** by the platform's
+/// own messaging pipeline (which already resolved `user_id` + `tenant_id` for
+/// the turn) — there is no admin-authed HTTP round-trip. The resulting token
+/// carries the [`CONNECT_PROVIDER`] scope, so the hosted page can route the user
+/// to either the credential (Sciotte) flow or the OAuth flow for whichever
+/// provider they pick.
+///
+/// `tgt` is set to [`CONNECT_PROVIDER`] (the concrete platform is decided on the
+/// page); `channel` + `channel_thread` are carried through so the
+/// connection-complete push can land in the originating conversation.
+///
+/// # Errors
+///
+/// Returns an error if JWT encoding fails.
+pub fn mint_connect_link_token(
+    user_id: Uuid,
+    tenant_id: Uuid,
+    channel: &str,
+    channel_thread: Option<&str>,
+    admin_jwt_secret: &str,
+) -> AppResult<String> {
+    mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id,
+            provider: CONNECT_PROVIDER,
+            target: CONNECT_PROVIDER,
+            channel,
+            channel_thread,
+        },
+        admin_jwt_secret,
+    )
+}
+
+/// Verify an HS256 provider link-token and check scope matches the expected provider.
+///
+/// A token carrying the generic [`CONNECT_PROVIDER`] scope (`provider:connect:login`)
+/// is accepted for **any** `expected_provider` — the connect scope is a superset
+/// granted by the hosted connect picker. Conversely, asking for
+/// `expected_provider == CONNECT_PROVIDER` accepts ONLY a connect-scoped token,
+/// so a narrow per-provider token (e.g. the Canot-minted `provider:sciotte:login`)
+/// can never reach the connect/OAuth-init endpoints.
 ///
 /// # Errors
 ///
@@ -169,7 +223,8 @@ pub fn verify_link_token(
         .map_err(|e| AppError::auth_invalid(format!("Invalid provider link-token: {e}")))?;
 
     let expected_scope = provider_scope(expected_provider);
-    if data.claims.scope != expected_scope {
+    let connect_scope = provider_scope(CONNECT_PROVIDER);
+    if data.claims.scope != expected_scope && data.claims.scope != connect_scope {
         return Err(AppError::auth_invalid(format!(
             "Link-token scope '{}' does not match expected '{expected_scope}'",
             data.claims.scope

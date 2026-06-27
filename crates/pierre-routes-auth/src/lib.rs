@@ -66,6 +66,10 @@ use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::provider_refresh::SyncNotifier;
 
+#[cfg(feature = "provider-sciotte")]
+mod connect_hosted;
+#[cfg(feature = "provider-sciotte")]
+mod connect_hosted_templates;
 mod intervals_icu;
 mod login;
 mod oauth;
@@ -288,6 +292,21 @@ impl AuthRoutes {
             .route(
                 "/providers/sciotte/error",
                 get(sciotte_hosted::handle_sciotte_hosted_error_page),
+            )
+            // Channel-initiated hosted CONNECT picker: a generic, connect-scoped
+            // link-token (minted in-process by the messaging pipeline) lands the
+            // user on a provider picker that routes to OAuth or the Sciotte flow.
+            .route(
+                "/providers/connect",
+                get(connect_hosted::handle_connect_hosted_page),
+            )
+            .route(
+                "/providers/connect/success",
+                get(connect_hosted::handle_connect_hosted_success_page),
+            )
+            .route(
+                "/api/providers/connect/oauth-init/{provider}",
+                get(connect_hosted::handle_connect_oauth_init),
             );
 
         router.with_state(context)

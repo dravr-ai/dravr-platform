@@ -14,8 +14,8 @@ use tokio::time::sleep;
 
 use pierre_cache::{Cache, CacheConfig};
 use pierre_middleware::provider_link_token::{
-    extract_bearer_link_token, mint_link_token, provider_scope, verify_link_token,
-    MintProviderLinkTokenArgs, MintRateLimiter, NonceStore,
+    extract_bearer_link_token, mint_connect_link_token, mint_link_token, provider_scope,
+    verify_link_token, MintProviderLinkTokenArgs, MintRateLimiter, NonceStore, CONNECT_PROVIDER,
 };
 use uuid::Uuid;
 
@@ -116,6 +116,55 @@ fn extract_bearer_link_token_handles_prefix() {
 fn provider_scope_is_deterministic() {
     assert_eq!(provider_scope("sciotte"), "provider:sciotte:login");
     assert_eq!(provider_scope("garmin"), "provider:garmin:login");
+}
+
+#[test]
+fn connect_token_carries_connect_scope_and_target() {
+    let (user_id, tenant_id) = sample_ids();
+    let token = mint_connect_link_token(user_id, tenant_id, "telegram", Some("dm-42"), TEST_SECRET)
+        .unwrap();
+
+    let claims = verify_link_token(&token, TEST_SECRET, CONNECT_PROVIDER).unwrap();
+    assert_eq!(claims.scope, "provider:connect:login");
+    assert_eq!(claims.tgt, CONNECT_PROVIDER);
+    assert_eq!(claims.sub, user_id.to_string());
+    assert_eq!(claims.tid, tenant_id.to_string());
+    assert_eq!(claims.channel, "telegram");
+    assert_eq!(claims.channel_thread.as_deref(), Some("dm-42"));
+}
+
+#[test]
+fn connect_scope_is_a_superset_accepted_at_provider_endpoints() {
+    // A connect-scoped token authorizes the whole picker, so it must be accepted
+    // wherever a provider-specific token is (e.g. the Sciotte endpoints).
+    let (user_id, tenant_id) = sample_ids();
+    let token = mint_connect_link_token(user_id, tenant_id, "telegram", None, TEST_SECRET).unwrap();
+
+    assert!(verify_link_token(&token, TEST_SECRET, "sciotte").is_ok());
+    assert!(verify_link_token(&token, TEST_SECRET, "garmin").is_ok());
+    assert!(verify_link_token(&token, TEST_SECRET, CONNECT_PROVIDER).is_ok());
+}
+
+#[test]
+fn narrow_provider_token_is_rejected_at_connect_endpoints() {
+    // A Canot-minted sciotte-only token must NOT be able to reach the generic
+    // connect / OAuth-init endpoints — only a connect-scoped token may.
+    let (user_id, tenant_id) = sample_ids();
+    let sciotte_token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id,
+            provider: "sciotte",
+            target: "strava",
+            channel: "slack",
+            channel_thread: None,
+        },
+        TEST_SECRET,
+    )
+    .unwrap();
+
+    let err = verify_link_token(&sciotte_token, TEST_SECRET, CONNECT_PROVIDER).unwrap_err();
+    assert!(format!("{err}").contains("scope"), "expected scope error");
 }
 
 #[tokio::test]

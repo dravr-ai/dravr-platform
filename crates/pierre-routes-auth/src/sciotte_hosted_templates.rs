@@ -39,12 +39,15 @@ pub fn render_login_page(link_token: &str, target: &str, channel: &str) -> Strin
         .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
 }
 
-/// Render the success page shown after a successful Sciotte connection.
+/// Render the success page shown after a successful connection. Reused by the
+/// hosted connect picker, so the label map covers OAuth providers too.
 #[must_use]
 pub fn render_success_page(channel: &str, target: &str) -> String {
     let target_label = match target {
-        "garmin" => "Garmin",
-        _ => "Strava",
+        "garmin" | "sciotte_garmin" => "Garmin",
+        "whoop" => "Whoop",
+        "strava" | "sciotte" => "Strava",
+        _ => "fitness",
     };
     let channel_label = humanize_channel(channel);
 
