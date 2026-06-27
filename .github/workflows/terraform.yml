@@ -1,20 +1,24 @@
 # ABOUTME: Automates Terraform plan/apply for infra/environments/dev and infra/environments/prod
-# ABOUTME: Plans post as PR comments; applies run on main push (dev auto, prod gated by environment approval)
+# ABOUTME: Plans auto-run on main push (surfaced via job summary); applies are manual workflow_dispatch-gated
 
 name: "Infra: Terraform"
 
-# Activate automated runs by uncommenting the pull_request and push triggers below
-# after completing the one-time manual setup steps documented in the PR comment.
+# Plans run automatically on push to main when infra paths change (dev only).
+# Applies NEVER run on push — trigger them manually via "Run workflow"
+# (workflow_dispatch: environment=dev|prod, action=apply).
 on:
+  # pull_request is intentionally left disabled: this repo uses local squash
+  # merges with no PRs, so a PR-triggered plan/comment path is dead. Push is
+  # the real auto-plan mechanism below.
   # pull_request:
   #   paths:
   #     - 'infra/environments/**'
   #     - 'infra/modules/**'
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'infra/environments/**'
-  #     - 'infra/modules/**'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/environments/**'
+      - 'infra/modules/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -35,12 +39,14 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Plan dev — runs on PR or workflow_dispatch(env=dev, action=plan)
+  # Plan dev — runs on push to main, PR, or workflow_dispatch(env=dev, action=plan)
+  # Push-triggered plans surface via the job summary (no PR to comment on).
   # ---------------------------------------------------------------------------
   plan-dev:
     name: Plan Dev
     runs-on: ubuntu-latest
     if: >
+      github.event_name == 'push' ||
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.environment == 'dev' &&
@@ -70,6 +76,16 @@ jobs:
         id: plan
         run: set -o pipefail && terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan 2>&1 | tee plan-output.txt
         continue-on-error: true
+
+      - name: Write plan to job summary
+        if: always()
+        run: |
+          {
+            echo '## Terraform Plan — dev'
+            echo '```'
+            cat plan-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post plan as PR comment
         if: github.event_name == 'pull_request'
@@ -111,7 +127,9 @@ jobs:
         run: exit 1
 
   # ---------------------------------------------------------------------------
-  # Plan prod — runs on PR or workflow_dispatch(env=prod, action=plan)
+  # Plan prod — runs on PR or workflow_dispatch(env=prod, action=plan).
+  # Deliberately does NOT auto-plan on push: prod stays a manual gesture
+  # (apply-prod is if:false scaffolding). Surfaces via the job summary too.
   # ---------------------------------------------------------------------------
   plan-prod:
     name: Plan Prod
@@ -146,6 +164,16 @@ jobs:
         id: plan
         run: set -o pipefail && terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan 2>&1 | tee plan-output.txt
         continue-on-error: true
+
+      - name: Write plan to job summary
+        if: always()
+        run: |
+          {
+            echo '## Terraform Plan — prod'
+            echo '```'
+            cat plan-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post plan as PR comment
         if: github.event_name == 'pull_request'
@@ -187,20 +215,19 @@ jobs:
         run: exit 1
 
   # ---------------------------------------------------------------------------
-  # Apply dev — runs on push to main or workflow_dispatch(env=dev, action=apply)
-  # Auto-applies with no required reviewers (development environment)
+  # Apply dev — MANUAL ONLY: workflow_dispatch(env=dev, action=apply).
+  # Never runs on push (push auto-plans only); apply is a deliberate gesture.
   # ---------------------------------------------------------------------------
   apply-dev:
     name: Apply Dev
     runs-on: ubuntu-latest
-    # No `needs: plan-dev` — plan-dev only runs on PR or `action=plan`,
-    # so gating apply on it blocks workflow_dispatch(action=apply) entirely.
+    # No `needs: plan-dev` — plan-dev runs on push/PR/`action=plan`,
+    # so gating apply on it would block workflow_dispatch(action=apply) entirely.
     # Apply-dev runs its own `terraform init` and `terraform apply` below.
     if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.environment == 'dev' &&
-       github.event.inputs.action == 'apply')
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.environment == 'dev' &&
+      github.event.inputs.action == 'apply'
     environment: development
 
     defaults:
@@ -227,8 +254,8 @@ jobs:
         run: terraform apply -auto-approve -var-file="terraform.tfvars"
 
   # ---------------------------------------------------------------------------
-  # Apply prod — runs on push to main or workflow_dispatch(env=prod, action=apply)
-  # Gated by required reviewers configured on the production GitHub Environment
+  # Apply prod — MANUAL ONLY when enabled: workflow_dispatch(env=prod, action=apply).
+  # Gated by required reviewers configured on the production GitHub Environment.
   # ---------------------------------------------------------------------------
   apply-prod:
     name: Apply Prod
@@ -236,10 +263,9 @@ jobs:
     needs: plan-prod
     # Production apply is disabled. To re-enable, replace the line below with:
     # if: >
-    #   github.event_name == 'push' ||
-    #   (github.event_name == 'workflow_dispatch' &&
-    #    github.event.inputs.environment == 'prod' &&
-    #    github.event.inputs.action == 'apply')
+    #   github.event_name == 'workflow_dispatch' &&
+    #   github.event.inputs.environment == 'prod' &&
+    #   github.event.inputs.action == 'apply'
     if: false
     environment: production
 
