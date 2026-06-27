@@ -228,9 +228,9 @@ variable "frontend_base_url" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances. 1 vCPU once the contremaitre boot-sync moved off the bind path; a concurrency=1 coaching turn is mostly LLM-I/O-wait and fits one core. See terraform.tfvars for the full rationale + apply order."
+  description = "CPU allocation for backend instances. 2 vCPU: the headless-Chrome sciotte scrape (Garmin + token-less Strava) is CPU-hungry and a turn on 1 vCPU risks starving it into a tool-loop timeout. Async-boot fixed the boot-path blocker, so cpu=1 is unblocked there, but stays deferred pending a Chrome-scrape load-test. See terraform.tfvars."
   type        = string
-  default     = "1"
+  default     = "2"
 }
 
 variable "backend_memory" {

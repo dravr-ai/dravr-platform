@@ -16,22 +16,21 @@ enable_frontend = true
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
-# 1 vCPU. cpu=2 was historically required because the contremaitre boot-sync ran
-# on the bind path and saturated a single core, so the listener never came up
-# inside Cloud Run's ~55s startup probe (rev 00465). That sync now runs in the
-# background (off the bind path, init_contremaitre_registries -> the poll's first
-# immediate tick), so 1 vCPU boots cleanly; a coaching turn is concurrency=1 and
-# mostly LLM-I/O-wait, so it fits one core. Halves the always-on CPU cost
-# (cpu_idle=false bills the vCPU continuously while an instance is warm).
-# APPLY ORDER: the background-sync binary must be live before applying this.
-# terraform apply is manual — deploy main first, confirm the new revision serves,
-# then apply. cpu_idle stays false (ADR-019); this is a vCPU-count change only.
-backend_cpu    = "1"
+# 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre
+# boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed
+# Cloud Run's ~55s startup probe (rev 00465) — this is now FIXED (the sync runs
+# off the bind path via init_contremaitre_registries -> the poll's first
+# immediate tick); AND (b) the headless-Chrome sciotte scrape (Garmin + token-less
+# Strava) is CPU-hungry, and a coaching turn on 1 vCPU risks starving it into a
+# tool-loop timeout. (a) is resolved but (b) is NOT, so cpu=1 stays DEFERRED:
+# keep 2 vCPU until a cold-cache Chrome-scrape load-test on 1 vCPU proves the
+# scrape completes in time. cpu_idle stays false (ADR-019).
+backend_cpu    = "2"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
-# bills the vCPU continuously (~$70/mo at 1 vCPU); the dev cost is not worth
-# keeping the contremaitre push webhook off a cold start — the webhook retries
-# and prompts also sync on container startup.
+# bills 2 vCPU continuously (~$140/mo); the dev cost is not worth keeping the
+# contremaitre push webhook off a cold start — the webhook retries and prompts
+# also sync on container startup.
 backend_min_instances = 0
 backend_max_instances = 15
 
