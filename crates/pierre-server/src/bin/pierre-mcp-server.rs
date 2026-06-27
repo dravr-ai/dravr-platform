@@ -241,6 +241,18 @@ fn validate_required_environment() -> Result<()> {
             required: false,
             description: "Strava OAuth application client secret",
         },
+        EnvValidation {
+            name: "WHOOP_CLIENT_ID",
+            value: env::var("WHOOP_CLIENT_ID").ok(),
+            required: false,
+            description: "Whoop OAuth application client ID for the shared Dravr-owned Whoop app. When set (with WHOOP_CLIENT_SECRET), Whoop connects via one-tap OAuth consent; when unset, Whoop falls back to bring-your-own OAuth app.",
+        },
+        EnvValidation {
+            name: "WHOOP_CLIENT_SECRET",
+            value: env::var("WHOOP_CLIENT_SECRET").ok(),
+            required: false,
+            description: "Whoop OAuth application client secret for the shared Dravr-owned Whoop app.",
+        },
     ];
 
     // Append LLM provider-specific validations.

@@ -33,6 +33,7 @@ use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
 use pierre_auth::config::oauth::strava_oauth_seat_cap;
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -306,15 +307,27 @@ pub async fn handle_providers_status(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    use pierre_providers::registry::global_registry;
-
     // Authenticate using middleware
     let auth_result = resources
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
 
-    let user_id = auth_result.user_id;
+    let response = compute_providers_status(&resources, auth_result.user_id).await;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Compute the provider catalogue + connection status for a user.
+///
+/// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
+/// hosted connect page, which authenticates via a provider link-token rather
+/// than a session cookie. Infallible: a repo failure degrades to an empty
+/// connection set / "no seats left" rather than erroring the page.
+pub async fn compute_providers_status(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+) -> ProvidersStatusResponse {
+    use pierre_providers::registry::global_registry;
 
     // Get all supported providers from the registry
     let registry = global_registry();
@@ -433,11 +446,9 @@ pub async fn handle_providers_status(
             .unwrap_or(usize::MAX)
     });
 
-    let response = ProvidersStatusResponse {
+    ProvidersStatusResponse {
         providers: provider_statuses,
-    };
-
-    Ok((StatusCode::OK, Json(response)).into_response())
+    }
 }
 
 /// Handle OAuth authorization initiation

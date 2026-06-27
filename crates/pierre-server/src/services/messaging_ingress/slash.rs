@@ -19,8 +19,19 @@ use crate::mcp::resources::ServerContext;
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_services::channel_error_reply::ChannelErrorReply;
 
+use super::connect::build_connect_card_direct;
 use super::locale::resolve_messaging_locale;
 use super::ResolvedSession;
+use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
+
+/// True when `text` is the `/connect` command (first whitespace-delimited token,
+/// case-insensitive). The hosted page is a provider picker, so no argument is
+/// needed — `/connect strava` and bare `/connect` both land on the same picker.
+fn is_connect_command(text: &str) -> bool {
+    text.split_whitespace()
+        .next()
+        .is_some_and(|tok| tok.eq_ignore_ascii_case("/connect"))
+}
 
 /// Whether a slash-command reply should be delivered privately to the caller
 /// rather than posted back into the room it arrived from.
@@ -107,6 +118,49 @@ pub(super) async fn try_handle_slash_command(
     // caller via `send_private_reply` (and deletes the echo); for a 1:1 DM the
     // conversation is already the private chat.
     let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
+
+    // `/connect` is handled here (not in the transport-agnostic command crate)
+    // because building the connect link needs in-process token minting
+    // (ServerContext + the DM flag). In a direct message the user gets a tappable
+    // connect Card; in a group (where a user-scoped link must never be posted) or
+    // on a mint failure, fall back to the plain web providers page.
+    if is_connect_command(text) {
+        if let Some(card) = build_connect_card_direct(
+            resources,
+            user_uuid,
+            user_tenant.as_uuid(),
+            channel,
+            channel_type,
+            &reply_target,
+            thread_id.clone(),
+            is_direct_message,
+            &locale,
+        ) {
+            return Some(card);
+        }
+        let web_url = format!(
+            "{}/providers",
+            resources
+                .common
+                .config
+                .frontend_url
+                .as_deref()
+                .unwrap_or(&resources.common.config.base_url)
+        );
+        let body = resources.mcp.messaging_strings_registry.render(
+            KEY_NO_PROVIDER_CONNECTED,
+            &locale,
+            &[&web_url],
+        );
+        return Some(OutgoingMessage {
+            channel_type,
+            recipient_id: reply_target,
+            content: MessageContent::Text { body },
+            turn_id: CanotTurnId::new(),
+            reply_to: None,
+            thread_id,
+        });
+    }
 
     // Slash dispatch requires both the command-name catalog and the
     // handler-name map. They live on ServerContext alongside the rest of

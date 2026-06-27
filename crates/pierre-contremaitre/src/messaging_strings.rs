@@ -238,6 +238,12 @@ pub const KEY_NO_PROVIDER_CONNECTED: &str = "messaging.account.no_provider";
 /// fetch, etc.).
 pub const KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "messaging.account.no_provider_with_email";
 
+/// Key: coach-voice prompt for the in-chat "Connect your account" Card.
+pub const KEY_CONNECT_PROMPT: &str = "messaging.connect.prompt";
+
+/// Key: button label for the in-chat "Connect your account" Card.
+pub const KEY_CONNECT_BUTTON: &str = "messaging.connect.button";
+
 /// Key: a connected fitness provider needs to be (re)authenticated.
 ///
 /// Surfaced deterministically by the chat pipeline's auth-recovery
@@ -502,6 +508,8 @@ pub(crate) const FR_ACCOUNT_SUSPENDED: &str =
     "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès.";
 pub(crate) const FR_NO_PROVIDER_CONNECTED: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi ici :\n{0}";
 pub(crate) const FR_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi avec ton compte {1} ici :\n{0}";
+pub(crate) const FR_CONNECT_PROMPT: &str = "Connectons ton service de fitness (Strava, Garmin ou Whoop) pour que je puisse te coacher sur tes vraies données. Touche le bouton ci-dessous pour te connecter en toute sécurité.";
+pub(crate) const FR_CONNECT_BUTTON: &str = "Connecter mon compte";
 
 pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 20 minutes) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
 
@@ -667,6 +675,8 @@ pub(crate) const EN_ACCOUNT_SUSPENDED: &str =
     "Your Dravr account is suspended. Contact support to restore access.";
 pub(crate) const EN_NO_PROVIDER_CONNECTED: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}";
 pub(crate) const EN_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}";
+pub(crate) const EN_CONNECT_PROMPT: &str = "Let's connect your fitness service (Strava, Garmin or Whoop) so I can coach you on your real data. Tap the button below to connect securely.";
+pub(crate) const EN_CONNECT_BUTTON: &str = "Connect your account";
 
 pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 20 minutes):\n\n{1}\n\nOnce reconnected, ask me again.";
 
@@ -825,6 +835,8 @@ pub(crate) const ES_ACCOUNT_SUSPENDED: &str =
     "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso.";
 pub(crate) const ES_NO_PROVIDER_CONNECTED: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}";
 pub(crate) const ES_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}";
+pub(crate) const ES_CONNECT_PROMPT: &str = "Conectemos tu servicio de fitness (Strava, Garmin o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.";
+pub(crate) const ES_CONNECT_BUTTON: &str = "Conectar mi cuenta";
 
 pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 20 minutos):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
 
@@ -981,6 +993,8 @@ pub(crate) const DE_ACCOUNT_SUSPENDED: &str =
     "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen.";
 pub(crate) const DE_NO_PROVIDER_CONNECTED: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nVerbinde dich hier:\n{0}";
 pub(crate) const DE_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nMelde dich mit deinem Konto {1} hier an:\n{0}";
+pub(crate) const DE_CONNECT_PROMPT: &str = "Verbinden wir deinen Fitness-Dienst (Strava, Garmin oder Whoop), damit ich dich mit echten Daten coachen kann. Tippe unten auf den Button, um dich sicher zu verbinden.";
+pub(crate) const DE_CONNECT_BUTTON: &str = "Konto verbinden";
 
 pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 20 Minuten gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
 
@@ -1140,6 +1154,8 @@ pub(crate) const PT_ACCOUNT_SUSPENDED: &str =
     "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso.";
 pub(crate) const PT_NO_PROVIDER_CONNECTED: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}";
 pub(crate) const PT_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}";
+pub(crate) const PT_CONNECT_PROMPT: &str = "Vamos ligar o teu serviço de fitness (Strava, Garmin ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.";
+pub(crate) const PT_CONNECT_BUTTON: &str = "Ligar a minha conta";
 
 pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 20 minutos):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
 
@@ -1279,6 +1295,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         "fr",
         FR_NO_PROVIDER_CONNECTED_WITH_EMAIL,
     ),
+    (KEY_CONNECT_PROMPT, "fr", FR_CONNECT_PROMPT),
+    (KEY_CONNECT_BUTTON, "fr", FR_CONNECT_BUTTON),
     (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "fr", FR_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "fr", FR_STATUS_PROVIDERS_NONE),
@@ -1397,6 +1415,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         "en",
         EN_NO_PROVIDER_CONNECTED_WITH_EMAIL,
     ),
+    (KEY_CONNECT_PROMPT, "en", EN_CONNECT_PROMPT),
+    (KEY_CONNECT_BUTTON, "en", EN_CONNECT_BUTTON),
     (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "en", EN_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "en", EN_STATUS_PROVIDERS_NONE),
@@ -1515,6 +1535,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         "es",
         ES_NO_PROVIDER_CONNECTED_WITH_EMAIL,
     ),
+    (KEY_CONNECT_PROMPT, "es", ES_CONNECT_PROMPT),
+    (KEY_CONNECT_BUTTON, "es", ES_CONNECT_BUTTON),
     (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "es", ES_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "es", ES_STATUS_PROVIDERS_NONE),
@@ -1633,6 +1655,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         "de",
         DE_NO_PROVIDER_CONNECTED_WITH_EMAIL,
     ),
+    (KEY_CONNECT_PROMPT, "de", DE_CONNECT_PROMPT),
+    (KEY_CONNECT_BUTTON, "de", DE_CONNECT_BUTTON),
     (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "de", DE_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "de", DE_STATUS_PROVIDERS_NONE),
@@ -1751,6 +1775,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
         "pt",
         PT_NO_PROVIDER_CONNECTED_WITH_EMAIL,
     ),
+    (KEY_CONNECT_PROMPT, "pt", PT_CONNECT_PROMPT),
+    (KEY_CONNECT_BUTTON, "pt", PT_CONNECT_BUTTON),
     (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "pt", PT_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "pt", PT_STATUS_PROVIDERS_NONE),

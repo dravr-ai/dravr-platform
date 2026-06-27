@@ -6,6 +6,8 @@
 
 /// AG-UI run wiring + per-channel status-bridge setup for messaging dispatch.
 mod agui;
+/// In-chat provider-connect: in-process link-token mint + tappable connect Card.
+mod connect;
 /// LLM dispatch + outbound delivery + retry queue for messaging turns.
 mod dispatch;
 /// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
@@ -1040,6 +1042,7 @@ async fn handle_channel_auth_outcome(
                 sender_id: &inputs.message.sender_id,
                 conversation_id: inputs.message.conversation_id.as_deref(),
                 thread_id: extract_thread_id(&inputs.message.metadata),
+                is_direct_message: inputs.message.is_direct_message,
                 err: &e,
             })
             .await;
@@ -1076,6 +1079,9 @@ struct AuthDenialReplyInputs<'a> {
     sender_id: &'a str,
     conversation_id: Option<&'a str>,
     thread_id: Option<String>,
+    /// Direct message vs group — gates the tokenized connect Card (a user-scoped
+    /// connect link must never be posted into a shared room).
+    is_direct_message: bool,
     err: &'a AppError,
 }
 
@@ -1116,18 +1122,40 @@ async fn resolve_channel_user_email(
 /// Build a localized "denied" reply for the authentication outcomes that need
 /// to surface user-facing text (`Pending`, `Suspended`, `RateLimitExceeded`).
 async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingMessage {
+    let locale = inputs
+        .resources
+        .common
+        .repos
+        .messaging
+        .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
+        .await
+        .ok()
+        .flatten()
+        .filter(|l| !l.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
+
+    // A direct-message user with no provider gets a tappable "Connect your
+    // account" Card (in-process-minted link → hosted picker). Group contexts and
+    // mint failures fall through to the plain web-link text below.
+    if inputs.err.code == ErrorCode::NoProviderConnected {
+        if let Some(mut card) = connect::try_build_connect_card(
+            inputs.resources,
+            inputs.tenant_id,
+            inputs.channel,
+            inputs.channel_type,
+            inputs.sender_id,
+            inputs.thread_id.clone(),
+            inputs.is_direct_message,
+            &locale,
+        )
+        .await
+        {
+            apply_conversation_recipient(&mut card, inputs.conversation_id);
+            return card;
+        }
+    }
+
     let body = if let Some(key) = messaging_key_for_status(inputs.err.code) {
-        let locale = inputs
-            .resources
-            .common
-            .repos
-            .messaging
-            .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
-            .await
-            .ok()
-            .flatten()
-            .filter(|l| !l.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
         // NoProviderConnected carries a `{0}` placeholder for the dravr web
         // connect URL, and `{1}` for the account email when we can resolve
         // it from the channel link. Telling the user *which* email to sign
