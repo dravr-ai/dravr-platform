@@ -411,11 +411,19 @@ impl ServerBackfillNotifier {
 
         let channel_str = session.get("channel_type").and_then(Value::as_str)?;
         let channel_user_id = session.get("channel_user_id").and_then(Value::as_str)?;
-        // Route to the EXACT originating chat (DM or group), never a broadcast
-        // by user_id: the channel-native conversation id is the recipient.
+        // Route to the EXACT originating chat. `channel_conversation_id` keys the
+        // group/DM split: it holds a group's native conversation id but is NULL for
+        // a DM (one DM per user — the session lookup COALESCEs it to ''). For a DM
+        // the recipient is the channel-native user id (e.g. the WhatsApp phone),
+        // exactly how the synchronous reply addresses a private reply
+        // (messaging_ingress send_private_reply). Requiring the conversation id
+        // dropped EVERY DM notice silently — the backfill push never reached a
+        // single direct-message user.
         let recipient = session
             .get("channel_conversation_id")
-            .and_then(Value::as_str)?;
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(channel_user_id);
         let locale = session
             .get("locale")
             .and_then(Value::as_str)
@@ -443,6 +451,15 @@ impl ServerBackfillNotifier {
             .flatten()
             .unwrap_or(tenant_id);
 
+        // Observability: the route resolved, so the notice is about to send.
+        // The prior silent `?`-drop on a NULL conversation id left zero trace
+        // when every DM push died — log the success path so a future drop is
+        // diagnosable from the absence of this line, not guesswork.
+        info!(
+            channel = %channel_str,
+            is_dm = recipient == channel_user_id,
+            "Backfill push: routing completion notice to originating chat"
+        );
         Some(ResolvedRoute {
             channel_str: channel_str.to_owned(),
             channel_type,
