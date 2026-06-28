@@ -387,6 +387,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 Err(result) => return Ok(result),
             };
 
+            // Canonicalize to the backend that actually serves this user so an LLM
+            // echoing "garmin" as an explicit arg and the stored connection
+            // "sciotte_garmin" collapse to ONE provider key. They name the same
+            // provider, but keying the durable cache, the backfill-coverage gate,
+            // and the completion push on the raw name split them into parallel keys
+            // that never saw each other — every historical re-ask re-backfilled and
+            // never served or pushed. Strava was immune only because its name
+            // equals its backend; this gives every mirror provider the same
+            // single-key pipeline. `display_provider` recovers the user-facing name
+            // ("garmin") for any copy the user or LLM sees.
+            let provider_name = backend_resolver::resolve_backend(
+                &context.resources.repos().auth_repos(),
+                context.user_id,
+                context.tenant_id.map(TenantId::from),
+                &provider_name,
+            )
+            .await;
+            let display_provider = backend_resolver::user_facing_name(&provider_name).to_owned();
+
             let span = Span::current();
             span.record("provider", field::display(&provider_name));
             if let Some(tenant_id) = context.tenant_id {
@@ -635,18 +654,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // background backfill and tell the caller to ask again shortly. The gate
             // fires ONLY for scrape-backed mirror providers (sciotte) — OAuth API
             // providers (Strava, Fitbit, …) fetch deep windows inline (fast API).
-            let route_to_backfill = if is_historical {
-                let backend = backend_resolver::resolve_backend(
-                    &context.resources.repos().auth_repos(),
-                    context.user_id,
-                    context.tenant_id.map(TenantId::from),
-                    &provider_name,
-                )
-                .await;
-                backend_resolver::is_mirror_backend(&backend)
-            } else {
-                false
-            };
+            // `provider_name` is already canonicalized to the backend above, so
+            // route on it directly: a deep window on a scrape-backed mirror
+            // (sciotte / sciotte_garmin) goes to background backfill; a fast OAuth
+            // API provider fetches inline.
+            let route_to_backfill =
+                is_historical && backend_resolver::is_mirror_backend(&provider_name);
             let (activities, provider) = if route_to_backfill {
                 // Is the requested historical window actually cached, or only recent
                 // rows that fall inside it? Read the durable window ONCE and derive
@@ -735,11 +748,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     });
                     return Ok(ToolResult::ok(json!({
                         "status": "backfilling",
-                        "provider": provider_name,
+                        "provider": display_provider,
                         "backfill_started": started,
                         "message": format!(
-                            "I'm pulling your older {provider_name} history now — this can take a \
-                             minute. Ask me again shortly and it'll be ready."
+                            "I'm pulling your older {display_provider} history now — this can take \
+                             a minute. Ask me again shortly and it'll be ready."
                         ),
                     })));
                 }
@@ -885,7 +898,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 activities: &filtered_activities,
                 user_uuid: context.user_id,
                 tenant_id: tenant_id_str,
-                provider_name: &provider_name,
+                // User-facing copy: show "garmin", not the internal
+                // "sciotte_garmin" backend the cache keys on.
+                provider_name: &display_provider,
                 mode: effective_mode,
                 output_format,
                 pagination: Some(&pagination),
