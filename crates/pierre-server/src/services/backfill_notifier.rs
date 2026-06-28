@@ -390,24 +390,9 @@ impl ServerBackfillNotifier {
         tenant_id: TenantId,
         pierre_conversation_id: &str,
     ) -> Option<ResolvedRoute> {
-        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
-        let session = match db
-            .get_session_by_pierre_conversation_id(tenant_id, pierre_conversation_id)
-            .await
-        {
-            Ok(Some(session)) => session,
-            Ok(None) => {
-                // Inherent staleness guard: after a `/reset` the session no
-                // longer points at this conversation id, so the lookup misses
-                // and we drop the notice rather than ping an archived thread.
-                info!("Backfill push skipped: session moved or gone (user likely /reset)");
-                return None;
-            }
-            Err(e) => {
-                warn!(error = %e, "Backfill push: session lookup failed");
-                return None;
-            }
-        };
+        let session = self
+            .lookup_session(tenant_id, pierre_conversation_id)
+            .await?;
 
         let channel_str = session.get("channel_type").and_then(Value::as_str)?;
         let channel_user_id = session.get("channel_user_id").and_then(Value::as_str)?;
@@ -434,22 +419,9 @@ impl ServerBackfillNotifier {
             return None;
         };
 
-        // The channel config + outbound adapter live on the BOT/channel-owner
-        // tenant, which differs from `tenant_id` (the user's own tenant the
-        // session now lives under, post the one-tenant-per-DM-unit fix) whenever
-        // the user DMs an admin-owned bot. Resolve that owner from the channel
-        // link — the authoritative channel-identity -> tenant map. Absent a link
-        // (single-tenant self-host where the user owns the bot), the session's
-        // own tenant owns the config, so fall back to `tenant_id`.
-        let channel_tenant_id = db
-            .get_channel_link_tenant(channel_str, channel_user_id)
-            .await
-            .inspect_err(|e| {
-                warn!(error = %e, "Backfill push: channel-link tenant lookup failed");
-            })
-            .ok()
-            .flatten()
-            .unwrap_or(tenant_id);
+        let channel_tenant_id = self
+            .resolve_channel_owner_tenant(channel_str, channel_user_id, tenant_id)
+            .await;
 
         // Observability: the route resolved, so the notice is about to send.
         // The prior silent `?`-drop on a NULL conversation id left zero trace
@@ -467,6 +439,55 @@ impl ServerBackfillNotifier {
             locale: locale.to_owned(),
             channel_tenant_id,
         })
+    }
+
+    /// Reverse-look-up the messaging session by Pierre conversation id. Returns
+    /// `None` — dropping the notice — when the session moved (after a `/reset` it
+    /// no longer points at this conversation id, so we don't ping an archived
+    /// thread) or the lookup errored.
+    async fn lookup_session(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> Option<Value> {
+        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
+        match db
+            .get_session_by_pierre_conversation_id(tenant_id, pierre_conversation_id)
+            .await
+        {
+            Ok(Some(session)) => Some(session),
+            Ok(None) => {
+                info!("Backfill push skipped: session moved or gone (user likely /reset)");
+                None
+            }
+            Err(e) => {
+                warn!(error = %e, "Backfill push: session lookup failed");
+                None
+            }
+        }
+    }
+
+    /// Resolve the tenant that owns the channel config + outbound adapter. When a
+    /// user DMs an admin-owned bot this is the BOT/channel-owner tenant (from the
+    /// channel link — the authoritative channel-identity -> tenant map),
+    /// distinct from the session's own tenant (the user's, post the
+    /// one-tenant-per-DM-unit fix). Absent a link (self-host where the user owns
+    /// the bot), the session tenant owns the config, so fall back to it.
+    async fn resolve_channel_owner_tenant(
+        &self,
+        channel_str: &str,
+        channel_user_id: &str,
+        session_tenant: TenantId,
+    ) -> TenantId {
+        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
+        db.get_channel_link_tenant(channel_str, channel_user_id)
+            .await
+            .inspect_err(|e| {
+                warn!(error = %e, "Backfill push: channel-link tenant lookup failed");
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(session_tenant)
     }
 
     /// Read the warmed window's cached activities straight from the durable
