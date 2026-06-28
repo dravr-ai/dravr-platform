@@ -244,6 +244,59 @@ async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
 }
 
 #[tokio::test]
+async fn resolve_backend_collapses_garmin_aliases_to_one_cache_key() {
+    // Regression for the historical-backfill loop: get_activities keyed the
+    // durable cache, the backfill-coverage gate, and the completion push on the
+    // resolved provider name — which is the LLM's explicit `provider` arg
+    // ("garmin") on one turn and the stored connection ("sciotte_garmin") on the
+    // next. Keyed raw, the two named the same provider but split the cache into
+    // parallel keys that never saw each other, so every deep re-ask re-backfilled
+    // and never served or pushed. get_activities now canonicalizes via
+    // resolve_backend before any cache op; this pins the property that makes that
+    // correct — both aliases of one connected provider resolve to ONE key, while
+    // the user still sees the friendly name.
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // The user's only Garmin connection is the scraper mirror (no OAuth row) —
+    // the real-world shape that triggered the split.
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    let from_llm_arg = backend_resolver::resolve_backend(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        Some(tenant_id),
+        oauth_providers::GARMIN,
+    )
+    .await;
+    let from_connection = backend_resolver::resolve_backend(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        Some(tenant_id),
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    assert_eq!(
+        from_llm_arg, from_connection,
+        "LLM arg 'garmin' and connection 'sciotte_garmin' must collapse to one cache key"
+    );
+    assert_eq!(from_llm_arg, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        backend_resolver::user_facing_name(&from_llm_arg),
+        oauth_providers::GARMIN,
+        "user-visible copy still shows the friendly name"
+    );
+}
+
+#[tokio::test]
 async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
