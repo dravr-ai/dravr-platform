@@ -46,6 +46,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::runtime::Builder as TokioRuntimeBuilder;
 use tokio::time::sleep as tokio_sleep;
+use tokio::time::timeout as tokio_timeout;
 
 use super::format::ScenarioActivity;
 use super::runner::{DriverTurnOutput, ScenarioDriver};
@@ -67,13 +68,22 @@ const MAX_TOOL_ITERATIONS_PER_TURN: usize = 6;
 /// The eval runs on Cohere's paid Command tier (10k rpm), so rate-limit
 /// 429s are not expected; retry-with-backoff still absorbs the occasional
 /// transient 5xx so the test fails only on real regressions, not on a
-/// one-off network blip.
-const MAX_DISPATCH_RETRIES: usize = 6;
+/// one-off network blip. Bounded low (with [`DISPATCH_TIMEOUT_SECS`]) so a
+/// degraded upstream surfaces as a fast, logged failure instead of a silent
+/// retry-storm that exhausts the CI job's wall-clock budget.
+const MAX_DISPATCH_RETRIES: usize = 3;
 
-/// Base backoff for retry. Doubles on each attempt
-/// (2s → 4s → 8s → 16s → 32s → 64s, capped at [`MAX_DISPATCH_RETRIES`]).
-/// Exponential backoff gives a transient upstream error time to clear
-/// before the next attempt.
+/// Per-attempt wall-clock ceiling on a single LLM dispatch. A healthy
+/// command-a completion (even with a tool round) returns well under this;
+/// a hung or pathologically slow upstream call is aborted and retried
+/// rather than blocking the run until the CI job's hard kill (which yields
+/// zero diagnostics). Generous enough not to false-fail a slow-but-healthy
+/// call, tight enough to fail fast on a stall.
+const DISPATCH_TIMEOUT_SECS: u64 = 90;
+
+/// Base backoff for retry. Doubles on each attempt (2s → 4s, capped at
+/// [`MAX_DISPATCH_RETRIES`]). Exponential backoff gives a transient
+/// upstream error time to clear before the next attempt.
 const RETRY_BASE_BACKOFF_MS: u64 = 2_000;
 
 /// Same-day, same-sport row count at or above which the in-memory
@@ -269,32 +279,44 @@ impl LiveScenarioDriver {
         }
     }
 
-    /// Wrap one LLM call with retry-with-backoff. Retries on every error
-    /// (the provider stringifies the underlying status into the message)
-    /// rather than parsing for 429 specifically — the chat-eval test is
-    /// nightly + dispatch-only, so the cost of one extra retry on a
-    /// non-retryable error is dwarfed by the alternative of flaking the
-    /// entire run on a single rate-limit blip.
+    /// Wrap one LLM call with a per-attempt timeout + retry-with-backoff.
+    /// Retries on every error (the provider stringifies the underlying
+    /// status into the message) rather than parsing for 429 specifically —
+    /// the chat-eval test is nightly + dispatch-only, so the cost of one
+    /// extra retry on a non-retryable error is dwarfed by the alternative
+    /// of flaking the entire run on a single rate-limit blip. The
+    /// [`DISPATCH_TIMEOUT_SECS`] guard turns a hung upstream call into a
+    /// fast, logged failure instead of blocking until the CI job's hard
+    /// kill — which produces no diagnostics about which call stalled.
     async fn dispatch_with_retry(
         &self,
         request: &ChatRequest,
     ) -> Result<ChatResponseWithTools, AppError> {
         let mut last_err: Option<AppError> = None;
         for attempt in 0..MAX_DISPATCH_RETRIES {
-            match self
+            let dispatch = self
                 .provider
-                .complete_with_tools(request, Some(self.tools.clone()))
-                .await
-            {
-                Ok(r) => return Ok(r),
-                Err(e) => {
+                .complete_with_tools(request, Some(self.tools.clone()));
+            match tokio_timeout(Duration::from_secs(DISPATCH_TIMEOUT_SECS), dispatch).await {
+                Ok(Ok(r)) => return Ok(r),
+                Ok(Err(e)) => {
                     eprintln!("live-driver dispatch attempt {attempt} failed: {e} — backing off");
                     last_err = Some(e);
-                    if attempt + 1 < MAX_DISPATCH_RETRIES {
-                        let backoff_ms = RETRY_BASE_BACKOFF_MS * (1 << attempt);
-                        tokio_sleep(Duration::from_millis(backoff_ms)).await;
-                    }
                 }
+                Err(_elapsed) => {
+                    eprintln!(
+                        "live-driver dispatch attempt {attempt} timed out after \
+                         {DISPATCH_TIMEOUT_SECS}s — backing off"
+                    );
+                    last_err = Some(AppError::external_service(
+                        "cohere",
+                        format!("LLM dispatch timed out after {DISPATCH_TIMEOUT_SECS}s"),
+                    ));
+                }
+            }
+            if attempt + 1 < MAX_DISPATCH_RETRIES {
+                let backoff_ms = RETRY_BASE_BACKOFF_MS * (1 << attempt);
+                tokio_sleep(Duration::from_millis(backoff_ms)).await;
             }
         }
         Err(last_err.expect("retry loop runs at least once"))

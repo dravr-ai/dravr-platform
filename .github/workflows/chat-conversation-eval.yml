@@ -143,4 +143,8 @@ jobs:
           shared-key: chat-eval-live
 
       - name: Run chat_scenario_test (live mode)
-        run: cargo test --test chat_scenario_test -- --include-ignored
+        # --nocapture streams the live driver's per-dispatch diagnostics
+        # (attempt failures, timeouts, backoffs) to the job log in real
+        # time, so a degraded upstream is visible even if the job hits its
+        # hard wall-clock kill before the test reports.
+        run: cargo test --test chat_scenario_test -- --include-ignored --nocapture
