@@ -845,14 +845,12 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
         let Some(ResolvedRoute {
+            session_id,
             channel_str,
             channel_type,
             recipient,
             locale,
             channel_tenant_id,
-            // The reauth nudge warn-drops on send failure (no retry-queue
-            // parity yet); session_id is only needed for the FK'd queue row.
-            session_id: _,
         }) = self.resolve_route(tenant_id, pierre_conversation_id).await
         else {
             return;
@@ -907,6 +905,30 @@ impl BackfillNotifier for ServerBackfillNotifier {
         };
         if let Err(e) = adapter.send(&outgoing, &channel_config).await {
             warn!(error = %e, channel = %channel_str, "Reauth nudge: send failed");
+            // Path parity with the completion push + synchronous reply: a failed
+            // reauth-nudge send (e.g. Meta WhatsApp 131047, out-of-24h-window) must
+            // be persisted + queued for the background retry worker, not silently
+            // dropped — otherwise the user never learns their provider session
+            // expired and keeps re-asking. The message row lands on the
+            // user/session tenant; the queue row lands on the bot/channel-owner
+            // tenant so the worker resolves the right channel config on re-send.
+            let reauth_user_id = user_id.to_string();
+            if let Err(enqueue_err) = enqueue_failed_outbound(
+                self.repos.messaging.as_ref(),
+                adapter.as_ref(),
+                &outgoing,
+                &FailedOutbound {
+                    message_tenant_id: tenant_id,
+                    queue_tenant_id: channel_tenant_id,
+                    session_id: &session_id,
+                    user_id: Some(&reauth_user_id),
+                    channel: &channel_str,
+                },
+            )
+            .await
+            {
+                error!(error = %enqueue_err, "Reauth nudge: failed to enqueue dropped notice for retry");
+            }
         } else {
             info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
         }
