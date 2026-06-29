@@ -324,6 +324,10 @@ impl ServerContext {
         let fitness_repos_view = repos.fitness_repos();
         let usage_repos_view = repos.usage_repos();
 
+        // Capture the public base URL before `config` moves into CommonSlice —
+        // the backfill notifier needs it (with the admin JWT secret) to mint the
+        // hosted-login link for a provider-reauth nudge.
+        let base_url = config.base_url.clone();
         let common = super::slices::CommonSlice {
             repos,
             cache: cache_arc,
@@ -430,6 +434,8 @@ impl ServerContext {
             common.repos.clone(),
             contremaitre_messaging_strings_registry.clone(),
             backfill_reentry.clone(),
+            admin_jwt_secret.into(),
+            base_url,
         ));
 
         let mcp = super::slices::McpSlice {

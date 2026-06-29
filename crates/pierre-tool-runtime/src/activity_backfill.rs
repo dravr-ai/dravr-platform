@@ -30,6 +30,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
+use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 
@@ -169,13 +170,27 @@ pub(crate) fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
     true
 }
 
+/// Outcome of authenticating + paging the provider for a backfill.
+enum BackfillFetch {
+    /// Activities fetched (possibly empty).
+    Activities(Vec<Activity>),
+    /// The provider's session/token lapsed — the caller nudges the user to
+    /// reconnect, since this detached path is otherwise silent.
+    AuthRequired,
+    /// Any other (transient/unsupported) failure — logged, no nudge.
+    Failed,
+}
+
 /// Authenticate the provider and page its feed to the requested `after`,
 /// returning the historical activities. Auth and fetch failures are logged and
-/// folded to `None` — this runs detached, so a failure is just a no-op backfill.
+/// classified — this runs detached, so a non-auth failure is just a no-op
+/// backfill, but a lapsed session is surfaced as [`BackfillFetch::AuthRequired`]
+/// so the caller can nudge the user to reconnect (the foreground tool loop
+/// already nudges inline; the backfill must do it too or the expiry is silent).
 async fn fetch_backfill_activities(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
-) -> Option<Vec<Activity>> {
+) -> BackfillFetch {
     let provider = match executor
         .auth_service
         .create_authenticated_provider(
@@ -187,26 +202,48 @@ async fn fetch_backfill_activities(
     {
         Ok(provider) => provider,
         Err(response) => {
+            // A non-recoverable dead connection tags the response with the
+            // auth-required provider (see create_authenticated_provider) —
+            // distinguish it from an unsupported-provider / other failure so
+            // only a real expiry nudges the user.
+            let auth_required = response
+                .metadata
+                .as_ref()
+                .is_some_and(|m| m.contains_key(META_AUTH_REQUIRED_PROVIDER));
             warn!(
                 user_id = %job.user_id,
                 provider = %job.provider_name,
                 error = ?response.error,
+                auth_required,
                 "Activity backfill: provider authentication failed"
             );
-            return None;
+            return if auth_required {
+                BackfillFetch::AuthRequired
+            } else {
+                BackfillFetch::Failed
+            };
         }
     };
 
     match provider.get_activities_with_params(&job.query_params).await {
-        Ok(activities) => Some(activities),
+        Ok(activities) => BackfillFetch::Activities(activities),
         Err(e) => {
+            // sciotte surfaces a lapsed session HERE (cookies existed at auth
+            // time but the scrape redirected to sign-in) as
+            // `AppError::provider_auth_required`; any other error is transient.
+            let auth_required = e.provider_auth_required_provider().is_some();
             warn!(
                 user_id = %job.user_id,
                 provider = %job.provider_name,
                 error = %e,
+                auth_required,
                 "Activity backfill: provider fetch failed"
             );
-            None
+            if auth_required {
+                BackfillFetch::AuthRequired
+            } else {
+                BackfillFetch::Failed
+            }
         }
     }
 }
@@ -264,8 +301,16 @@ async fn record_backfill_coverage(
 /// swallowed — this runs detached from any request.
 async fn run_activity_backfill(job: &ActivityBackfillJob) {
     let executor = UniversalExecutor::new(job.resources.clone());
-    let Some(activities) = fetch_backfill_activities(job, &executor).await else {
-        return;
+    let activities = match fetch_backfill_activities(job, &executor).await {
+        BackfillFetch::Activities(activities) => activities,
+        BackfillFetch::AuthRequired => {
+            // The provider session expired mid-backfill. This detached path is
+            // otherwise silent, so nudge the user to reconnect on the channel
+            // that asked instead of leaving them on a perpetual "ask again".
+            notify_backfill_reauth(job).await;
+            return;
+        }
+        BackfillFetch::Failed => return,
     };
 
     if activities.is_empty() {
@@ -348,6 +393,29 @@ async fn persist_backfill_activities(
     // `activity_id`), below `fetched_count` when the feed repeats an id in the
     // batch — the honest figure the user sees.
     Some(usize::try_from(persisted).unwrap_or(fetched_count))
+}
+
+/// Push a reconnect nudge to the originating channel when a chat-triggered
+/// backfill hit a lapsed provider session — a localized message + a one-time
+/// hosted-login link, routed cross-channel via the shared notifier rail.
+/// Mirrors [`notify_backfill_complete`]'s guards: no conversation id (MCP / A2A
+/// / SSE) or no notifier wired → no-op (the connection-status surface still
+/// reflects the expiry). The notifier owns dedup — one nudge per expiry window.
+async fn notify_backfill_reauth(job: &ActivityBackfillJob) {
+    let (Some(conversation_id), Some(notifier)) = (
+        job.pierre_conversation_id.as_deref(),
+        job.resources.backfill_notifier(),
+    ) else {
+        return;
+    };
+    notifier
+        .push_provider_reauth(
+            job.user_id,
+            job.tenant_id,
+            conversation_id,
+            &job.provider_name,
+        )
+        .await;
 }
 
 /// Push a "your history is ready" notice back to the originating channel for a

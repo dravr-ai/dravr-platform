@@ -84,6 +84,24 @@ pub trait BackfillNotifier: Send + Sync {
         after_ts: i64,
         activity_count: usize,
     );
+
+    /// Notify the channel behind `pierre_conversation_id` that `provider`'s
+    /// session/token expired and must be reconnected — a localized message plus
+    /// a one-time hosted-login link, routed to the originating channel (any
+    /// channel) via the same rail as [`Self::push_backfill_complete`].
+    ///
+    /// Fired from the DETACHED backfill path, where an auth failure would
+    /// otherwise be silent (the foreground tool loop already nudges inline).
+    /// Best-effort and deduped per `(user, provider)` window via
+    /// `claim_reauth_notification`, so a flapping connection nudges once, not
+    /// every failed turn. Implementations swallow and log their own failures.
+    async fn push_provider_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+        provider: &str,
+    );
 }
 
 /// Narrow façade over the server's shared services that tool implementations
