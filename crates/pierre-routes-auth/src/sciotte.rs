@@ -732,7 +732,7 @@ pub async fn handle_sciotte_login(
         }
     };
 
-    login_result_to_response(
+    Box::pin(login_result_to_response(
         result,
         &resources,
         cached,
@@ -744,7 +744,7 @@ pub async fn handle_sciotte_login(
             log_prefix: "Sciotte credential login",
             link_context,
         },
-    )
+    ))
     .await
 }
 
@@ -776,7 +776,7 @@ pub async fn handle_sciotte_select_2fa(
         }
     };
 
-    login_result_to_response(
+    Box::pin(login_result_to_response(
         result,
         &resources,
         scraper,
@@ -788,7 +788,7 @@ pub async fn handle_sciotte_select_2fa(
             log_prefix: "Sciotte 2FA login",
             link_context,
         },
-    )
+    ))
     .await
 }
 
@@ -825,7 +825,7 @@ pub async fn handle_sciotte_submit_otp(
         }
     };
 
-    login_result_to_response(
+    Box::pin(login_result_to_response(
         result,
         &resources,
         scraper,
@@ -837,7 +837,7 @@ pub async fn handle_sciotte_submit_otp(
             log_prefix: "Sciotte OTP login",
             link_context,
         },
-    )
+    ))
     .await
 }
 
