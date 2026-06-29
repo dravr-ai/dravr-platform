@@ -596,15 +596,23 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // rendered in local time for display (start_date stays UTC for stable
             // windowing/sorting). Best effort: any lookup failure or unset timezone
             // falls back to UTC only. Used by both the cached and fresh paths.
-            let user_timezone = context
+            let user_global = context
                 .resources
                 .repos()
                 .users
                 .get_global(context.user_id)
                 .await
                 .ok()
-                .flatten()
-                .and_then(|u| u.timezone);
+                .flatten();
+            let user_timezone = user_global.as_ref().and_then(|u| u.timezone.clone());
+            // User's BCP-47 locale ("fr"/"en"/"es"/"de"/"pt") drives the localized
+            // sport-type tags in the rendered activity list; default to English
+            // when the lookup fails or the field is empty.
+            let user_locale = user_global
+                .as_ref()
+                .map(|u| u.locale.clone())
+                .filter(|l| !l.is_empty())
+                .unwrap_or_else(|| "en".to_owned());
 
             // A deep historical `after` must reach the coverage-aware gate below,
             // never a cached response. The gate reads the durable window + backfill
@@ -637,6 +645,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     analysis_type,
                     weather_provider: weather_provider.clone(),
                     user_timezone: user_timezone.clone(),
+                    locale: user_locale.clone(),
                 })
                 .await
                 {
@@ -907,6 +916,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 analysis_type,
                 backfill_temps: &backfill_temps,
                 user_timezone,
+                locale: user_locale,
             });
 
             handler_bridge::map_universal_response("get_activities", Ok(response))
