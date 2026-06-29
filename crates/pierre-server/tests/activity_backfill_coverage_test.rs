@@ -7,36 +7,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
+#[path = "helpers/db_fixtures.rs"]
+mod db_fixtures;
+use db_fixtures::create_test_db;
+
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
 use pierre_database::repositories::BackfillCoverage;
-use pierre_database::DatabaseProvider;
 use uuid::Uuid;
-
-/// In-memory `SQLite` DB with all migrations applied (creates
-/// `activity_backfill_coverage`).
-async fn create_test_db() -> Database {
-    let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("Failed to create test database");
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .expect("Failed to create test database");
-
-    db.migrate().await.expect("Failed to run migrations");
-    db
-}
 
 /// The coverage record round-trips, a deeper backfill overwrites it (coverage
 /// only deepens), and reads are scoped to `(tenant, user, provider)`.

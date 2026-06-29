@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+/// Channel reply-recipient addressing: the shared conversation-id-with-user-id-fallback rule.
+pub mod addressing;
 /// AG-UI run wiring + per-channel status-bridge setup for messaging dispatch.
 mod agui;
 /// In-chat provider-connect: in-process link-token mint + tappable connect Card.
@@ -16,6 +18,9 @@ mod linking;
 pub mod locale;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
+/// Shared failed-outbound enqueue helper — single source of truth for the retry
+/// queue, reused by the synchronous reply path and the backfill-completion push.
+pub mod outbound_retry;
 /// Compose a messaging reply: prepend the (adaptively capped) activity list to the coach analysis.
 mod reply_compose;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.

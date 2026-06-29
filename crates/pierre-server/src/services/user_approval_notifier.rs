@@ -19,20 +19,20 @@ use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_REGISTRATION_APPROVED,
 };
-use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
+use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
-use pierre_messaging::turn::ConversationTurnId;
 use pierre_services::user_approval::UserApprovalNotifier;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::outgoing::proactive_text;
 
 /// Account-approved notifier: sends the approval email plus a localized message
 /// on each of the user's linked messaging channels.
@@ -113,14 +113,7 @@ impl ApprovalNotifier {
         };
 
         let body = self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[]);
-        let outgoing = OutgoingMessage {
-            channel_type,
-            recipient_id: recipient.to_owned(),
-            content: MessageContent::Text { body },
-            turn_id: ConversationTurnId::new(),
-            reply_to: None,
-            thread_id: None,
-        };
+        let outgoing = proactive_text(channel_type, recipient.to_owned(), body);
 
         if let Err(e) = adapter.send(&outgoing, &channel_config).await {
             warn!(error = %e, channel = %channel_str, "Failed to send approval message on channel");

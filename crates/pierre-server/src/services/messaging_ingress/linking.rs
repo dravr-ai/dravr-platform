@@ -10,11 +10,11 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::outgoing::proactive_text;
 use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
     KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -298,16 +298,7 @@ pub(super) async fn handle_linking_command(
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
     let response_text = consume_and_link(resources, db, tenant_id, channel, sender_id, code).await;
 
-    OutgoingMessage {
-        channel_type,
-        recipient_id: sender_id.to_owned(),
-        content: MessageContent::Text {
-            body: response_text,
-        },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: None,
-    }
+    proactive_text(channel_type, sender_id.to_owned(), response_text)
 }
 
 /// Hydrate the analytics consent cache for a messaging user on cache miss

@@ -41,6 +41,11 @@ pub(crate) mod user_approval_notifier;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// Outbound channel-message constructors shared by the proactive senders
+/// (backfill/approval notifiers) and the messaging-ingress reply paths.
+#[cfg(feature = "client-messaging")]
+pub(crate) mod outgoing;
+
 /// Endurance Phase 2 training-history compute service — fetches activities + physiology,
 /// runs `pierre_fitness_compute::training_history_compute`, persists rows.
 pub mod training_history_compute;

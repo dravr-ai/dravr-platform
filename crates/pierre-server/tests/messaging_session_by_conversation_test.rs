@@ -12,66 +12,13 @@
     clippy::uninlined_format_args
 )]
 
-use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::{
-    backends::{factory::Database, CreateSessionParams},
-    DatabaseProvider,
-};
+#[path = "helpers/db_fixtures.rs"]
+mod db_fixtures;
+use db_fixtures::{create_test_db, seed_user};
+
+use pierre_core::models::TenantId;
+use pierre_database::backends::{factory::Database, CreateSessionParams};
 use uuid::Uuid;
-
-/// Create an in-memory `SQLite` database for testing.
-async fn create_test_db() -> Database {
-    let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("Failed to create test database");
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .expect("Failed to create test database");
-
-    db.migrate().await.expect("Failed to run migrations");
-    db
-}
-
-/// Seed a real user and tenant so FK constraints on `messaging_*` tables are
-/// satisfied. Returns `(user_uuid, tenant_id)`.
-async fn seed_user(db: &Database) -> (Uuid, TenantId) {
-    let email = format!("user-{}@test.local", Uuid::new_v4());
-    let user = User::new(
-        email,
-        "hash_not_verified_in_tests".to_owned(),
-        Some("Test User".to_owned()),
-    );
-    let user_id = user.id;
-    db.repositories().users.create(&user).await.unwrap();
-
-    let tenant_id = TenantId::new();
-    let now = Utc::now();
-    let tenant = Tenant {
-        id: tenant_id,
-        name: format!("Test Tenant {tenant_id}"),
-        slug: tenant_id.to_string(),
-        domain: None,
-        plan: "starter".to_owned(),
-        owner_user_id: user_id,
-        created_at: now,
-        updated_at: now,
-    };
-    db.repositories().tenants.create(&tenant).await.unwrap();
-
-    (user_id, tenant_id)
-}
 
 /// Create a real `chat_conversations` row and return its id.
 ///

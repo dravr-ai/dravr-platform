@@ -13,7 +13,6 @@ use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
     UserRepository,
 };
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
@@ -21,6 +20,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
+use crate::services::outgoing::proactive_text;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
     KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR, KEY_LINK_IDENTITY_COLLISION,
@@ -149,14 +149,7 @@ pub(super) fn otp_reply(
     sender_id: &str,
     body: String,
 ) -> OutgoingMessage {
-    OutgoingMessage {
-        channel_type,
-        recipient_id: sender_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: None,
-    }
+    proactive_text(channel_type, sender_id.to_owned(), body)
 }
 
 /// Override `recipient_id` with conversation ID for channel-based platforms like Discord

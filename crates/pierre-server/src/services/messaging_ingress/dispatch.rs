@@ -33,10 +33,11 @@ use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::analytics::hash_id;
 use pierre_services::usage_counter::UsageCounterService;
 
+use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::{
-    build_messaging_profile, compose_messaging_reply, content_body_text, PendingDispatch,
-    CONVERSATION_DISPATCH_LOCKS,
+    build_messaging_profile, compose_messaging_reply, content_body_text, outbound_retry,
+    PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
 };
 
 /// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
@@ -216,11 +217,8 @@ async fn deliver_reply(
     // Use conversation_id (channel/chat/thread) as the reply target
     // when available; fall back to sender_id for DM-only platforms
     // (e.g., WhatsApp).
-    let reply_target = dispatch
-        .conversation_id
-        .as_deref()
-        .unwrap_or(&dispatch.sender_id)
-        .to_owned();
+    let reply_target =
+        reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
 
     // The outbound reply carries the turn id from the inbound utterance,
     // so a consumer inspecting the `DeliveryReceipt` can look up the full
@@ -530,11 +528,8 @@ fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) 
 ///
 /// Ensures the user always gets feedback instead of silence when something goes wrong.
 async fn send_error_reply(dispatch: &PendingDispatch, channel_config: &ChannelConfig, body: &str) {
-    let reply_target = dispatch
-        .conversation_id
-        .as_deref()
-        .unwrap_or(&dispatch.sender_id)
-        .to_owned();
+    let reply_target =
+        reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
 
     let outgoing = OutgoingMessage {
         channel_type: dispatch.channel_type,
@@ -715,81 +710,32 @@ async fn persist_outbound_message(
     }
 }
 
-/// Enqueue a failed outbound message for retry delivery
+/// Enqueue a failed outbound message for retry delivery.
 ///
-/// Renders the outgoing message to the channel's native payload format, persists
-/// the outbound message record, then enqueues it in the retry queue.
+/// Thin wrapper over the shared [`outbound_retry::enqueue_failed_outbound`] helper
+/// (the single source of truth, also driving the backfill-completion push): it
+/// supplies this dispatch's tenants / session / channel and logs a failure. The
+/// message row lands on the session tenant; the queue row lands on the
+/// channel/bot tenant so the retry worker loads the right channel config.
 async fn enqueue_failed_outbound(
     db: &dyn MessagingRepository,
     dispatch: &PendingDispatch,
     outgoing: &OutgoingMessage,
 ) {
-    if let Err(e) = try_enqueue_for_retry(db, dispatch, outgoing).await {
+    if let Err(e) = outbound_retry::enqueue_failed_outbound(
+        db,
+        dispatch.adapter.as_ref(),
+        outgoing,
+        &outbound_retry::FailedOutbound {
+            message_tenant_id: dispatch.session_tenant_id,
+            queue_tenant_id: dispatch.channel_tenant_id,
+            session_id: &dispatch.session.session_id,
+            user_id: Some(dispatch.session.user_id.as_str()),
+            channel: &dispatch.channel,
+        },
+    )
+    .await
+    {
         error!(error = %e, channel = %dispatch.channel, "Failed to enqueue outbound for retry");
     }
-}
-
-/// Render, persist, and enqueue an outbound message for retry
-///
-/// Returns an error if any step fails (rendering, persistence, or enqueue).
-async fn try_enqueue_for_retry(
-    db: &dyn MessagingRepository,
-    dispatch: &PendingDispatch,
-    outgoing: &OutgoingMessage,
-) -> Result<(), AppError> {
-    let payload = dispatch
-        .adapter
-        .render(outgoing)
-        .map_err(|e| AppError::internal(format!("Failed to render for retry: {e}")))?;
-
-    let payload_str = payload.to_string();
-
-    // Persist the outbound message record first (FK requirement for queue entry).
-    // Use a unique retry-prefixed ID to avoid colliding with the (tenant_id, channel_message_id)
-    // uniqueness constraint — retry messages have no real channel ID yet.
-    let out_msg_id = Uuid::new_v4().to_string();
-    let retry_channel_msg_id = format!("retry-{out_msg_id}");
-    let body = content_body_text(&outgoing.content);
-    let correlation_str = outgoing.turn_id.to_string();
-    let out_params = InsertMessageParams {
-        id: &out_msg_id,
-        // Message row shares the session tenant (see persist_outbound_message);
-        // the queue row below stays on channel_tenant_id so the retry worker
-        // loads the bot's channel config to re-send. The queue->message FK is
-        // single-column (message_id), so the differing tenants don't break it.
-        tenant_id: dispatch.session_tenant_id,
-        session_id: &dispatch.session.session_id,
-        direction: "outbound",
-        channel_type: &dispatch.channel,
-        channel_message_id: &retry_channel_msg_id,
-        sender_id: "pierre",
-        content_type: "text",
-        content_body: body.as_deref(),
-        correlation_id: &correlation_str,
-        raw_payload: Some(&payload_str),
-    };
-    let inserted = db.insert_message(&out_params).await?;
-    if !inserted {
-        return Err(AppError::internal(
-            "Failed to persist retry message: duplicate channel_message_id",
-        ));
-    }
-
-    let queue_id = Uuid::new_v4().to_string();
-    db.enqueue_outbound(
-        &queue_id,
-        &out_msg_id,
-        dispatch.channel_tenant_id,
-        Some(dispatch.session.user_id.as_str()),
-        &dispatch.channel,
-        &payload_str,
-    )
-    .await?;
-
-    info!(
-        queue_id = %queue_id,
-        channel = %dispatch.channel,
-        "Outbound message enqueued for retry"
-    );
-    Ok(())
 }
