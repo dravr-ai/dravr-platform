@@ -174,10 +174,157 @@ impl From<&Activity> for ActivitySummary {
 /// group is present, a header note is prepended so the LLM sees the
 /// session-vs-row distinction inline with the list (smaller models that skip
 /// the structured `retrieval_context` JSON still get the cue from the prose).
+/// Localized short sport-type label for the activity list, keyed by BCP-47
+/// locale. The names are intentionally short coach/athlete nouns (fr "course à
+/// pied"/"rando"/"ski de fond", not the English `display_name`) so a French
+/// chat reads natively. Falls back to English for an unrecognized locale or an
+/// unlisted variant, and keeps the provider-supplied label for
+/// `SportType::Other`.
+fn localized_sport_name(sport: &SportType, locale: &str) -> String {
+    // [fr, en, es, de, pt]
+    let names: [&str; 5] = match sport {
+        SportType::Other(s) => return s.clone(),
+        SportType::Run => ["course à pied", "run", "carrera", "laufen", "corrida"],
+        SportType::Ride => ["vélo", "bike ride", "bici", "radtour", "pedalada"],
+        SportType::Swim => ["natation", "swim", "natación", "schwimmen", "natação"],
+        SportType::Walk => ["marche", "walk", "caminata", "spaziergang", "caminhada"],
+        SportType::Hike => ["rando", "hike", "senderismo", "wanderung", "trilha"],
+        SportType::VirtualRide => [
+            "home trainer",
+            "indoor ride",
+            "bici indoor",
+            "indoor-radfahren",
+            "bike indoor",
+        ],
+        SportType::VirtualRun => [
+            "tapis de course",
+            "treadmill run",
+            "cinta de correr",
+            "laufband",
+            "esteira",
+        ],
+        SportType::Workout => [
+            "entraînement",
+            "workout",
+            "entrenamiento",
+            "training",
+            "treino",
+        ],
+        SportType::Yoga => ["yoga", "yoga", "yoga", "yoga", "yoga"],
+        SportType::EbikeRide => [
+            "vélo électrique",
+            "e-bike ride",
+            "bici eléctrica",
+            "e-bike-tour",
+            "e-bike",
+        ],
+        SportType::MountainBike => [
+            "VTT",
+            "mountain bike",
+            "btt",
+            "mountainbike",
+            "mountain bike",
+        ],
+        SportType::GravelRide => ["gravel", "gravel ride", "gravel", "gravel-tour", "gravel"],
+        SportType::CrossCountrySkiing => [
+            "ski de fond",
+            "cross-country ski",
+            "esquí de fondo",
+            "langlauf",
+            "esqui de fundo",
+        ],
+        SportType::AlpineSkiing => [
+            "ski alpin",
+            "alpine ski",
+            "esquí alpino",
+            "ski alpin",
+            "esqui alpino",
+        ],
+        SportType::Snowboarding => [
+            "snowboard",
+            "snowboard",
+            "snowboard",
+            "snowboard",
+            "snowboard",
+        ],
+        SportType::Snowshoe => [
+            "raquette",
+            "snowshoe",
+            "raquetas de nieve",
+            "schneeschuhwandern",
+            "raquetes de neve",
+        ],
+        SportType::IceSkating => [
+            "patin à glace",
+            "ice skating",
+            "patinaje sobre hielo",
+            "schlittschuhlaufen",
+            "patinação no gelo",
+        ],
+        SportType::BackcountrySkiing => [
+            "ski de rando",
+            "backcountry ski",
+            "esquí de travesía",
+            "skitour",
+            "esqui de travessia",
+        ],
+        SportType::Kayaking => ["kayak", "kayak", "kayak", "kajak", "caiaque"],
+        SportType::Canoeing => ["canoë", "canoe", "canoa", "kanu", "canoagem"],
+        SportType::Rowing => ["aviron", "rowing", "remo", "rudern", "remo"],
+        SportType::Paddleboarding => [
+            "paddle",
+            "paddleboard",
+            "paddle surf",
+            "stand-up-paddling",
+            "stand up paddle",
+        ],
+        SportType::Surfing => ["surf", "surf", "surf", "surfen", "surf"],
+        SportType::Kitesurfing => ["kitesurf", "kitesurf", "kitesurf", "kitesurfen", "kitesurf"],
+        SportType::StrengthTraining => [
+            "musculation",
+            "strength training",
+            "fuerza",
+            "krafttraining",
+            "musculação",
+        ],
+        SportType::Crossfit => ["CrossFit", "CrossFit", "CrossFit", "CrossFit", "CrossFit"],
+        SportType::Pilates => ["Pilates", "Pilates", "Pilates", "Pilates", "Pilates"],
+        SportType::RockClimbing => ["escalade", "climbing", "escalada", "klettern", "escalada"],
+        SportType::TrailRunning => ["trail", "trail run", "trail", "trailrunning", "trail run"],
+        SportType::Soccer => ["foot", "soccer", "fútbol", "fußball", "futebol"],
+        SportType::Basketball => [
+            "basket",
+            "basketball",
+            "baloncesto",
+            "basketball",
+            "basquete",
+        ],
+        SportType::Tennis => ["tennis", "tennis", "tenis", "tennis", "tênis"],
+        SportType::Golf => ["golf", "golf", "golf", "golf", "golfe"],
+        SportType::Skateboarding => ["skate", "skate", "skate", "skateboarden", "skate"],
+        SportType::InlineSkating => [
+            "roller",
+            "inline skating",
+            "patinaje en línea",
+            "inlineskaten",
+            "patinação inline",
+        ],
+    };
+    let idx = match locale.get(0..2).unwrap_or("en") {
+        "fr" => 0,
+        "es" => 2,
+        "de" => 3,
+        "pt" => 4,
+        _ => 1,
+    };
+    names[idx].to_owned()
+}
+
 fn format_activities_as_list(
     activities: &[Activity],
     backfill_temps: &HashMap<String, f32>,
     fragment_report: Option<&FragmentReport>,
+    locale: &str,
 ) -> String {
     let mut lines = Vec::with_capacity(activities.len() + 6);
     lines.push("Your Activities:".to_owned());
@@ -212,14 +359,11 @@ fn format_activities_as_list(
     // would override "longest to shortest" / "oldest first" back to date order.
     for (i, activity) in activities.iter().enumerate() {
         let date = activity.start_date().format("%Y-%m-%d").to_string();
-        // Render the sport with its canonical display name (e.g. "trail run",
-        // not the CamelCase Debug "TrailRunning") so the list reads cleanly and
-        // matches the backfill push, which already uses `display_name()`. The
-        // `Other` variant keeps its provider-supplied label.
-        let sport = match activity.sport_type() {
-            SportType::Other(s) => s.clone(),
-            other => other.display_name().to_owned(),
-        };
+        // Render the sport with its localized short label (fr "trail"/"rando",
+        // not the English "trail run") so the list reads natively in the user's
+        // chat language; `Other` keeps its provider-supplied label, unlisted
+        // variants fall back to English.
+        let sport = localized_sport_name(activity.sport_type(), locale);
         let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
         let duration_secs = activity.duration_seconds();
         let hours = duration_secs / 3600;
@@ -747,6 +891,9 @@ pub(crate) struct CachedActivitiesParams<'a> {
     /// User's IANA timezone for rendering local start times (see
     /// [`ActivitiesResponseParams::user_timezone`]).
     pub user_timezone: Option<String>,
+    /// User's BCP-47 locale, threaded to [`ActivitiesResponseParams::locale`]
+    /// for localized sport-type labels. Defaults to "en".
+    pub locale: String,
 }
 
 /// Create metadata for activity analysis responses
@@ -814,6 +961,7 @@ pub(crate) async fn try_get_cached_activities(
             analysis_type: params.analysis_type,
             backfill_temps: &backfill_temps,
             user_timezone: params.user_timezone,
+            locale: params.locale,
         });
         // Mark as cached in metadata
         if let Some(ref mut metadata) = response.metadata {
@@ -1047,6 +1195,9 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// render `ActivitySummary::start_date_local` so the LLM displays start
     /// times in the user's local time rather than raw UTC. `None` → UTC only.
     pub user_timezone: Option<String>,
+    /// User's BCP-47 locale ("fr"/"en"/"es"/"de"/"pt") selecting the localized
+    /// sport-type labels in the rendered activity list. Defaults to "en".
+    pub locale: String,
 }
 
 /// Build success response for activities with mode and format support
@@ -1068,6 +1219,7 @@ pub(crate) fn build_activities_success_response(
         analysis_type,
         backfill_temps,
         user_timezone,
+        locale,
     } = params;
 
     // Prepare the data based on mode
@@ -1093,7 +1245,7 @@ pub(crate) fn build_activities_success_response(
 
     // Create pre-formatted activity list for LLM output (helps models include the list)
     let activity_list =
-        format_activities_as_list(activities, backfill_temps, Some(&fragment_report));
+        format_activities_as_list(activities, backfill_temps, Some(&fragment_report), &locale);
 
     // Calculate token estimate for context management
     let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);
