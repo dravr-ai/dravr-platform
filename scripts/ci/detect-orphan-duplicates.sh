@@ -73,7 +73,10 @@ echo -e "\n${BLUE}[3/5] Checking for shadow tool registries...${NC}"
 # (test helper that instantiates ToolRegistry — documented as non-production),
 # registry_builtin.rs (thin `get_tools()` delegator used by mcp::protocol::handle_tools_list
 # — constructs a ToolRegistry via register_builtin_tools and returns schemas; no
-# parallel state).
+# parallel state), host_seams.rs (PierreToolDispatcher's `ToolDispatcher::list_tools`
+# seam impl that plugs the dravr-tronc MCP engine into the canonical tool_registry —
+# delegates to resources.mcp.tool_registry.{all,user_visible,tenant_filtered}_schemas;
+# no parallel state).
 SHADOW_TOOLS=$(grep -rn 'fn get_tools\|fn list_tools\|fn tool_schemas' \
     crates/pierre-server/src/ \
     --include='*.rs' 2>/dev/null \
@@ -82,6 +85,7 @@ SHADOW_TOOLS=$(grep -rn 'fn get_tools\|fn list_tools\|fn tool_schemas' \
     | grep -v 'traits.rs' \
     | grep -v 'mcp_request_processor.rs' \
     | grep -v 'executor.rs' \
+    | grep -v 'host_seams.rs' \
     | grep -v 'schema/mod.rs' \
     | grep -v '#\[cfg(test)\]' \
     | grep -v '// ' \
