@@ -43,30 +43,6 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
-# Pin the GitHub Copilot CLI model for the headless ACP chat provider.
-#
-# `copilot --acp` selects its model from ~/.copilot/settings.json "model" — it
-# IGNORES both the ACP session/new "model" field and the CLI --model flag (those
-# only set a cosmetic label). With no settings.json the CLI falls through to the
-# account's experiment default (GPT/auto), so chat silently runs GPT/Gemini
-# instead of the configured model. Write the file from PIERRE_LLM_MODEL (the
-# unified chat model; COPILOT_HEADLESS_MODEL is the vision-only fallback) so the
-# ACP session routes to the intended model. Non-fatal: a degraded model must
-# never block server startup.
-#
-# This is a deployment stopgap: the durable fix lives in dravr-embacle, which
-# will manage the copilot model config and log the real routing model. Remove
-# this block once that embacle release is deployed.
-if [ "${PIERRE_LLM_PROVIDER:-}" = "copilot_headless" ] || [ "${PIERRE_LLM_PROVIDER:-}" = "copilot" ]; then
-    COPILOT_PIN_MODEL="${PIERRE_LLM_MODEL:-${COPILOT_HEADLESS_MODEL:-claude-sonnet-4.6}}"
-    COPILOT_SETTINGS="${HOME}/.copilot/settings.json"
-    {
-        mkdir -p "${HOME}/.copilot" \
-            && printf '{\n  "model": "%s"\n}\n' "$COPILOT_PIN_MODEL" > "$COPILOT_SETTINGS" \
-            && echo "Pinned Copilot ACP model to '${COPILOT_PIN_MODEL}' (${COPILOT_SETTINGS})"
-    } || echo "WARNING: failed to pin Copilot ACP model; chat may run the account default model"
-fi
-
 # Create data directory if it doesn't exist
 mkdir -p /app/data
 
