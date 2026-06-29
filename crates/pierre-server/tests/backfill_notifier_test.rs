@@ -28,7 +28,7 @@ use pierre_core::models::messaging::{
     OutgoingMessage,
 };
 use pierre_core::models::{
-    Activity, ActivityBuilder, AddMessageParams, SportType, Tenant, TenantId, User,
+    Activity, ActivityBuilder, AddMessageParams, ConnectionType, SportType, Tenant, TenantId, User,
 };
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
 use pierre_database::{DatabaseProvider, RepositoryRegistry};
@@ -411,6 +411,80 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     );
     // Routed to the channel-native user id (the DM recipient), never dropped.
     assert_eq!(sent[0].recipient_id, "14502244753");
+}
+
+/// Provider-reauth nudge: a chat-triggered backfill that hits a lapsed provider
+/// session pushes a localized reconnect message (with a one-time hosted-login
+/// link) to the originating DM channel — and dedups, so a flapping connection
+/// nudges exactly once per expiry window, not per failed turn.
+#[tokio::test]
+async fn push_provider_reauth_nudges_dm_then_dedups() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    // DM session — NULL channel_conversation_id → routes to channel_user_id.
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "whatsapp",
+        "14502244753",
+        None,
+        &conversation_id,
+    )
+    .await;
+    // A connected Garmin (sciotte mirror): mark_needs_reauth UPDATEs an existing
+    // row, so the connection must exist for the claim/nudge to fire.
+    repos
+        .provider_connections
+        .register_connection(
+            user_uuid,
+            tenant_id,
+            "sciotte_garmin",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier =
+        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+
+    notifier
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
+        .await;
+
+    {
+        let sent = channel.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1, "a reauth nudge must send once");
+        assert_eq!(
+            sent[0].recipient_id, "14502244753",
+            "DM nudge routes to the channel-native user id"
+        );
+        let MessageContent::Text { body } = &sent[0].content else {
+            panic!("expected a text nudge");
+        };
+        assert!(body.contains("Garmin"), "names the provider: {body}");
+        assert!(
+            body.contains("/providers/sciotte/login?token="),
+            "carries the one-time reconnect link: {body}"
+        );
+    }
+
+    // Second call within the same expiry window → deduped (notified_at set), no
+    // second send.
+    notifier
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
+        .await;
+    assert_eq!(
+        channel.sent.lock().unwrap().len(),
+        1,
+        "reauth nudge dedups — exactly one send per expiry window"
+    );
 }
 
 /// Cross-tenant bot regression: the DM session lives under the USER's own tenant

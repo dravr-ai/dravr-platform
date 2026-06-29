@@ -43,7 +43,7 @@ use chrono::{Duration, TimeZone, Utc};
 use pierre_chat_pipeline::{PipelineHooks, TurnInput};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
-    KEY_BACKFILL_READY,
+    KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::{Activity, ConversationTurnId as CoreTurnId, TenantId};
@@ -52,6 +52,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use pierre_messaging::turn::ConversationTurnId;
+use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -311,6 +312,11 @@ pub struct ServerBackfillNotifier {
     /// [`install_backfill_reentry`]. Empty until then (and in tests that don't
     /// inject one) — the push then falls back to the templated activity list.
     reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
+    /// Admin JWT secret for signing the one-time hosted-login link in the
+    /// provider-reauth nudge. Supplied from the server config via `from_handles`.
+    admin_jwt_secret: Arc<str>,
+    /// Server root URL for building the hosted-login link in the reauth nudge.
+    base_url: String,
 }
 
 impl ServerBackfillNotifier {
@@ -326,6 +332,8 @@ impl ServerBackfillNotifier {
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
         reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
+        admin_jwt_secret: Arc<str>,
+        base_url: String,
     ) -> Arc<dyn BackfillNotifier> {
         let resolver: Arc<dyn AdapterResolver> = Arc::new(ConfigAdapterResolver {
             repos: repos.clone(),
@@ -335,6 +343,8 @@ impl ServerBackfillNotifier {
             strings,
             resolver,
             reentry,
+            admin_jwt_secret,
+            base_url,
         })
     }
 
@@ -353,6 +363,8 @@ impl ServerBackfillNotifier {
             strings,
             resolver,
             reentry: Arc::new(OnceLock::new()),
+            admin_jwt_secret: Arc::from("test-jwt-secret"),
+            base_url: "https://app.test".to_owned(),
         }
     }
 
@@ -375,6 +387,8 @@ impl ServerBackfillNotifier {
             strings,
             resolver,
             reentry: slot,
+            admin_jwt_secret: Arc::from("test-jwt-secret"),
+            base_url: "https://app.test".to_owned(),
         }
     }
 
@@ -764,5 +778,126 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 "Sent backfill-ready notice on channel"
             );
         }
+    }
+
+    async fn push_provider_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+        provider: &str,
+    ) {
+        // Light the needs_reauth flag (web/mobile badge) and claim the dedup
+        // window — one nudge per active→needs_reauth transition, re-armed on
+        // reconnect. A lost claim means another path already nudged: skip.
+        if let Err(e) = self
+            .repos
+            .provider_connections
+            .mark_needs_reauth(user_id, tenant_id, provider, Some("session_expired"))
+            .await
+        {
+            warn!(error = %e, provider = %provider, "Reauth nudge: mark_needs_reauth failed");
+        }
+        match self
+            .repos
+            .provider_connections
+            .claim_reauth_notification(user_id, tenant_id, provider)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                warn!(error = %e, provider = %provider, "Reauth nudge: dedup claim failed");
+                return;
+            }
+        }
+
+        // Resolve the originating channel — cross-channel, DM-correct (the same
+        // routing the backfill-ready notice uses).
+        let Some(ResolvedRoute {
+            channel_str,
+            channel_type,
+            recipient,
+            locale,
+            channel_tenant_id,
+        }) = self.resolve_route(tenant_id, pierre_conversation_id).await
+        else {
+            return;
+        };
+
+        // Mint the one-time hosted-login link. The historical backfill only ever
+        // runs on the scrape-backed mirror (sciotte / sciotte_garmin), so this is
+        // always the sciotte hosted-login path — mirrors
+        // `auth_recovery::mint_reconnect_url`.
+        let target = if provider == "sciotte_garmin" {
+            "garmin"
+        } else {
+            "strava"
+        };
+        let token = match mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id,
+                tenant_id: tenant_id.0,
+                provider: "sciotte",
+                target,
+                channel: &channel_str,
+                channel_thread: None,
+            },
+            &self.admin_jwt_secret,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(error = %e, provider = %provider, "Reauth nudge: link-token mint failed");
+                return;
+            }
+        };
+        let url = format!(
+            "{}/providers/sciotte/login?token={}",
+            self.base_url,
+            urlencoding::encode(&token)
+        );
+
+        // Render the localized reconnect message ({0}=provider brand, {1}=link)
+        // and send via the shared adapter rail.
+        let display = reauth_provider_display_name(provider);
+        let body = self
+            .strings
+            .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &url]);
+
+        let outgoing = OutgoingMessage {
+            channel_type,
+            recipient_id: recipient,
+            content: MessageContent::Text { body },
+            turn_id: ConversationTurnId::new(),
+            reply_to: None,
+            thread_id: None,
+        };
+        let Some((adapter, channel_config)) = self
+            .resolver
+            .resolve(channel_tenant_id, &channel_str, channel_type)
+            .await
+        else {
+            return;
+        };
+        if let Err(e) = adapter.send(&outgoing, &channel_config).await {
+            warn!(error = %e, channel = %channel_str, "Reauth nudge: send failed");
+        } else {
+            info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
+        }
+    }
+}
+
+/// Human-readable brand name for the reconnect message's `{0}` slot. Mirrors
+/// `auth_recovery::provider_display_name` (the chat-pipeline equivalent for the
+/// inline reauth path); kept in sync so chat and backfill nudges read alike.
+fn reauth_provider_display_name(provider_slug: &str) -> &'static str {
+    match provider_slug {
+        "sciotte_garmin" | "garmin" => "Garmin",
+        "sciotte" | "strava" => "Strava",
+        "whoop" => "WHOOP",
+        "fitbit" => "Fitbit",
+        "coros" => "COROS",
+        "terra" => "Terra",
+        _ => "ton fournisseur",
     }
 }
