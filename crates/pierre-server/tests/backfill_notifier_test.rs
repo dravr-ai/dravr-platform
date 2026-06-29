@@ -364,11 +364,11 @@ async fn push_routes_to_originating_chat() {
 
 /// DM regression: a direct-message session has a NULL `channel_conversation_id`
 /// (the group/DM split keys it — one DM per user). The completion push must then
-/// route to the channel-native `channel_user_id` (e.g. the WhatsApp phone),
+/// route to the channel-native `channel_user_id` (e.g. the `WhatsApp` phone),
 /// exactly as the synchronous reply addresses a private reply. Before the
 /// fallback, requiring the conversation id dropped EVERY DM notice SILENTLY in
 /// `resolve_route` (a `?` on the NULL value) — the backfill completed and the
-/// direct-message user got nothing (the exact dev outage on jf's WhatsApp).
+/// direct-message user got nothing (the exact dev outage on jf's `WhatsApp`).
 #[tokio::test]
 async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     let db = create_test_db().await;
