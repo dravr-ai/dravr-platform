@@ -45,21 +45,23 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
     KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
 };
-use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
+use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{Activity, ConversationTurnId as CoreTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
-use pierre_messaging::turn::ConversationTurnId;
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::messaging_ingress::addressing::reply_recipient;
+use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
 use crate::services::messaging_ingress::{build_messaging_profile, compose_messaging_reply};
+use crate::services::outgoing::proactive_text;
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -85,7 +87,7 @@ const REENTRY_HISTORY_LOOKBACK: i64 = 10;
 ///
 /// Extracted as a seam so the routing logic in
 /// [`ServerBackfillNotifier::push_backfill_complete`] can be exercised against a
-/// fake adapter that captures the [`OutgoingMessage`] without touching a channel
+/// fake adapter that captures the [`OutgoingMessage`](pierre_core::models::messaging::OutgoingMessage) without touching a channel
 /// API. The production [`ConfigAdapterResolver`] loads the tenant's stored
 /// channel config and builds the real adapter exactly like the approval
 /// notifier does.
@@ -279,6 +281,11 @@ pub fn install_backfill_reentry(resources: &Arc<ServerContext>) {
 /// Routing pieces resolved for a completed backfill: where to deliver the
 /// notice plus which tenant owns the channel config/adapter.
 struct ResolvedRoute {
+    /// Messaging-session id (the `id` column of `messaging_sessions`). Carried so
+    /// a send failure can persist the dropped notice as an outbound message row
+    /// under this session before queuing it for retry — exactly as the
+    /// synchronous reply path does.
+    session_id: String,
     /// Channel slug (e.g. `"telegram"`) for config load + logging.
     channel_str: String,
     /// Parsed channel type for adapter selection + the outgoing message.
@@ -408,6 +415,10 @@ impl ServerBackfillNotifier {
             .lookup_session(tenant_id, pierre_conversation_id)
             .await?;
 
+        // `id` is the `messaging_sessions.id` column (see
+        // `get_session_by_pierre_conversation_id_impl`'s JSON projection) — the
+        // session a retry-queued notice must be persisted under on a send failure.
+        let session_id = session.get("id").and_then(Value::as_str)?;
         let channel_str = session.get("channel_type").and_then(Value::as_str)?;
         let channel_user_id = session.get("channel_user_id").and_then(Value::as_str)?;
         // Route to the EXACT originating chat. `channel_conversation_id` keys the
@@ -418,11 +429,12 @@ impl ServerBackfillNotifier {
         // (messaging_ingress send_private_reply). Requiring the conversation id
         // dropped EVERY DM notice silently — the backfill push never reached a
         // single direct-message user.
-        let recipient = session
-            .get("channel_conversation_id")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(channel_user_id);
+        let recipient = reply_recipient(
+            session
+                .get("channel_conversation_id")
+                .and_then(Value::as_str),
+            channel_user_id,
+        );
         let locale = session
             .get("locale")
             .and_then(Value::as_str)
@@ -447,6 +459,7 @@ impl ServerBackfillNotifier {
             "Backfill push: routing completion notice to originating chat"
         );
         Some(ResolvedRoute {
+            session_id: session_id.to_owned(),
             channel_str: channel_str.to_owned(),
             channel_type,
             recipient: recipient.to_owned(),
@@ -674,6 +687,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         activity_count: usize,
     ) {
         let Some(ResolvedRoute {
+            session_id,
             channel_str,
             channel_type,
             recipient,
@@ -747,16 +761,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
             self.render_list_body(&locale, &warmed)
         };
 
-        let outgoing = OutgoingMessage {
-            channel_type,
-            recipient_id: recipient,
-            content: MessageContent::Text { body },
-            // Fresh turn — this is a proactive push, not a reply to the
-            // originating turn.
-            turn_id: ConversationTurnId::new(),
-            reply_to: None,
-            thread_id: None,
-        };
+        // Fresh turn — this is a proactive push, not a reply to the
+        // originating turn.
+        let outgoing = proactive_text(channel_type, recipient, body);
 
         // Load the channel config + adapter from the BOT/channel-owner tenant
         // (resolved via the channel link), NOT the user's own tenant — the
@@ -771,6 +778,29 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         if let Err(e) = adapter.send(&outgoing, &channel_config).await {
             warn!(error = %e, channel = %channel_str, "Failed to send backfill-ready notice on channel");
+            // Path parity with the synchronous reply: a failed channel send (e.g.
+            // Meta WhatsApp error 131047, out-of-24h-window/template-required) must
+            // be persisted + queued for the background retry worker, not silently
+            // dropped. The message row lands on the user/session tenant; the queue
+            // row lands on the bot/channel-owner tenant so the worker resolves the
+            // right channel config on re-send.
+            let push_user_id = user_id.to_string();
+            if let Err(enqueue_err) = enqueue_failed_outbound(
+                self.repos.messaging.as_ref(),
+                adapter.as_ref(),
+                &outgoing,
+                &FailedOutbound {
+                    message_tenant_id: tenant_id,
+                    queue_tenant_id: channel_tenant_id,
+                    session_id: &session_id,
+                    user_id: Some(&push_user_id),
+                    channel: &channel_str,
+                },
+            )
+            .await
+            {
+                error!(error = %enqueue_err, "Backfill push: failed to enqueue dropped notice for retry");
+            }
         } else {
             info!(
                 channel = %channel_str,
@@ -820,6 +850,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
             recipient,
             locale,
             channel_tenant_id,
+            // The reauth nudge warn-drops on send failure (no retry-queue
+            // parity yet); session_id is only needed for the FK'd queue row.
+            session_id: _,
         }) = self.resolve_route(tenant_id, pierre_conversation_id).await
         else {
             return;
@@ -864,14 +897,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             .strings
             .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &url]);
 
-        let outgoing = OutgoingMessage {
-            channel_type,
-            recipient_id: recipient,
-            content: MessageContent::Text { body },
-            turn_id: ConversationTurnId::new(),
-            reply_to: None,
-            thread_id: None,
-        };
+        let outgoing = proactive_text(channel_type, recipient, body);
         let Some((adapter, channel_config)) = self
             .resolver
             .resolve(channel_tenant_id, &channel_str, channel_type)

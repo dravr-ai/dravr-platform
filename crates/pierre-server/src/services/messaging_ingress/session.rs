@@ -7,19 +7,17 @@
 use std::env;
 
 use chrono::{Duration, Utc};
-use pierre_core::models::messaging::{
-    ChannelType, MessageContent, OutgoingMessage, LINK_CODE_TTL_MINUTES,
-};
+use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{CreateLinkStateParams, CreateSessionParams, MessagingRepository};
 use pierre_database::repositories::ChatRepository;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
+use crate::services::outgoing::proactive_text;
 use pierre_chat_pipeline::stages::persistence::create_conversation;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_LINK_FALLBACK_PROMPT,
@@ -178,14 +176,7 @@ pub(super) async fn handle_reset(
             format_template(&registry.get(KEY_ERROR_GENERIC, DEFAULT_LOCALE), &["reset"])
         }
     };
-    OutgoingMessage {
-        channel_type,
-        recipient_id: sender_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: None,
-    }
+    proactive_text(channel_type, sender_id.to_owned(), body)
 }
 
 /// Best-effort `coach_assignments.use_count++` for messaging-channel
@@ -737,14 +728,7 @@ pub(super) async fn create_link_and_prompt(
             .mcp
             .messaging_strings_registry
             .get(KEY_LINK_FALLBACK_PROMPT, DEFAULT_LOCALE);
-        return OutgoingMessage {
-            channel_type,
-            recipient_id: sender_id.to_owned(),
-            content: MessageContent::Text { body },
-            turn_id: CanotTurnId::new(),
-            reply_to: None,
-            thread_id: None,
-        };
+        return proactive_text(channel_type, sender_id.to_owned(), body);
     }
 
     let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned());
@@ -756,12 +740,5 @@ pub(super) async fn create_link_and_prompt(
         .get(KEY_LINK_INITIAL_PROMPT, DEFAULT_LOCALE);
     let body = format_template(&template, &[&link_url]);
 
-    OutgoingMessage {
-        channel_type,
-        recipient_id: sender_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: None,
-    }
+    proactive_text(channel_type, sender_id.to_owned(), body)
 }

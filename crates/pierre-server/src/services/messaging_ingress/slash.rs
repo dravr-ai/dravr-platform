@@ -19,6 +19,7 @@ use crate::mcp::resources::ServerContext;
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_services::channel_error_reply::ChannelErrorReply;
 
+use super::addressing::reply_recipient;
 use super::connect::build_connect_card_direct;
 use super::locale::resolve_messaging_locale;
 use super::ResolvedSession;
@@ -117,7 +118,7 @@ pub(super) async fn try_handle_slash_command(
     // shared room, `persist_single_message` redelivers it privately to the
     // caller via `send_private_reply` (and deletes the echo); for a 1:1 DM the
     // conversation is already the private chat.
-    let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
+    let reply_target = reply_recipient(conversation_id, sender_id).to_owned();
 
     // `/connect` is handled here (not in the transport-agnostic command crate)
     // because building the connect link needs in-process token minting
