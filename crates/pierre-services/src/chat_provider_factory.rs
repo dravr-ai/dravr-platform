@@ -238,12 +238,17 @@ pub fn should_skip_probe(since_last_success: Option<Duration>, interval: Duratio
 /// for a synthetic probe.
 ///
 /// A real served turn is proof of life, so we mark the state `Healthy` —
-/// this also clears any stale `Unhealthy` left by an earlier transient probe
-/// and emits an `info!` recovery line when it actually flips status.
+/// this also clears any stale `Unhealthy` left by an earlier transient probe.
+///
+/// Both branches log at `info!`: skipping the synthetic round-trip is the
+/// whole point of the cost fix, so it must be observable at the prod INFO
+/// level (a `debug!` here made the piggyback invisible in Cloud Run, where
+/// only startup probes showed up). Volume is bounded by the probe interval
+/// (≤48 lines/day/instance), so the steady-state skip is cheap to surface.
 async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &LlmHealthState) {
     let previous = health_state.record_healthy(provider_name.to_owned()).await;
     if previous == LlmHealthStatus::Healthy {
-        debug!(
+        info!(
             provider = provider_name,
             "LLM probe skipped; real chat traffic proved liveness within interval"
         );
