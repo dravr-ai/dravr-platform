@@ -351,12 +351,13 @@ impl ChatReentry for FakeReentry {
     }
 }
 
-/// With a re-entry handle installed and a re-askable user question in the
-/// conversation, the completion push delivers the synthesized in-persona coach
-/// answer — re-asking the user's own question (so the same window is queried) —
-/// instead of the templated activity list.
+/// Decoupling guarantee: when the re-entry's reply does NOT carry an activity
+/// list — the model refused ("Ça sort de ce que je peux t'aider…") or otherwise
+/// skipped `get_activities` — the completion push DROPS that reply and renders
+/// the deterministic list from the warmed cache. The user always gets the data
+/// they asked for; a refusal never lands in place of their own activities.
 #[tokio::test]
-async fn push_synthesizes_coach_reply_when_reentry_installed() {
+async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
@@ -406,8 +407,10 @@ async fn push_synthesizes_coach_reply_when_reentry_installed() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
+    // The model refused without listing anything (no activity_list).
     let reentry = Arc::new(FakeReentry {
-        reply: "Voici un résumé coaché de ta saison 2022 …".to_owned(),
+        reply: "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness."
+            .to_owned(),
         activity_list: None,
         seen_prompt: Mutex::new(None),
     });
@@ -434,11 +437,17 @@ async fn push_synthesizes_coach_reply_when_reentry_installed() {
     let MessageContent::Text { body } = &sent[0].content else {
         panic!("expected a text notice");
     };
-    assert_eq!(
-        body, "Voici un résumé coaché de ta saison 2022 …",
-        "should send the synthesized coach reply, not the templated list"
+    // The deterministic list (rendered from the warmed cache) is delivered…
+    assert!(
+        body.contains("Trail run"),
+        "renders the deterministic list from the warmed cache: {body}"
     );
-    // It re-asked the user's own question (carrying the 2022 window).
+    // …and the list-free refusal is dropped, never shown to the user.
+    assert!(
+        !body.contains("Ça sort de ce que je peux"),
+        "the list-free refusal must NOT be sent in place of the data: {body}"
+    );
+    // The re-entry was still attempted with the user's own question.
     assert_eq!(
         reentry.seen_prompt.lock().unwrap().as_deref(),
         Some(question)

@@ -736,30 +736,38 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // user still hears that their history loaded.
             let count = activity_count.to_string();
             self.strings.render(KEY_BACKFILL_READY, &locale, &[&count])
-        } else if let Some(coach_reply) = self
-            .try_synthesize_coach_reply(
-                user_id,
-                tenant_id,
-                pierre_conversation_id,
-                channel_type,
-                &locale,
-            )
-            .await
-        {
-            // Best path: re-enter the chat pipeline with the user's own question
-            // (the cache is now warm) so they get a real in-persona coach answer,
-            // with the activity list (sorted per their wording) prepended exactly
-            // as the live messaging path does.
-            compose_messaging_reply(
-                coach_reply.activity_list.as_deref(),
-                coach_reply.content,
-                &self.strings,
-                &locale,
-            )
         } else {
-            // No re-entry handle, no re-askable question, or the pipeline run
-            // produced nothing — degrade gracefully to the Rust-rendered list.
-            self.render_list_body(&locale, &warmed)
+            // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,
+            // rendered from the warmed cache the backfill just wrote, is the SPINE
+            // — the user ALWAYS receives the data they asked for, regardless of the
+            // model. We still attempt an in-persona coach answer via chat re-entry,
+            // but only TRUST it when the model actually engaged with the data: a
+            // re-entry that called `get_activities` carries an `activity_list`. A
+            // re-entry that refused ("Ça sort de ce que je peux t'aider…"), offered
+            // to show instead of showing, or otherwise skipped the tool produced no
+            // list — so we drop its text and render the list ourselves, never
+            // surfacing a refusal on top of (or instead of) the user's own
+            // activities. This makes the LLM a best-effort enhancement, not a gate
+            // on delivery.
+            match self
+                .try_synthesize_coach_reply(
+                    user_id,
+                    tenant_id,
+                    pierre_conversation_id,
+                    channel_type,
+                    &locale,
+                )
+                .await
+                .filter(|r| r.activity_list.is_some())
+            {
+                Some(coach_reply) => compose_messaging_reply(
+                    coach_reply.activity_list.as_deref(),
+                    coach_reply.content,
+                    &self.strings,
+                    &locale,
+                ),
+                None => self.render_list_body(&locale, &warmed),
+            }
         };
 
         // Fresh turn — this is a proactive push, not a reply to the
