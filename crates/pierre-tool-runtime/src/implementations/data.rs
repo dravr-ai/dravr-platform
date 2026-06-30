@@ -137,7 +137,7 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
 pub fn connection_needs_reauth(connections: &[ProviderConnection], provider: &str) -> bool {
     connections
         .iter()
-        .any(|c| c.provider == provider && c.status.is_unusable())
+        .any(|c| c.provider == provider && c.status.requires_reauth())
 }
 
 /// Whether a `get_activities` query may use the `CacheKey` response cache.
