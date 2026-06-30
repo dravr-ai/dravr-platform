@@ -818,9 +818,13 @@ impl BackfillNotifier for ServerBackfillNotifier {
         pierre_conversation_id: &str,
         provider: &str,
     ) {
-        // Light the needs_reauth flag (web/mobile badge) and claim the dedup
-        // window — one nudge per active→needs_reauth transition, re-armed on
-        // reconnect. A lost claim means another path already nudged: skip.
+        // Light the needs_reauth flag (web/mobile badge + the synchronous
+        // get_activities reconnect gate). Deliberately NO dedup claim: the
+        // reconnect link is re-sent on every expired-session backfill until the
+        // user actually reconnects (which clears the flag via `mark_active`).
+        // A user whose first nudge carried a broken/never-clicked link must not
+        // be permanently silenced — so this nudge fires each time, matching the
+        // synchronous in-chat reconnect path (which also re-injects every turn).
         if let Err(e) = self
             .repos
             .provider_connections
@@ -828,19 +832,6 @@ impl BackfillNotifier for ServerBackfillNotifier {
             .await
         {
             warn!(error = %e, provider = %provider, "Reauth nudge: mark_needs_reauth failed");
-        }
-        match self
-            .repos
-            .provider_connections
-            .claim_reauth_notification(user_id, tenant_id, provider)
-            .await
-        {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(e) => {
-                warn!(error = %e, provider = %provider, "Reauth nudge: dedup claim failed");
-                return;
-            }
         }
 
         // Resolve the originating channel — cross-channel, DM-correct (the same

@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
 
@@ -54,7 +54,7 @@ use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::activity_detail_threshold;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_fitness_compute::weather::build_provider as build_weather_provider;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
@@ -122,6 +122,22 @@ fn historical_backfill_fetch_limit() -> usize {
 #[must_use]
 pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
     coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
+}
+
+/// Whether `provider`'s connection is in an unusable state (`NeedsReauth` /
+/// `Revoked`) and so needs an interactive reconnect.
+///
+/// The historical gate consults this BEFORE spawning a background backfill: a
+/// dead session would just fail the scrape and leave the user looping on
+/// "fetching, ask again shortly". When true, `get_activities` returns
+/// `provider_auth_required` instead, so the chat pipeline hands back the
+/// reconnect link this turn. `pub` so the decision is exercisable by the
+/// integration test suite.
+#[must_use]
+pub fn connection_needs_reauth(connections: &[ProviderConnection], provider: &str) -> bool {
+    connections
+        .iter()
+        .any(|c| c.provider == provider && c.status.is_unusable())
 }
 
 /// Whether a `get_activities` query may use the `CacheKey` response cache.
@@ -799,6 +815,27 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     // returned (the "2022 runs stuck at 46" bug).
                     (served, None)
                 } else {
+                    // Synchronous reconnect (priority): if this provider's
+                    // connection is flagged needs_reauth/revoked, a background
+                    // backfill would just fail on the dead session and the user
+                    // would loop forever on "fetching, ask again shortly". Surface
+                    // the reconnect signal NOW — `tool_result_to_response` turns
+                    // this `Err` into the `auth_required_provider` metadata the tool
+                    // loop scans for, and `auth_recovery` hands back the short
+                    // reconnect link this turn. The link is re-sent on EVERY ask
+                    // until a real reconnect clears the flag via `mark_active`; a
+                    // DB read error here falls through to the normal backfill path.
+                    let connections = context
+                        .resources
+                        .repos()
+                        .provider_connections
+                        .get_for_user(context.user_id, Some(tenant_id))
+                        .await
+                        .unwrap_or_default();
+                    if connection_needs_reauth(&connections, &provider_name) {
+                        return Err(AppError::provider_auth_required(provider_name.clone()));
+                    }
+
                     // Cold cache OR a shallow (limit-capped / never-backfilled)
                     // window: page the WHOLE window in the background. The fetch
                     // limit is decoupled from the user's display limit so the
