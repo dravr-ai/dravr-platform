@@ -18,11 +18,11 @@ use crate::repositories::{
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
+    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -74,6 +74,8 @@ pub struct RepositoryRegistry {
     pub security: Arc<dyn SecurityRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
+    /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
+    pub short_links: Arc<dyn ShortLinkRepository>,
     /// Social features (friend connections, shared insights, reactions)
     pub social: Option<Arc<dyn SocialRepository>>,
     /// Store listings for coach marketplace
@@ -176,6 +178,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             seeder: db.clone(),
+            short_links: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -235,6 +238,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             seeder: db.clone(),
+            short_links: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),

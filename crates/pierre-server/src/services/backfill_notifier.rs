@@ -48,6 +48,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{Activity, ConversationTurnId as CoreTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
+use pierre_database::repositories::shorten_url;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
@@ -882,11 +883,22 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 return;
             }
         };
-        let url = format!(
+        let full_url = format!(
             "{}/providers/sciotte/login?token={}",
             self.base_url,
             urlencoding::encode(&token)
         );
+        // Hand the user a short, dot-free `<base>/r/<code>` link — the raw JWT's
+        // dots make WhatsApp truncate linkification mid-token. Degrades to the
+        // full URL if the shortener store write fails.
+        let url = shorten_url(
+            self.repos.short_links.as_ref(),
+            &self.base_url,
+            &full_url,
+            &tenant_id.0.to_string(),
+            &user_id.to_string(),
+        )
+        .await;
 
         // Render the localized reconnect message ({0}=provider brand, {1}=link)
         // and send via the shared adapter rail.

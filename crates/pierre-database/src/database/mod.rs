@@ -64,6 +64,8 @@ pub mod route_summaries;
 pub mod security_repository;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
+/// URL shortener: `code` → `target_url` with an integer-epoch TTL (`SQLite`)
+pub mod short_links;
 /// Store listings for coach publishing workflow
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)

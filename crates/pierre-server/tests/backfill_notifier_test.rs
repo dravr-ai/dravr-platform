@@ -194,7 +194,10 @@ async fn push_provider_reauth_nudges_dm_then_dedups() {
         .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
 
-    {
+    // Extract the short code inside the lock scope, then drop the guard before
+    // the async resolve below — holding a std `MutexGuard` across an `await` trips
+    // clippy::await_holding_lock.
+    let code: String = {
         let sent = channel.sent.lock().unwrap();
         assert_eq!(sent.len(), 1, "a reauth nudge must send once");
         assert_eq!(
@@ -205,11 +208,35 @@ async fn push_provider_reauth_nudges_dm_then_dedups() {
             panic!("expected a text nudge");
         };
         assert!(body.contains("Garmin"), "names the provider: {body}");
+        // The nudge now carries a short, dot-free `<base>/r/<code>` link (the raw
+        // JWT's dots break WhatsApp linkification) — not the full hosted-login URL.
         assert!(
-            body.contains("/providers/sciotte/login?token="),
-            "carries the one-time reconnect link: {body}"
+            body.contains("https://app.test/r/"),
+            "carries the short reconnect link: {body}"
         );
-    }
+        assert!(
+            !body.contains("/providers/sciotte/login?token="),
+            "the dotty hosted-login URL must be hidden behind the short link: {body}"
+        );
+        body.split_whitespace()
+            .find(|t| t.contains("/r/"))
+            .and_then(|t| t.rsplit("/r/").next())
+            .expect("nudge body carries a /r/ short link")
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect()
+    };
+    // …and that short code resolves back to the hosted reconnect URL.
+    let target = repos
+        .short_links
+        .resolve_short_link(&code)
+        .await
+        .expect("resolve query succeeds")
+        .expect("short code resolves to a stored target");
+    assert!(
+        target.contains("/providers/sciotte/login?token="),
+        "short link resolves to the hosted reconnect URL: {target}"
+    );
 
     // Second call within the same expiry window → deduped (notified_at set), no
     // second send.

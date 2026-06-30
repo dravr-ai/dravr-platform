@@ -22,6 +22,7 @@
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::TenantRepository;
+use pierre_database::repositories::shorten_url;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use pierre_middleware::provider_link_token::mint_connect_link_token;
 use tracing::warn;
@@ -64,7 +65,12 @@ async fn resolve_user_and_tenant(
 
 /// Mint a connect link-token (for an already-resolved identity) and build the
 /// hosted connect URL, or `None` if signing fails.
-fn mint_connect_url(
+///
+/// The URL is shortened to a dot-free `<base>/r/<code>` so it stays fully
+/// tappable on `WhatsApp` (where the Card degrades to a raw link and the
+/// link-token's dots would otherwise truncate linkification mid-token). Degrades
+/// to the full URL if the shortener store write fails.
+async fn mint_connect_url(
     resources: &ServerContext,
     user_id: Uuid,
     active_tenant: Uuid,
@@ -82,10 +88,20 @@ fn mint_connect_url(
     .ok()?;
 
     let base_url = &resources.common.config.base_url;
-    Some(format!(
+    let full_url = format!(
         "{base_url}/providers/connect?token={}",
         urlencoding::encode(&token)
-    ))
+    );
+    Some(
+        shorten_url(
+            resources.common.repos.short_links.as_ref(),
+            base_url,
+            &full_url,
+            &active_tenant.to_string(),
+            &user_id.to_string(),
+        )
+        .await,
+    )
 }
 
 /// Build a tappable "Connect your account" Card for a **known** identity (the
@@ -98,7 +114,7 @@ fn mint_connect_url(
 /// renders as a native button on Telegram/Slack/Discord/Messenger and degrades
 /// to a tappable link on `WhatsApp`.
 #[allow(clippy::too_many_arguments)]
-pub fn build_connect_card_direct(
+pub async fn build_connect_card_direct(
     resources: &ServerContext,
     user_id: Uuid,
     active_tenant: Uuid,
@@ -118,7 +134,8 @@ pub fn build_connect_card_direct(
         active_tenant,
         channel,
         thread_id.as_deref(),
-    )?;
+    )
+    .await?;
 
     let registry = &resources.mcp.messaging_strings_registry;
     let body = registry.get(KEY_CONNECT_PROMPT, locale);
@@ -173,4 +190,5 @@ pub async fn try_build_connect_card(
         is_direct_message,
         locale,
     )
+    .await
 }

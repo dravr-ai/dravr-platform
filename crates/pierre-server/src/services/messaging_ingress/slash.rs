@@ -136,7 +136,9 @@ pub(super) async fn try_handle_slash_command(
             thread_id.clone(),
             is_direct_message,
             &locale,
-        ) {
+        )
+        .await
+        {
             return Some(card);
         }
         let web_url = format!(

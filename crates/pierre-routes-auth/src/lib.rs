@@ -81,6 +81,7 @@ mod sciotte;
 mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted_templates;
+mod short_link;
 
 #[cfg(feature = "provider-sciotte")]
 pub use sciotte::init_sciotte_limiter;
@@ -245,7 +246,11 @@ impl AuthRoutes {
             .route(
                 "/api/providers/intervals_icu/disconnect",
                 delete(intervals_icu::handle_intervals_icu_disconnect),
-            );
+            )
+            // Short-link redirect: `<base>/r/{code}` → 303 to the stored target
+            // URL. Public (the JWT inside the target is the gate) and ungated so
+            // every channel surface can hand out dot-free, WhatsApp-clickable links.
+            .route("/r/{code}", get(short_link::handle_short_link_redirect));
 
         // Sciotte provider routes (credential login + session management)
         #[cfg(feature = "provider-sciotte")]

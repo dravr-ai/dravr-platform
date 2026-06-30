@@ -37,6 +37,7 @@ use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED,
 };
+use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -59,6 +60,9 @@ pub struct AuthRecoveryDeps<'a> {
     /// Tool runtime used to mint a real OAuth authorization URL (WHOOP/Fitbit/…) for
     /// non-sciotte providers — the sciotte mirror keeps its hosted-login mint above.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,
+    /// URL shortener store — wraps the dotty hosted-login link in a dot-free
+    /// `<base>/r/<code>` so `WhatsApp` linkifies the whole reconnect link.
+    pub short_links: &'a Arc<dyn ShortLinkRepository>,
 }
 
 /// Apply provider re-auth recovery in place.
@@ -165,11 +169,23 @@ async fn mint_reconnect_url(
                 return None;
             }
         };
-        return Some(format!(
+        let full_url = format!(
             "{}/providers/sciotte/login?token={}",
             deps.base_url,
             urlencoding::encode(&token)
-        ));
+        );
+        // Shorten to a dot-free `<base>/r/<code>` so WhatsApp keeps the whole
+        // link tappable; degrades to the full URL if the store write fails.
+        return Some(
+            shorten_url(
+                deps.short_links.as_ref(),
+                deps.base_url,
+                &full_url,
+                &input.tool_tenant_id.0.to_string(),
+                &user_id.to_string(),
+            )
+            .await,
+        );
     }
 
     match mint_oauth_authorize_url(
