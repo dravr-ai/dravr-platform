@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
@@ -665,11 +666,11 @@ pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
 
 /// Log + alert a sciotte credential-login failure (hard error or timeout), then
 /// build the user-facing error. Emits the catalogued `sync.failed` notify event
-/// so a blocked/slow login reaches Slack + PostHog — the error reason carries
+/// so a blocked/slow login reaches Slack + `PostHog` — the error reason carries
 /// the last page reached (sciotte v0.7.12), so the alert is actionable instead
 /// of a silent multi-minute spin. Extracted from `handle_sciotte_login` to keep
 /// that handler under the cognitive-complexity budget.
-fn report_credential_login_failure<E: std::fmt::Display>(
+fn report_credential_login_failure<E: Display>(
     user_id: Uuid,
     tenant_id: Uuid,
     provider: &str,
