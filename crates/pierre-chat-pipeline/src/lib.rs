@@ -694,6 +694,13 @@ pub async fn run(
 
     let outcome = run_turn(ctx, input, profile, hooks).await;
 
+    if outcome.is_ok() {
+        // A real served turn is the strongest proof the LLM provider is
+        // live — stamp it so the periodic health probe can skip its billed
+        // synthetic `copilot --acp` round-trip while real traffic flows.
+        ctx.llm_health.note_success();
+    }
+
     if let Some(agui) = &hooks.agui {
         match &outcome {
             Ok(_) => {
