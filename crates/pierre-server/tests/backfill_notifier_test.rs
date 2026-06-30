@@ -150,11 +150,12 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
 }
 
 /// Provider-reauth nudge: a chat-triggered backfill that hits a lapsed provider
-/// session pushes a localized reconnect message (with a one-time hosted-login
-/// link) to the originating DM channel — and dedups, so a flapping connection
-/// nudges exactly once per expiry window, not per failed turn.
+/// session pushes a localized reconnect message (with a hosted-login short link)
+/// to the originating DM channel — and RE-SENDS on every expired-session turn
+/// (no dedup), so a user whose first link was broken/never-clicked keeps getting
+/// it until they actually reconnect.
 #[tokio::test]
-async fn push_provider_reauth_nudges_dm_then_dedups() {
+async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
@@ -238,15 +239,16 @@ async fn push_provider_reauth_nudges_dm_then_dedups() {
         "short link resolves to the hosted reconnect URL: {target}"
     );
 
-    // Second call within the same expiry window → deduped (notified_at set), no
-    // second send.
+    // Second call while still expired → RESENDS (no dedup). A user whose first
+    // reconnect link was broken/never-clicked must keep getting the link on every
+    // failed turn until they actually reconnect (which clears needs_reauth).
     notifier
         .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
     assert_eq!(
         channel.sent.lock().unwrap().len(),
-        1,
-        "reauth nudge dedups — exactly one send per expiry window"
+        2,
+        "reauth nudge re-sends the reconnect link until the user reconnects"
     );
 }
 
