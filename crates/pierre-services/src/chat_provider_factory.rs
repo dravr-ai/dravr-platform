@@ -118,17 +118,33 @@ pub fn chat_provider_from_resources_arc(
 
 /// Environment variable controlling the periodic LLM probe interval.
 ///
-/// Defaults to 300s (5 minutes). Set to `0` to disable periodic probing
+/// Defaults to 1800s (30 minutes). Set to `0` to disable periodic probing
 /// (the startup probe still runs once). Reads at boot time only.
 pub const LLM_PROBE_INTERVAL_ENV_VAR: &str = "PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS";
 
 /// Default re-probe interval when [`LLM_PROBE_INTERVAL_ENV_VAR`] is unset.
-const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 300;
+///
+/// Raised from 5 to 30 minutes (2026-06-29) to cut the standing cost of the
+/// synthetic round-trip: each periodic probe is a billed `copilot --acp`
+/// premium request, so a 5-minute cadence cost ~288 requests/day even with
+/// zero user traffic. Combined with the real-traffic piggyback in
+/// [`spawn_llm_health_probe`], an idle service now probes 48×/day and a busy
+/// one effectively never probes synthetically.
+const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 
 /// Spawn the LLM probe task — runs once at startup, then re-probes on a
-/// configurable interval (default 5 minutes).
+/// configurable interval (default 30 minutes).
 ///
-/// On every probe:
+/// On every periodic tick, the task first checks whether a real chat turn
+/// already proved the provider live within the interval (via
+/// [`LlmHealthState::since_last_success`], stamped by the chat pipeline). If
+/// so it skips the synthetic round-trip — a real served turn is stronger
+/// proof of life than the one-token ping and, crucially, the ping is a
+/// *billed* `copilot --acp` request, so piggybacking on real traffic avoids
+/// paying for redundant probes on a busy service. The free GitHub
+/// rate-limit probe still runs every tick.
+///
+/// When the probe does run:
 ///
 /// * Records the outcome onto [`LlmHealthState`] so `/ready` and
 ///   `/health/llm` reflect the latest round-trip.
@@ -186,20 +202,58 @@ pub fn spawn_llm_health_probe(
         // exhausted.
         run_github_rate_limit_probe().await;
 
-        let mut ticker = interval(Duration::from_secs(interval_secs));
+        let probe_interval = Duration::from_secs(interval_secs);
+        let mut ticker = interval(probe_interval);
         ticker.tick().await; // consume the immediate first tick
         loop {
             ticker.tick().await;
-            run_one_probe(
-                &provider_name,
-                &health_state,
-                chat_provider.as_ref(),
-                ProbeKind::Periodic,
-            )
-            .await;
+            if should_skip_probe(health_state.since_last_success(), probe_interval) {
+                refresh_health_from_real_traffic(&provider_name, &health_state).await;
+            } else {
+                run_one_probe(
+                    &provider_name,
+                    &health_state,
+                    chat_provider.as_ref(),
+                    ProbeKind::Periodic,
+                )
+                .await;
+            }
             run_github_rate_limit_probe().await;
         }
     });
+}
+
+/// Decide whether the periodic probe can skip its billed round-trip because
+/// a real chat turn already proved the provider live within the interval.
+///
+/// Returns `true` only when a real success has been recorded AND it landed
+/// less than `interval` ago. No real traffic yet (`None`) always probes, so
+/// an idle service keeps its synthetic liveness signal.
+#[must_use]
+pub fn should_skip_probe(since_last_success: Option<Duration>, interval: Duration) -> bool {
+    matches!(since_last_success, Some(elapsed) if elapsed < interval)
+}
+
+/// Refresh the readiness snapshot from real chat traffic instead of paying
+/// for a synthetic probe.
+///
+/// A real served turn is proof of life, so we mark the state `Healthy` —
+/// this also clears any stale `Unhealthy` left by an earlier transient probe
+/// and emits an `info!` recovery line when it actually flips status.
+async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &LlmHealthState) {
+    let previous = health_state.record_healthy(provider_name.to_owned()).await;
+    if previous == LlmHealthStatus::Healthy {
+        debug!(
+            provider = provider_name,
+            "LLM probe skipped; real chat traffic proved liveness within interval"
+        );
+    } else {
+        info!(
+            provider = provider_name,
+            ?previous,
+            "LLM probe skipped; real chat traffic proved liveness (snapshot -> healthy)"
+        );
+    }
 }
 
 /// Probe GitHub's `/rate_limit` endpoint with the PAT we use for

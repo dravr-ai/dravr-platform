@@ -1,0 +1,45 @@
+// ABOUTME: Tests should_skip_probe — the piggyback decision that lets the periodic LLM probe
+// ABOUTME: skip its billed copilot --acp round-trip when real chat traffic already proved liveness
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Integration tests for the periodic-probe skip decision in
+//! [`pierre_services::chat_provider_factory::should_skip_probe`]. The
+//! function is pure (no I/O), so the cost-saving policy is unit-testable
+//! without spawning the probe task.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::time::Duration;
+
+use pierre_services::chat_provider_factory::should_skip_probe;
+
+const INTERVAL: Duration = Duration::from_mins(30);
+
+#[test]
+fn no_real_traffic_yet_never_skips() {
+    // An idle service that has never served a turn must keep probing so
+    // `/ready` reflects synthetic liveness.
+    assert!(!should_skip_probe(None, INTERVAL));
+}
+
+#[test]
+fn recent_real_traffic_skips_the_billed_probe() {
+    assert!(should_skip_probe(Some(Duration::from_mins(1)), INTERVAL));
+}
+
+#[test]
+fn stale_real_traffic_falls_back_to_probing() {
+    // Last real turn is older than the interval — liveness is no longer
+    // proven, so the synthetic probe must run.
+    let stale = INTERVAL + Duration::from_secs(1);
+    assert!(!should_skip_probe(Some(stale), INTERVAL));
+}
+
+#[test]
+fn success_exactly_at_interval_still_probes() {
+    // Boundary: the predicate is strictly-less-than, so a success landing
+    // exactly `interval` ago does NOT skip.
+    assert!(!should_skip_probe(Some(INTERVAL), INTERVAL));
+}
