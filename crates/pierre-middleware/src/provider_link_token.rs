@@ -52,8 +52,18 @@ use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
 
-/// Default TTL for provider link-tokens (20 minutes, matches `SCIOTTE_TIMEOUT_MS`)
-pub const PROVIDER_LINK_TOKEN_TTL_MINUTES: i64 = 20;
+/// Default TTL for provider link-tokens (24 hours).
+///
+/// These tokens back the channel reconnect/connect links a user reads whenever
+/// they next open their chat app — often hours after the nudge was sent — so the
+/// validity window must outlast a single sitting. The earlier 20-minute value
+/// (sized to the sciotte hosted-login completion timeout) expired stale clicks
+/// and served the "Link error" page instead of the reconnect form. The token is
+/// still single-use (nonce-burned) and scoped to one (user, tenant, provider) in
+/// the user's own DM, so a longer window does not widen the blast radius.
+/// `MAX_LINK_TOKEN_LIFETIME_SECS` (the nonce-store TTL) derives from this so the
+/// single-use guard stays armed for the token's whole life.
+pub const PROVIDER_LINK_TOKEN_TTL_MINUTES: i64 = 24 * 60;
 
 /// JWT issuer claim for provider link-tokens
 const PROVIDER_LINK_TOKEN_ISSUER: &str = "pierre-provider-link";
