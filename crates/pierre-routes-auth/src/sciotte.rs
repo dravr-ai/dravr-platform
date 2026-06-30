@@ -663,6 +663,32 @@ pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
     })
 }
 
+/// Log + alert a sciotte credential-login failure (hard error or timeout), then
+/// build the user-facing error. Emits the catalogued `sync.failed` notify event
+/// so a blocked/slow login reaches Slack + PostHog — the error reason carries
+/// the last page reached (sciotte v0.7.12), so the alert is actionable instead
+/// of a silent multi-minute spin. Extracted from `handle_sciotte_login` to keep
+/// that handler under the cognitive-complexity budget.
+fn report_credential_login_failure<E: std::fmt::Display>(
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+    error: &E,
+) -> AppError {
+    warn!(user_id = %user_id, error = %error, "Sciotte credential login failed");
+    info!(
+        target: "notify",
+        event = "sync.failed",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        provider = %provider,
+        trigger = "credential_login",
+        reason = %error,
+        "sciotte credential login failed"
+    );
+    AppError::invalid_input(format!("Login failed: {error}"))
+}
+
 /// Credential-based login via in-process dravr-sciotte
 pub async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -726,24 +752,9 @@ pub async fn handle_sciotte_login(
     {
         Ok(r) => r,
         Err(e) => {
-            warn!(user_id = %user_id, error = %e, "Sciotte credential login failed");
-            // Surface the failure (hard error or the timeout/spin) to Slack +
-            // PostHog. The error reason now carries the last page reached
-            // (sciotte v0.7.12), so a blocked/challenged login is actionable
-            // straight from the alert instead of a silent multi-minute spin.
-            // Reuses the catalogued `sync.failed` operational event.
-            info!(
-                target: "notify",
-                event = "sync.failed",
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                provider = %provider,
-                trigger = "credential_login",
-                reason = %e,
-                "sciotte credential login failed"
-            );
+            let err = report_credential_login_failure(user_id, tenant_id, provider, &e);
             drop(permit);
-            return Err(AppError::invalid_input(format!("Login failed: {e}")));
+            return Err(err);
         }
     };
 
