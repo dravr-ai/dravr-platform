@@ -727,6 +727,21 @@ pub async fn handle_sciotte_login(
         Ok(r) => r,
         Err(e) => {
             warn!(user_id = %user_id, error = %e, "Sciotte credential login failed");
+            // Surface the failure (hard error or the timeout/spin) to Slack +
+            // PostHog. The error reason now carries the last page reached
+            // (sciotte v0.7.12), so a blocked/challenged login is actionable
+            // straight from the alert instead of a silent multi-minute spin.
+            // Reuses the catalogued `sync.failed` operational event.
+            info!(
+                target: "notify",
+                event = "sync.failed",
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                provider = %provider,
+                trigger = "credential_login",
+                reason = %e,
+                "sciotte credential login failed"
+            );
             drop(permit);
             return Err(AppError::invalid_input(format!("Login failed: {e}")));
         }
