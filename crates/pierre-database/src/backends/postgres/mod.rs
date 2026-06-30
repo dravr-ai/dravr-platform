@@ -50,6 +50,8 @@ pub mod route_summaries;
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
+/// URL shortener: `code` → `target_url` with an integer-epoch TTL (`PostgreSQL`)
+pub mod short_links;
 /// Social features repository (friend connections, shared insights, reactions)
 pub mod social_features;
 /// Store listings repository implementation (marketplace publishing workflow)

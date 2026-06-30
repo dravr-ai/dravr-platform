@@ -392,6 +392,7 @@ async fn run_recovery_and_post_process(
             base_url: &ctx.config.base_url,
             messaging_strings_registry: &ctx.messaging_strings_registry,
             tool_runtime: &ctx.tool_runtime,
+            short_links: &ctx.repos.short_links,
         },
         input,
         profile,
