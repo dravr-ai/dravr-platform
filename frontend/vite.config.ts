@@ -53,7 +53,22 @@ export default defineConfig(({ mode }) => {
           // shell so an installed app opens offline. Backend/proxied paths are
           // denylisted so the SW never shadows a real network call to them.
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api/, /^\/oauth/, /^\/admin/, /^\/a2a/, /^\/ws/, /^\/__/],
+          // `/r/` (short-link redirects) and `/providers/` (the hosted Sciotte
+          // reconnect/login + connect picker) are BACKEND routes proxied by nginx,
+          // not SPA hash routes. Without them here the SW served the app shell for
+          // a tapped reconnect link → user landed on the home dashboard instead of
+          // the Garmin login form. Keep this list in sync with the nginx proxy
+          // alternation in docker/images/frontend/nginx.conf.
+          navigateFallbackDenylist: [
+            /^\/api/,
+            /^\/oauth/,
+            /^\/admin/,
+            /^\/a2a/,
+            /^\/ws/,
+            /^\/__/,
+            /^\/r\//,
+            /^\/providers\//,
+          ],
           // No runtimeCaching: tenant-scoped /api responses must always hit the
           // network. Only the immutable shell is cached, via precache above.
           cleanupOutdatedCaches: true,
