@@ -184,6 +184,68 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
     }
 }
 
+/// Oldest/newest activity date (`"YYYY-MM-DD"`) across `activities`, or `None`
+/// when the slice is empty.
+///
+/// Captured over the FULL post-filter set BEFORE the display-limit truncation so
+/// the response can frame the served window's true span — otherwise the LLM
+/// anchors on the oldest activity in the truncated slice (e.g. "depuis le 21
+/// août") instead of the window's real start.
+#[must_use]
+pub fn activity_date_span(activities: &[Activity]) -> Option<(String, String)> {
+    let oldest = activities.iter().map(Activity::start_date).min()?;
+    let newest = activities.iter().map(Activity::start_date).max()?;
+    Some((
+        oldest.format("%Y-%m-%d").to_string(),
+        newest.format("%Y-%m-%d").to_string(),
+    ))
+}
+
+/// Build the LLM-facing `coverage` sidecar for a served activity window.
+///
+/// Returns `Some` only when the requested window held more activities than the
+/// returned slice (`window_total > returned`) — i.e. the display limit hid older
+/// rows. The note steers the model to frame its reply around the full count +
+/// span instead of the oldest shown activity. `None` (window fully returned, or
+/// `window_total` unknown) keeps the response clean.
+///
+/// Lives in the tool RESULT, not the tool's `input_schema`/description, so it
+/// adds no SDK or contremaitre drift; the model renders it in the user's
+/// language, so it needs no localized `messaging_strings` key.
+#[must_use]
+pub fn activity_coverage_note(
+    window_total: Option<usize>,
+    returned: usize,
+    window_span: Option<&(String, String)>,
+) -> Option<Value> {
+    let total = window_total?;
+    if total <= returned {
+        return None;
+    }
+    window_span.map_or_else(
+        || {
+            Some(json!({
+                "window_total": total,
+                "returned": returned,
+                "note": format!(
+                    "This window holds {total} activities; only the {returned} most recent are shown below. Tell the user the full count ({total}), not just the oldest activity shown."
+                ),
+            }))
+        },
+        |(oldest, newest)| {
+            Some(json!({
+                "window_total": total,
+                "returned": returned,
+                "window_oldest": oldest,
+                "window_newest": newest,
+                "note": format!(
+                    "This window holds {total} activities spanning {oldest} to {newest}; only the {returned} most recent are shown below. Frame your reply around the full count ({total}) and span — do not imply the user's history starts at the oldest activity shown."
+                ),
+            }))
+        },
+    )
+}
+
 /// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
 fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
     let end = args
@@ -843,6 +905,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 limit,
                 "get_activities served list (post sport-filter, pre display-limit)"
             );
+            // Capture the served window's TRUE size + date span BEFORE the
+            // display-limit truncation, so the response can frame coverage
+            // honestly ("552 in this window, showing the most recent 200")
+            // rather than letting the LLM anchor on the oldest activity in the
+            // truncated slice. No-op on the live-fetch path (already <= limit).
+            let window_total = filtered_activities.len();
+            let window_span = activity_date_span(&filtered_activities);
             filtered_activities.truncate(limit);
 
             // Auto-promote small-limit queries to detailed by issuing
@@ -917,6 +986,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 backfill_temps: &backfill_temps,
                 user_timezone,
                 locale: user_locale,
+                window_total: Some(window_total),
+                window_span,
             });
 
             handler_bridge::map_universal_response("get_activities", Ok(response))

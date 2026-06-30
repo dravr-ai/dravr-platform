@@ -19,6 +19,7 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::implementations::data::activity_coverage_note;
 use crate::protocol::format::build_formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
@@ -962,6 +963,10 @@ pub(crate) async fn try_get_cached_activities(
             backfill_temps: &backfill_temps,
             user_timezone: params.user_timezone,
             locale: params.locale,
+            // The cached snapshot path serves its stored slice with no distinct
+            // pre-truncation window total, so it emits no coverage sidecar.
+            window_total: None,
+            window_span: None,
         });
         // Mark as cached in metadata
         if let Some(ref mut metadata) = response.metadata {
@@ -1198,6 +1203,16 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// User's BCP-47 locale ("fr"/"en"/"es"/"de"/"pt") selecting the localized
     /// sport-type labels in the rendered activity list. Defaults to "en".
     pub locale: String,
+    /// Total activities in the served window BEFORE the display-limit truncation,
+    /// when known (the live `get_activities` path). When it exceeds the returned
+    /// count, the response gains a `coverage` sidecar so the LLM frames the true
+    /// total + span instead of the oldest shown row. `None` on paths with no
+    /// distinct window total (e.g. the cached snapshot) — no `coverage` emitted.
+    pub window_total: Option<usize>,
+    /// Oldest/newest activity date (`"YYYY-MM-DD"`) across that full pre-truncation
+    /// window, paired with `window_total`. `None` leaves the `coverage` note
+    /// count-only.
+    pub window_span: Option<(String, String)>,
 }
 
 /// Build success response for activities with mode and format support
@@ -1220,6 +1235,8 @@ pub(crate) fn build_activities_success_response(
         backfill_temps,
         user_timezone,
         locale,
+        window_total,
+        window_span,
     } = params;
 
     // Prepare the data based on mode
@@ -1259,7 +1276,7 @@ pub(crate) fn build_activities_success_response(
     );
 
     // Format the activities data according to the requested format
-    let (result_json, format_used) = match output_format {
+    let (mut result_json, format_used) = match output_format {
         OutputFormat::Toon => match format_output(&data_value, OutputFormat::Toon) {
             Ok(formatted) => {
                 let mut json_val = json!({
@@ -1317,6 +1334,18 @@ pub(crate) fn build_activities_success_response(
             (json_val, "json")
         }
     };
+
+    // Surface honest window coverage when the served slice was truncated, so the
+    // LLM frames "N total in this window, showing the most recent M" instead of
+    // anchoring on the oldest shown activity. LLM-facing (tool result, not the
+    // input schema) → no SDK/contremaitre/locale drift.
+    if let Some(coverage) =
+        activity_coverage_note(window_total, activities.len(), window_span.as_ref())
+    {
+        if let Some(obj) = result_json.as_object_mut() {
+            obj.insert("coverage".to_owned(), coverage);
+        }
+    }
 
     let metadata = build_activities_metadata(
         activities.len(),
