@@ -179,6 +179,13 @@ pub async fn handle_webhook(
         "Processed inbound webhook"
     );
 
+    // Surface Meta `WhatsApp` delivery-status callbacks (sent/delivered/read/failed).
+    // These arrive under `value.statuses[]`, which the channel adapter's `receive`
+    // drops (it parses only inbound messages), so a FAILED async push — a
+    // backfill-ready notice or reconnect nudge that Meta accepted but never
+    // delivered — was previously invisible (a silent `message_count=0` webhook).
+    log_whatsapp_delivery_statuses(&channel, &body);
+
     // Persist messages synchronously and collect pending dispatches for background processing
     let (stored_count, pending_dispatches) = messaging_ingress::persist_inbound(
         &resources,
@@ -251,6 +258,126 @@ fn detect_handshake_response(channel: &str, body: &Bytes) -> Option<Value> {
             None
         }
         _ => None,
+    }
+}
+
+/// A Meta `WhatsApp` delivery-status callback (`sent` / `delivered` / `read` /
+/// `failed`).
+///
+/// Meta posts these to the same webhook as inbound messages but under
+/// `value.statuses[]` rather than `value.messages[]`, so the channel adapter's
+/// `receive` — which only extracts inbound user messages — silently drops them.
+/// Surfacing them makes a failed async push (backfill-ready notice, reconnect
+/// nudge) VISIBLE instead of a `message_count=0` no-op webhook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhatsappDeliveryStatus {
+    /// `sent` | `delivered` | `read` | `failed`.
+    pub status: String,
+    /// The recipient's `WhatsApp` id (a phone number — masked at log time).
+    pub recipient_id: String,
+    /// Meta's `wamid` for the message this status refers to.
+    pub message_id: String,
+    /// Meta error code, present only when `status == "failed"` (e.g. `131047`
+    /// re-engagement / out-of-24h-window).
+    pub error_code: Option<i64>,
+    /// Human-readable Meta error title, present only on `failed`.
+    pub error_title: Option<String>,
+}
+
+/// Parse Meta `WhatsApp` `value.statuses[]` delivery receipts from a raw webhook
+/// body. Returns an empty vec for inbound-message webhooks, non-`WhatsApp`
+/// payloads, or unparseable bodies.
+#[must_use]
+pub fn parse_whatsapp_delivery_statuses(body: &[u8]) -> Vec<WhatsappDeliveryStatus> {
+    let Ok(payload) = serde_json::from_slice::<Value>(body) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in payload
+        .get("entry")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for change in entry
+            .get("changes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(statuses) = change.pointer("/value/statuses").and_then(Value::as_array) else {
+                continue;
+            };
+            for s in statuses {
+                let err = s
+                    .get("errors")
+                    .and_then(Value::as_array)
+                    .and_then(|a| a.first());
+                out.push(WhatsappDeliveryStatus {
+                    status: s
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    recipient_id: s
+                        .get("recipient_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    message_id: s
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    error_code: err.and_then(|e| e.get("code")).and_then(Value::as_i64),
+                    error_title: err
+                        .and_then(|e| e.get("title"))
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Mask a recipient phone id for INFO+ logs — keep only the last 4 digits.
+#[must_use]
+pub fn mask_recipient(id: &str) -> String {
+    let n = id.len();
+    if n <= 4 {
+        return "****".to_owned();
+    }
+    format!("{}{}", "*".repeat(n - 4), &id[n - 4..])
+}
+
+/// Log Meta `WhatsApp` delivery-status callbacks so a FAILED async push (one Meta
+/// accepted but never delivered) is observable instead of silent. No-op for
+/// non-`WhatsApp` channels and inbound-message webhooks.
+fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) {
+    if channel != "whatsapp" {
+        return;
+    }
+    for s in parse_whatsapp_delivery_statuses(body) {
+        let recipient = mask_recipient(&s.recipient_id);
+        if s.status == "failed" {
+            warn!(
+                channel = "whatsapp",
+                recipient = %recipient,
+                message_id = %s.message_id,
+                error_code = s.error_code.unwrap_or_default(),
+                error = s.error_title.as_deref().unwrap_or(""),
+                "WhatsApp delivery FAILED — an outbound message (async push/reply) did not reach the user"
+            );
+        } else {
+            debug!(
+                channel = "whatsapp",
+                recipient = %recipient,
+                message_id = %s.message_id,
+                status = %s.status,
+                "WhatsApp delivery status"
+            );
+        }
     }
 }
 

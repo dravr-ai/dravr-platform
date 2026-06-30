@@ -17,7 +17,7 @@ pub(crate) mod linking;
 /// unit tests.
 pub mod slack_actions;
 mod templates;
-pub(crate) mod webhooks;
+pub mod webhooks;
 
 use axum::{
     body::Bytes,
