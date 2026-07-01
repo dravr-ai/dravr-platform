@@ -17,6 +17,9 @@ pub(crate) mod linking;
 /// unit tests.
 pub mod slack_actions;
 mod templates;
+/// Inbound webhook ingress (signature verification, tenant resolution, dispatch)
+/// and Meta `WhatsApp` delivery-status parsing. Exposed for the delivery-status
+/// parser unit tests.
 pub mod webhooks;
 
 use axum::{
