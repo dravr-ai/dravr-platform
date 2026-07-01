@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tests the WhatsApp delivery-status parser that makes a failed outbound push
+//! Tests the `WhatsApp` delivery-status parser that makes a failed outbound push
 //! (backfill-ready notice, reconnect nudge) observable instead of silent.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
