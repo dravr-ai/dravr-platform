@@ -186,7 +186,10 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     ),
     (
         "copilot_headless",
-        "claude-sonnet-4",
+        // Prefix spans every Sonnet generation (claude-sonnet-4, -4.5, -4.6, -5);
+        // all bill at the same $3/$15 Sonnet rate, so a version-agnostic prefix
+        // keeps shadow-COGS attributed instead of falling through to $0 on a bump.
+        "claude-sonnet",
         ModelPricing {
             input_per_million: 3.0,
             output_per_million: 15.0,
