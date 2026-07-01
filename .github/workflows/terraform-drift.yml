@@ -1,0 +1,92 @@
+# ABOUTME: Nightly Terraform drift detection for infra/environments/dev — fails when live infra diverges from code
+# ABOUTME: Runs `terraform plan -detailed-exitcode`; a non-empty plan (exit 2) reds this Monitor workflow as the drift alert
+
+name: "Monitor: Terraform Drift (dev)"
+
+# Why this exists: terraform.yml auto-plans ONLY when infra/** files change on
+# push, so an out-of-band edit (gcloud/console, or a manual `terraform apply`
+# from a laptop against the shared GCS state) drifts silently until the next
+# infra commit. This job re-plans dev on a schedule and fails on any diff, so
+# drift surfaces as a red Monitor run (same "red on main = investigate"
+# convention as Monitor: Daily Health Check) rather than lurking.
+#
+# Dev only: infra/environments/prod is an unprovisioned stub (project_id is a
+# TODO placeholder), so a prod plan would error rather than report drift.
+on:
+  schedule:
+    # Daily at 12:00 UTC (offset from the 06:00 Daily Health Check).
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-drift-dev
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  drift-dev:
+    name: Drift Dev
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra/environments/dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Authenticate to GCP (dev terraform runner)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        run: terraform init -backend-config="prefix=dravr-dev"
+
+      # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present (drift).
+      # Capture terraform's own exit via PIPESTATUS so `tee` doesn't mask it, and
+      # never fail this step — the classification below decides pass/fail.
+      - name: Terraform Plan (drift check)
+        id: plan
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -var-file="terraform.tfvars" -no-color 2>&1 | tee plan-output.txt
+          code=${PIPESTATUS[0]}
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write plan to job summary
+        if: always()
+        run: |
+          {
+            echo '## Terraform Drift — dev'
+            echo ''
+            echo '```'
+            cat plan-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Classify drift result
+        run: |
+          code="${{ steps.plan.outputs.code }}"
+          case "$code" in
+            0)
+              echo "✅ No drift — live dev infra matches infra/environments/dev."
+              ;;
+            2)
+              echo "::error title=Terraform drift detected::Live dev infra differs from infra/environments/dev. Review the plan in the job summary, then reconcile via 'gh workflow run terraform.yml --ref main -f environment=dev -f action=apply' (or correct the code to match reality)."
+              exit 1
+              ;;
+            *)
+              echo "::error title=Terraform plan failed::terraform plan exited ${code} (expected 0 or 2). See the plan output in the job summary."
+              exit 1
+              ;;
+          esac
