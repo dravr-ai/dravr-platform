@@ -264,7 +264,7 @@ module "backend" {
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI).
       # Primary = claude-opus-4.8 (high-reasoning Opus variant, not the -fast SKU).
-      # Fallback model = claude-sonnet-4.6 in case Opus is unavailable or rate-limited
+      # Fallback model = claude-sonnet-5 in case Opus is unavailable or rate-limited
       # (intra-provider model fallback, same Copilot session).
       # Runtime fallback chain = cross-provider failover to Cohere (Command A,
       # paid, 10k rpm chat via COHERE_API_KEY) when Copilot itself returns a
@@ -298,9 +298,9 @@ module "backend" {
       # override for all providers; PIERRE_LLM_DEFAULT_MODEL must match it so the
       # chain stamps the right primary model name. (COPILOT_HEADLESS_MODEL stays
       # on Opus — it only drives the sciotte vision-login fallback, not chat.)
-      PIERRE_LLM_MODEL                   = "claude-sonnet-4.6"
-      PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-4.6"
-      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-4.6"
+      PIERRE_LLM_MODEL                   = "claude-sonnet-5"
+      PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-5"
+      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
       PIERRE_LLM_FALLBACK_PROVIDER       = "cohere"
       PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "command-a-03-2025"
@@ -413,7 +413,7 @@ module "backend" {
       # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
       # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
       # provider. Kept on claude-opus-4.8 for the heavier vision-reasoning task;
-      # chat/coaching runs the cheaper, faster claude-sonnet-4.6 via PIERRE_LLM_MODEL.
+      # chat/coaching runs the cheaper, faster claude-sonnet-5 via PIERRE_LLM_MODEL.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
