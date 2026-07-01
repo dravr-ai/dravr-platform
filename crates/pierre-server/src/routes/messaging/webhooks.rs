@@ -63,6 +63,10 @@ pub struct MetaVerifyQuery {
 /// `webhook_secret` and echo `hub.challenge` back as plain text to confirm ownership.
 ///
 /// Supports both Messenger and `WhatsApp` channels.
+///
+/// # Errors
+/// Returns an error when `hub.mode` isn't `subscribe`, no channel config exists
+/// for the channel, or the presented verify token matches none of them.
 pub async fn verify_webhook(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
@@ -125,6 +129,10 @@ pub async fn verify_webhook(
 /// `in_current_span` on the spawned task, so structured fields
 /// (`channel`, `tenant_id`, `message_count`) propagate to every log line
 /// emitted while the turn is in flight.
+///
+/// # Errors
+/// Returns an error when the webhook signature verifies against no channel
+/// config (or ambiguously matches multiple tenants) or the payload can't be parsed.
 #[tracing::instrument(
     skip_all,
     fields(
