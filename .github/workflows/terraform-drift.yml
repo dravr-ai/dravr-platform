@@ -12,6 +12,19 @@ name: "Monitor: Terraform Drift (dev)"
 #
 # Dev only: infra/environments/prod is an unprovisioned stub (project_id is a
 # TODO placeholder), so a prod plan would error rather than report drift.
+#
+# Alerting: the signal is intentionally the red Monitor run itself — there is NO
+# Slack/webhook fan-out from this workflow. The sibling GCP-side drift check
+# (infra/environments/dev/drift_check.tf + monitoring.tf) routes Cloud Run *job*
+# failures to the dev-dravr-errors Slack channel via a
+# google_monitoring_notification_channel, but that is GCP Cloud Monitoring, not
+# GitHub Actions — no reusable Slack incoming-*webhook* secret exists in this
+# repo's Actions secrets (the only Slack secrets, MESSAGING_EVAL_SLACK_*, are
+# Socket-Mode bot tokens for the messaging-eval QA driver, not a notifier).
+# Adding a Slack post-on-failure step here would require provisioning a new
+# incoming-webhook secret (e.g. SLACK_WEBHOOK_URL); until one exists,
+# job-failure-is-the-alert matches the Monitor: Daily Health Check convention and
+# is the deliberate choice.
 on:
   schedule:
     # Daily at 12:00 UTC (offset from the 06:00 Daily Health Check).

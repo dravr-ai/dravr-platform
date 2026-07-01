@@ -138,6 +138,7 @@ pub use pierre_services::coach_followup_scheduler::start_followup_scheduler;
 pub use pierre_services::messaging_outbound::start_outbound_worker;
 #[cfg(feature = "client-messaging")]
 pub use pierre_services::messaging_seed;
+pub use pierre_services::short_link_sweeper::start_short_link_sweeper;
 #[cfg(feature = "client-messaging")]
 pub use services::discord_gateway::start_discord_gateway;
 #[cfg(feature = "client-messaging")]

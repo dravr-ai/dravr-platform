@@ -26,7 +26,9 @@
 //!
 //! - **Scope-clamped**: the `scope` claim restricts the token to a single provider's
 //!   login endpoints; any other endpoint must reject it.
-//! - **Short-lived**: 20-minute TTL matches `SCIOTTE_TIMEOUT_MS` in the frontend.
+//! - **Bounded lifetime**: 24-hour TTL (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so a
+//!   reconnect nudge the user reads hours later still resolves; still single-use
+//!   (nonce-burned) and scoped to one (user, tenant, provider).
 //! - **Signed with `admin_jwt_secret`**: the same server-wide HMAC secret used for
 //!   admin-token hashing, so no new secret material is introduced.
 //! - **One-time page load**: each token's `jti` is burned on the first

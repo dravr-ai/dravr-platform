@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, ProviderConnection, TenantId};
+use pierre_core::models::{Activity, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
 
@@ -79,12 +79,17 @@ const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 const HISTORICAL_COVERAGE_BOUND_SECS: i64 = 365 * 24 * 60 * 60;
 
 /// Read limit for the single deterministic durable-cache read on the historical
-/// backfill path. Decoupled from the user's display limit so the cache read
+/// backfill path.
+///
+/// Decoupled from the user's display limit so the cache read
 /// returns the COMPLETE window (the display limit caps only the returned list
 /// afterwards). Generous enough to cover a dense season (>=2 activities/day for
 /// a year) without truncating the window read; the durable table is already
-/// retention-bounded, so this only guards against an unbounded read.
-const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
+/// retention-bounded, so this only guards against an unbounded read. When a
+/// window fills this cap the served `window_total` is only a lower bound, so
+/// `activity_coverage_note` frames the count as "at least {total}". `pub` so the
+/// cap boundary is exercisable by the coverage-note tests.
+pub const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
 
 /// Read limit (as `usize`) for the historical backfill window read.
 #[must_use]
@@ -131,14 +136,13 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
 /// dead session would just fail the scrape and leave the user looping on
 /// "fetching, ask again shortly". When true, `get_activities` returns
 /// `provider_auth_required` instead, so the chat pipeline hands back the
-/// reconnect link this turn. `pub` so the decision is exercisable by the
-/// integration test suite.
-#[must_use]
-pub fn connection_needs_reauth(connections: &[ProviderConnection], provider: &str) -> bool {
-    connections
-        .iter()
-        .any(|c| c.provider == provider && c.status.requires_reauth())
-}
+/// reconnect link this turn.
+///
+/// Re-exported from [`pierre_core::models::connection_needs_reauth`] — the
+/// single home for the scan, shared with `AuthService`. Kept re-exported here
+/// so the reconnect-gate integration test can exercise the decision via this
+/// module.
+pub use pierre_core::models::connection_needs_reauth;
 
 /// Whether a `get_activities` query may use the `CacheKey` response cache.
 ///
@@ -238,13 +242,23 @@ pub fn activity_coverage_note(
     if total <= returned {
         return None;
     }
+    // When the served window filled the durable read cap the true count is
+    // unknown — `window_total` is only a lower bound, so state it as "at least
+    // {total}" instead of an exact figure. The live-fetch path is bounded by the
+    // display limit (<= MAX_ACTIVITY_LIMIT) and never reaches the cap, so this
+    // only marks a genuinely cap-truncated historical read.
+    let total_phrase = if total >= HISTORICAL_WINDOW_READ_LIMIT {
+        format!("at least {total}")
+    } else {
+        total.to_string()
+    };
     window_span.map_or_else(
         || {
             Some(json!({
                 "window_total": total,
                 "returned": returned,
                 "note": format!(
-                    "This window holds {total} activities; only the {returned} most recent are shown below. Tell the user the full count ({total}), not just the oldest activity shown."
+                    "This window holds {total_phrase} activities; only {returned} of them are shown below. Tell the user the full count ({total_phrase}), and don't assume the shown activities are the only ones."
                 ),
             }))
         },
@@ -255,7 +269,7 @@ pub fn activity_coverage_note(
                 "window_oldest": oldest,
                 "window_newest": newest,
                 "note": format!(
-                    "This window holds {total} activities spanning {oldest} to {newest}; only the {returned} most recent are shown below. Frame your reply around the full count ({total}) and span — do not imply the user's history starts at the oldest activity shown."
+                    "This window holds {total_phrase} activities spanning {oldest} to {newest}; only {returned} are shown below. Frame your reply around the full count ({total_phrase}) and span — do not imply the user's history is limited to the activities shown."
                 ),
             }))
         },

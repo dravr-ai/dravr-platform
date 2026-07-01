@@ -36,6 +36,16 @@ resource "google_cloud_run_v2_service" "service" {
     # perpetual no-op plan diff that an apply could never converge. GCS volumes
     # are declared BEFORE the Cloud SQL volume to match that returned order; keep
     # this order in sync with the volume_mounts below. See Monitor: Terraform Drift.
+    #
+    # LOAD-BEARING ASSUMPTION — single GCS volume: `for_each = var.gcs_volumes`
+    # iterates the map ASCENDING by key, so this GCS-before-cloudsql layout only
+    # holds because today there is exactly one GCS volume ('sciotte-scripts'),
+    # whose key sorts ABOVE 'cloudsql'. Adding a second GCS volume whose key sorts
+    # BELOW 'sciotte-scripts'/'cloudsql' would interleave against the API's
+    # descending-by-name return order and re-introduce the perpetual drift that
+    # reds the nightly monitor. Before adding more GCS volumes, re-check the API's
+    # descending-by-name returned order and reorder (or split) these blocks to
+    # match it — do not assume ascending-by-key iteration is safe.
     # GCS bucket volumes
     dynamic "volumes" {
       for_each = var.gcs_volumes

@@ -246,7 +246,14 @@ pub fn should_skip_probe(since_last_success: Option<Duration>, interval: Duratio
 /// only startup probes showed up). Volume is bounded by the probe interval
 /// (≤48 lines/day/instance), so the steady-state skip is cheap to surface.
 async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &LlmHealthState) {
-    let previous = health_state.record_healthy(provider_name.to_owned()).await;
+    // Stamp `checked_at` with the real last-success time, not `now`: the skip
+    // fires precisely because a real turn proved liveness up to a full interval
+    // ago, so pretending the snapshot was just checked would overstate its
+    // freshness on `/health/llm`.
+    let observed_ago = health_state.since_last_success().unwrap_or_default();
+    let previous = health_state
+        .record_healthy_observed(provider_name.to_owned(), observed_ago)
+        .await;
     if previous == LlmHealthStatus::Healthy {
         info!(
             provider = provider_name,

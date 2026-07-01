@@ -400,7 +400,9 @@ async fn persist_backfill_activities(
 /// hosted-login link, routed cross-channel via the shared notifier rail.
 /// Mirrors [`notify_backfill_complete`]'s guards: no conversation id (MCP / A2A
 /// / SSE) or no notifier wired → no-op (the connection-status surface still
-/// reflects the expiry). The notifier owns dedup — one nudge per expiry window.
+/// reflects the expiry). By design the nudge is NOT deduped: it re-sends every
+/// expired-session turn until a real reconnect clears the flag, so a user whose
+/// first link was broken or never clicked is not permanently silenced.
 async fn notify_backfill_reauth(job: &ActivityBackfillJob) {
     let (Some(conversation_id), Some(notifier)) = (
         job.pierre_conversation_id.as_deref(),

@@ -139,17 +139,48 @@ impl LlmHealthState {
         }
     }
 
-    /// Record a successful probe result. Returns the previous status so
-    /// callers can detect transitions and log accordingly (e.g. emit
-    /// `error!` on `Healthy -> Unhealthy` so the tronc Slack layer pages).
+    /// Record a successful probe result stamped `checked_at = now` (a synthetic
+    /// probe round-trip just completed). Returns the previous status so callers
+    /// can detect transitions and log accordingly (e.g. emit `error!` on
+    /// `Healthy -> Unhealthy` so the tronc Slack layer pages).
     pub async fn record_healthy(&self, provider: impl Into<String>) -> LlmHealthStatus {
+        self.set_healthy(provider.into(), chrono::Utc::now()).await
+    }
+
+    /// Record health inferred from a real chat turn that succeeded
+    /// `observed_ago` before now, stamping `checked_at` with that turn's actual
+    /// time rather than `now`.
+    ///
+    /// The periodic probe piggybacks on real traffic to skip its billed
+    /// round-trip, but that traffic proves liveness as of the *last real
+    /// success* — up to a full probe interval old — not the moment the tick
+    /// observed it. Stamping the real time keeps `/health/llm`'s `checked_at`
+    /// honest instead of reporting a freshly-checked snapshot backed by a stale
+    /// success.
+    pub async fn record_healthy_observed(
+        &self,
+        provider: impl Into<String>,
+        observed_ago: Duration,
+    ) -> LlmHealthStatus {
+        let ago = chrono::Duration::from_std(observed_ago).unwrap_or_default();
+        let checked_at = chrono::Utc::now() - ago;
+        self.set_healthy(provider.into(), checked_at).await
+    }
+
+    /// Shared healthy-snapshot write for [`Self::record_healthy`] and
+    /// [`Self::record_healthy_observed`]; the only difference is `checked_at`.
+    async fn set_healthy(
+        &self,
+        provider: String,
+        checked_at: chrono::DateTime<chrono::Utc>,
+    ) -> LlmHealthStatus {
         let mut guard = self.inner.write().await;
         let previous = guard.status;
         *guard = LlmHealthSnapshot {
             status: LlmHealthStatus::Healthy,
-            provider: Some(provider.into()),
+            provider: Some(provider),
             error: None,
-            checked_at: Some(chrono::Utc::now()),
+            checked_at: Some(checked_at),
         };
         previous
     }

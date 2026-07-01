@@ -214,7 +214,10 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     ),
     (
         "claude_code",
-        "claude-sonnet-4",
+        // Version-agnostic Sonnet prefix (claude-sonnet-4, -4.5, -4.6, -5),
+        // mirroring the copilot_headless entry so a model bump keeps shadow-COGS
+        // attributed instead of falling through to $0.
+        "claude-sonnet",
         ModelPricing {
             input_per_million: 3.0,
             output_per_million: 15.0,

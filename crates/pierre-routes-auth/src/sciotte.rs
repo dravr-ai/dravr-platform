@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
+use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
 };
@@ -676,7 +677,12 @@ fn report_credential_login_failure<E: Display>(
     provider: &str,
     error: &E,
 ) -> AppError {
-    warn!(user_id = %user_id, error = %error, "Sciotte credential login failed");
+    // The error names the last page reached (sciotte v0.7.12), i.e. a provider
+    // URL. Scrub any embedded `user:pass@` credentials via the canonical
+    // redactor before it reaches the notify sink (Slack + third-party PostHog);
+    // the bare page URL stays so the alert is still actionable.
+    let reason = redact_url(&error.to_string());
+    warn!(user_id = %user_id, reason = %reason, "Sciotte credential login failed");
     info!(
         target: "notify",
         event = "sync.failed",
@@ -684,7 +690,7 @@ fn report_credential_login_failure<E: Display>(
         tenant_id = %tenant_id,
         provider = %provider,
         trigger = "credential_login",
-        reason = %error,
+        reason = %reason,
         "sciotte credential login failed"
     );
     AppError::invalid_input(format!("Login failed: {error}"))

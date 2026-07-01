@@ -888,6 +888,15 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start the short-link sweeper (deletes expired reconnect/connect links
+    // every few hours). The shortener mints a row per link and the chat
+    // reconnect path mints on every expired-session turn by design, so without
+    // this reclaim the short_links table grows unbounded.
+    {
+        use pierre_mcp_server::start_short_link_sweeper;
+        start_short_link_sweeper(Arc::clone(&resources.common.repos.short_links));
+    }
+
     // Start group weekly-digest scheduler (weekly cadence). Reads the
     // per-tenant `weekly_digest` tier flag to decide eligibility, computes
     // the same weekly report the on-demand /report endpoint returns, and

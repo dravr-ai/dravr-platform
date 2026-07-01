@@ -14,6 +14,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
+use pierre_middleware::redaction::mask_recipient;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -349,16 +350,6 @@ pub fn parse_whatsapp_delivery_statuses(body: &[u8]) -> Vec<WhatsappDeliveryStat
     out
 }
 
-/// Mask a recipient phone id for INFO+ logs — keep only the last 4 digits.
-#[must_use]
-pub fn mask_recipient(id: &str) -> String {
-    let n = id.len();
-    if n <= 4 {
-        return "****".to_owned();
-    }
-    format!("{}{}", "*".repeat(n - 4), &id[n - 4..])
-}
-
 /// Log Meta `WhatsApp` delivery-status callbacks so a FAILED async push (one Meta
 /// accepted but never delivered) is observable instead of silent. No-op for
 /// non-`WhatsApp` channels and inbound-message webhooks.
@@ -366,6 +357,10 @@ fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) {
     if channel != "whatsapp" {
         return;
     }
+    // Re-parses the raw body: the upstream parse lives inside the channel
+    // adapter's `receive` (which yields only inbound messages, not the raw
+    // `Value`) and the handshake probe runs only for Slack/Discord, so no
+    // already-parsed body `Value` is available at this call site to reuse.
     for s in parse_whatsapp_delivery_statuses(body) {
         let recipient = mask_recipient(&s.recipient_id);
         if s.status == "failed" {
