@@ -44,7 +44,7 @@ fn parses_a_failed_delivery_with_error_code() {
     assert_eq!(s.status, "failed");
     assert_eq!(s.recipient_id, "14502244753");
     assert_eq!(s.message_id, "wamid.HBgLABCDEF");
-    assert_eq!(s.error_code, Some(131047));
+    assert_eq!(s.error_code, Some(131_047));
     assert_eq!(s.error_title.as_deref(), Some("Re-engagement message"));
 }
 
