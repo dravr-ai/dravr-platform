@@ -30,17 +30,12 @@ resource "google_cloud_run_v2_service" "service" {
       }
     }
 
-    # Cloud SQL unix socket volume
-    dynamic "volumes" {
-      for_each = var.cloudsql_connection_name != null ? [1] : []
-      content {
-        name = "cloudsql"
-        cloud_sql_instance {
-          instances = [var.cloudsql_connection_name]
-        }
-      }
-    }
-
+    # Volume declaration order is load-bearing for drift, not runtime: Cloud Run
+    # v2 canonically returns volumes descending by name (sciotte-scripts, then
+    # cloudsql) and reorders on read, so declaring cloudsql first produced a
+    # perpetual no-op plan diff that an apply could never converge. GCS volumes
+    # are declared BEFORE the Cloud SQL volume to match that returned order; keep
+    # this order in sync with the volume_mounts below. See Monitor: Terraform Drift.
     # GCS bucket volumes
     dynamic "volumes" {
       for_each = var.gcs_volumes
@@ -49,6 +44,17 @@ resource "google_cloud_run_v2_service" "service" {
         gcs {
           bucket    = volumes.value.bucket
           read_only = volumes.value.read_only
+        }
+      }
+    }
+
+    # Cloud SQL unix socket volume
+    dynamic "volumes" {
+      for_each = var.cloudsql_connection_name != null ? [1] : []
+      content {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [var.cloudsql_connection_name]
         }
       }
     }
@@ -92,21 +98,22 @@ resource "google_cloud_run_v2_service" "service" {
         }
       }
 
+      # GCS bucket volume mounts (declared first to match the volumes order
+      # above and Cloud Run's canonical returned order — see the note there).
+      dynamic "volume_mounts" {
+        for_each = var.gcs_volumes
+        content {
+          name       = volume_mounts.key
+          mount_path = volume_mounts.value.mount_path
+        }
+      }
+
       # Cloud SQL unix socket volume mount
       dynamic "volume_mounts" {
         for_each = var.cloudsql_connection_name != null ? [1] : []
         content {
           name       = "cloudsql"
           mount_path = "/cloudsql"
-        }
-      }
-
-      # GCS bucket volume mounts
-      dynamic "volume_mounts" {
-        for_each = var.gcs_volumes
-        content {
-          name       = volume_mounts.key
-          mount_path = volume_mounts.value.mount_path
         }
       }
 
