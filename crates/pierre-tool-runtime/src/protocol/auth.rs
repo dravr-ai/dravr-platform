@@ -14,7 +14,7 @@ use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::models::NotificationCategory;
 #[cfg(feature = "client-notifications")]
@@ -476,14 +476,14 @@ impl AuthService {
         provider: &str,
     ) -> bool {
         let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
-        self.resources
+        let connections = self
+            .resources
             .repos()
             .provider_connections
             .get_for_user(user_id, tenant)
             .await
-            .unwrap_or_default()
-            .iter()
-            .any(|c| c.provider == provider && c.status.requires_reauth())
+            .unwrap_or_default();
+        connection_needs_reauth(&connections, provider)
     }
 
     /// Create authenticated provider with proper tenant-aware credentials

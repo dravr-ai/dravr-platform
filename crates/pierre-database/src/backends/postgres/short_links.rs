@@ -9,7 +9,16 @@ use crate::repositories::ShortLinkRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use sqlx::postgres::PgRow;
 use sqlx::Row;
+
+/// Extract the `target_url` column via `try_get` (never `Row::get`, which is
+/// `try_get().unwrap()` and panics on a live PG connection on a type/NULL
+/// surprise) so a corrupt row surfaces as a recoverable error, not a crash.
+fn pg_target_url(row: &PgRow) -> AppResult<String> {
+    row.try_get::<String, _>("target_url")
+        .map_err(|e| AppError::database(format!("short_link target_url: {e}")))
+}
 
 #[async_trait]
 impl ShortLinkRepository for PostgresDatabase {
@@ -53,6 +62,15 @@ impl ShortLinkRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to read short_link: {e}")))?;
 
-        Ok(row.map(|r| r.get::<String, _>("target_url")))
+        row.map(|r| pg_target_url(&r)).transpose()
+    }
+
+    async fn delete_expired_short_links(&self) -> AppResult<u64> {
+        let result = sqlx::query(r"DELETE FROM short_links WHERE expires_at <= $1")
+            .bind(Utc::now().timestamp())
+            .execute(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to sweep short_links: {e}")))?;
+        Ok(result.rows_affected())
     }
 }

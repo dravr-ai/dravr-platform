@@ -272,6 +272,34 @@ pub fn mask_email(email: &str) -> String {
     )
 }
 
+/// Mask a recipient phone id for INFO+ logs — keep only the last 4 characters.
+///
+/// Used for messaging delivery-status logs (e.g. Meta `WhatsApp` `recipient_id`,
+/// which is a phone number). Everything but the final 4 characters is replaced
+/// with a run of `*`; ids of 4 characters or fewer are fully masked to `****`.
+///
+/// Slicing walks Unicode scalar values (`chars`), never byte indices, so a
+/// recipient id containing a multibyte UTF-8 character never triggers a
+/// "byte index is not a char boundary" panic.
+///
+/// # Examples
+///
+/// ```
+/// use pierre_middleware::redaction::mask_recipient;
+///
+/// assert_eq!(mask_recipient("14502244753"), "*******4753");
+/// assert_eq!(mask_recipient("123"), "****");
+/// ```
+#[must_use]
+pub fn mask_recipient(id: &str) -> String {
+    let char_count = id.chars().count();
+    if char_count <= 4 {
+        return "****".to_owned();
+    }
+    let last_four: String = id.chars().skip(char_count - 4).collect();
+    format!("{}{last_four}", "*".repeat(char_count - 4))
+}
+
 /// Redact token-like patterns from text
 ///
 /// Matches patterns like:

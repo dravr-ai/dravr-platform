@@ -127,3 +127,60 @@ async fn create_then_resolve_within_ttl_succeeds() {
         .expect("a non-expired code resolves");
     assert_eq!(resolved, DOTTY_TARGET);
 }
+
+#[tokio::test]
+async fn sweep_deletes_only_expired_rows() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+
+    // One expired, one live.
+    repos
+        .short_links
+        .create_short_link(
+            "stale",
+            DOTTY_TARGET,
+            "tenant-1",
+            "user-1",
+            Utc::now() - Duration::hours(1),
+        )
+        .await
+        .expect("insert stale succeeds");
+    repos
+        .short_links
+        .create_short_link(
+            "fresh",
+            DOTTY_TARGET,
+            "tenant-1",
+            "user-1",
+            Utc::now() + Duration::hours(1),
+        )
+        .await
+        .expect("insert fresh succeeds");
+
+    let removed = repos
+        .short_links
+        .delete_expired_short_links()
+        .await
+        .expect("sweep succeeds");
+    assert_eq!(removed, 1, "the sweep reclaims exactly the expired row");
+
+    // The live link survives and still resolves; a second sweep is a no-op.
+    assert_eq!(
+        repos
+            .short_links
+            .resolve_short_link("fresh")
+            .await
+            .expect("resolve query succeeds"),
+        Some(DOTTY_TARGET.to_owned()),
+        "the live link is untouched by the sweep"
+    );
+    assert_eq!(
+        repos
+            .short_links
+            .delete_expired_short_links()
+            .await
+            .expect("second sweep succeeds"),
+        0,
+        "a sweep with nothing expired removes zero rows"
+    );
+}

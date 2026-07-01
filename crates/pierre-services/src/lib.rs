@@ -158,6 +158,9 @@ pub mod provider_refresh;
 /// Recipe import/export and markdown conversion
 pub mod recipes;
 
+/// Short-link table hygiene: periodic sweep of expired reconnect/connect links
+pub mod short_link_sweeper;
+
 /// Slack operations notifier for deploy and user lifecycle events
 pub mod slack_ops_notifier;
 

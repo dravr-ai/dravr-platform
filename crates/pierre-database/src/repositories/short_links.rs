@@ -42,6 +42,16 @@ pub trait ShortLinkRepository: Send + Sync {
     /// Resolve `code` to its target URL when present and not yet expired.
     /// Returns `None` on miss or expiry.
     async fn resolve_short_link(&self, code: &str) -> AppResult<Option<String>>;
+
+    /// Delete every short link whose TTL has elapsed, returning how many rows
+    /// were removed.
+    ///
+    /// `resolve_short_link` already filters expired rows at read time, so this
+    /// is purely storage hygiene: without it the table grows unbounded (one row
+    /// per minted reconnect/connect link, and the chat reconnect path mints on
+    /// every expired-session turn by design). A periodic background sweep calls
+    /// this so only live (<= TTL) links are ever retained.
+    async fn delete_expired_short_links(&self) -> AppResult<u64>;
 }
 
 /// Persist `target_url` behind a short, dot-free `<base_url>/r/<code>` link and

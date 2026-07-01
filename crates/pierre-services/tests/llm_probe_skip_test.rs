@@ -43,3 +43,28 @@ fn success_exactly_at_interval_still_probes() {
     // exactly `interval` ago does NOT skip.
     assert!(!should_skip_probe(Some(INTERVAL), INTERVAL));
 }
+
+#[tokio::test]
+async fn piggyback_stamps_the_real_success_time_not_now() {
+    use pierre_llm::health::LlmHealthState;
+
+    // A real turn succeeded ~10 minutes ago; the periodic tick observes it now
+    // and skips its billed probe. The recorded snapshot must reflect the real
+    // success time, not `now`, or `/health/llm` overstates freshness.
+    let state = LlmHealthState::new();
+    let observed_ago = Duration::from_mins(10);
+    let before = chrono::Utc::now();
+    state
+        .record_healthy_observed("copilot_headless", observed_ago)
+        .await;
+
+    let snap = state.snapshot().await;
+    let checked_at = snap
+        .checked_at
+        .expect("a healthy snapshot carries checked_at");
+    let age_secs = (before - checked_at).num_seconds();
+    assert!(
+        (590..=610).contains(&age_secs),
+        "checked_at must trail now by ~observed_ago (600s), got {age_secs}s"
+    );
+}

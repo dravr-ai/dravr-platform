@@ -9,9 +9,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pierre_mcp_server::routes::messaging::webhooks::{
-    mask_recipient, parse_whatsapp_delivery_statuses,
-};
+use pierre_mcp_server::routes::messaging::webhooks::parse_whatsapp_delivery_statuses;
+use pierre_middleware::redaction::mask_recipient;
 
 #[test]
 fn parses_a_failed_delivery_with_error_code() {
@@ -80,4 +79,13 @@ fn mask_recipient_keeps_only_last_four() {
     assert_eq!(mask_recipient("14502244753"), "*******4753");
     assert_eq!(mask_recipient("123"), "****");
     assert_eq!(mask_recipient(""), "****");
+}
+
+#[test]
+fn mask_recipient_handles_multibyte_without_panicking() {
+    // A recipient id whose 4-chars-from-the-end boundary lands inside a
+    // multibyte UTF-8 character (`é` = 2 bytes) used to panic under the old
+    // byte-index slice ("byte index N is not a char boundary"). Masking now
+    // walks Unicode scalar values, so the last 4 characters survive intact.
+    assert_eq!(mask_recipient("abcé123"), "***é123");
 }

@@ -540,6 +540,20 @@ impl ProviderConnection {
     }
 }
 
+/// Whether any connection for `provider` in `connections` requires the user to
+/// re-authenticate (status `NeedsReauth` or `Revoked`).
+///
+/// The single home for the "does this provider need reconnecting?" scan: the
+/// chat `get_activities` reconnect gate and `AuthService` both call it so the
+/// predicate (which statuses count, via [`ConnectionStatus::requires_reauth`])
+/// and the per-provider match live in one place.
+#[must_use]
+pub fn connection_needs_reauth(connections: &[ProviderConnection], provider: &str) -> bool {
+    connections
+        .iter()
+        .any(|c| c.provider == provider && c.status.requires_reauth())
+}
+
 /// OAuth notification data structure for tracking OAuth flow completion events
 ///
 /// Used to deliver asynchronous notifications to users about OAuth connection
