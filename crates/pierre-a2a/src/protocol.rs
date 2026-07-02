@@ -17,13 +17,12 @@ use crate::{
     A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2AMessage, A2ARequest,
     A2AResponse, MessagePart, A2A_VERSION,
 };
-use dravr_tronc::mcp::tool::ToolContext;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::OAuthAppCredentials;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::A2ACtx;
-use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 // Trait methods dispatched through repos.a2a / repos.oauth_tokens Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Number, Value};
@@ -553,12 +552,6 @@ impl A2AServer {
                 }
             };
 
-        let tool_ctx = ToolContext::new()
-            .with_user(user_id.to_string())
-            .with_tenant(tenant_context.tenant_id.to_string())
-            .with_auth_method(AuthMethod::ApiKey.as_str())
-            .as_admin(tenant_context.is_admin());
-
         let tool_registry = resources.tool_runtime.tool_registry();
         if !tool_registry.contains(tool_name) {
             return Err(Box::new(Self::a2a_error(
@@ -568,17 +561,34 @@ impl A2AServer {
             )));
         }
 
-        let state: Arc<dyn ToolRuntime> = resources.tool_runtime.clone();
-        let response = tool_registry
-            .execute(tool_name, &state, &tool_ctx, tool_params)
-            .await;
+        // Route through the unified executor so A2A tool calls pass the Guardian
+        // chokepoint and resolve admin/tenant context exactly like the MCP and
+        // chat paths. A2A previously called `ToolRegistry::execute` directly,
+        // bypassing both — this folds it onto the single execution path.
+        let executor = UniversalToolExecutor::new(resources.tool_runtime.clone());
+        let request = UniversalRequest {
+            tool_name: tool_name.to_owned(),
+            parameters: tool_params,
+            user_id: user_id.to_string(),
+            protocol: "a2a".to_owned(),
+            tenant_id: Some(tenant_context.tenant_id.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        };
 
-        // The registry returns the wire-shaped `ToolResponse`; tool failures are
-        // reported in-band via `isError` rather than as A2A protocol errors.
-        Ok(json!({
-            "content": response.content,
-            "isError": response.is_error
-        }))
+        // Tool failures are reported in-band via `isError`, not as A2A protocol
+        // errors (preserving the prior contract).
+        match executor.execute_tool(request).await {
+            Ok(response) => Ok(json!({
+                "content": response.result.unwrap_or_else(|| json!({ "error": response.error })),
+                "isError": !response.success,
+            })),
+            Err(e) => Ok(json!({
+                "content": json!({ "error": e.to_string() }),
+                "isError": true,
+            })),
+        }
     }
 
     fn handle_message_stream(request: A2ARequest) -> A2AResponse {

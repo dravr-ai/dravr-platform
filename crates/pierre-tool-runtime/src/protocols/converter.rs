@@ -111,7 +111,10 @@ impl ProtocolConverter {
                     ),
                 }],
                 is_error: true,
-                structured_content: None,
+                // S11: preserve the structured error payload on failure too (it
+                // carries `error_code`, e.g. `guardian_denied`), so MCP/SSE
+                // callers can machine-detect a block instead of only seeing prose.
+                structured_content: response.result,
             }
         }
     }

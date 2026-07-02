@@ -21,12 +21,13 @@
 //! `Arc<dyn ToolRuntime>` handle stored on `ToolExecutionContext::resources`
 //! is just a narrow view of the same shared container.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
+use crate::guardian::{Guardian, GuardianTurns};
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use pierre_auth::tenant::TenantOAuthClient;
@@ -145,6 +146,25 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Tool-selection scoring service.
     fn tool_selection(&self) -> &Arc<ToolSelectionService>;
+
+    /// The process-wide [`Guardian`] (taint/budget/egress policy, loaded from
+    /// `GUARDIAN_*` env once). Default-backed by a `LazyLock` singleton so
+    /// existing `ToolRuntime` impls need no change; a container may override to
+    /// inject a configured policy.
+    fn guardian(&self) -> &Guardian {
+        static GUARDIAN: LazyLock<Guardian> = LazyLock::new(Guardian::from_env);
+        &GUARDIAN
+    }
+
+    /// The process-wide, tenant-scoped per-turn taint/budget store. Shared
+    /// across every dispatch path — including the per-`/mcp`-request executors
+    /// the Copilot-headless loopback builds — so a turn's taint accumulates no
+    /// matter which path serves each tool call.
+    fn guardian_turns(&self) -> &Arc<GuardianTurns> {
+        static TURNS: LazyLock<Arc<GuardianTurns>> =
+            LazyLock::new(|| Arc::new(GuardianTurns::new()));
+        &TURNS
+    }
 
     /// Coaches repository (kept as a method because it returns `&dyn`).
     fn coaches_manager(&self) -> &dyn CoachesRepository;

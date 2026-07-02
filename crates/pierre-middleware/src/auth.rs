@@ -311,6 +311,7 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            session_id: None,
         })
     }
 
@@ -439,6 +440,7 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            session_id: None,
         })
     }
 
@@ -511,6 +513,8 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
+            // JWT `jti` becomes the Guardian turn token for the MCP/headless path.
+            session_id: Some(claims.jti.clone()),
         })
     }
 

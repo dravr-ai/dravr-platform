@@ -63,6 +63,9 @@ impl TenantIsolation {
             tenant_name,
             user_id,
             user_role,
+            // The JWT `jti` is the Guardian turn token (the ACP bridge mints one
+            // token per turn, so all of a turn's native tool calls share it).
+            session_id: Some(claims.jti.clone()),
         })
     }
 
@@ -238,6 +241,7 @@ impl TenantIsolation {
                 user_id: Uuid::nil(), // No user context available from headers
                 tenant_name,
                 user_role: TenantRole::Member, // Default role when user is unknown
+                session_id: None,
             }));
         }
 
@@ -258,6 +262,7 @@ impl TenantIsolation {
             tenant_name,
             user_id,
             user_role,
+            session_id: None,
         })
     }
 
@@ -282,6 +287,7 @@ impl TenantIsolation {
             tenant_name,
             user_id,
             user_role,
+            session_id: None,
         })
     }
 
@@ -545,6 +551,8 @@ pub async fn validate_jwt_token_for_mcp(
         tenant_name,
         user_id,
         user_role,
+        // JWT `jti` as the Guardian turn token for the MCP/headless path.
+        session_id: Some(claims.jti.clone()),
     };
 
     // For now, set a default expiration
@@ -600,6 +608,7 @@ pub async fn extract_tenant_context_internal(
             user_id: verified_user_id,
             tenant_name,
             user_role,
+            session_id: None,
         }));
     }
 
@@ -637,6 +646,7 @@ pub async fn extract_tenant_context_internal(
                         user_id: verified_user_id,
                         tenant_name,
                         user_role,
+                        session_id: None,
                     }));
                 }
             }
@@ -673,6 +683,7 @@ pub async fn extract_tenant_context_internal(
                 tenant_name: default_tenant.name.clone(),
                 user_id,
                 user_role,
+                session_id: None,
             }));
         }
     }

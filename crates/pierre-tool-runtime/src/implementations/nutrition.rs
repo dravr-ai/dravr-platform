@@ -28,6 +28,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -888,7 +889,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
 
 /// Create all nutrition tools for registration
 #[must_use]
-pub fn create_nutrition_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_nutrition_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(CalculateDailyNutritionTool),
         Box::new(GetNutrientTimingTool),
@@ -897,3 +898,12 @@ pub fn create_nutrition_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(AnalyzeMealNutritionTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(SearchFoodTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetFoodDetailsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetNutrientTimingTool => empty);
+crate::declare_security!(AnalyzeMealNutritionTool => empty);
+crate::declare_security!(CalculateDailyNutritionTool => empty);

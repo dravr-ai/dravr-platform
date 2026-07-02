@@ -599,6 +599,7 @@ pub async fn handle_mobile_oauth_init(
         user_id,
         tenant_name,
         user_role: TenantRole::Member,
+        session_id: None,
     };
 
     // Check if the provider supports PKCE for enhanced security

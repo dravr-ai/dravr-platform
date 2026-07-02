@@ -25,9 +25,9 @@ use tracing::{debug, warn};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
 
-use crate::runtime::ToolRuntime;
-use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use crate::security::{RuntimeTool, SecurityLabels};
+use dravr_tronc::mcp::schema::Tool;
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
 
 /// Per-tool schema size measurement
@@ -100,7 +100,7 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
 /// ```
 pub struct ToolRegistry {
     /// Registered tools by name
-    tools: HashMap<String, Arc<dyn McpTool<dyn ToolRuntime>>>,
+    tools: HashMap<String, Arc<dyn RuntimeTool>>,
     /// Tool categories for organization
     categories: HashMap<String, Vec<String>>,
     /// External tool description overlays from contremaitre (hot-reloadable)
@@ -124,7 +124,7 @@ impl ToolRegistry {
     }
 
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
-    fn build_schema(&self, tool: &Arc<dyn McpTool<dyn ToolRuntime>>) -> ToolSchema {
+    fn build_schema(&self, tool: &Arc<dyn RuntimeTool>) -> ToolSchema {
         let def = tool.definition();
         let name = def.name.clone();
         let mut schema = schema_from_definition(def);
@@ -154,7 +154,7 @@ impl ToolRegistry {
     /// # Returns
     ///
     /// `true` if the tool was registered, `false` if a tool with the same name exists
-    pub fn register(&mut self, tool: Arc<dyn McpTool<dyn ToolRuntime>>) -> bool {
+    pub fn register(&mut self, tool: Arc<dyn RuntimeTool>) -> bool {
         let name = tool.definition().name;
 
         if self.tools.contains_key(&name) {
@@ -172,11 +172,7 @@ impl ToolRegistry {
     }
 
     /// Register a tool and categorize it
-    pub fn register_with_category(
-        &mut self,
-        tool: Arc<dyn McpTool<dyn ToolRuntime>>,
-        category: &str,
-    ) {
+    pub fn register_with_category(&mut self, tool: Arc<dyn RuntimeTool>, category: &str) {
         let name = tool.definition().name;
         if self.register(tool) {
             self.categories
@@ -188,8 +184,19 @@ impl ToolRegistry {
 
     /// Get a tool by name
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&Arc<dyn McpTool<dyn ToolRuntime>>> {
+    pub fn get(&self, name: &str) -> Option<&Arc<dyn RuntimeTool>> {
         self.tools.get(name)
+    }
+
+    /// The Guardian security classification a tool declares via
+    /// [`RuntimeTool::security_class`]. `None` for an unknown tool name.
+    ///
+    /// This is how the dispatch-time [`crate::guardian::Guardian`] reads a
+    /// tool's egress/trust labels — the labels live on the tool object itself
+    /// (the registry stores `Arc<dyn RuntimeTool>`), not in any parallel table.
+    #[must_use]
+    pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {
+        self.tools.get(name).map(|tool| tool.security_class())
     }
 
     /// Check if a tool is registered
@@ -404,10 +411,7 @@ impl ToolRegistry {
 
     /// Filter tools by capabilities
     #[must_use]
-    pub fn filter_by_capabilities(
-        &self,
-        required: ToolCapabilities,
-    ) -> Vec<&Arc<dyn McpTool<dyn ToolRuntime>>> {
+    pub fn filter_by_capabilities(&self, required: ToolCapabilities) -> Vec<&Arc<dyn RuntimeTool>> {
         self.tools
             .values()
             .filter(|tool| tool.capabilities().contains(required))
@@ -432,40 +436,6 @@ impl ToolRegistry {
             .filter(|(_, tool)| tool.capabilities().contains(ToolCapabilities::WRITES_DATA))
             .map(|(name, _)| name.as_str())
             .collect()
-    }
-
-    /// Execute a tool by name
-    ///
-    /// This method:
-    /// 1. Looks up the tool in the registry
-    /// 2. Gates `ADMIN_ONLY` tools on the caller's resolved admin flag
-    /// 3. Executes the tool against the shared runtime and per-call context
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Tool name to execute
-    /// * `state` - Shared runtime façade handed to the tool
-    /// * `ctx` - Per-call context (identity/tenant/admin resolved by dispatch)
-    /// * `args` - Tool arguments as JSON
-    ///
-    /// Unknown tools and admin-gate denials are returned as in-band error
-    /// [`ToolResponse`]s (MCP reports tool failures via `isError`).
-    pub async fn execute(
-        &self,
-        name: &str,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: serde_json::Value,
-    ) -> ToolResponse {
-        let Some(tool) = self.get(name) else {
-            return ToolResponse::error(format!("Unknown tool: {name}"));
-        };
-
-        if tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY) && !ctx.is_admin {
-            return ToolResponse::error(format!("Tool '{name}' requires admin privileges"));
-        }
-
-        tool.execute(state, ctx, args).await
     }
 
     /// Calculate the total serialized schema size and estimated token count for all tools.

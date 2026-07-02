@@ -38,6 +38,7 @@ use uuid::Uuid;
 /// Helper function to create an `AuthResult` for testing
 fn create_test_auth_result(user_id: Uuid) -> AuthResult {
     AuthResult {
+        session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "free".to_owned(),

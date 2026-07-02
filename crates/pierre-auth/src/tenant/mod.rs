@@ -45,10 +45,18 @@ pub struct TenantContext {
     pub user_id: Uuid,
     /// User's role within the tenant
     pub user_role: TenantRole,
+    /// Originating session/token id (the JWT `jti`) when this context was built
+    /// from a validated bearer token; `None` otherwise. The Guardian uses it as
+    /// the per-turn token for taint accumulation on the MCP/headless path — the
+    /// ACP bridge mints one token (one `jti`) per chat turn, so every native
+    /// tool call in that turn shares it.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 impl TenantContext {
-    /// Create new tenant context
+    /// Create new tenant context (no session/token id; see
+    /// [`Self::with_session_id`]).
     #[must_use]
     pub const fn new(
         tenant_id: TenantId,
@@ -61,7 +69,16 @@ impl TenantContext {
             tenant_name,
             user_id,
             user_role,
+            session_id: None,
         }
+    }
+
+    /// Attach the originating session/token id (the JWT `jti`) used by the
+    /// Guardian as the turn token for taint accumulation on the MCP path.
+    #[must_use]
+    pub fn with_session_id(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id;
+        self
     }
 
     /// Check if user has admin privileges in this tenant

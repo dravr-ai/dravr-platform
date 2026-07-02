@@ -95,7 +95,12 @@ pub(crate) async fn dispatch_llm_with_tools(
     // can route a completion notice back to the channel that triggered it.
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-            .with_conversation_id(input.conversation_id.clone()),
+            .with_conversation_id(input.conversation_id.clone())
+            // Guardian turn key = the per-utterance turn_id, so taint/budget
+            // accumulate across THIS message's ReAct loop and reset next message
+            // (not across the whole conversation). conversation_id stays above,
+            // for routing detached work back to the thread.
+            .with_turn_token(input.turn_id.0.to_string()),
     );
 
     // Stage 10: Deterministic activity prefetch driven by coach DataRequirements.

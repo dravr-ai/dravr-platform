@@ -28,6 +28,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
@@ -138,6 +139,7 @@ pub async fn mint_oauth_authorize_url(
         user_id,
         tenant_name,
         user_role: TenantRole::Member,
+        session_id: None,
     };
 
     let state = build_oauth_state(user_id, redirect_url);
@@ -665,10 +667,17 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
 
 /// Create all connection tools for registration
 #[must_use]
-pub fn create_connection_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_connection_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(ConnectProviderTool),
         Box::new(GetConnectionStatusTool),
         Box::new(DisconnectProviderTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(DisconnectProviderTool => IRREVERSIBLE);
+crate::declare_security!(ConnectProviderTool => empty);
+crate::declare_security!(GetConnectionStatusTool => empty);

@@ -39,6 +39,7 @@ use pierre_mcp_server::{
 #[cfg(feature = "provider-sciotte")]
 use pierre_routes_auth::init_sciotte_limiter;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
+use pierre_tool_runtime::guardian;
 
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
@@ -311,6 +312,24 @@ fn validate_required_environment() -> Result<()> {
             .join(", ");
         return Err(AppError::config(format!(
             "Missing required environment variables: {missing_names}"
+        )));
+    }
+
+    // Fail the boot on a mis-typed GUARDIAN_* security-posture variable rather
+    // than silently serve traffic under the laxer default (e.g. an operator
+    // arming `GUARDIAN_MODE=enforce` who typed `enfroce` would otherwise run
+    // `observe`). The Guardian is a security control; an unrecognized value is a
+    // configuration error, not something to paper over with a default.
+    let bad_guardian = guardian::validate_env();
+    if !bad_guardian.is_empty() {
+        let detail = bad_guardian
+            .iter()
+            .map(|(name, value)| format!("{name}={value:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(AppError::config(format!(
+            "Unrecognized GUARDIAN_* value(s): {detail}. Check the spelling — a \
+             security-posture typo must not silently revert to the laxer default."
         )));
     }
 

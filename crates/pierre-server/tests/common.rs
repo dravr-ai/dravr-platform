@@ -44,8 +44,7 @@ use pierre_mcp_server::{
     utils,
 };
 use pierre_middleware::McpAuthMiddleware;
-use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::McpTool;
+use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
 #[cfg(feature = "postgresql")]
 use std::thread;
@@ -455,14 +454,14 @@ pub async fn create_test_server_resources_with_llm(
 /// populated value rather than a direct `llm_usage` seed.
 pub async fn create_test_server_resources_with_llm_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
-    extra_tools: Vec<Arc<dyn McpTool<dyn ToolRuntime>>>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
     create_test_server_resources_inner(Some(provider), extra_tools).await
 }
 
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
-    extra_tools: Vec<Arc<dyn McpTool<dyn ToolRuntime>>>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();

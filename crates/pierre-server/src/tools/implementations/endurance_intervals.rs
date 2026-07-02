@@ -25,6 +25,7 @@ use pierre_tool_runtime::conversions::{
     capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
 
 const MAX_ACTIVITIES_PER_FETCH: usize = 200;
@@ -311,10 +312,16 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
 
 /// Build the Endurance intervals/routes tool list for registry registration.
 #[must_use]
-pub fn create_endurance_intervals_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(ExportIntervalsTool),
         Box::new(ExportRoutesTool),
         Box::new(ExtractActivityStreamsTool),
     ]
 }
+
+// Guardian security classifications (see `pierre_tool_runtime::security`). These
+// tools export the caller's own activity intervals/routes — internal, no egress.
+pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty);
+pierre_tool_runtime::declare_security!(ExportRoutesTool => empty);
+pierre_tool_runtime::declare_security!(ExtractActivityStreamsTool => empty);

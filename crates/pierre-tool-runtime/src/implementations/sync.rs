@@ -20,6 +20,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 
@@ -269,7 +270,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
 
 /// Create sync/refresh tools for registration.
 #[must_use]
-pub fn create_sync_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_sync_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(RefreshProviderDataTool),
         Box::new(GetDataFreshnessTool),
@@ -290,3 +291,9 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
         notifier,
     )
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(GetDataFreshnessTool => empty);
+crate::declare_security!(RefreshProviderDataTool => empty);

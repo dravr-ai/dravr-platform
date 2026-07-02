@@ -250,6 +250,7 @@ impl A2AAuthenticator {
                 auth_method: "oauth2".into(),
             },
             active_tenant_id,
+            session_id: None,
         })
     }
 

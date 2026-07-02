@@ -104,6 +104,22 @@ async fn test_registry_builtin_tools_registration() {
     );
 }
 
+/// Every registered tool declares a Guardian security classification. The
+/// `RuntimeTool` supertrait makes this a compile-time guarantee (the registry
+/// stores `Arc<dyn RuntimeTool>`); this asserts the registry accessor surfaces
+/// it for every tool, so a regression is caught loudly rather than silently.
+#[tokio::test]
+async fn test_every_registered_tool_has_security_class() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    for name in registry.tool_names() {
+        assert!(
+            registry.security_class(name).is_some(),
+            "registered tool {name} has no Guardian security_class"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_registry_categories_populated() {
     let mut registry = ToolRegistry::new();
@@ -312,27 +328,22 @@ async fn test_execute_nonexistent_tool() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    // Seed a user so the resources fixture matches the sibling execution tests;
+    // this case only inspects the registry, so the ids are intentionally unused.
+    let _ = create_test_user(&resources.coach.database)
         .await
         .expect("Failed to create test user");
 
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let state = tool_state(&resources);
-    let context = tronc_context(user_id, None, false);
-
-    // Execute a tool that doesn't exist
-    let response = registry
-        .execute("nonexistent_tool_xyz", &state, &context, json!({}))
-        .await;
-
-    assert!(response.is_error, "Should fail for nonexistent tool");
-    let err_msg = response_text(&response);
+    // A tool that doesn't exist does not resolve in the registry; the dispatch
+    // layer (`UniversalExecutor::execute_tool`) returns `ToolNotFound` for it.
     assert!(
-        err_msg.contains("Unknown") || err_msg.contains("nonexistent"),
-        "Error should indicate tool not found: {err_msg}"
+        registry.get("nonexistent_tool_xyz").is_none(),
+        "nonexistent tool should not resolve in the registry"
     );
+    assert!(!registry.contains("nonexistent_tool_xyz"));
 }
 
 #[tokio::test]
@@ -362,7 +373,9 @@ async fn test_execute_admin_tool_as_non_admin_denied() {
 
     // Execute admin-only tool as non-admin
     let response = registry
-        .execute(&admin_tool_name, &state, &context, json!({}))
+        .get(&admin_tool_name)
+        .expect("admin tool registered in registry")
+        .execute(&state, &context, json!({}))
         .await;
 
     assert!(
@@ -406,7 +419,9 @@ async fn test_execute_admin_tool_as_admin_allowed() {
     // Note: The actual tool execution may still fail due to missing arguments,
     // but the admin check should pass
     let response = registry
-        .execute(&admin_tool_name, &state, &context, json!({}))
+        .get(&admin_tool_name)
+        .expect("admin tool registered in registry")
+        .execute(&state, &context, json!({}))
         .await;
 
     // If it errors, it should NOT be a permission error
@@ -661,6 +676,8 @@ async fn test_register_external_tool() {
         }
     }
 
+    pierre_tool_runtime::declare_security!(ExternalTestTool => empty);
+
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ExternalTestTool));
 
@@ -712,6 +729,8 @@ async fn test_external_tool_with_builtin_tools() {
             }
         }
     }
+
+    pierre_tool_runtime::declare_security!(CustomTool => empty);
 
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);

@@ -17,6 +17,7 @@ use pierre_fitness_compute::osm_routes::{DiscoveredRoute, RouteDiscoveryService}
 use crate::capabilities::ToolCapabilities;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
@@ -375,6 +376,11 @@ fn sport_label(sport: &SportType) -> &'static str {
 
 /// Create route-discovery tools for registration.
 #[must_use]
-pub fn create_route_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_route_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![Box::new(DiscoverRoutesTool)]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(DiscoverRoutesTool => UNTRUSTED_OUTPUT);

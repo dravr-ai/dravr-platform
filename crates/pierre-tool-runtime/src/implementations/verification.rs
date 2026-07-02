@@ -29,6 +29,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -223,6 +224,11 @@ const fn matches_status(s: ClaimStatus) -> &'static str {
 
 /// Build the claim-verification tools for registration.
 #[must_use]
-pub fn create_verification_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_verification_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![Box::new(VerifyClaimTool)]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(VerifyClaimTool => UNTRUSTED_OUTPUT);

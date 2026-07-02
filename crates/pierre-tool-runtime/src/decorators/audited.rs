@@ -38,6 +38,7 @@ use serde_json::Value;
 use tracing::{info, instrument};
 
 use crate::runtime::ToolRuntime;
+use crate::security::{RuntimeTool, SecurityLabels};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
@@ -54,7 +55,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 /// The decorator is `Send + Sync` and can be safely shared across async tasks.
 pub struct AuditedTool {
     /// The wrapped tool
-    inner: Arc<dyn McpTool<dyn ToolRuntime>>,
+    inner: Arc<dyn RuntimeTool>,
     /// Whether to log arguments (may contain sensitive data)
     log_arguments: bool,
 }
@@ -62,7 +63,7 @@ pub struct AuditedTool {
 impl AuditedTool {
     /// Create a new audited tool with default settings (no argument logging)
     #[must_use]
-    pub fn new(inner: Arc<dyn McpTool<dyn ToolRuntime>>) -> Self {
+    pub fn new(inner: Arc<dyn RuntimeTool>) -> Self {
         Self {
             inner,
             log_arguments: false,
@@ -76,7 +77,7 @@ impl AuditedTool {
     /// Only enable argument logging if you're sure the arguments don't
     /// contain sensitive data (passwords, tokens, PII, etc.)
     #[must_use]
-    pub const fn with_argument_logging(inner: Arc<dyn McpTool<dyn ToolRuntime>>) -> Self {
+    pub const fn with_argument_logging(inner: Arc<dyn RuntimeTool>) -> Self {
         Self {
             inner,
             log_arguments: true,
@@ -85,7 +86,7 @@ impl AuditedTool {
 
     /// Get a reference to the inner tool
     #[must_use]
-    pub fn inner(&self) -> &Arc<dyn McpTool<dyn ToolRuntime>> {
+    pub fn inner(&self) -> &Arc<dyn RuntimeTool> {
         &self.inner
     }
 
@@ -145,5 +146,13 @@ impl McpTool<dyn ToolRuntime> for AuditedTool {
         );
 
         result
+    }
+}
+
+impl RuntimeTool for AuditedTool {
+    /// The decorator adds no egress surface of its own — its Guardian
+    /// classification is exactly the wrapped tool's.
+    fn security_class(&self) -> SecurityLabels {
+        self.inner.security_class()
     }
 }

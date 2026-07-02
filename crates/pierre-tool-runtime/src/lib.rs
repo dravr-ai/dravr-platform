@@ -71,6 +71,9 @@ pub mod engine;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
+/// The Guardian: dispatch-time taint/budget/egress guard + the absorbed tenant
+/// tool-disable allowlist, interposed at the universal execution chokepoint.
+pub mod guardian;
 pub mod implementations;
 /// Universal protocol envelope (types, executor, auth, format, provider helpers, handlers)
 pub mod protocol;
@@ -78,6 +81,9 @@ pub mod protocol;
 pub mod protocols;
 pub mod registry;
 pub mod runtime;
+/// Guardian security classification: the egress/trust axis every tool declares
+/// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
+pub mod security;
 
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
 ///
@@ -93,6 +99,8 @@ pub use capabilities::ToolCapabilities;
 pub use context::{AuthMethod, ToolExecutionContext};
 pub use decorators::AuditedTool;
 pub use dravr_tronc::mcp::tool::McpTool;
+pub use guardian::Guardian;
 pub use registry::ToolRegistry;
 pub use runtime::ToolRuntime;
+pub use security::{RuntimeTool, SecurityLabels};
 pub use tool_selection::ToolSelectionService;

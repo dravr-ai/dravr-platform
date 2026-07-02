@@ -27,6 +27,7 @@ use pierre_tool_runtime::conversions::{
     capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
 use tracing::warn;
 
@@ -293,9 +294,14 @@ fn threshold_inputs_from_profile(profile: Option<&UserPhysiologicalProfile>) -> 
 
 /// Build the Endurance export tool list for registry registration.
 #[must_use]
-pub fn create_endurance_export_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_endurance_export_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(ExportLatestSnapshotTool),
         Box::new(ExportDossierTool),
     ]
 }
+
+// Guardian security classifications (see `pierre_tool_runtime::security`). These
+// tools read the caller's own training data — internal, reversible, no egress.
+pierre_tool_runtime::declare_security!(ExportLatestSnapshotTool => empty);
+pierre_tool_runtime::declare_security!(ExportDossierTool => empty);

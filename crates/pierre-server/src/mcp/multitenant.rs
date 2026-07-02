@@ -731,13 +731,16 @@ impl ProviderToolRouter {
             &request_id,
         );
 
-        // Execute tool through Universal protocol
+        // Execute tool through Universal protocol. Thread the session token
+        // (JWT `jti`) as the Guardian turn token so taint accumulates across a
+        // headless turn's native tool calls (which share one bridge-minted token).
         Self::execute_and_convert_tool(
             universal_request,
             resources,
             tool_name,
             provider_name,
             request_id,
+            tenant_context.session_id.clone(),
         )
         .await
     }
@@ -820,6 +823,7 @@ impl ProviderToolRouter {
         tool_name: &str,
         provider_name: &str,
         request_id: Value,
+        turn_token: Option<String>,
     ) -> McpResponse {
         // Register cancellation token if present
         if let (Some(progress_token), Some(cancellation_token)) = (
@@ -831,7 +835,13 @@ impl ProviderToolRouter {
                 .await;
         }
 
-        let executor = UniversalToolExecutor::new(resources.clone());
+        // Bind the JWT `jti` as the Guardian turn token so per-turn taint/budget
+        // key on it, even though this `/mcp` executor is built fresh per request
+        // (the headless loopback path — the ACP bridge mints a fresh jti per turn).
+        let executor = turn_token.map_or_else(
+            || UniversalToolExecutor::new(resources.clone()),
+            |token| UniversalToolExecutor::new(resources.clone()).with_turn_token(token),
+        );
 
         let result = executor.execute_tool(universal_request.clone()).await;
 

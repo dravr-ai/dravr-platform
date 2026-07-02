@@ -28,6 +28,9 @@ pub mod acronym_expansion;
 pub mod auth_recovery;
 pub mod compaction;
 pub mod followups;
+/// Guardian-denied recovery: short-circuit a turn with a localized "blocked
+/// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
+pub mod guardian_denied;
 pub mod guardrails;
 pub mod memory;
 pub mod onboarding;

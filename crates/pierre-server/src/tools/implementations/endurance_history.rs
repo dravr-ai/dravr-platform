@@ -26,6 +26,7 @@ use pierre_tool_runtime::conversions::{
     capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
 
 fn read_only_annotations() -> ToolAnnotations {
@@ -226,9 +227,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
 
 /// Build the Endurance training-history tool list for registry registration.
 #[must_use]
-pub fn create_endurance_history_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_endurance_history_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(ComputeTrainingHistoryTool),
         Box::new(GetTrainingHistoryTool),
     ]
 }
+
+// Guardian security classifications (see `pierre_tool_runtime::security`). These
+// tools read/compute the caller's own training history — internal, no egress.
+pierre_tool_runtime::declare_security!(ComputeTrainingHistoryTool => empty);
+pierre_tool_runtime::declare_security!(GetTrainingHistoryTool => empty);

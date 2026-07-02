@@ -25,6 +25,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
@@ -913,7 +914,7 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
 
 /// Create all configuration tools for registration.
 #[must_use]
-pub fn create_configuration_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_configuration_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(GetConfigurationCatalogTool),
         Box::new(GetConfigurationProfilesTool),
@@ -923,3 +924,13 @@ pub fn create_configuration_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(ValidateConfigurationTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(CalculatePersonalizedZonesTool => empty);
+crate::declare_security!(GetConfigurationCatalogTool => empty);
+crate::declare_security!(GetConfigurationProfilesTool => empty);
+crate::declare_security!(GetUserConfigurationTool => empty);
+crate::declare_security!(UpdateUserConfigurationTool => empty);
+crate::declare_security!(ValidateConfigurationTool => empty);

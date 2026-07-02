@@ -200,6 +200,7 @@ impl AuthService {
             tenant_name: tenant.name.clone(), // Safe: String ownership needed for tenant context
             user_id,
             user_role: TenantRole::Member,
+            session_id: None,
         };
 
         // Get tenant-specific OAuth credentials - result is unused but initializes context

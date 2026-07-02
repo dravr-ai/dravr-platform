@@ -5,13 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
-use crate::context::{AuthMethod, CONVERSATION_ID};
+use crate::context::{AuthMethod, CONVERSATION_ID, GUARDIAN_TURN_TOKEN};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
+use crate::guardian::{self, Decision, DenyReason, TurnKey};
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
-use dravr_tronc::mcp::tool::ToolContext;
+use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -23,7 +24,9 @@ use pierre_intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
 use pierre_intelligence::IntelligenceConfig;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Intelligence service interface for analysis operations
@@ -141,6 +144,14 @@ pub struct UniversalExecutor {
     /// [`crate::context::ToolExecutionContext::from_tronc`] can recover it
     /// without extending the third-party tronc `ToolContext`.
     conversation_id: Option<String>,
+    /// Per-**utterance** token used solely as the Guardian's turn key so taint
+    /// and per-turn budgets accumulate over one user message's `ReAct` loop and
+    /// reset on the next. Distinct from `conversation_id` (the persistent thread
+    /// used for routing): the chat pipeline sets this to `TurnInput.turn_id`, the
+    /// headless loopback to the per-turn ACP `jti`. `None` (MCP-direct / A2A)
+    /// falls back to a per-call nonce, so those independent calls accumulate
+    /// nothing — see [`crate::guardian::TurnKey`].
+    turn_token: Option<String>,
 }
 
 impl UniversalExecutor {
@@ -155,7 +166,22 @@ impl UniversalExecutor {
             intelligence_service,
             resources,
             conversation_id: None,
+            // Inherit the caller's turn token when this executor is built inside
+            // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
+            // taints the SAME turn as its caller. Absent outside any tool scope
+            // (top-level executors set their token explicitly via
+            // `with_turn_token`).
+            turn_token: GUARDIAN_TURN_TOKEN.try_with(Clone::clone).ok().flatten(),
         }
+    }
+
+    /// Bind the per-utterance Guardian turn token (chat: `TurnInput.turn_id`;
+    /// headless loopback: the per-turn ACP `jti`). Keeps taint/budget scoped to
+    /// one user message rather than the whole conversation. See the field docs.
+    #[must_use]
+    pub fn with_turn_token(mut self, turn_token: String) -> Self {
+        self.turn_token = Some(turn_token);
+        self
     }
 
     /// Bind the originating Pierre conversation id for the turn this executor
@@ -178,6 +204,53 @@ impl UniversalExecutor {
     #[must_use]
     pub fn cageux_config(&self) -> Arc<IntelligenceConfig<true>> {
         self.resources.cageux_config_registry().current()
+    }
+
+    /// Pre-dispatch authorization refusals shared by every transport: the
+    /// always-on tenant tool-disable (S3, fail-closed on a genuine lookup error)
+    /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
+    /// to block in-band (a refusal the LLM adapts to — NOT a security block that
+    /// abandons the turn), or `None` to proceed to the Guardian taint/budget check.
+    async fn authorization_refusal(
+        &self,
+        tool_name: &str,
+        tenant_uuid: Option<Uuid>,
+        is_admin: bool,
+        admin_only: bool,
+    ) -> Option<UniversalResponse> {
+        // Tenant tool-disable (absorbed `enforce_tool_allowlist`): a tenant's
+        // explicit config, enforced on every transport. Disabling a tool is
+        // config, not a security incident — return the graceful in-band nudge the
+        // old chat-only allowlist gave, so the turn is not abandoned.
+        if let Some(tenant) = tenant_uuid {
+            if !guardian::tenant_tool_enabled(
+                &self.resources,
+                TenantId::from_uuid(tenant),
+                tool_name,
+            )
+            .await
+            {
+                info!(
+                    tool_name = %tool_name,
+                    reason = "tenant_disabled",
+                    "tool disabled for tenant — returning in-band refusal"
+                );
+                return Some(tenant_disabled_response(tool_name));
+            }
+        }
+
+        // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
+        // inline `require_admin_access` must not be silently reachable via
+        // MCP-direct / A2A. Deny by default on an admin-lookup failure.
+        if admin_only && !is_admin {
+            warn!(
+                tool_name = %tool_name,
+                "admin-only tool denied for non-admin caller at the dispatch chokepoint"
+            );
+            return Some(admin_required_response(tool_name));
+        }
+
+        None
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.
@@ -208,19 +281,101 @@ impl UniversalExecutor {
                 available_count: self.resources.tool_registry().tool_names().len(),
             })?;
 
-        let ctx = build_tool_context(&self.resources, &request).await?;
+        let (ctx, is_admin) = build_tool_context(&self.resources, &request).await?;
         let args = request.parameters;
         let tool_name = request.tool_name;
+
+        // ── Guardian: dispatch-time taint/budget/egress + tenant allowlist ──
+        // Every transport funnels through here, so this single check covers the
+        // chat ReAct loop, MCP-direct, A2A, and the per-request Copilot-headless
+        // `/mcp` executors with no bypass.
+        let labels = tool.security_class();
+        let writes_data = tool.capabilities().contains(ToolCapabilities::WRITES_DATA);
+        let tenant_uuid = request
+            .tenant_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok());
+        // Pre-dispatch authorization refusals — the always-on tenant tool-disable
+        // (S3) and the ADMIN_ONLY defense-in-depth gate (S2). Both return an
+        // in-band refusal the LLM adapts to, not a security block. Extracted to a
+        // helper to keep this dispatch fn within the cognitive-complexity budget.
+        let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
+        if let Some(refusal) = self
+            .authorization_refusal(&tool_name, tenant_uuid, is_admin, admin_only)
+            .await
+        {
+            return Ok(refusal);
+        }
+
+        // Turn token: the per-utterance `turn_id` (chat) or per-turn ACP `jti`
+        // (headless loopback), so taint + budgets accumulate across ONE user
+        // message's tool calls and reset on the next — NOT across the whole
+        // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
+        // each its own bucket (no cross-call accumulation — correct).
+        let resolved_turn_token = self
+            .turn_token
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let turn_key = TurnKey::new(tenant_uuid, resolved_turn_token.clone());
+
+        // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
+        // decide + budget-reserve run atomically under one store lock so
+        // concurrent same-turn dispatch (headless loopback / A2A pipelining
+        // sharing one turn token) cannot both read a pre-state and both pass a
+        // cap (the E2 TOCTOU fix).
+        let guardian = self.resources.guardian();
+        let mode_blocks = guardian.mode().blocks();
+        let (decision, reserved) = self.resources.guardian_turns().decide_and_reserve(
+            &turn_key,
+            &tool_name,
+            labels,
+            writes_data,
+            |turn_state| guardian.decide(labels, writes_data, tenant_uuid, turn_state),
+            // Reserve budget when the call WILL run: on an allow, and on a
+            // would-deny in a non-blocking mode (observe/off executes anyway).
+            |decision| matches!(decision, Decision::Allow) || !mode_blocks,
+        );
+        if let Some(reason) = decision.denied() {
+            warn!(
+                tool_name = %tool_name,
+                reason = reason.as_str(),
+                mode = guardian.mode().as_str(),
+                "guardian flagged tool dispatch"
+            );
+            if mode_blocks {
+                // Blocked before execution: nothing ran, nothing was reserved.
+                return Ok(guardian_denied_response(&tool_name, reason));
+            }
+        }
 
         // Scope the originating conversation id into the task-local for the
         // duration of the tool body so `ToolExecutionContext::from_tronc` can
         // recover it — the tronc `ToolContext` has no field to carry it through.
+        // Scope BOTH the conversation id (for detached-work correlation) and the
+        // Guardian turn token (so nested tool dispatch inherits this turn's key —
+        // #6) around the tool body.
         let response = CONVERSATION_ID
             .scope(
                 self.conversation_id.clone(),
-                tool.execute(&self.resources, &ctx, args),
+                GUARDIAN_TURN_TOKEN.scope(
+                    Some(resolved_turn_token.clone()),
+                    tool.execute(&self.resources, &ctx, args),
+                ),
             )
             .await;
+
+        // Guardian POST. Taint was folded atomically with the dispatch decision
+        // in `decide_and_reserve` above (before the body ran), so it is already
+        // recorded here on success OR error — a failed `UNTRUSTED_OUTPUT` tool
+        // still surfaced its content to the LLM (the S1 error-path escape) and
+        // stays tainted. The budget was reserved pre-execution; refund it if the
+        // call failed so only *successful* consequential actions consume budget
+        // (taint is intentionally NOT refunded).
+        if response.is_error && reserved {
+            self.resources
+                .guardian_turns()
+                .refund(&turn_key, labels, writes_data);
+        }
 
         if response.is_error {
             // Preserve the provider-auth short-circuit across the tronc
@@ -253,6 +408,71 @@ impl UniversalExecutor {
     }
 }
 
+/// Build the in-band response for a Guardian-denied tool call.
+///
+/// Shaped exactly like a tool's own `is_error` response so the LLM observes a
+/// refusal it can adapt to — it is deliberately **not** re-raised as a
+/// `ProtocolError`. The chat render layer keys on
+/// `result.error_code == "guardian_denied"` to localize the user-facing message.
+fn guardian_denied_response(tool_name: &str, reason: DenyReason) -> UniversalResponse {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "blocked_reason".to_owned(),
+        serde_json::Value::String("guardian".to_owned()),
+    );
+    metadata.insert(
+        "guardian_reason".to_owned(),
+        serde_json::Value::String(reason.as_str().to_owned()),
+    );
+    UniversalResponse {
+        success: false,
+        result: Some(serde_json::json!({
+            "error_code": "guardian_denied",
+            "reason": reason.as_str(),
+        })),
+        error: Some(format!("Tool '{tool_name}' was blocked by security policy")),
+        metadata: Some(metadata),
+    }
+}
+
+/// In-band refusal for an `ADMIN_ONLY` tool invoked by a non-admin caller (the
+/// S2 chokepoint defense-in-depth gate). `success: false` with a clear message;
+/// no guardian metadata — it is an authorization refusal, not a taint block.
+fn admin_required_response(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(serde_json::json!({
+            "error_code": "admin_required",
+            "reason": "not_admin",
+        })),
+        error: Some(format!(
+            "Tool '{tool_name}' requires administrator privileges."
+        )),
+        metadata: None,
+    }
+}
+
+/// Build the in-band refusal for a tool a tenant has disabled by configuration.
+///
+/// Unlike [`guardian_denied_response`], this carries **no** `blocked_reason`
+/// guardian metadata and a distinct `error_code`, so the chat pipeline treats it
+/// as an ordinary tool refusal the LLM adapts to (pick another tool, answer from
+/// memory) rather than a "blocked for safety" security incident that abandons
+/// the turn. A tenant disabling a tool is config, not a security event.
+fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(serde_json::json!({
+            "error_code": "tool_disabled",
+            "reason": "tenant_disabled",
+        })),
+        error: Some(format!(
+            "Tool '{tool_name}' is disabled for this tenant. Choose a different tool or answer from what you already know."
+        )),
+        metadata: None,
+    }
+}
+
 /// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
 /// [`UniversalRequest`].
 ///
@@ -276,7 +496,7 @@ impl UniversalExecutor {
 async fn build_tool_context(
     resources: &Arc<dyn ToolRuntime>,
     request: &UniversalRequest,
-) -> Result<ToolContext, ProtocolError> {
+) -> Result<(ToolContext, bool), ProtocolError> {
     let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
     let is_admin = resources
@@ -299,7 +519,7 @@ async fn build_tool_context(
         ctx = ctx.with_tenant(TenantId::from_uuid(uuid).to_string());
     }
 
-    Ok(ctx)
+    Ok((ctx, is_admin))
 }
 
 /// Detect the provider-auth sentinel a tool body encodes in `structured_content`

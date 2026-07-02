@@ -31,6 +31,8 @@ use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::runtime::ToolRuntime;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
@@ -167,7 +169,9 @@ impl ToolHandlers {
                 )
                 .await
                 {
-                    Ok(Some(ctx)) => ctx,
+                    // Carry the JWT `jti` as the Guardian turn token so headless
+                    // `/mcp` tool calls in one chat turn share a taint bucket.
+                    Ok(Some(ctx)) => ctx.with_session_id(auth_result.session_id.clone()),
                     Ok(None) => {
                         // User has no tenant membership - cannot execute tools
                         warn!(
@@ -1027,8 +1031,20 @@ impl ToolHandlers {
         user_id: Uuid,
         ctx: &ToolRoutingContext<'_>,
     ) -> McpResponse {
-        // Handle OAuth connection tools specially - they have complex flow requirements
-        // that don't fit the standard McpTool pattern
+        // Handle OAuth connection tools specially — they have complex flow
+        // requirements (minting hosted-login / provider-authorize URLs, MCP
+        // request-id shaping) that don't fit the standard McpTool pattern.
+        //
+        // S4 CARVE-OUT: this is the ONE registered-tool path that bypasses
+        // `UniversalExecutor::execute_tool`, so `disconnect_provider`'s
+        // `IRREVERSIBLE` Guardian label does not fire here. connect/get_status are
+        // non-destructive (safe to bypass); disconnect_provider IS destructive,
+        // and its carve-out handler (`route_disconnect_tool` → provider_registry +
+        // coach DB) does MORE than the registry `DisconnectProviderTool`
+        // (plain `delete_token`), so it cannot simply fall through to the
+        // chokepoint without a behaviour change. Closing this gap needs a design
+        // decision (canonicalize disconnect on the registry tool, or gate the
+        // carve-out inline) — see the guardians-review #1 follow-up.
         match tool_name {
             CONNECT_PROVIDER => {
                 return Self::handle_connect_provider(args, request_id);
@@ -1044,19 +1060,64 @@ impl ToolHandlers {
 
         // Try the registry first for all other tools
         if ctx.resources.mcp.tool_registry.contains(tool_name) {
-            let state: Arc<dyn ToolRuntime> = ctx.resources.clone();
-
-            let response = ctx
-                .resources
-                .mcp
-                .tool_registry
-                .execute(tool_name, &state, ctx.tool_context, args.clone())
-                .await;
-
+            // Route through the unified executor so every registry tool call
+            // passes the Guardian chokepoint and resolves identity/admin/tenant
+            // consistently via `build_tool_context`. (Previously this called
+            // `ToolRegistry::execute` directly, bypassing the executor.)
+            let executor = ctx.tenant_context.session_id.clone().map_or_else(
+                || UniversalToolExecutor::new(ctx.resources.clone()),
+                |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),
+            );
+            let request = UniversalRequest {
+                tool_name: tool_name.to_owned(),
+                parameters: args.clone(),
+                user_id: user_id.to_string(),
+                protocol: "mcp".to_owned(),
+                tenant_id: Some(ctx.tenant_context.tenant_id.to_string()),
+                progress_token: None,
+                cancellation_token: None,
+                progress_reporter: None,
+            };
+            let response = match executor.execute_tool(request).await {
+                Ok(universal) => ProtocolConverter::universal_to_mcp(universal),
+                Err(e) => {
+                    // Preserve the machine-detectable reconnect trigger for MCP
+                    // clients: a raised ProviderAuthRequired carries a structured
+                    // error_code + provider so the client can reconnect, instead
+                    // of the flattened prose the caller would otherwise get.
+                    if let Some(provider) = e.provider_auth_required_provider() {
+                        return Self::provider_auth_required_mcp(provider, request_id);
+                    }
+                    ToolResponse::error(format!("Tool execution failed: {e}"))
+                }
+            };
             Self::tool_response_to_mcp_response(&response, request_id)
         } else {
             // Fall back to provider tool routing for tools not in the registry
             ProviderToolRouter::route_provider_tool(tool_name, args, request_id, user_id, ctx).await
+        }
+    }
+
+    /// Build a structured MCP error for a raised `ProviderAuthRequired`.
+    ///
+    /// Preserves the machine-detectable `error_code` + `provider` in `data` so an
+    /// MCP client can trigger a reconnect rather than string-parse a prose
+    /// failure — the structured signal the pre-guardian in-band path carried.
+    fn provider_auth_required_mcp(provider: &str, request_id: Value) -> McpResponse {
+        McpResponse {
+            jsonrpc: JSONRPC_VERSION.to_owned(),
+            result: None,
+            error: Some(McpError {
+                code: ERROR_INTERNAL_ERROR,
+                message: format!(
+                    "Provider authentication required for '{provider}'. Reconnect the provider and retry."
+                ),
+                data: Some(json!({
+                    "error_code": "provider_auth_required",
+                    "provider": provider,
+                })),
+            }),
+            id: Some(request_id),
         }
     }
 

@@ -51,6 +51,7 @@ use crate::implementations::handler_bridge;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::activity_detail_threshold;
@@ -1696,7 +1697,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
 
 /// Create all data access tools for registration
 #[must_use]
-pub fn create_data_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(GetActivitiesTool),
         Box::new(GetAthleteTool),
@@ -1707,3 +1708,20 @@ pub fn create_data_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(ListDataSourcesTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetAthleteTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetStatsTool => empty);
+// Provider-synced health records: same third-party-scrape provenance as
+// GetActivities/GetAthlete above (Whoop/Garmin/Fitbit/Terra), carrying
+// provider-controlled free-text fields (device/source names, data_source_id —
+// cf. the garmin data_source_id blob leak). A taint SOURCE, so a later
+// consequential sink in the same turn is gated.
+crate::declare_security!(GetSleepSessionsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetRecoveryMetricsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetHealthSnapshotsTool => UNTRUSTED_OUTPUT);
+// Surfaces provider/source names synced from third parties as free text.
+crate::declare_security!(ListDataSourcesTool => UNTRUSTED_OUTPUT);
