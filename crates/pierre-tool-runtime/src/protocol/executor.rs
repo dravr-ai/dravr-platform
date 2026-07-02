@@ -217,7 +217,7 @@ impl UniversalExecutor {
         tenant_uuid: Option<Uuid>,
         is_admin: bool,
         admin_only: bool,
-    ) -> Option<UniversalResponse> {
+    ) -> Result<Option<UniversalResponse>, ProtocolError> {
         // Tenant tool-disable (absorbed `enforce_tool_allowlist`): a tenant's
         // explicit config, enforced on every transport. Disabling a tool is
         // config, not a security incident — return the graceful in-band nudge the
@@ -235,22 +235,28 @@ impl UniversalExecutor {
                     reason = "tenant_disabled",
                     "tool disabled for tenant — returning in-band refusal"
                 );
-                return Some(tenant_disabled_response(tool_name));
+                return Ok(Some(tenant_disabled_response(tool_name)));
             }
         }
 
         // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
         // inline `require_admin_access` must not be silently reachable via
-        // MCP-direct / A2A. Deny by default on an admin-lookup failure.
+        // MCP-direct / A2A. Reject with the SAME `ProtocolError` the tool's own
+        // `require_admin_access` raises ("Permission denied: Admin access
+        // required", mapped to `InvalidParameters`), so every transport and every
+        // admin-tool test sees one consistent authz shape — not a divergent
+        // in-band response. Denies by default when the admin lookup failed.
         if admin_only && !is_admin {
             warn!(
                 tool_name = %tool_name,
                 "admin-only tool denied for non-admin caller at the dispatch chokepoint"
             );
-            return Some(admin_required_response(tool_name));
+            return Err(ProtocolError::InvalidParameters(format!(
+                "Permission denied: Admin access required for '{tool_name}'"
+            )));
         }
 
-        None
+        Ok(None)
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.
@@ -296,13 +302,14 @@ impl UniversalExecutor {
             .as_deref()
             .and_then(|raw| Uuid::parse_str(raw).ok());
         // Pre-dispatch authorization refusals — the always-on tenant tool-disable
-        // (S3) and the ADMIN_ONLY defense-in-depth gate (S2). Both return an
-        // in-band refusal the LLM adapts to, not a security block. Extracted to a
-        // helper to keep this dispatch fn within the cognitive-complexity budget.
+        // (S3, an in-band nudge the LLM adapts to) and the ADMIN_ONLY
+        // defense-in-depth gate (S2, a propagated `ProtocolError` matching the
+        // tool's own `require_admin_access`). Extracted to a helper to keep this
+        // dispatch fn within the cognitive-complexity budget.
         let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
         if let Some(refusal) = self
             .authorization_refusal(&tool_name, tenant_uuid, is_admin, admin_only)
-            .await
+            .await?
         {
             return Ok(refusal);
         }
@@ -432,23 +439,6 @@ fn guardian_denied_response(tool_name: &str, reason: DenyReason) -> UniversalRes
         })),
         error: Some(format!("Tool '{tool_name}' was blocked by security policy")),
         metadata: Some(metadata),
-    }
-}
-
-/// In-band refusal for an `ADMIN_ONLY` tool invoked by a non-admin caller (the
-/// S2 chokepoint defense-in-depth gate). `success: false` with a clear message;
-/// no guardian metadata — it is an authorization refusal, not a taint block.
-fn admin_required_response(tool_name: &str) -> UniversalResponse {
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": "admin_required",
-            "reason": "not_admin",
-        })),
-        error: Some(format!(
-            "Tool '{tool_name}' requires administrator privileges."
-        )),
-        metadata: None,
     }
 }
 
