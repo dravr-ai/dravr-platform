@@ -30,7 +30,7 @@ pub struct SyncCursorRow {
     /// Provider-specific cursor token for pagination
     pub cursor_value: Option<String>,
     /// When the last sync completed. `DateTime` so the PG backend binds a
-    /// native TIMESTAMPTZ (a TEXT bind is rejected); SQLite stores RFC 3339 TEXT
+    /// native TIMESTAMPTZ (a TEXT bind is rejected); `SQLite` stores RFC 3339 TEXT
     /// via sqlx's chrono encoding.
     pub last_sync_at: Option<DateTime<Utc>>,
     /// Current sync status (pending, completed, failed)
