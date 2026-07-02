@@ -141,6 +141,17 @@ describe('Dashboard Component', () => {
     expect(screen.getAllByText('Coaches').length).toBeGreaterThan(0);
   });
 
+  it('should not expose personal provider surfaces to admins (pure-operator model)', async () => {
+    await act(async () => {
+      renderDashboard();
+    });
+
+    // Admins are platform operators: Data Providers (personal provider
+    // connections) must never appear in the admin sidebar — it mirrors
+    // ADMIN_HIDDEN_TABS in UserSettings.
+    expect(screen.queryByText('Data Providers')).not.toBeInTheDocument();
+  });
+
   it('should show user information', async () => {
     await act(async () => {
       renderDashboard();
