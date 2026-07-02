@@ -373,7 +373,7 @@ impl StravaProvider {
             provider: oauth_providers::STRAVA.to_owned(),
             status_code: status.as_u16(),
             message: format!("Strava API request failed with status {status}"),
-            retryable: false,
+            retryable: status.as_u16() >= 500,
         };
         AppError::external_service("Strava", err.to_string())
     }

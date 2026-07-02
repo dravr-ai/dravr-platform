@@ -174,7 +174,7 @@ fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppError {
         provider: provider_name.to_owned(),
         status_code: status.as_u16(),
         message: format!("{provider_name} API request failed with status {status}"),
-        retryable: false,
+        retryable: status.as_u16() >= 500,
     };
     AppError::external_service(provider_name, err.to_string())
 }
