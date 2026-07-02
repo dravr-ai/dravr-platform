@@ -351,6 +351,8 @@ mod audited_tool_tests {
         }
     }
 
+    pierre_tool_runtime::declare_security!(AdminStubTool => empty);
+
     #[test]
     fn test_audited_tool_creation() {
         let inner = Arc::new(AdminStubTool);
@@ -382,3 +384,5 @@ mod audited_tool_tests {
         assert!(caps.contains(TroncCapabilities::REQUIRES_AUTH));
     }
 }
+
+pierre_tool_runtime::declare_security!(StubTool => empty);

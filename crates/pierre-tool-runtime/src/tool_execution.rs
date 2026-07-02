@@ -25,6 +25,7 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
+use crate::guardian::StepOutput;
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::registry::ToolRegistry;
@@ -167,6 +168,24 @@ pub struct ToolLoopParams<'a> {
     pub mcp_servers: Vec<McpServerConfig>,
 }
 
+/// A tool blocked by the runtime Guardian while in `enforce` mode.
+///
+/// Surfaced out of the tool loop as an out-of-band signal (parallel to
+/// `pending_provider_auth_required`) so the chat pipeline can render a
+/// deterministic, localized "blocked for safety" reply instead of feeding the
+/// raw in-band denial back to the LLM and letting it paraphrase a refusal.
+/// Only ever set in `enforce` mode — `observe` (the default) logs and falls
+/// through to execution, so this stays `None`.
+#[derive(Debug, Clone)]
+pub struct GuardianDenial {
+    /// Name of the tool the Guardian blocked.
+    pub tool_name: String,
+    /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
+    /// `budget_exceeded`, `tainted_sink`, `egress_forbidden`. Used for
+    /// structured logging — never shown verbatim to the user.
+    pub reason: String,
+}
+
 /// Result of running the multi-turn tool execution loop
 pub struct ToolLoopResult {
     /// Final text content from LLM
@@ -189,6 +208,11 @@ pub struct ToolLoopResult {
     /// (containing a minted hosted-login URL) instead of letting the LLM
     /// rephrase a generic refusal.
     pub pending_provider_auth_required: Option<String>,
+    /// The first tool the runtime Guardian blocked this turn (`enforce` mode
+    /// only). The chat pipeline detects this and short-circuits with a
+    /// localized "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None`
+    /// when no tool was denied (always, in `observe`).
+    pub guardian_denied: Option<GuardianDenial>,
 }
 
 // ============================================================================
@@ -336,6 +360,7 @@ pub async fn run_api_tool_loop(
                 let ExecutedFunctionCalls {
                     responses: function_responses,
                     auth_required_provider,
+                    guardian_denied,
                 } = execute_function_calls(
                     &params.executor,
                     function_calls,
@@ -366,6 +391,24 @@ pub async fn run_api_tool_loop(
                         tool_calls_count,
                         tools_called,
                         pending_provider_auth_required: Some(provider),
+                        guardian_denied: None,
+                    });
+                }
+
+                // Guardian-denied short-circuit (enforce mode): a consequential
+                // tool was blocked at the chokepoint. Exit immediately so the
+                // chat pipeline renders a deterministic "blocked for safety"
+                // reply instead of feeding the in-band denial back to the LLM.
+                if let Some(denial) = guardian_denied {
+                    return Ok(ToolLoopResult {
+                        content: String::new(),
+                        usage: Some(cumulative_usage),
+                        finish_reason: Some("guardian_denied".to_owned()),
+                        activity_list: captured_activity_list,
+                        tool_calls_count,
+                        tools_called,
+                        pending_provider_auth_required: None,
+                        guardian_denied: Some(denial),
                     });
                 }
 
@@ -425,6 +468,7 @@ pub async fn run_api_tool_loop(
             let ExecutedFunctionCalls {
                 responses: function_responses,
                 auth_required_provider,
+                guardian_denied,
             } = execute_function_calls(
                 &params.executor,
                 &text_tool_calls,
@@ -446,6 +490,19 @@ pub async fn run_api_tool_loop(
                     tool_calls_count,
                     tools_called,
                     pending_provider_auth_required: Some(provider),
+                    guardian_denied: None,
+                });
+            }
+            if let Some(denial) = guardian_denied {
+                return Ok(ToolLoopResult {
+                    content: String::new(),
+                    usage: Some(cumulative_usage),
+                    finish_reason: Some("guardian_denied".to_owned()),
+                    activity_list: captured_activity_list,
+                    tool_calls_count,
+                    tools_called,
+                    pending_provider_auth_required: None,
+                    guardian_denied: Some(denial),
                 });
             }
             let assistant_round_text =
@@ -486,6 +543,7 @@ pub async fn run_api_tool_loop(
             tool_calls_count,
             tools_called,
             pending_provider_auth_required: None,
+            guardian_denied: None,
         });
     }
 
@@ -503,6 +561,7 @@ pub async fn run_api_tool_loop(
         tool_calls_count,
         tools_called,
         pending_provider_auth_required: None,
+        guardian_denied: None,
     })
 }
 
@@ -664,6 +723,7 @@ pub async fn run_cli_tool_loop(
                 tool_calls_count,
                 tools_called,
                 pending_provider_auth_required: None,
+                guardian_denied: None,
             });
         }
 
@@ -680,6 +740,7 @@ pub async fn run_cli_tool_loop(
         let ExecutedFunctionCalls {
             responses: function_responses,
             auth_required_provider,
+            guardian_denied,
         } = execute_function_calls(
             &params.executor,
             &parsed_tool_calls,
@@ -706,6 +767,23 @@ pub async fn run_cli_tool_loop(
                 tool_calls_count,
                 tools_called,
                 pending_provider_auth_required: Some(provider),
+                guardian_denied: None,
+            });
+        }
+
+        // Guardian-denied short-circuit (mirror of the API loop): a blocked
+        // consequential tool exits the turn so the chat pipeline renders the
+        // deterministic "blocked for safety" reply.
+        if let Some(denial) = guardian_denied {
+            return Ok(ToolLoopResult {
+                content: String::new(),
+                usage: response.usage,
+                finish_reason: Some("guardian_denied".to_owned()),
+                activity_list: captured_activity_list,
+                tool_calls_count,
+                tools_called,
+                pending_provider_auth_required: None,
+                guardian_denied: Some(denial),
             });
         }
 
@@ -747,6 +825,7 @@ pub async fn run_cli_tool_loop(
         tool_calls_count,
         tools_called,
         pending_provider_auth_required: None,
+        guardian_denied: None,
     })
 }
 
@@ -1030,6 +1109,7 @@ pub async fn execute_function_calls(
 ) -> Result<ExecutedFunctionCalls, AppError> {
     let mut responses = Vec::with_capacity(function_calls.len());
     let mut auth_required_provider: Option<String> = None;
+    let mut guardian_denied: Option<GuardianDenial> = None;
     for function_call in function_calls {
         info!(
             tool_name = %function_call.name,
@@ -1052,6 +1132,36 @@ pub async fn execute_function_calls(
             }
         }
 
+        // Capture the first Guardian denial (enforce mode) before
+        // `build_function_response` reshapes the payload. Key on the
+        // operator-stamped `metadata.blocked_reason == "guardian"` (set ONLY by
+        // the chokepoint's `guardian_denied_response`, never emittable by a tool
+        // body) AND require `!success` — NOT the tool-controllable
+        // `result.error_code`, so attacker-influenced tool output carrying
+        // `{"error_code":"guardian_denied"}` cannot spuriously abort the turn
+        // (S12: data-plane must not drive the control-plane). First to trip wins.
+        if guardian_denied.is_none() && !tool_response.success {
+            let blocked_by_guardian = tool_response
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("blocked_reason"))
+                .and_then(serde_json::Value::as_str)
+                == Some("guardian");
+            if blocked_by_guardian {
+                let reason = tool_response
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("guardian_reason"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("denied")
+                    .to_owned();
+                guardian_denied = Some(GuardianDenial {
+                    tool_name: function_call.name.clone(),
+                    reason,
+                });
+            }
+        }
+
         let func_response = build_function_response(function_call, &tool_response);
 
         // notify: visibility on every tool dispatch. Operational tier — the
@@ -1071,10 +1181,18 @@ pub async fn execute_function_calls(
         log_tool_response_size(&func_response);
 
         responses.push(func_response);
+
+        // P4: once the Guardian denies a tool in this batch, stop — do not
+        // execute the remaining siblings (they would commit side effects while
+        // the user is shown a "blocked" reply). The turn short-circuits anyway.
+        if guardian_denied.is_some() {
+            break;
+        }
     }
     Ok(ExecutedFunctionCalls {
         responses,
         auth_required_provider,
+        guardian_denied,
     })
 }
 
@@ -1110,6 +1228,12 @@ pub struct ExecutedFunctionCalls {
     /// or `None` if every call landed cleanly. The tool loop short-circuits
     /// on `Some(_)` and the chat pipeline mints a hosted-login URL.
     pub auth_required_provider: Option<String>,
+    /// The first tool the runtime Guardian blocked in `enforce` mode, or
+    /// `None` if no call was denied. The tool loop short-circuits on `Some(_)`
+    /// and the chat pipeline renders a localized "blocked for safety" reply.
+    /// Travels separately from `responses` because the in-band denial would
+    /// otherwise be fed back to the LLM as an ordinary failed tool result.
+    pub guardian_denied: Option<GuardianDenial>,
 }
 
 /// Execute a single MCP tool call and return the response.
@@ -1124,10 +1248,9 @@ async fn execute_mcp_tool(
     user_id: &str,
     tenant_id: TenantId,
 ) -> UniversalResponse {
-    if let Some(blocked) = enforce_tool_allowlist(executor, &function_call.name, tenant_id).await {
-        return blocked;
-    }
-
+    // The tenant tool-disable allowlist (formerly enforced here, chat-only) now
+    // runs inside `UniversalExecutor::execute_tool` via the Guardian, so every
+    // transport — not just chat — honours it. See `guardian::tenant_tool_enabled`.
     let request = UniversalRequest {
         tool_name: function_call.name.clone(),
         parameters: function_call.args.clone(),
@@ -1161,71 +1284,6 @@ async fn execute_mcp_tool(
                 error: Some(format!("Tool execution failed: {e}")),
                 metadata,
             }
-        }
-    }
-}
-
-/// Phase C Sprint C10 post-LLM tool allowlist enforcement.
-///
-/// Queries [`ToolSelectionService::is_tool_enabled`] for `(tenant_id,
-/// tool_name)`. Returns `Some(blocked_response)` when the tenant has
-/// disabled the tool — the caller forwards that as the tool's wire
-/// response so the LLM sees structured feedback rather than silent
-/// failure. Returns `None` when the tool is enabled (or the selection
-/// service cannot resolve an override, in which case we fail-open to
-/// avoid wedging coaches during tool-selection outages).
-///
-/// Tools not known to the tool-selection catalog at all are allowed
-/// through — the pre-LLM catalog already filters the tool list exposed
-/// to the model, so any tool name the LLM produced is one we shipped;
-/// the only failure mode this guards against is a coach being
-/// prompt-injected into calling a tool the tenant has *explicitly
-/// disabled*.
-async fn enforce_tool_allowlist(
-    executor: &UniversalExecutor,
-    tool_name: &str,
-    tenant_id: TenantId,
-) -> Option<UniversalResponse> {
-    let service = executor.resources.tool_selection().as_ref();
-    match service.is_tool_enabled(tenant_id, tool_name).await {
-        Ok(true) => None,
-        Ok(false) => {
-            warn!(
-                tenant_id = %tenant_id,
-                tool_name = %tool_name,
-                "tool_allowlist_block: LLM picked a tool the tenant has disabled — possible prompt injection"
-            );
-            let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
-            metadata.insert(
-                "blocked_reason".to_owned(),
-                serde_json::Value::String("tool_allowlist".to_owned()),
-            );
-            metadata.insert(
-                "tool_name".to_owned(),
-                serde_json::Value::String(tool_name.to_owned()),
-            );
-            Some(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "Tool '{tool_name}' is disabled for this tenant. \
-                     Pick a different tool or answer from memory."
-                )),
-                metadata: Some(metadata),
-            })
-        }
-        Err(e) => {
-            // Fail-open: tool-selection outages must not wedge every
-            // coach conversation. Log and let the request through so
-            // the existing pre-LLM catalog filter remains the primary
-            // gate.
-            warn!(
-                tenant_id = %tenant_id,
-                tool_name = %tool_name,
-                error = %e,
-                "tool_allowlist_check_failed: falling open to pre-LLM catalog filter"
-            );
-            None
         }
     }
 }
@@ -1324,6 +1382,18 @@ pub async fn run_tool_loop(
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
     let capabilities = params.provider.capabilities();
+
+    // Plan-then-verify (Phase 3): when enabled, the LLM emits a verified up-front
+    // plan instead of the interleaved ReAct loop. API/CLI providers only — the
+    // headless ACP loop owns its own tool loop inside the subprocess.
+    {
+        use crate::guardian::PlanMode;
+        let plan_mode = params.executor.resources.guardian().policy().plan_mode;
+        if matches!(plan_mode, PlanMode::Enforce) && !capabilities.supports_sdk_tool_calling() {
+            return run_planned_tool_loop(params, llm_messages).await;
+        }
+    }
+
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
@@ -1343,6 +1413,148 @@ pub async fn run_tool_loop(
     } else {
         run_cli_tool_loop(params, llm_messages).await
     }
+}
+
+/// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
+///
+/// Covers both the over-step-cap and the failed-static-verification cases.
+/// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
+/// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
+/// post-processing as if it were model output.
+fn guardian_plan_denied(reason: &str) -> ToolLoopResult {
+    ToolLoopResult {
+        content: String::new(),
+        usage: None,
+        finish_reason: Some("guardian_plan_rejected".to_owned()),
+        activity_list: None,
+        tool_calls_count: 0,
+        tools_called: Vec::new(),
+        pending_provider_auth_required: None,
+        guardian_denied: Some(GuardianDenial {
+            tool_name: "(plan)".to_owned(),
+            reason: reason.to_owned(),
+        }),
+    }
+}
+
+/// Append each executed plan step's result to `llm_messages` as synthesis
+/// evidence.
+///
+/// Never re-proposed as tool calls. Extracted from [`run_planned_tool_loop`] to
+/// keep that loop under the cognitive-complexity bar.
+fn append_plan_results(llm_messages: &mut Vec<ChatMessage>, outputs: &[StepOutput]) {
+    for output in outputs {
+        let result_text = serde_json::to_string(&output.result).unwrap_or_default();
+        llm_messages.push(ChatMessage::user(format!(
+            "[Tool Result for {}]: {result_text}",
+            output.tool_name
+        )));
+    }
+}
+
+/// Plan-then-verify loop (Phase 3).
+///
+/// The LLM emits the entire tool plan up front, a static verifier rejects any
+/// tainted-source→sink flow *before* execution, and only a verified, frozen
+/// plan runs. Because the plan is fixed before any tool result is seen, a
+/// malicious result cannot inject a new tool call.
+///
+/// Falls back to [`run_api_tool_loop`] when the model does not emit a parseable
+/// plan (graceful degrade for weaker models).
+///
+/// # Errors
+/// Returns error if the LLM plan/synthesis call fails or a verified plan hits an
+/// unresolvable reference (a binding bug).
+pub async fn run_planned_tool_loop(
+    params: &ToolLoopParams<'_>,
+    llm_messages: &mut Vec<ChatMessage>,
+) -> Result<ToolLoopResult, AppError> {
+    use crate::guardian::{
+        planner_system_prompt, verify, PlanParseError, VerifyOutcome, Workflow, WorkflowExecutor,
+    };
+
+    // 1. Plan call — ask for the whole plan up front (no tool-calling needed).
+    let mut plan_messages = llm_messages.clone();
+    plan_messages.insert(0, ChatMessage::system(planner_system_prompt()));
+    let plan_request = ChatRequest::new(plan_messages).with_model(params.model);
+    let plan_response = params.provider.complete(&plan_request).await?;
+    let plan_json = plan_response.content;
+
+    // 2. Parse. An unparseable plan is a weak-model artifact → degrade to ReAct.
+    //    An over-cap plan is the S15 cost-amplification vector → FAIL CLOSED
+    //    (reject the turn); it must NOT drop to the unbudgeted ReAct loop, which
+    //    would reopen exactly what the step cap closes.
+    let workflow = match Workflow::from_json(&plan_json) {
+        Ok(workflow) => workflow,
+        Err(PlanParseError::Unparseable(error)) => {
+            warn!(%error, "guardian plan: unparseable workflow JSON; falling back to ReAct loop");
+            return run_api_tool_loop(params, llm_messages).await;
+        }
+        Err(PlanParseError::TooManySteps { steps, max }) => {
+            warn!(
+                steps,
+                max,
+                "guardian plan: over the step cap (S15); rejecting the turn (no ReAct fallback)"
+            );
+            return Ok(guardian_plan_denied("plan_too_large"));
+        }
+    };
+
+    // 3. Verify the frozen plan before anything executes.
+    let resources = &params.executor.resources;
+    let outcome = verify(
+        &workflow,
+        resources.tool_registry().as_ref(),
+        resources.guardian().policy(),
+        Some(params.tenant_id.as_uuid()),
+    );
+    if let VerifyOutcome::Reject(reason) = outcome {
+        warn!(reason = ?reason, "guardian plan: REJECTED before execution");
+        return Ok(guardian_plan_denied("plan_rejected"));
+    }
+
+    // 4. Execute the verified plan (each call still passes the runtime Guardian).
+    let workflow_executor =
+        WorkflowExecutor::new(params.executor.as_ref(), params.user_id, params.tenant_id);
+    let (outputs, plan_denial) = workflow_executor.run(&workflow).await?;
+    let tools_called: Vec<String> = outputs.iter().map(|o| o.tool_name.clone()).collect();
+    let tool_calls_count = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
+
+    // S9: a runtime Guardian denial mid-plan short-circuits with a deterministic
+    // block reply — the denied step's JSON must NOT be fed to the synthesis LLM
+    // to paraphrase (the exact softened-refusal the guard exists to prevent).
+    if let Some(denial) = plan_denial {
+        return Ok(ToolLoopResult {
+            content: String::new(),
+            usage: None,
+            finish_reason: Some("guardian_denied".to_owned()),
+            activity_list: None,
+            tool_calls_count,
+            tools_called,
+            pending_provider_auth_required: None,
+            guardian_denied: Some(GuardianDenial {
+                tool_name: denial.tool_name,
+                reason: denial.reason,
+            }),
+        });
+    }
+
+    // 5. Synthesis — feed the bound results back as evidence (never as new tool
+    //    proposals) and produce the user-facing answer.
+    append_plan_results(llm_messages, &outputs);
+    let synth_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+    let synth_response = params.provider.complete(&synth_request).await?;
+
+    Ok(ToolLoopResult {
+        content: synth_response.content,
+        usage: synth_response.usage,
+        finish_reason: synth_response.finish_reason,
+        activity_list: None,
+        tool_calls_count,
+        tools_called,
+        pending_provider_auth_required: None,
+        guardian_denied: None,
+    })
 }
 
 /// Re-run a failed headless (Copilot ACP) turn against the runtime-fallback
@@ -1577,6 +1789,10 @@ async fn finalize_headless_turn(
         // platform-side ProviderAuthRequired handoff is not possible without
         // visibility into the subprocess tool dispatches. Leave as None.
         pending_provider_auth_required: None,
+        // Same blind spot: the runtime Guardian chokepoint sits in the platform
+        // executor, which the ACP subprocess bypasses, so no per-tool denial is
+        // observable here.
+        guardian_denied: None,
     })
 }
 

@@ -60,6 +60,8 @@ pub const DEFAULT_LOCALE: &str = "fr";
 
 /// Key: LLM dispatch failed, user-facing apology with correlation `short_id`.
 pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
+/// Key: a tool action was blocked by the security guardian, user-facing denial.
+pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 /// Key: text-guardrails rejected an over-long response.
@@ -418,6 +420,8 @@ pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
 
 /// French default for [`KEY_ERROR_GENERIC`]. `{0}` = 8-char correlation id.
 pub const FR_ERROR_GENERIC: &str = "Dravr est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})";
+/// French default for [`KEY_GUARDIAN_DENIED`]. No format placeholders.
+pub const FR_GUARDIAN_DENIED: &str = "Cette action a été bloquée par sécurité. Reformule ta demande ou réessaie sans le contexte précédent.";
 /// French default for [`KEY_EMPTY_REPLY`].
 pub const FR_EMPTY_REPLY: &str =
     "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?";
@@ -596,6 +600,8 @@ pub(crate) const FR_COACH_ASSIGN_FORBIDDEN: &str =
 
 /// English default for [`KEY_ERROR_GENERIC`]. `{0}` = 8-char correlation id.
 pub const EN_ERROR_GENERIC: &str = "Dravr is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})";
+/// English default for [`KEY_GUARDIAN_DENIED`]. No format placeholders.
+pub const EN_GUARDIAN_DENIED: &str = "That action was blocked for safety. Try rephrasing your request, or retry without the earlier context.";
 /// English default for [`KEY_EMPTY_REPLY`].
 pub const EN_EMPTY_REPLY: &str =
     "Hmm, I couldn't put a reply together. Can you rephrase your question?";
@@ -764,6 +770,7 @@ pub(crate) const EN_COACH_ASSIGN_FORBIDDEN: &str =
 // ── Compiled-in defaults: Spanish ─────────────────────────────────────────
 
 pub(crate) const ES_ERROR_GENERIC: &str = "Dravr no está disponible temporalmente. El equipo ha sido notificado — inténtalo de nuevo en unos minutos. (ref: {0})";
+pub(crate) const ES_GUARDIAN_DENIED: &str = "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior.";
 pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
 pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?";
@@ -924,6 +931,7 @@ pub(crate) const ES_COACH_ASSIGN_FORBIDDEN: &str =
 // ── Compiled-in defaults: German ──────────────────────────────────────────
 
 pub(crate) const DE_ERROR_GENERIC: &str = "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})";
+pub(crate) const DE_GUARDIAN_DENIED: &str = "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut.";
 pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
 pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?";
@@ -1085,6 +1093,7 @@ pub(crate) const DE_COACH_ASSIGN_FORBIDDEN: &str =
 // ── Compiled-in defaults: Portuguese ──────────────────────────────────────
 
 pub(crate) const PT_ERROR_GENERIC: &str = "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})";
+pub(crate) const PT_GUARDIAN_DENIED: &str = "Essa ação foi bloqueada por segurança. Reformula o teu pedido ou tenta de novo sem o contexto anterior.";
 pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
 pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?";
@@ -1247,6 +1256,7 @@ pub(crate) const PT_COACH_ASSIGN_FORBIDDEN: &str =
 const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── French (DEFAULT_LOCALE) ─────────────────────────────────────────
     (KEY_ERROR_GENERIC, "fr", FR_ERROR_GENERIC),
+    (KEY_GUARDIAN_DENIED, "fr", FR_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "fr", FR_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "fr", FR_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "fr", FR_GUARDRAIL_BLOCKED_TOPIC),
@@ -1397,6 +1407,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_HEADER, "en", EN_BACKFILL_LIST_HEADER),
     (KEY_BACKFILL_LIST_MORE, "en", EN_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
+    (KEY_GUARDIAN_DENIED, "en", EN_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "en", EN_GUARDRAIL_BLOCKED_TOPIC),
@@ -1518,6 +1529,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_HEADER, "es", ES_BACKFILL_LIST_HEADER),
     (KEY_BACKFILL_LIST_MORE, "es", ES_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
+    (KEY_GUARDIAN_DENIED, "es", ES_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "es", ES_GUARDRAIL_BLOCKED_TOPIC),
@@ -1639,6 +1651,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_HEADER, "de", DE_BACKFILL_LIST_HEADER),
     (KEY_BACKFILL_LIST_MORE, "de", DE_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
+    (KEY_GUARDIAN_DENIED, "de", DE_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "de", DE_GUARDRAIL_BLOCKED_TOPIC),
@@ -1760,6 +1773,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_HEADER, "pt", PT_BACKFILL_LIST_HEADER),
     (KEY_BACKFILL_LIST_MORE, "pt", PT_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
+    (KEY_GUARDIAN_DENIED, "pt", PT_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "pt", PT_GUARDRAIL_BLOCKED_TOPIC),

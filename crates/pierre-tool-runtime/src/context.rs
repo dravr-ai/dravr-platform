@@ -47,6 +47,20 @@ tokio::task_local! {
     /// tasks, so the slot never crosses turns. Absent (the scope is never
     /// entered) for MCP-direct / A2A / SSE calls that have no conversation.
     pub static CONVERSATION_ID: Option<String>;
+
+    /// Guardian turn token for the in-flight tool call.
+    ///
+    /// Scoped by the executor
+    /// around `McpTool::execute` so a tool that dispatches NESTED tool calls
+    /// (e.g. an analytics tool that internally reads `get_activities`) builds its
+    /// child [`crate::protocol::executor::UniversalExecutor`] on the SAME turn
+    /// key. Without this, a nested `UniversalExecutor::new` (which does not call
+    /// `with_turn_token`) would key on a throwaway per-call nonce and the child's
+    /// `UNTRUSTED_OUTPUT` sub-read would fail to taint the real turn — severing
+    /// the runtime taint backstop for transitively-pulled untrusted content.
+    /// Constant for the executor's per-turn lifetime; absent for a top-level
+    /// executor built outside any tool body (which sets its token explicitly).
+    pub static GUARDIAN_TURN_TOKEN: Option<String>;
 }
 
 /// How the user authenticated for this request.

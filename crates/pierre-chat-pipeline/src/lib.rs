@@ -421,6 +421,24 @@ async fn run_recovery_and_post_process(
         coach_ctx,
         prompt_guard,
     } = inputs;
+    // Guardian-denied short-circuit takes precedence over re-auth: a tool
+    // blocked by the runtime Guardian (enforce mode) is rendered as a
+    // deterministic "blocked for safety" reply, bypassing both LLM
+    // post-processing and the re-auth mint below.
+    let guardian_denied = stages::guardian_denied::apply_guardian_denied(
+        &ctx.messaging_strings_registry,
+        input,
+        result,
+    );
+    if guardian_denied {
+        return stages::post_process::PostProcessedReply {
+            content: mem::take(&mut result.content),
+            #[cfg(feature = "tools-verification")]
+            pending_verdicts: Vec::new(),
+            structured_content: None,
+        };
+    }
+
     let recovery_dispatched = AtomicBool::new(false);
     let recovery_active = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {

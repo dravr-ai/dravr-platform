@@ -40,6 +40,7 @@
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities};
 use pierre_mcp_schema::JsonSchema;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::RuntimeTool;
 
 /// Deserialize a tool's tronc `definition().input_schema` (raw JSON) back into
 /// the typed [`JsonSchema`] the assertions below inspect by field.
@@ -1464,7 +1465,7 @@ fn test_all_tools_have_valid_schemas() {
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn McpTool<dyn ToolRuntime>>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())
@@ -1515,7 +1516,7 @@ fn test_all_tool_names_are_unique() {
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn McpTool<dyn ToolRuntime>>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())
@@ -1551,7 +1552,7 @@ fn test_all_tools_have_descriptions() {
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn McpTool<dyn ToolRuntime>>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())

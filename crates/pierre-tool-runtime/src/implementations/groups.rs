@@ -46,6 +46,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::group_fitness::{fetch_user_display_name, ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -63,7 +64,7 @@ fn read_only_annotations() -> ToolAnnotations {
 
 /// Factory for group-scoped tools, registered under the `tools-groups` feature.
 #[must_use]
-pub fn create_group_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![Box::new(GetGroupMemberActivitiesTool)]
 }
 
@@ -349,3 +350,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
         tool_result_to_response(result)
     }
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(GetGroupMemberActivitiesTool => UNTRUSTED_OUTPUT);

@@ -198,6 +198,11 @@ pub struct AuthResult {
     /// Users can belong to multiple tenants and this field indicates which tenant
     /// should be used for the current request. Extracted from JWT `active_tenant_id` claim.
     pub active_tenant_id: Option<Uuid>,
+    /// Originating token id (the JWT `jti`) for JWT auth; `None` for API-key /
+    /// channel-link auth. The Guardian uses it as the per-turn taint token on
+    /// the MCP/headless path — the ACP bridge mints one token per chat turn, so
+    /// every native tool call in that turn shares this id.
+    pub session_id: Option<String>,
 }
 
 /// Authentication method used

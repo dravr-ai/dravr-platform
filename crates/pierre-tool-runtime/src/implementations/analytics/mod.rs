@@ -39,6 +39,7 @@ use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
@@ -1148,7 +1149,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
 
 /// Create all analytics tools for registration
 #[must_use]
-pub fn create_analytics_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_analytics_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(AnalyzeActivityTool),
         Box::new(GetActivityIntelligenceTool),
@@ -1163,3 +1164,18 @@ pub fn create_analytics_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(PredictPerformanceTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(AnalyzeActivityTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AnalyzePerformanceTrendsTool => empty);
+crate::declare_security!(AnalyzeTrainingLoadTool => empty);
+crate::declare_security!(AnalyzeWeatherImpactTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(CalculateFitnessScoreTool => empty);
+crate::declare_security!(CalculateMetricsTool => empty);
+crate::declare_security!(CompareActivitiesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(DetectPatternsTool => empty);
+crate::declare_security!(GenerateRecommendationsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetActivityIntelligenceTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(PredictPerformanceTool => empty);

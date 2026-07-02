@@ -31,6 +31,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -1475,7 +1476,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
 
 /// Create all coach tools for registration
 #[must_use]
-pub fn create_coach_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_coach_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(ListCoachesTool),
         Box::new(CreateCoachTool),
@@ -1492,3 +1493,20 @@ pub fn create_coach_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(ListHiddenCoachesTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(DeleteCoachTool => IRREVERSIBLE);
+crate::declare_security!(ActivateCoachTool => empty);
+crate::declare_security!(CreateCoachTool => empty);
+crate::declare_security!(DeactivateCoachTool => empty);
+crate::declare_security!(GetActiveCoachTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetCoachTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(HideCoachTool => empty);
+crate::declare_security!(ListCoachesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(ListHiddenCoachesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(SearchCoachesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(ShowCoachTool => empty);
+crate::declare_security!(ToggleCoachFavoriteTool => empty);
+crate::declare_security!(UpdateCoachTool => empty);

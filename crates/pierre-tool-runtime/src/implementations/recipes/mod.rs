@@ -25,6 +25,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
@@ -603,7 +604,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
 
 /// Create all recipe tools for registration
 #[must_use]
-pub fn create_recipe_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_recipe_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(GetRecipeConstraintsTool),
         Box::new(ValidateRecipeTool),
@@ -614,3 +615,14 @@ pub fn create_recipe_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(SearchRecipesTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(DeleteRecipeTool => IRREVERSIBLE);
+crate::declare_security!(GetRecipeConstraintsTool => empty);
+crate::declare_security!(GetRecipeTool => empty);
+crate::declare_security!(ListRecipesTool => empty);
+crate::declare_security!(SaveRecipeTool => empty);
+crate::declare_security!(SearchRecipesTool => empty);
+crate::declare_security!(ValidateRecipeTool => empty);

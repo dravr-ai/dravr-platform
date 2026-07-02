@@ -24,6 +24,7 @@ mod common;
 
 fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
     AuthResult {
+        session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "starter".to_owned(),

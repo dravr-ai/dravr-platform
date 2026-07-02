@@ -34,6 +34,7 @@ use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -1067,7 +1068,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
 
 /// Create all admin tools for registration.
 #[must_use]
-pub fn create_admin_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(AdminListSystemCoachesTool),
         Box::new(AdminCreateSystemCoachTool),
@@ -1079,3 +1080,19 @@ pub fn create_admin_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(AdminListCoachAssignmentsTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(AdminDeleteSystemCoachTool => IRREVERSIBLE);
+crate::declare_security!(AdminAssignCoachTool => empty);
+crate::declare_security!(AdminCreateSystemCoachTool => empty);
+// Return coach persona / system-prompt content (coach-authored free text) —
+// the same source class as coaches.rs GetCoach/ListCoaches (UNTRUSTED_OUTPUT).
+// ADMIN_ONLY keeps them off the chat loop today, but the label must be right so
+// the compile-time "must classify" net doesn't hide a present-but-wrong label.
+crate::declare_security!(AdminGetSystemCoachTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminListCoachAssignmentsTool => empty);
+crate::declare_security!(AdminListSystemCoachesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminUnassignCoachTool => empty);
+crate::declare_security!(AdminUpdateSystemCoachTool => empty);

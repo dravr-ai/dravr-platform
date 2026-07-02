@@ -429,6 +429,7 @@ impl DashboardTestSetup {
         use UnifiedRateLimitInfo;
 
         AuthResult {
+            session_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -550,6 +551,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -571,6 +573,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -592,6 +595,7 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_dashboard_overview(AuthResult {
+            session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -799,6 +803,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
 
     let (user_id, _) = common::create_test_user(&database).await?;
     let auth_result = AuthResult {
+        session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "premium".to_owned(),
@@ -910,6 +915,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_usage_analytics(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -933,6 +939,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_usage_analytics(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1035,6 +1042,7 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_rate_limit_overview(AuthResult {
+            session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -1055,6 +1063,7 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
     let result = setup
         .dashboard_routes
         .get_rate_limit_overview(AuthResult {
+            session_id: None,
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -1324,6 +1333,7 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_request_stats(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1348,6 +1358,7 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_request_stats(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1443,6 +1454,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_tool_usage_breakdown(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1467,6 +1479,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .dashboard_routes
         .get_tool_usage_breakdown(
             AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1513,6 +1526,7 @@ async fn test_dashboard_with_malformed_jwt() -> Result<()> {
         let result = setup
             .dashboard_routes
             .get_dashboard_overview(AuthResult {
+                session_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -1547,6 +1561,7 @@ async fn test_dashboard_with_different_user() -> Result<()> {
     let (other_user_id, _) =
         common::create_test_user_with_email(&setup.database, "other@example.com").await?;
     let other_auth_result = AuthResult {
+        session_id: None,
         user_id: other_user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "premium".to_owned(),

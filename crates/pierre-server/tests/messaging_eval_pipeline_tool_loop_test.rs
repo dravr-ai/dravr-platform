@@ -66,6 +66,7 @@ mod pipeline_tool_loop {
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_routes_admin::LlmConsumptionRoutes;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::RuntimeTool;
     use serde_json::{json, Value};
     use serial_test::serial;
     use sha2::Sha256;
@@ -124,6 +125,8 @@ mod pipeline_tool_loop {
             }
         }
     }
+
+    pierre_tool_runtime::declare_security!(StubTool => empty);
 
     /// Deterministic provider with per-call behaviour.
     ///
@@ -341,7 +344,7 @@ mod pipeline_tool_loop {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
 
         let mock = Arc::new(MockLlmProviderWithToolCalls::new());
-        let stub_tool: Arc<dyn McpTool<dyn ToolRuntime>> = Arc::new(StubTool);
+        let stub_tool: Arc<dyn RuntimeTool> = Arc::new(StubTool);
         let resources = create_test_server_resources_with_llm_and_tools(mock, vec![stub_tool])
             .await
             .unwrap();

@@ -29,6 +29,7 @@ use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_
 use crate::implementations::handler_bridge;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
+use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
@@ -448,7 +449,7 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
 
 /// Create all sleep tools for registration
 #[must_use]
-pub fn create_sleep_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
+pub fn create_sleep_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(AnalyzeSleepQualityTool),
         Box::new(CalculateRecoveryScoreTool),
@@ -457,3 +458,12 @@ pub fn create_sleep_tools() -> Vec<Box<dyn McpTool<dyn ToolRuntime>>> {
         Box::new(OptimizeSleepScheduleTool),
     ]
 }
+
+// Guardian security classifications (see `crate::security`). Co-located here so
+// each impl sits under this module's existing feature gate; the compiler forces
+// every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
+crate::declare_security!(AnalyzeSleepQualityTool => empty);
+crate::declare_security!(CalculateRecoveryScoreTool => empty);
+crate::declare_security!(OptimizeSleepScheduleTool => empty);
+crate::declare_security!(SuggestRestDayTool => empty);
+crate::declare_security!(TrackSleepTrendsTool => empty);

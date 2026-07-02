@@ -60,6 +60,7 @@ mod reply_scaffolding_strip {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::RuntimeTool;
     use serde_json::{json, Value};
     use serial_test::serial;
     use sha2::Sha256;
@@ -124,6 +125,8 @@ mod reply_scaffolding_strip {
             }
         }
     }
+
+    pierre_tool_runtime::declare_security!(StubTool => empty);
 
     /// Deterministic provider that reproduces the c0ce04e34 failure shape.
     ///
@@ -337,7 +340,7 @@ mod reply_scaffolding_strip {
 
         let mock = Arc::new(ParrotingMockProvider::new());
         let stub_calls = Arc::new(AtomicUsize::new(0));
-        let stub_tool: Arc<dyn McpTool<dyn ToolRuntime>> = Arc::new(StubTool {
+        let stub_tool: Arc<dyn RuntimeTool> = Arc::new(StubTool {
             calls: Arc::clone(&stub_calls),
         });
         let resources = create_test_server_resources_with_llm_and_tools(mock, vec![stub_tool])
