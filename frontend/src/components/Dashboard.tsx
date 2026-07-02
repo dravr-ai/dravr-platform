@@ -254,11 +254,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
-    { id: 'data-providers', name: 'Data Providers', section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-      </svg>
-    ) },
     { id: 'coaches', name: 'Coaches', section: 'Coaching', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -884,7 +879,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <UserSettings />
           </Suspense>
         )}
-        {activeTab === 'data-providers' && (
+        {/* Admins are platform operators: provider connections are a
+            user-account surface (mirrors ADMIN_HIDDEN_TABS in UserSettings),
+            so the pane is role-gated even against a hand-typed #data-providers. */}
+        {activeTab === 'data-providers' && !isAdminUser && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <UserSettings initialTab="connections" hideTabNav />
           </Suspense>
