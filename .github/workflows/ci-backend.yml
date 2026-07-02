@@ -50,7 +50,7 @@ jobs:
   #   clippy               — full-workspace clippy (~10-12 min, gates release-binary)
   #   deadlock-analysis    — lockbud static deadlock detection (~10 min)
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
-  #   doc-tests            — cargo test --doc (~5 min)
+  #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
   # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
@@ -334,6 +334,14 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      # The `telemetry` feature is off in every other test job, so these
+      # feature-gated integration tests (traceparent injection on the shared
+      # HTTP clients, OTLP pipeline activation contract) only execute here.
+      - name: Telemetry feature tests
+        run: |
+          cargo test -p pierre-core --features telemetry --test trace_propagation_test
+          cargo test -p pierre-logging --features telemetry --test otel_pipeline_test
 
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)

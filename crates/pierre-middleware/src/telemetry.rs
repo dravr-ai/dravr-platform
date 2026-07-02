@@ -41,11 +41,11 @@ fn metrics() -> &'static HttpMetrics {
             requests: meter
                 .u64_counter("http.server.request.count")
                 .with_description("Total HTTP server requests, labeled by method/route/status")
-                .init(),
+                .build(),
             duration: meter
                 .f64_histogram("http.server.request.duration")
                 .with_description("HTTP server request duration in seconds")
-                .init(),
+                .build(),
         }
     })
 }

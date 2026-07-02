@@ -33,11 +33,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # OpenTelemetry (optional, enabled by the `telemetry` feature). OTLP over HTTP/protobuf
-# reuses reqwest (native-tls) instead of pulling tonic/gRPC, keeping the telemetry build lighter.
-opentelemetry = { version = "0.22", features = ["trace", "metrics"], optional = true }
-opentelemetry_sdk = { version = "0.22", features = ["trace", "metrics", "rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.15", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client"], optional = true }
-tracing-opentelemetry = { version = "0.23", optional = true }
+# reuses reqwest (blocking, rustls) instead of pulling tonic/gRPC, keeping the telemetry
+# build lighter. The blocking client is the upstream-recommended pairing for the SDK's
+# dedicated-thread batch/periodic exporters. `opentelemetry_sdk` is floored at 0.32.1
+# for GHSA-w9wp-h8wv-79jx (unbounded allocation in W3C Baggage propagation).
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.32.1", features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "reqwest-rustls"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
 
 [lints]
 workspace = true

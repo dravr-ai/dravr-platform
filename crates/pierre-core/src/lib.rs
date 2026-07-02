@@ -84,3 +84,7 @@ pub mod billing;
 /// Shared HTTP client singletons with connection pooling for outbound requests
 #[cfg(feature = "http-client")]
 pub mod http_client;
+
+/// Outbound W3C trace-context propagation middleware for the shared HTTP clients
+#[cfg(feature = "telemetry")]
+pub mod trace_propagation;
