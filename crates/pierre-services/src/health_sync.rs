@@ -8,7 +8,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
 use pierre_core::models::TenantId;
@@ -482,17 +482,8 @@ fn sync_cursor_row_to_enforme(row: &SyncCursorRow) -> SyncCursor {
         _ => SyncStatus::Pending,
     };
 
-    let last_sync_at = row
-        .last_sync_at
-        .as_deref()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
-
-    let next_retry_at = row
-        .next_retry_at
-        .as_deref()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&Utc));
+    let last_sync_at = row.last_sync_at.unwrap_or_else(Utc::now);
+    let next_retry_at = row.next_retry_at;
 
     SyncCursor {
         user_id: row.user_id.clone(),
@@ -535,11 +526,11 @@ fn sync_cursor_to_row(cursor: &SyncCursor, tenant_id: &TenantId) -> SyncCursorRo
         } else {
             Some(cursor.value.clone())
         },
-        last_sync_at: Some(cursor.last_sync_at.to_rfc3339()),
+        last_sync_at: Some(cursor.last_sync_at),
         last_sync_status: status_str.to_owned(),
         records_synced: cursor.records_synced.cast_signed(),
         error_message: cursor.error_message.clone(),
         retry_count: i64::from(cursor.retry_count),
-        next_retry_at: cursor.next_retry_at.map(|dt| dt.to_rfc3339()),
+        next_retry_at: cursor.next_retry_at,
     }
 }
