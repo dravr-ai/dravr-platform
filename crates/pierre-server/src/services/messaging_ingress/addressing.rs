@@ -14,10 +14,11 @@
 /// `channel_conversation_id` is stored NULL/empty (one DM per user — the
 /// group/DM split keys the conversation id, so a DM leaves it blank).
 ///
-/// This unifies three previously-divergent copies of the fallback: the
-/// synchronous `deliver_reply` + `send_error_reply` dispatch paths checked only
-/// the `None` case, while the backfill notifier's `resolve_route` also filtered
-/// the empty string. The empty-string case is the silent-DM-drop class fixed in
+/// This unifies four previously-divergent copies of the fallback: the
+/// synchronous `deliver_reply` + `send_error_reply` dispatch paths and the
+/// slash-command reply checked only the `None` case, while the backfill
+/// notifier's `resolve_route` also filtered the empty string. The
+/// empty-string case is the silent-DM-drop class fixed in
 /// commit 5df2c1706 — every direct-message backfill-completion push died with no
 /// trace because the empty conversation id was treated as a valid recipient.
 /// Folding the superset rule (fall back on `None` OR empty) into one helper

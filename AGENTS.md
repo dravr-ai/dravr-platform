@@ -250,5 +250,5 @@ Strava tokens expire after 6 hours. The server auto-refreshes expired tokens usi
 
 <important if="you are about to run a shell command that deletes, overwrites, or modifies files or system state">
 
-All read-only and analysis commands run freely without asking. Ask permission first for: deleting/overwriting files (`rm`, `mv` overwrite), system-state changes (`chmod`/`chown`/`sudo`), `--force` flags, writing to files via `>`/`>>`, and in-place edits (`sed -i`).
+All read-only and analysis commands run freely without asking. Ask permission first for: deleting/overwriting files (`rm`, `mv` overwrite), system-state changes (`chmod`/`chown`/`sudo`), `--force` flags, and clobbering an existing file via `>`. Appending with `>>` and in-place edits (`sed -i`) on files inside the repo/worktree are equivalent to normal Edit-tool writes and need no extra permission; outside the repo they still require asking.
 </important>

@@ -22,7 +22,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tracing::{error, warn};
+use tracing::warn;
 
 use pierre_evals::{GoldenCase, GoldenFixture};
 
@@ -89,11 +89,14 @@ pub fn resolve_fixtures_dir() -> PathBuf {
 
 /// Scan the fixtures directory and return a summary response.
 ///
+/// Files that do not parse as golden dialogue fixtures are skipped with a
+/// warning: the fixtures directory also holds foreign-schema corpora (e.g.
+/// the claim-judge bakeoff `.jsonl`), and one such file must degrade the
+/// listing, not 500 the whole admin browser.
+///
 /// # Errors
 ///
-/// - Returns an error when the directory does not exist.
-/// - Returns an error when any fixture file fails to parse. The error
-///   message includes the offending file path and line number.
+/// Returns an error when the directory exists but cannot be read.
 pub fn browse_fixtures() -> AppResult<FixtureBrowserResponse> {
     browse_fixtures_from(&resolve_fixtures_dir())
 }
@@ -141,10 +144,17 @@ pub fn browse_fixtures_from(dir: &Path) -> AppResult<FixtureBrowserResponse> {
         if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
             continue;
         }
-        let fixture = GoldenFixture::load_jsonl(&path).map_err(|e| {
-            error!(path = %path.display(), error = %e, "failed to load eval fixture");
-            e
-        })?;
+        let fixture = match GoldenFixture::load_jsonl(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "skipping .jsonl that is not a golden dialogue fixture (foreign schema or corrupt)"
+                );
+                continue;
+            }
+        };
 
         let summary = summarize_fixture(&path, &fixture);
         case_total += summary.case_count;

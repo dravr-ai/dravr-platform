@@ -101,6 +101,90 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
+      # ---- Real-server e2e (frontend/e2e-real) ----
+      # The e2e-real suite has NO playwright webServer by design (locally it
+      # requires an already-running seeded stack); here CI seeds a fresh DB,
+      # boots the release binary + Vite dev server explicitly, runs the suite,
+      # and tears down. This is the only automated execution path for these
+      # specs — without it the register→approve gate is human-run only.
+      - name: Clone dravr-contremaitre (coach seed source)
+        run: git clone --depth 1 https://github.com/dravr-ai/dravr-contremaitre.git ../dravr-contremaitre
+
+      - name: Seed e2e-real database (admin + coaches + demo + webtest)
+        # Order matters: `seed social` (which creates webtest@pierre.dev)
+        # requires the demo users from `seed demo-data` to exist first, and
+        # webtest needs a provider connection (synthetic-activities) or the
+        # onboarding hard-gate hides the app UI the persona spec drives.
+        run: |
+          ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --super-admin --force
+          ./target/release/pierre-cli seed coaches --coaches-dir ../dravr-contremaitre/prompts/coaches
+          ./target/release/pierre-cli seed demo-data --days 30
+          ./target/release/pierre-cli seed social
+          ./target/release/pierre-cli seed synthetic-activities --email webtest@pierre.dev --provider strava --count 30 --days 30
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+
+      - name: Start Pierre server for e2e-real
+        run: |
+          nohup ./target/release/pierre-mcp-server > e2e-real-server.log 2>&1 &
+          echo $! > e2e-real-server.pid
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8081/health
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          HTTP_PORT: "8081"
+          RUST_LOG: "warn"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      - name: Start Vite dev server for e2e-real
+        working-directory: frontend
+        run: |
+          nohup bun run dev > ../e2e-real-vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:5173 > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:5173 > /dev/null
+
+      - name: Run real-server e2e tests
+        working-directory: frontend
+        run: bun run test:e2e:real
+        env:
+          CI: true
+          PIERRE_URL: "http://127.0.0.1:8081"
+          FRONTEND_URL: "http://localhost:5173"
+          ADMIN_EMAIL: "admin@example.com"
+          ADMIN_PASSWORD: "AdminPassword123"
+
+      - name: Stop e2e-real servers
+        if: always()
+        run: |
+          kill "$(cat e2e-real-server.pid)" 2>/dev/null || true
+          pkill -f 'vite' 2>/dev/null || true
+
+      - name: Upload e2e-real server log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-server-log
+          path: e2e-real-server.log
+          retention-days: 1
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: failure()

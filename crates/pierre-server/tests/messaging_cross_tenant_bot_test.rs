@@ -350,8 +350,9 @@ mod cross_tenant_bot_tests {
         // The outbound (assistant) row must also land under the user tenant —
         // the other half of the DM unit. The fake bot token makes the real
         // Telegram send fail, so the reply persists via the retry path
-        // (try_enqueue_for_retry), which likewise uses session_tenant_id. Poll
-        // because that write happens asynchronously after the failed delivery.
+        // (outbound_retry::enqueue_failed_outbound), which likewise uses
+        // session_tenant_id for the message row. Poll because that write
+        // happens asynchronously after the failed delivery.
         let mut outbound_tenant: Option<String> = None;
         for _ in 0..50 {
             let row: Option<(String,)> = sqlx::query_as(

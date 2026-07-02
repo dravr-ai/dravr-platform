@@ -1114,6 +1114,18 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 Err(result) => return Ok(result),
             };
 
+            // Canonicalize to the serving backend before any cache op — same
+            // single-key rule as get_activities: an explicit "garmin" arg and
+            // the stored "sciotte_garmin" connection must hit ONE profile key,
+            // not two parallel ones that each miss and re-scrape.
+            let provider_name = backend_resolver::resolve_backend(
+                &context.resources.repos().auth_repos(),
+                context.user_id,
+                context.tenant_id.map(TenantId::from),
+                &provider_name,
+            )
+            .await;
+
             let output_format = parse_output_format(&args);
 
             let tenant_id = TenantId::from(context.tenant_id.unwrap_or_else(Uuid::nil));
@@ -1255,6 +1267,17 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
                 Ok(p) => p,
                 Err(result) => return Ok(result),
             };
+
+            // Canonicalize to the serving backend before any cache op — same
+            // single-key rule as get_activities/get_athlete (explicit "garmin"
+            // vs stored "sciotte_garmin" must share one stats/profile key).
+            let provider_name = backend_resolver::resolve_backend(
+                &context.resources.repos().auth_repos(),
+                context.user_id,
+                context.tenant_id.map(TenantId::from),
+                &provider_name,
+            )
+            .await;
 
             let output_format = parse_output_format(&args);
 

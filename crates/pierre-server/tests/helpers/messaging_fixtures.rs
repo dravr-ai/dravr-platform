@@ -262,10 +262,12 @@ impl FailingChannel {
         }
     }
 
-    /// The non-retryable delivery error every send returns — the Meta `WhatsApp`
-    /// 24h-window / template-required rejection (error 131047). `retryable` is
-    /// `false`: the same free-form message stays rejected outside the window, so
-    /// the outbound worker must not retry it.
+    /// The delivery error every send returns — the Meta `WhatsApp` 24h-window /
+    /// template-required rejection (error 131047). `retryable: false` describes
+    /// the immediate re-send (the same free-form message stays rejected while
+    /// the window is closed), but the queue row does not carry the flag: the
+    /// outbound worker still retries with backoff by design, because the 24h
+    /// window re-opens as soon as the user writes again.
     fn rejection(&self) -> MessagingError {
         MessagingError::DeliveryFailed {
             channel: self.channel_type.to_string(),

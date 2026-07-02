@@ -63,49 +63,76 @@ test.describe('register → approve → login — real backend (no mocks)', () =
     expect(userId).toMatch(/^[0-9a-f-]{36}$/);
     expect(['pending', 'active']).toContain(reg.user_status);
 
-    // 2. Gated path: on a gated server the account is `pending`. The user can
-    //    still obtain a token, but `/api/auth/session` is refused until an admin
-    //    approves them — exercise that gate, then approve.
-    if (reg.user_status === 'pending') {
-      const pendingToken = await accessTokenOf(await loginToken(ctx, email, password));
-      expect(pendingToken, 'a pending user can still obtain a token').toBeTruthy();
+    // Everything past registration runs under try/finally so the created
+    // account is deleted even when an assertion fails — without this, every
+    // run leaves an approved zombie user in the persistent dev DB.
+    try {
+      // 2. Gated path: on a gated server the account is `pending`. The user can
+      //    still obtain a token, but `/api/auth/session` is refused until an admin
+      //    approves them — exercise that gate, then approve.
+      if (reg.user_status === 'pending') {
+        const pendingToken = await accessTokenOf(await loginToken(ctx, email, password));
+        expect(pendingToken, 'a pending user can still obtain a token').toBeTruthy();
 
-      const pendingSession = await ctx.get('/api/auth/session', {
-        headers: { Authorization: `Bearer ${pendingToken}` },
+        const pendingSession = await ctx.get('/api/auth/session', {
+          headers: { Authorization: `Bearer ${pendingToken}` },
+        });
+        expect(
+          pendingSession.ok(),
+          'a pending user session must be gated until approved',
+        ).toBeFalsy();
+
+        const adminAccess = await accessTokenOf(
+          await loginToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD),
+        );
+        expect(adminAccess, 'admin login must succeed').toBeTruthy();
+
+        const approveResp = await ctx.post(`/api/admin/approve-user/${userId}`, {
+          headers: { Authorization: `Bearer ${adminAccess}` },
+          data: { reason: 'e2e register→approve→login journey' },
+        });
+        expect(
+          approveResp.ok(),
+          `approve-user failed: ${approveResp.status()}`,
+        ).toBeTruthy();
+      }
+
+      // 3. Approved (or auto-approved): the user logs in, the session now resolves,
+      //    and reports `active` — the full onboarding→active journey is observable.
+      const token = await accessTokenOf(await loginToken(ctx, email, password));
+      expect(token, 'the approved user must be able to log in').toBeTruthy();
+
+      const session = await ctx.get('/api/auth/session', {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      expect(
-        pendingSession.ok(),
-        'a pending user session must be gated until approved',
-      ).toBeFalsy();
-
+      expect(session.ok(), 'the approved user session must resolve').toBeTruthy();
+      const body = await session.json();
+      expect(body.user.email).toBe(email);
+      expect(body.user.user_status).toBe('active');
+    } finally {
+      // Cleanup: suspend the account created above so runs stop accreting
+      // ACTIVE zombie users. Suspension (not deletion) because the JWT-authed
+      // web-admin surface deliberately has no user-delete route — permanent
+      // deletion lives only on the admin-token API (DELETE /admin/users/{id}),
+      // which this spec's password-grant login cannot reach. Best-effort — a
+      // cleanup failure must not mask the real test outcome, so it only logs.
       const adminAccess = await accessTokenOf(
         await loginToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD),
       );
-      expect(adminAccess, 'admin login must succeed').toBeTruthy();
-
-      const approveResp = await ctx.post(`/api/admin/approve-user/${userId}`, {
-        headers: { Authorization: `Bearer ${adminAccess}` },
-        data: { reason: 'e2e register→approve→login journey' },
-      });
-      expect(
-        approveResp.ok(),
-        `approve-user failed: ${approveResp.status()}`,
-      ).toBeTruthy();
+      if (adminAccess) {
+        const suspendResp = await ctx.post(`/api/admin/suspend-user/${userId}`, {
+          headers: { Authorization: `Bearer ${adminAccess}` },
+          data: { reason: 'e2e cleanup: register→approve→login journey' },
+        });
+        if (!suspendResp.ok()) {
+          console.warn(
+            `e2e cleanup: failed to suspend ${email} (${suspendResp.status()}) — active zombie user remains`,
+          );
+        }
+      } else {
+        console.warn(`e2e cleanup: admin login failed — active zombie user ${email} remains`);
+      }
+      await ctx.dispose();
     }
-
-    // 3. Approved (or auto-approved): the user logs in, the session now resolves,
-    //    and reports `active` — the full onboarding→active journey is observable.
-    const token = await accessTokenOf(await loginToken(ctx, email, password));
-    expect(token, 'the approved user must be able to log in').toBeTruthy();
-
-    const session = await ctx.get('/api/auth/session', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(session.ok(), 'the approved user session must resolve').toBeTruthy();
-    const body = await session.json();
-    expect(body.user.email).toBe(email);
-    expect(body.user.user_status).toBe('active');
-
-    await ctx.dispose();
   });
 });

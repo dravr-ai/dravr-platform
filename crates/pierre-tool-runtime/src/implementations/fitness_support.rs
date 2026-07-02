@@ -162,26 +162,19 @@ impl From<&Activity> for ActivitySummary {
     }
 }
 
-/// Format activities as a numbered human-readable list for LLM output
-/// This helps smaller models include the list in their response without transforming JSON
-/// Activities are sorted by date descending (newest first) for better user experience
-///
-/// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
-/// used when the provider didn't surface ambient temp on the row itself
-/// (sciotte / Whoop / Fitbit / Terra all leave it empty).
-///
-/// `fragment_report` carries fragment-deduplication metadata when overlapping
-/// recordings of the same workout were detected; when `Some` and at least one
-/// group is present, a header note is prepended so the LLM sees the
-/// session-vs-row distinction inline with the list (smaller models that skip
-/// the structured `retrieval_context` JSON still get the cue from the prose).
 /// Localized short sport-type label for the activity list, keyed by BCP-47
-/// locale. The names are intentionally short coach/athlete nouns (fr "course à
+/// locale.
+///
+/// The names are intentionally short coach/athlete nouns (fr "course à
 /// pied"/"rando"/"ski de fond", not the English `display_name`) so a French
-/// chat reads natively. Falls back to English for an unrecognized locale or an
-/// unlisted variant, and keeps the provider-supplied label for
-/// `SportType::Other`.
-fn localized_sport_name(sport: &SportType, locale: &str) -> String {
+/// chat reads natively. Falls back to English for an unrecognized locale and
+/// keeps the provider-supplied label for `SportType::Other`; the match has no
+/// wildcard arm, so a new `SportType` variant fails compilation here until its
+/// five translations are added. `pub` so the locale table (human-language rows
+/// the compiler can't check for wrong-column pastes) is exercisable by the
+/// render tests.
+#[must_use]
+pub fn localized_sport_name(sport: &SportType, locale: &str) -> String {
     // [fr, en, es, de, pt]
     let names: [&str; 5] = match sport {
         SportType::Other(s) => return s.clone(),
@@ -321,6 +314,22 @@ fn localized_sport_name(sport: &SportType, locale: &str) -> String {
     names[idx].to_owned()
 }
 
+/// Format activities as a numbered human-readable list for LLM output.
+///
+/// This helps smaller models include the list in their response without
+/// transforming JSON. Activities render in the order the caller established
+/// (`get_activities` sorts by the requested `sort_by` before the display
+/// limit).
+///
+/// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
+/// used when the provider didn't surface ambient temp on the row itself
+/// (sciotte / Whoop / Fitbit / Terra all leave it empty).
+///
+/// `fragment_report` carries fragment-deduplication metadata when overlapping
+/// recordings of the same workout were detected; when `Some` and at least one
+/// group is present, a header note is prepended so the LLM sees the
+/// session-vs-row distinction inline with the list (smaller models that skip
+/// the structured `retrieval_context` JSON still get the cue from the prose).
 fn format_activities_as_list(
     activities: &[Activity],
     backfill_temps: &HashMap<String, f32>,
@@ -344,9 +353,9 @@ fn format_activities_as_list(
             for group in &report.groups {
                 let ids = group.fragment_ids.join(", ");
                 lines.push(format!(
-                    "       - canonical {canon}; group: [{ids}] ({sport:?}, {start} → {end})",
+                    "       - canonical {canon}; group: [{ids}] ({sport}, {start} → {end})",
                     canon = group.canonical_id,
-                    sport = group.sport_type,
+                    sport = localized_sport_name(&group.sport_type, locale),
                     start = group.window_start.format("%Y-%m-%d %H:%M UTC"),
                     end = group.window_end.format("%Y-%m-%d %H:%M UTC"),
                 ));
@@ -362,8 +371,8 @@ fn format_activities_as_list(
         let date = activity.start_date().format("%Y-%m-%d").to_string();
         // Render the sport with its localized short label (fr "trail"/"rando",
         // not the English "trail run") so the list reads natively in the user's
-        // chat language; `Other` keeps its provider-supplied label, unlisted
-        // variants fall back to English.
+        // chat language; `Other` keeps its provider-supplied label, unknown
+        // locales fall back to English.
         let sport = localized_sport_name(activity.sport_type(), locale);
         let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
         let duration_secs = activity.duration_seconds();

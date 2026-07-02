@@ -81,6 +81,29 @@ fn browse_fixtures_ignores_non_jsonl_files() {
     assert_eq!(response.fixtures[0].name, "triage");
 }
 
+/// Regression: the fixtures dir also holds foreign-schema corpora (the
+/// claim-judge bakeoff jsonl has `claim`/`expected_verdict`, no `label`).
+/// One such file must be skipped, not 500 the whole admin fixtures browser
+/// (caught live by the e2e-real admin-tabs spec on a fresh CI checkout).
+#[test]
+fn browse_fixtures_skips_foreign_schema_jsonl() {
+    let dir = tmp_dir("foreign");
+    fs::write(dir.join("triage.jsonl"), SAMPLE_FIXTURE).unwrap();
+    fs::write(
+        dir.join("claim_judge.jsonl"),
+        "{\"id\":\"cardio-0\",\"category\":\"cardio\",\"claim\":\"220 minus age\",\"expected_verdict\":\"contradicted\"}",
+    )
+    .unwrap();
+
+    let response = browse_fixtures_from(&dir).expect("browse must not fail on a foreign file");
+
+    assert_eq!(
+        response.fixture_count, 1,
+        "only the golden fixture is listed"
+    );
+    assert_eq!(response.fixtures[0].name, "triage");
+}
+
 #[test]
 fn browse_fixtures_returns_empty_response_for_empty_dir() {
     let dir = tmp_dir("empty");

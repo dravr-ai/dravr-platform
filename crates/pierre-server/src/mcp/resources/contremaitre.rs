@@ -14,8 +14,8 @@ use pierre_contremaitre::{
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::interval;
-use tracing::{info, warn};
+use tokio::time::{interval, sleep};
+use tracing::{error, info, warn};
 
 /// Default interval for the background prompt-reload poll.
 ///
@@ -117,27 +117,63 @@ fn spawn_contremaitre_poll(
         interval_secs = secs,
         "Contremaitre prompt-reload poll started"
     );
+    // Supervisor: the poll loop runs in its own task whose JoinHandle is
+    // awaited here, so a panicking tick is logged loudly and the loop is
+    // respawned after one interval — a dead poll would otherwise freeze every
+    // registry on its last-synced content for the life of the instance with
+    // only a stderr panic as trace.
     tokio::spawn(async move {
-        let mut ticker = interval(Duration::from_secs(secs));
-        // `interval`'s first tick fires immediately, so the initial overlay
-        // sync runs here — in the background, off the server's bind path — and
-        // re-runs every `secs` after. Binding no longer waits on a slow
-        // GitHub/GCS fetch, so a single-vCPU instance still passes the Cloud
-        // Run startup probe.
         loop {
-            ticker.tick().await;
-            run_contremaitre_full_sync(
-                &config,
-                ContremaitreSyncRegistries {
-                    prompt: &prompt,
-                    tool_desc: &tool_desc,
-                    evidence: &evidence,
-                    cageux_config: &cageux_config,
-                    messaging_strings: &messaging_strings,
-                    persona_contract: &persona_contract,
-                },
-            )
-            .await;
+            let poll_config = config.clone();
+            let poll_registries = (
+                prompt.clone(),
+                tool_desc.clone(),
+                evidence.clone(),
+                cageux_config.clone(),
+                messaging_strings.clone(),
+                persona_contract.clone(),
+            );
+            let poll = tokio::spawn(async move {
+                let (
+                    prompt,
+                    tool_desc,
+                    evidence,
+                    cageux_config,
+                    messaging_strings,
+                    persona_contract,
+                ) = &poll_registries;
+                let mut ticker = interval(Duration::from_secs(secs));
+                // `interval`'s first tick fires immediately, so the initial
+                // overlay sync runs here — in the background, off the server's
+                // bind path — and re-runs every `secs` after. Binding no longer
+                // waits on a slow GitHub/GCS fetch, so a single-vCPU instance
+                // still passes the Cloud Run startup probe.
+                loop {
+                    ticker.tick().await;
+                    run_contremaitre_full_sync(
+                        &poll_config,
+                        ContremaitreSyncRegistries {
+                            prompt,
+                            tool_desc,
+                            evidence,
+                            cageux_config,
+                            messaging_strings,
+                            persona_contract,
+                        },
+                    )
+                    .await;
+                }
+            });
+            // The inner loop never returns normally; reaching here means the
+            // task died (panic or runtime-cancelled join).
+            if let Err(e) = poll.await {
+                error!(
+                    error = %e,
+                    is_panic = e.is_panic(),
+                    "Contremaitre poll loop died — respawning after one interval"
+                );
+            }
+            sleep(Duration::from_secs(secs)).await;
         }
     });
 }

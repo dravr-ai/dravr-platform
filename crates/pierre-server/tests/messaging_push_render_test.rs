@@ -250,3 +250,54 @@ async fn push_empty_cache_nudge_honors_default_locale() {
         "the French-locale push must not leak the English nudge: {body}"
     );
 }
+
+// ============================================================================
+// localized_sport_name — locale-table pins
+// ============================================================================
+//
+// The table is 36 variants x 5 human-language columns; the compiler enforces
+// arity (no wildcard arm, fixed [&str; 5] rows) but cannot catch a wrong-column
+// paste (es text in the de slot). These pins anchor the column order and the
+// fallback rules.
+
+#[test]
+fn sport_locale_columns_render_expected_languages() {
+    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+
+    let run = SportType::Run;
+    assert_eq!(localized_sport_name(&run, "fr"), "course à pied");
+    assert_eq!(localized_sport_name(&run, "en"), "run");
+    assert_eq!(localized_sport_name(&run, "es"), "carrera");
+    assert_eq!(localized_sport_name(&run, "de"), "laufen");
+    assert_eq!(localized_sport_name(&run, "pt"), "corrida");
+
+    let hike = SportType::Hike;
+    assert_eq!(localized_sport_name(&hike, "fr"), "rando");
+    assert_eq!(localized_sport_name(&hike, "de"), "wanderung");
+}
+
+#[test]
+fn sport_locale_falls_back_to_english_and_honors_bcp47_prefix() {
+    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+
+    let swim = SportType::Swim;
+    // Unrecognized locale → English column.
+    assert_eq!(localized_sport_name(&swim, "ja"), "swim");
+    assert_eq!(localized_sport_name(&swim, ""), "swim");
+    // Regional BCP-47 tag → its base-language column.
+    assert_eq!(localized_sport_name(&swim, "fr-CA"), "natation");
+}
+
+#[test]
+fn sport_locale_passes_other_provider_label_through() {
+    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+
+    let other = SportType::Other("Bouldering".to_owned());
+    for locale in ["fr", "en", "es", "de", "pt", "ja"] {
+        assert_eq!(
+            localized_sport_name(&other, locale),
+            "Bouldering",
+            "Other(provider) must keep its provider-supplied label in locale {locale}"
+        );
+    }
+}
