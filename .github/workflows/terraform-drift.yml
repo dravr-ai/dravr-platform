@@ -13,23 +13,25 @@ name: "Monitor: Terraform Drift (dev)"
 # Dev only: infra/environments/prod is an unprovisioned stub (project_id is a
 # TODO placeholder), so a prod plan would error rather than report drift.
 #
-# Alerting: the signal is intentionally the red Monitor run itself — there is NO
-# Slack/webhook fan-out from this workflow. The sibling GCP-side drift check
-# (infra/environments/dev/drift_check.tf + monitoring.tf) routes Cloud Run *job*
-# failures to the dev-dravr-errors Slack channel via a
-# google_monitoring_notification_channel, but that is GCP Cloud Monitoring, not
-# GitHub Actions — no reusable Slack incoming-*webhook* secret exists in this
-# repo's Actions secrets (the only Slack secrets, MESSAGING_EVAL_SLACK_*, are
-# Socket-Mode bot tokens for the messaging-eval QA driver, not a notifier).
-# Adding a Slack post-on-failure step here would require provisioning a new
-# incoming-webhook secret (e.g. SLACK_WEBHOOK_URL); until one exists,
-# job-failure-is-the-alert matches the Monitor: Daily Health Check convention and
-# is the deliberate choice.
+# Alerting: a red Monitor run AND a Slack post to #dev-dravr-errors. This
+# workflow already authenticates to GCP as the terraform-runner SA (which holds
+# roles/secretmanager.admin — see infra/modules/service_accounts), so the Notify
+# Slack step reads the app's existing Slack bot token straight from Secret
+# Manager (dravr-mcp-server-slack-bot-token) and posts via chat.postMessage. No
+# new GitHub secret and no new Slack app/incoming-webhook — it reuses the same
+# bot the running server uses for ops alerts. Dispatch this workflow manually
+# with test_alert=true to verify the Slack wiring on demand (posts a test message
+# without needing real drift).
 on:
   schedule:
     # Daily at 12:00 UTC (offset from the 06:00 Daily Health Check).
     - cron: '0 12 * * *'
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Post a test message to #dev-dravr-errors to verify the Slack wiring, then run the normal drift plan."
+        type: boolean
+        default: false
 
 concurrency:
   group: terraform-drift-dev
@@ -57,6 +59,11 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      # gcloud CLI, wired to the credentials from the auth step above, so the
+      # Notify Slack step can read the bot token from Secret Manager.
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -113,3 +120,38 @@ jobs:
           fi
           echo "::error title=Terraform drift detected::live dev infra differs from infra/environments/dev (exit=${code}, plan-text=${text}). Review the plan in the job summary, then reconcile via 'gh workflow run terraform.yml --ref main -f environment=dev -f action=apply' (or correct the code to match reality)."
           exit 1
+
+      # Post to Slack when the monitor goes red (drift detected, or the plan /
+      # monitor itself failed), and on a manual test_alert dispatch to verify the
+      # wiring. The terraform-runner SA already holds roles/secretmanager.admin,
+      # so this reads the app's existing Slack bot token from Secret Manager — no
+      # new secret, no new Slack app/webhook. Best-effort: a failed post never
+      # overrides the job result (the red run stays the base alert).
+      - name: Notify Slack
+        if: ${{ failure() || github.event.inputs.test_alert == 'true' }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          IS_TEST: ${{ github.event.inputs.test_alert }}
+          SLACK_SECRET: dravr-mcp-server-slack-bot-token
+          GCP_PROJECT: dravr-dev
+          SLACK_CHANNEL: "#dev-dravr-errors"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set +e
+          token=$(gcloud secrets versions access latest --secret="$SLACK_SECRET" --project="$GCP_PROJECT" 2>/dev/null)
+          if [ -z "$token" ]; then
+            echo "::warning::Notify Slack: could not read $SLACK_SECRET from Secret Manager; the red run is still the alert."
+            exit 0
+          fi
+          if [ "$JOB_STATUS" != "failure" ] && [ "$IS_TEST" = "true" ]; then
+            text=":white_check_mark: Terraform Drift monitor — test alert. Slack wiring OK. <$RUN_URL|View run>"
+          else
+            text=":rotating_light: Terraform drift detected (dev). Live infra differs from infra/environments/dev, or the monitor failed. <$RUN_URL|View the plan> then reconcile via terraform.yml apply-dev."
+          fi
+          payload=$(jq -n --arg ch "$SLACK_CHANNEL" --arg tx "$text" '{channel:$ch,text:$tx}')
+          resp=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $token" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "$payload")
+          echo "$resp" | grep -q '"ok":true' || echo "::warning::Notify Slack: chat.postMessage did not return ok:true -> $resp"
+          exit 0
