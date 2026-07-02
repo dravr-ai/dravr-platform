@@ -21,6 +21,10 @@
 
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
+/// Advice capture: turn a coach recommendation into a PendingAdvice (playbook memory)
+pub mod advice_capture;
+/// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
+pub mod archetype_aggregation;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;
@@ -133,6 +137,10 @@ pub mod oauth_flow;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/coach/MCP tools.
 pub mod onboarding_gate;
+/// Outcome evaluator: label due advice from real data + reinforce playbooks
+pub mod outcome_evaluator;
+/// Render a user's proven coaching playbooks into a system-prompt block
+pub mod playbook_render;
 
 /// Startup hook that loads `cat_llm_pricing` rows from
 /// `admin_config_overrides` into the process-wide pricing registry.

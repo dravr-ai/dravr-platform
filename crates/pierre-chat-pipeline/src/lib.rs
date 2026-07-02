@@ -77,6 +77,9 @@ use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider, McpServerConfig};
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
+use pierre_services::advice_capture::{
+    spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
+};
 use pierre_services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use pierre_services::prompt_leak;
 use pierre_sse::SseManager;
@@ -303,6 +306,39 @@ fn spawn_turn_extraction(
             pillar,
             source,
             force_kind,
+        },
+    );
+}
+
+/// Spawn background advice capture for the turn (P3 of playbook memory).
+///
+/// Mirrors [`spawn_turn_extraction`]: best-effort, needs the shared
+/// `ChatProvider` singleton, and never blocks the reply. The v1 strategy is
+/// [`HeuristicGatedLlmExtraction`]; swapping it (see `DRAVR-BACKLOG.md`) is a
+/// one-line change here once a config selector exists.
+fn spawn_turn_advice_capture(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    conv: &ConversationRecord,
+    assistant_reply: &str,
+    assistant_message_id: &str,
+) {
+    let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction);
+    spawn_capture_advice(
+        Arc::clone(&ctx.repos.playbooks),
+        ctx.chat_provider.as_ref().map(Arc::clone),
+        strategy,
+        CapturedTurn {
+            // Scope the playbook to the TOOL tenant (where the user's activity /
+            // health data lives), so the outcome evaluator can read that data and
+            // retrieval finds the playbook — these can differ from the
+            // conversation tenant for group channels.
+            tenant_id: input.tool_tenant_id.to_string(),
+            user_id: input.user_id.clone(),
+            coach_slug: conv.coach_id.clone(),
+            user_message: input.content.clone(),
+            assistant_reply: assistant_reply.to_owned(),
+            source_msg_id: Some(assistant_message_id.to_owned()),
         },
     );
 }
@@ -915,6 +951,11 @@ async fn run_turn(
         &assistant_message.id,
         onboarding_turn.as_ref(),
     );
+
+    // Stage 21b: background advice capture — record any concrete recommendation
+    // the coach made so the outcome evaluator can later reinforce the matching
+    // playbook (P3 of coaching playbook memory).
+    spawn_turn_advice_capture(ctx, &input, &conv, &result.content, &assistant_message.id);
 
     let dispatch_result = DispatchResult {
         content: result.content,

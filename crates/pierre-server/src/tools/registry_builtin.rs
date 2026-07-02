@@ -117,6 +117,10 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_memory_tools(registry);
 
+    // Coaching playbook GDPR/transparency tools (list / forget)
+    #[cfg(feature = "tools-memory")]
+    register_playbook_tools(registry);
+
     // Verification tools (bullshit detector)
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
@@ -142,6 +146,20 @@ fn register_memory_tools(registry: &mut ToolRegistry) {
         "Registered memory tools (registry now has {} tools)",
         registry.len()
     );
+}
+
+/// Register the coaching-playbook GDPR/transparency tools.
+///
+/// `list_coaching_playbooks` is chat-callable (category `memory`) so the coach
+/// can surface what it has learned; `forget_playbook` is registered under a
+/// non-chat `playbook` category so the LLM cannot delete a playbook on its own.
+#[cfg(feature = "tools-memory")]
+fn register_playbook_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::playbooks::{
+        ForgetPlaybookTool, ListCoachingPlaybooksTool,
+    };
+    registry.register_with_category(Arc::new(ListCoachingPlaybooksTool), "memory");
+    registry.register_with_category(Arc::new(ForgetPlaybookTool), "playbook");
 }
 
 /// Register verification tools.

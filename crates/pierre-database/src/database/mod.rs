@@ -48,6 +48,8 @@ pub mod mobility;
 pub mod oauth_notifications;
 /// Password reset token management for admin-initiated password resets
 pub mod password_reset_tokens;
+/// `SQLite` `PlaybookRepository` impl — procedural coaching memory.
+pub mod playbooks;
 /// Endurance `prescribed_workouts` audit-trail repository (`SQLite`)
 pub mod prescribed_workouts;
 /// Provider connections: unified connection tracking for all provider types

@@ -36,6 +36,8 @@ pub mod mobility;
 pub mod notifications;
 /// Repository traits for `OAuth` tokens, `OAuth2` server state, `OAuth` client state, provider connections.
 pub mod oauth;
+/// Repository trait for procedural coaching memory (playbooks + pending advice).
+pub mod playbooks;
 /// Repository traits for recipe persistence.
 pub mod recipes;
 /// Repository traits for coach-athlete roster persistence.
@@ -77,6 +79,7 @@ pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
+pub use playbooks::*;
 pub use recipes::*;
 pub use roster::*;
 pub use security::*;
