@@ -86,10 +86,16 @@ resource "google_cloud_run_v2_job" "job" {
     }
   }
 
-  # CI/CD updates the image outside Terraform; prevent drift
+  # CI/CD deploys (gcloud / GitHub Actions) mutate these outside Terraform, so
+  # ignore them — otherwise the nightly drift monitor reds on deploy-stamped
+  # metadata instead of only on real config drift. `image`: the deployed
+  # container tag. `client` / `client_version`: the gcloud "who last wrote me"
+  # annotation.
   lifecycle {
     ignore_changes = [
       template[0].template[0].containers[0].image,
+      client,
+      client_version,
     ]
   }
 }
