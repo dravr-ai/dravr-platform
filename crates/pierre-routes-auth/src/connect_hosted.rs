@@ -11,8 +11,9 @@
 //! hands the user a `/providers/connect?token=...` URL. This page:
 //!
 //! 1. Validates the connect-scoped link-token (no nonce burn — the token stays
-//!    usable for the whole 20-minute window so the user can try one provider,
-//!    fail, and try another).
+//!    usable so the user can try one provider, fail, and try another; the
+//!    reusable window is capped by the deliberately short
+//!    `CONNECT_LINK_TOKEN_TTL_MINUTES`, not by a burn).
 //! 2. Renders the three provider cards, computed from the SAME
 //!    [`crate::oauth::compute_providers_status`] the web/mobile onboarding uses,
 //!    so Strava is OAuth-first while shared-app seats remain and falls back to
@@ -110,6 +111,16 @@ async fn build_connect_providers(
     user_id: Uuid,
 ) -> Vec<ConnectProviderCard> {
     let status = compute_providers_status(resources, user_id).await;
+
+    // Mirror ProviderConnectionCards: the raw `strava` OAuth row is hidden (the
+    // sciotte card IS the Strava data path), but its connected state must merge
+    // into that card — otherwise a user already connected via Strava OAuth sees
+    // "Strava — Authorize" and can be pushed through a needless re-consent.
+    let strava_oauth_connected = status
+        .providers
+        .iter()
+        .any(|p| p.provider == "strava" && p.connected);
+
     let mut cards = Vec::new();
 
     for p in status.providers {
@@ -129,7 +140,7 @@ async fn build_connect_providers(
                         "sciotte".to_owned()
                     },
                     display_name: p.display_name,
-                    connected: p.connected,
+                    connected: p.connected || strava_oauth_connected,
                     kind: if oauth_first { "oauth" } else { "sciotte" },
                     target: "strava".to_owned(),
                 });

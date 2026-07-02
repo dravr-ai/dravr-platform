@@ -28,7 +28,10 @@ pub(crate) struct FailedOutbound<'a> {
     pub queue_tenant_id: TenantId,
     /// Messaging session the persisted outbound row belongs to.
     pub session_id: &'a str,
-    /// Channel-native user id recorded on the queue row, or `None`.
+    /// Platform user UUID (as a string) recorded on the queue row, or `None` —
+    /// both callers pass `session.user_id`/the push's `Uuid`; the column feeds
+    /// analytics `distinct_id`, so it must be the platform id, never the
+    /// channel-native one.
     pub user_id: Option<&'a str>,
     /// Channel slug (e.g. `"whatsapp"`) for the message row + queue row.
     pub channel: &'a str,

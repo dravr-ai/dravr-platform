@@ -423,8 +423,9 @@ impl ServerBackfillNotifier {
         let channel_str = session.get("channel_type").and_then(Value::as_str)?;
         let channel_user_id = session.get("channel_user_id").and_then(Value::as_str)?;
         // Route to the EXACT originating chat. `channel_conversation_id` keys the
-        // group/DM split: it holds a group's native conversation id but is NULL for
-        // a DM (one DM per user — the session lookup COALESCEs it to ''). For a DM
+        // group/DM split: it holds a group's native conversation id but is NULL
+        // for a DM (one DM per user — the lookup projects it as JSON null, and
+        // `reply_recipient` also treats an empty string as absent). For a DM
         // the recipient is the channel-native user id (e.g. the WhatsApp phone),
         // exactly how the synchronous reply addresses a private reply
         // (messaging_ingress send_private_reply). Requiring the conversation id
@@ -454,10 +455,12 @@ impl ServerBackfillNotifier {
         // The prior silent `?`-drop on a NULL conversation id left zero trace
         // when every DM push died — log the success path so a future drop is
         // diagnosable from the absence of this line, not guesswork.
+        // Neutral wording: this route resolver serves both the completion
+        // notice and the reauth nudge.
         info!(
             channel = %channel_str,
             is_dm = recipient == channel_user_id,
-            "Backfill push: routing completion notice to originating chat"
+            "Backfill push: routing notice to originating chat"
         );
         Some(ResolvedRoute {
             session_id: session_id.to_owned(),
@@ -860,10 +863,19 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // runs on the scrape-backed mirror (sciotte / sciotte_garmin), so this is
         // always the sciotte hosted-login path — mirrors
         // `auth_recovery::mint_reconnect_url`.
-        let target = if provider == "sciotte_garmin" {
-            "garmin"
-        } else {
-            "strava"
+        let target = match provider {
+            "sciotte_garmin" => "garmin",
+            "sciotte" => "strava",
+            other => {
+                // Only the two mirror slugs can reach here while the backfill
+                // stays gated on is_mirror_backend; if that gate ever widens, a
+                // wrong-brand reconnect link must be loud, not silent.
+                warn!(
+                    provider = %other,
+                    "Reauth nudge: unexpected non-mirror provider, defaulting login target to strava"
+                );
+                "strava"
+            }
         };
         let token = match mint_link_token(
             &MintProviderLinkTokenArgs {
@@ -949,7 +961,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
 /// Human-readable brand name for the reconnect message's `{0}` slot. Mirrors
 /// `auth_recovery::provider_display_name` (the chat-pipeline equivalent for the
 /// inline reauth path); kept in sync so chat and backfill nudges read alike.
-fn reauth_provider_display_name(provider_slug: &str) -> &'static str {
+/// An unknown slug passes through as-is — it renders in every chat locale,
+/// unlike any hardcoded fallback word.
+fn reauth_provider_display_name(provider_slug: &str) -> &str {
     match provider_slug {
         "sciotte_garmin" | "garmin" => "Garmin",
         "sciotte" | "strava" => "Strava",
@@ -957,6 +971,6 @@ fn reauth_provider_display_name(provider_slug: &str) -> &'static str {
         "fitbit" => "Fitbit",
         "coros" => "COROS",
         "terra" => "Terra",
-        _ => "ton fournisseur",
+        other => other,
     }
 }

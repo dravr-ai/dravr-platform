@@ -27,13 +27,15 @@ mod common;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
+use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, GetConnectionStatusTool,
 };
+use pierre_tool_runtime::implementations::data::GetAthleteTool;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -293,6 +295,73 @@ async fn resolve_backend_collapses_garmin_aliases_to_one_cache_key() {
         backend_resolver::user_facing_name(&from_llm_arg),
         oauth_providers::GARMIN,
         "user-visible copy still shows the friendly name"
+    );
+}
+
+#[tokio::test]
+async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
+    // End-to-end pin that GetAthleteTool canonicalizes BEFORE its cache read
+    // (the resolver property above is necessary but not sufficient — a
+    // regression that drops or reorders the resolve_backend call site would
+    // pass it). Seed the athlete profile under the canonical backend key
+    // ("sciotte_garmin"), then ask with the LLM-alias "garmin": a cache hit
+    // proves the canonical key was used; keyed raw, the read would miss and
+    // the tool would fail on live provider auth instead.
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    let athlete = Athlete {
+        id: "424242".to_owned(),
+        username: "cached_runner".to_owned(),
+        firstname: None,
+        lastname: None,
+        profile_picture: None,
+        provider: oauth_providers::SCIOTTE_GARMIN.to_owned(),
+    };
+    let canonical_key = CacheKey::new(
+        tenant_id,
+        user_id,
+        oauth_providers::SCIOTTE_GARMIN.to_owned(),
+        CacheResource::AthleteProfile,
+    );
+    let state = tool_state(&resources);
+    state
+        .cache()
+        .set(
+            &canonical_key,
+            &athlete,
+            CacheResource::AthleteProfile.recommended_ttl(),
+        )
+        .await
+        .expect("seed athlete cache");
+
+    let tool = GetAthleteTool;
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool
+        .execute(&state, &ctx, json!({ "provider": "garmin" }))
+        .await;
+
+    assert!(
+        !result.is_error,
+        "alias 'garmin' must hit the canonical sciotte_garmin cache entry: {:?}",
+        result.structured_content
+    );
+    let data = structured(&result);
+    assert_eq!(
+        data.get("athlete")
+            .and_then(|a| a.get("username"))
+            .and_then(|v| v.as_str()),
+        Some("cached_runner"),
+        "response must carry the cached profile, not a live fetch: {data:?}"
     );
 }
 

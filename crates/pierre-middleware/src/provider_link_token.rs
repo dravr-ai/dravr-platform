@@ -15,7 +15,7 @@
 //! 1. Channel bot (e.g. Slack adapter) calls `POST /api/channels/provider/{provider}/link-token`
 //!    with service-to-service auth and the target user_id + tenant_id.
 //! 2. Pierre mints an HS256-signed JWT (claims: sub=user_id, tid=tenant_id, tgt=target,
-//!    scope=`provider:{provider}:login`, exp=now+20min, jti=nonce).
+//!    scope=`provider:{provider}:login`, exp=now+TTL, jti=nonce).
 //! 3. Bot posts the hosted-login URL (with `?token=...`) to the user in the channel.
 //! 4. User's browser opens the URL. Server validates the token, embeds it in the page.
 //! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <token>`.
@@ -26,9 +26,12 @@
 //!
 //! - **Scope-clamped**: the `scope` claim restricts the token to a single provider's
 //!   login endpoints; any other endpoint must reject it.
-//! - **Bounded lifetime**: 24-hour TTL (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so a
-//!   reconnect nudge the user reads hours later still resolves; still single-use
-//!   (nonce-burned) and scoped to one (user, tenant, provider).
+//! - **Bounded lifetime, tiered by scope**: provider-specific tokens get a
+//!   24-hour TTL (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so a reconnect nudge the
+//!   user reads hours later still resolves — they are nonce-burned on first
+//!   page load. Generic connect tokens are **not** nonce-burned (the picker
+//!   must survive refreshes and multi-provider connects), so they get a 1-hour
+//!   TTL (`CONNECT_LINK_TOKEN_TTL_MINUTES`) to cap the reusable window.
 //! - **Signed with `admin_jwt_secret`**: the same server-wide HMAC secret used for
 //!   admin-token hashing, so no new secret material is introduced.
 //! - **One-time page load**: each token's `jti` is burned on the first
@@ -54,18 +57,33 @@ use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
 
-/// Default TTL for provider link-tokens (24 hours).
+/// Default TTL for provider-specific link-tokens (24 hours).
 ///
-/// These tokens back the channel reconnect/connect links a user reads whenever
-/// they next open their chat app — often hours after the nudge was sent — so the
+/// These tokens back the channel reconnect nudges a user reads whenever they
+/// next open their chat app — often hours after the nudge was sent — so the
 /// validity window must outlast a single sitting. The earlier 20-minute value
 /// (sized to the sciotte hosted-login completion timeout) expired stale clicks
-/// and served the "Link error" page instead of the reconnect form. The token is
-/// still single-use (nonce-burned) and scoped to one (user, tenant, provider) in
-/// the user's own DM, so a longer window does not widen the blast radius.
+/// and served the "Link error" page instead of the reconnect form. The
+/// hosted-login page burns the token's nonce on first load and the token is
+/// scoped to one (user, tenant, provider) in the user's own DM, so the longer
+/// window does not widen the blast radius for this scope.
 /// `MAX_LINK_TOKEN_LIFETIME_SECS` (the nonce-store TTL) derives from this so the
 /// single-use guard stays armed for the token's whole life.
 pub const PROVIDER_LINK_TOKEN_TTL_MINUTES: i64 = 24 * 60;
+
+/// TTL for *generic connect* link-tokens (1 hour) — deliberately much shorter
+/// than [`PROVIDER_LINK_TOKEN_TTL_MINUTES`].
+///
+/// The connect picker never nonce-burns its token (the page must survive
+/// refreshes and multi-provider connects, see `connect_hosted`), so for the
+/// connect scope the token is a **reusable** bearer credential for its whole
+/// life — and the connect scope is a superset accepted by every per-provider
+/// endpoint. A 24-hour reusable superset credential sitting in chat transcripts
+/// and request logs is too wide a window; one hour still covers the in-chat
+/// flow (the connect Card is a direct reply to an active conversation, unlike
+/// the reauth nudge that must survive being read the next morning). An expired
+/// link degrades gracefully: the user asks again and gets a fresh Card.
+pub const CONNECT_LINK_TOKEN_TTL_MINUTES: i64 = 60;
 
 /// JWT issuer claim for provider link-tokens
 const PROVIDER_LINK_TOKEN_ISSUER: &str = "pierre-provider-link";
@@ -147,8 +165,19 @@ pub fn mint_link_token(
     args: &MintProviderLinkTokenArgs<'_>,
     admin_jwt_secret: &str,
 ) -> AppResult<String> {
+    mint_link_token_with_ttl(args, admin_jwt_secret, PROVIDER_LINK_TOKEN_TTL_MINUTES)
+}
+
+/// Mint a link-token with an explicit TTL — the scope-appropriate TTL is chosen
+/// by the public mint fns ([`mint_link_token`] = 24h nonce-burned reauth,
+/// [`mint_connect_link_token`] = 1h reusable connect).
+fn mint_link_token_with_ttl(
+    args: &MintProviderLinkTokenArgs<'_>,
+    admin_jwt_secret: &str,
+    ttl_minutes: i64,
+) -> AppResult<String> {
     let now = Utc::now();
-    let expiry = now + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES);
+    let expiry = now + Duration::minutes(ttl_minutes);
 
     let claims = ProviderLinkTokenClaims {
         sub: args.user_id.to_string(),
@@ -193,7 +222,7 @@ pub fn mint_connect_link_token(
     channel_thread: Option<&str>,
     admin_jwt_secret: &str,
 ) -> AppResult<String> {
-    mint_link_token(
+    mint_link_token_with_ttl(
         &MintProviderLinkTokenArgs {
             user_id,
             tenant_id,
@@ -203,6 +232,7 @@ pub fn mint_connect_link_token(
             channel_thread,
         },
         admin_jwt_secret,
+        CONNECT_LINK_TOKEN_TTL_MINUTES,
     )
 }
 

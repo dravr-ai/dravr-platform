@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use super::addressing::reply_recipient;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::outgoing::proactive_text;
@@ -155,15 +156,17 @@ pub(super) fn otp_reply(
 /// Override `recipient_id` with conversation ID for channel-based platforms like Discord
 ///
 /// Discord REST API sends to channels, not users. If the message came from a guild
-/// channel, we must reply to that channel — not to the user ID.
+/// channel, we must reply to that channel — not to the user ID. Delegates the
+/// present-and-non-empty rule to [`reply_recipient`] (the single source of
+/// truth for the conversation-id-or-user-id choice), so a `Some("")`
+/// conversation id from an inbound webhook can never overwrite a valid sender
+/// recipient with an empty one — the silent-drop class fixed in 5df2c1706.
 pub(super) fn apply_conversation_recipient(
     msg: &mut OutgoingMessage,
     conversation_id: Option<&str>,
 ) {
     if msg.channel_type == ChannelType::Discord || msg.channel_type == ChannelType::Slack {
-        if let Some(conv_id) = conversation_id {
-            conv_id.clone_into(&mut msg.recipient_id);
-        }
+        msg.recipient_id = reply_recipient(conversation_id, &msg.recipient_id).to_owned();
     }
 }
 

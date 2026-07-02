@@ -15,7 +15,8 @@ use tokio::time::sleep;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, mint_connect_link_token, mint_link_token, provider_scope,
-    verify_link_token, MintProviderLinkTokenArgs, MintRateLimiter, NonceStore, CONNECT_PROVIDER,
+    verify_link_token, MintProviderLinkTokenArgs, MintRateLimiter, NonceStore,
+    CONNECT_LINK_TOKEN_TTL_MINUTES, CONNECT_PROVIDER, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use uuid::Uuid;
 
@@ -60,6 +61,41 @@ fn mint_and_verify_roundtrip_recovers_claims() {
     assert_eq!(claims.channel, "slack");
     assert_eq!(claims.channel_thread.as_deref(), Some("C0123#thread-99"));
     assert_eq!(claims.scope, "provider:sciotte:login");
+}
+
+/// The connect token is never nonce-burned (the picker must survive refreshes),
+/// so its only bound on reuse is the TTL — pin the tier split so a future
+/// shared-constant change can't silently re-widen the connect window to 24h.
+#[test]
+fn connect_token_ttl_is_shorter_than_provider_token_ttl() {
+    let (user_id, tenant_id) = sample_ids();
+
+    let provider_token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id,
+            provider: "sciotte",
+            target: "strava",
+            channel: "slack",
+            channel_thread: None,
+        },
+        TEST_SECRET,
+    )
+    .unwrap();
+    let connect_token =
+        mint_connect_link_token(user_id, tenant_id, "slack", None, TEST_SECRET).unwrap();
+
+    let provider_claims = verify_link_token(&provider_token, TEST_SECRET, "sciotte").unwrap();
+    let connect_claims = verify_link_token(&connect_token, TEST_SECRET, CONNECT_PROVIDER).unwrap();
+
+    let provider_ttl_secs = provider_claims.exp - provider_claims.iat;
+    let connect_ttl_secs = connect_claims.exp - connect_claims.iat;
+    assert_eq!(provider_ttl_secs, PROVIDER_LINK_TOKEN_TTL_MINUTES * 60);
+    assert_eq!(connect_ttl_secs, CONNECT_LINK_TOKEN_TTL_MINUTES * 60);
+    assert!(
+        connect_ttl_secs < provider_ttl_secs,
+        "reusable connect tokens must expire sooner than nonce-burned provider tokens"
+    );
 }
 
 #[test]

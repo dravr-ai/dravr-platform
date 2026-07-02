@@ -14,10 +14,10 @@
 //! never enters the chat transcript.
 //!
 //! **Security: direct-message only.** A connect link is scoped to one `user_id`;
-//! anyone who opens it within the 20-minute window could attach *their* provider
-//! to that account. We therefore only emit the tokenized link in a direct
-//! message (never a shared group), and the caller falls back to the plain web
-//! link for group contexts.
+//! anyone who opens it within its TTL (`CONNECT_LINK_TOKEN_TTL_MINUTES`) could
+//! attach *their* provider to that account. We therefore only emit the
+//! tokenized link in a direct message (never a shared group), and the caller
+//! falls back to the plain web link for group contexts.
 
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
@@ -28,7 +28,9 @@ use pierre_middleware::provider_link_token::mint_connect_link_token;
 use tracing::warn;
 use uuid::Uuid;
 
-use pierre_contremaitre::messaging_strings::{KEY_CONNECT_BUTTON, KEY_CONNECT_PROMPT};
+use pierre_contremaitre::messaging_strings::{
+    KEY_CONNECT_BUTTON, KEY_CONNECT_PROMPT, KEY_CONNECT_TITLE,
+};
 
 use crate::mcp::resources::ServerContext;
 
@@ -140,12 +142,15 @@ pub async fn build_connect_card_direct(
     let registry = &resources.mcp.messaging_strings_registry;
     let body = registry.get(KEY_CONNECT_PROMPT, locale);
     let button_label = registry.get(KEY_CONNECT_BUTTON, locale);
+    // Never empty: Slack (header block) and Messenger (generic template) both
+    // reject an empty Card title, which fails the whole send.
+    let title = registry.get(KEY_CONNECT_TITLE, locale);
 
     Some(OutgoingMessage {
         channel_type,
         recipient_id: recipient_id.to_owned(),
         content: MessageContent::Card {
-            title: String::new(),
+            title,
             body,
             actions: vec![CardAction {
                 label: button_label,

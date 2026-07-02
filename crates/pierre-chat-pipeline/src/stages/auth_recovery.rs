@@ -224,8 +224,9 @@ fn sciotte_target_for_provider(provider_slug: &str) -> &'static str {
 
 /// Human-readable display name for a provider slug, used in the localized
 /// re-auth message. Strings are deliberately platform brand names so French
-/// and English copies stay short.
-fn provider_display_name(provider_slug: &str) -> &'static str {
+/// and English copies stay short. An unknown slug passes through as-is — it
+/// renders in every chat locale, unlike any hardcoded fallback word.
+fn provider_display_name(provider_slug: &str) -> &str {
     match provider_slug {
         "sciotte_garmin" | "garmin" => "Garmin",
         "sciotte" | "strava" => "Strava",
@@ -233,6 +234,6 @@ fn provider_display_name(provider_slug: &str) -> &'static str {
         "fitbit" => "Fitbit",
         "coros" => "COROS",
         "terra" => "Terra",
-        _ => "ton fournisseur",
+        other => other,
     }
 }

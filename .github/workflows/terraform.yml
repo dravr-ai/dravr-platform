@@ -7,13 +7,8 @@ name: "Infra: Terraform"
 # Applies NEVER run on push — trigger them manually via "Run workflow"
 # (workflow_dispatch: environment=dev|prod, action=apply).
 on:
-  # pull_request is intentionally left disabled: this repo uses local squash
-  # merges with no PRs, so a PR-triggered plan/comment path is dead. Push is
-  # the real auto-plan mechanism below.
-  # pull_request:
-  #   paths:
-  #     - 'infra/environments/**'
-  #     - 'infra/modules/**'
+  # No pull_request trigger: this repo uses local squash merges with no PRs.
+  # Push is the auto-plan mechanism below.
   push:
     branches: [main]
     paths:
@@ -35,19 +30,17 @@ on:
 permissions:
   contents: read
   id-token: write
-  pull-requests: write
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Plan dev — runs on push to main, PR, or workflow_dispatch(env=dev, action=plan)
-  # Push-triggered plans surface via the job summary (no PR to comment on).
+  # Plan dev — runs on push to main or workflow_dispatch(env=dev, action=plan).
+  # Plans surface via a condensed job summary (action lines only — public repo).
   # ---------------------------------------------------------------------------
   plan-dev:
     name: Plan Dev
     runs-on: ubuntu-latest
     if: >
       github.event_name == 'push' ||
-      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.environment == 'dev' &&
        github.event.inputs.action == 'plan')
@@ -74,60 +67,36 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: set -o pipefail && terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        # Redirect (not pipe) so the step outcome is terraform's own exit — the
+        # setup-terraform wrapper + pipe combination false-greened a live diff
+        # in the drift monitor; same hardening as terraform-drift.yml.
+        run: terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan > plan-output.txt 2>&1
         continue-on-error: true
 
-      - name: Write plan to job summary
+      - name: Write plan summary to job summary
         if: always()
+        # Public repo: never publish raw plan text (any attribute Terraform
+        # doesn't mark sensitive would leak). Success → resource action lines +
+        # the Plan:/No changes line; failure → the error tail only.
         run: |
           {
             echo '## Terraform Plan — dev'
             echo '```'
-            cat plan-output.txt
+            if [ "${{ steps.plan.outcome }}" = "success" ]; then
+              grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)'
+            else
+              echo 'PLAN FAILED — last 40 lines:'
+              tail -n 40 plan-output.txt
+            fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Post plan as PR comment
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            const planOutput = fs.readFileSync('infra/environments/dev/plan-output.txt', 'utf8');
-            const body = `## Terraform Plan — dev\n<details><summary>Show plan</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n</details>`;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existingComment = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('## Terraform Plan — dev')
-            );
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
 
       - name: Fail if plan failed
         if: steps.plan.outcome == 'failure'
         run: exit 1
 
   # ---------------------------------------------------------------------------
-  # Plan prod — runs on PR or workflow_dispatch(env=prod, action=plan).
+  # Plan prod — workflow_dispatch(env=prod, action=plan) only.
   # Deliberately does NOT auto-plan on push: prod stays a manual gesture
   # (apply-prod is if:false scaffolding). Surfaces via the job summary too.
   # ---------------------------------------------------------------------------
@@ -135,10 +104,9 @@ jobs:
     name: Plan Prod
     runs-on: ubuntu-latest
     if: >
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.environment == 'prod' &&
-       github.event.inputs.action == 'plan')
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.environment == 'prod' &&
+      github.event.inputs.action == 'plan'
 
     defaults:
       run:
@@ -162,53 +130,29 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: set -o pipefail && terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        # Redirect (not pipe) so the step outcome is terraform's own exit — the
+        # setup-terraform wrapper + pipe combination false-greened a live diff
+        # in the drift monitor; same hardening as terraform-drift.yml.
+        run: terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan > plan-output.txt 2>&1
         continue-on-error: true
 
-      - name: Write plan to job summary
+      - name: Write plan summary to job summary
         if: always()
+        # Public repo: never publish raw plan text (any attribute Terraform
+        # doesn't mark sensitive would leak). Success → resource action lines +
+        # the Plan:/No changes line; failure → the error tail only.
         run: |
           {
             echo '## Terraform Plan — prod'
             echo '```'
-            cat plan-output.txt
+            if [ "${{ steps.plan.outcome }}" = "success" ]; then
+              grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)'
+            else
+              echo 'PLAN FAILED — last 40 lines:'
+              tail -n 40 plan-output.txt
+            fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Post plan as PR comment
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            const planOutput = fs.readFileSync('infra/environments/prod/plan-output.txt', 'utf8');
-            const body = `## Terraform Plan — prod\n<details><summary>Show plan</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n</details>`;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existingComment = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('## Terraform Plan — prod')
-            );
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
 
       - name: Fail if plan failed
         if: steps.plan.outcome == 'failure'
