@@ -73,6 +73,10 @@ function formatResetTime(isoString: string): string {
 export function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAuthenticated } = useAuth();
+  // Admins are platform operators: provider connections are a user-account
+  // surface (mirrors the web's ADMIN_HIDDEN_TABS), so the Data section is
+  // hidden for them. Gate on `role` to stay consistent with the web Dashboard.
+  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { pref: appearancePref, setPref: setAppearancePref } = useTheme();
@@ -305,27 +309,29 @@ export function SettingsScreen() {
         </View>
 
         {/* Data Providers Section - navigates to Connections screen */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-data-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Data</Text>
-          <View style={glassCardStyle}>
-            <TouchableOpacity
-              style={settingsRowStyle}
-              onPress={() => router.push('/(app)/(tabs)/(settings)/connections')}
-              testID="settings-data-providers-button"
-            >
-              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                <Feather name="link" size={20} color={colors.text.secondary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Data Providers</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
-                  {connectedProviders.filter(p => p.connected).length} connected
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-            </TouchableOpacity>
+        {!isAdminUser && (
+          <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-data-section">
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Data</Text>
+            <View style={glassCardStyle}>
+              <TouchableOpacity
+                style={settingsRowStyle}
+                onPress={() => router.push('/(app)/(tabs)/(settings)/connections')}
+                testID="settings-data-providers-button"
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  <Feather name="link" size={20} color={colors.text.secondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>Data Providers</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
+                    {connectedProviders.filter(p => p.connected).length} connected
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Coaching Style Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-coaching-section">
