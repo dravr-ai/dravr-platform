@@ -28,7 +28,7 @@ use tracing::error;
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
 use super::followups::inject_pending_followups;
-use super::memory::inject_okf_bundle;
+use super::memory::{inject_okf_bundle, inject_playbooks};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
@@ -389,6 +389,20 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.repos.dossier.as_ref(),
         input.conversation_tenant_id,
         user_uuid,
+        base_prompt,
+    )
+    .await;
+
+    // Stage 7e.2: Inject the athlete's proven coaching playbooks (learned from
+    // their own outcomes) so the coach prefers what has worked for them. Scoped
+    // to the TOOL tenant — where the activity data and playbooks live.
+    let playbook_tenant = input.tool_tenant_id.to_string();
+    let base_prompt = inject_playbooks(
+        ctx.repos.playbooks.as_ref(),
+        ctx.repos.activity_cache.as_ref(),
+        &playbook_tenant,
+        &input.user_id,
+        conv.coach_id.as_deref(),
         base_prompt,
     )
     .await;

@@ -27,6 +27,9 @@
 //!   binds a user + coach pair across channels
 //! - [`ClaimVerdict`] — the output of the bullshit detector pipeline
 //!   for a single claim emitted by a coach persona
+//! - [`Playbook`] — a learned `trigger -> intervention` coaching pattern,
+//!   reinforced by automatic outcome labels; [`PendingAdvice`] tracks
+//!   in-flight advice awaiting its observed outcome
 
 /// Claim verdicts from the verification pipeline.
 pub mod claims;
@@ -38,6 +41,8 @@ pub mod facts;
 pub mod followups;
 /// Notes the coach persona authored about a user.
 pub mod notes;
+/// Procedural coaching playbooks reinforced by automatic outcome labels.
+pub mod playbooks;
 /// Isolation boundary for every memory record.
 pub mod scope;
 /// Long-lived coaching sessions that span conversations and channels.
@@ -48,5 +53,10 @@ pub use compaction::CompactionBlock;
 pub use facts::{FactKind, FactSource, UserFact, UserFactMetrics};
 pub use followups::{CoachFollowup, FollowupStatus};
 pub use notes::CoachNote;
+pub use playbooks::{
+    wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Band, Intervention, InterventionKind,
+    LabelSource, MetricBaseline, OutcomeLabel, OutcomeMetric, PendingAdvice, Playbook, TriggerKind,
+    TriggerPattern,
+};
 pub use scope::MemoryScope;
 pub use sessions::{CoachSession, SessionStatus};

@@ -93,6 +93,9 @@ pub mod groups;
 /// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
+/// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
+#[cfg(feature = "tools-memory")]
+pub mod playbooks;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).
 #[cfg(feature = "tools-mobility")]

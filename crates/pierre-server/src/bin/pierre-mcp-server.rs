@@ -897,6 +897,22 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_short_link_sweeper(Arc::clone(&resources.common.repos.short_links));
     }
 
+    // Start the coaching outcome evaluator: labels due advice from the athlete's
+    // real activity/health data and reinforces the matching playbooks. Skipped
+    // for in-memory test servers like the LLM probe — its hybrid labeler can
+    // invoke the LLM judge for ambiguous cases.
+    if !resources.common.config.database.url.is_memory() {
+        use pierre_services::archetype_aggregation::spawn_archetype_aggregation;
+        use pierre_services::outcome_evaluator::spawn_outcome_evaluator;
+        spawn_outcome_evaluator(
+            Arc::clone(&resources.common.repos),
+            resources.common.chat_provider.as_ref().map(Arc::clone),
+        );
+        // Daily archetype aggregation: roll per-user playbooks into k-anonymous
+        // cross-user priors for cold-start. DB-only (no LLM).
+        spawn_archetype_aggregation(Arc::clone(&resources.common.repos));
+    }
+
     // Start group weekly-digest scheduler (weekly cadence). Reads the
     // per-tenant `weekly_digest` tier flag to decide eligibility, computes
     // the same weekly report the on-demand /report endpoint returns, and

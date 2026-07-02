@@ -15,7 +15,7 @@ use crate::repositories::{
     DossierRepository, FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
     SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
@@ -74,6 +74,8 @@ pub struct RepositoryRegistry {
     pub security: Arc<dyn SecurityRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
+    /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
+    pub playbooks: Arc<dyn PlaybookRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Social features (friend connections, shared insights, reactions)
@@ -178,6 +180,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             seeder: db.clone(),
+            playbooks: db.clone(),
             short_links: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
@@ -238,6 +241,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             seeder: db.clone(),
+            playbooks: db.clone(),
             short_links: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
