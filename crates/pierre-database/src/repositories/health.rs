@@ -29,8 +29,10 @@ pub struct SyncCursorRow {
     pub data_type: String,
     /// Provider-specific cursor token for pagination
     pub cursor_value: Option<String>,
-    /// When the last sync completed (RFC 3339)
-    pub last_sync_at: Option<String>,
+    /// When the last sync completed. `DateTime` so the PG backend binds a
+    /// native TIMESTAMPTZ (a TEXT bind is rejected); SQLite stores RFC 3339 TEXT
+    /// via sqlx's chrono encoding.
+    pub last_sync_at: Option<DateTime<Utc>>,
     /// Current sync status (pending, completed, failed)
     pub last_sync_status: String,
     /// Total records synced in the last batch
@@ -39,8 +41,8 @@ pub struct SyncCursorRow {
     pub error_message: Option<String>,
     /// Number of consecutive retry attempts
     pub retry_count: i64,
-    /// When to attempt the next retry (RFC 3339)
-    pub next_retry_at: Option<String>,
+    /// When to attempt the next retry
+    pub next_retry_at: Option<DateTime<Utc>>,
 }
 
 /// Connected user info for sync scheduling.
