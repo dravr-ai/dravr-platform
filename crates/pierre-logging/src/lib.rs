@@ -41,7 +41,7 @@ use serde_json::json;
 use std::env;
 use std::fmt::Debug;
 use std::io;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use tracing::field::{Field, Visit};
 use tracing::{info, Event, Metadata, Subscriber};
 use tracing_subscriber::{
@@ -171,6 +171,28 @@ static NOTIFY_ENRICHER: OnceLock<Arc<dyn NotifyEnricher>> = OnceLock::new();
 /// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
 pub fn set_notify_enricher(enricher: Arc<dyn NotifyEnricher>) {
     let _ = NOTIFY_ENRICHER.set(enricher);
+}
+
+/// Host identity for outbound alerts: the Cloud Run revision name when
+/// deployed (`K_REVISION`), else the machine hostname. Resolved once per
+/// process. Alert layers and the notify enricher stamp it on everything
+/// they send so operators can tell a dev laptop from the deployed service
+/// — both report the same `service_name`/`environment` otherwise.
+static HOST_IDENTITY: LazyLock<Option<String>> = LazyLock::new(|| {
+    env::var("K_REVISION")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| gethostname::gethostname().into_string().ok())
+        .filter(|s| !s.is_empty())
+});
+
+/// The resolved host identity: Cloud Run revision name or machine hostname.
+///
+/// `None` only when `K_REVISION` is unset and the hostname is not valid
+/// UTF-8 or is empty.
+#[must_use]
+pub fn host_identity() -> Option<&'static str> {
+    HOST_IDENTITY.as_deref()
 }
 
 /// Per-event filter applied to the Slack notification sink only.
@@ -645,6 +667,12 @@ impl LoggingConfig {
         let mut config = NotificationConfig::from_env();
         service_name.clone_into(&mut config.service_name);
         environment.clone_into(&mut config.environment);
+        // tronc's env chain (DRAVR_NOTIFY_HOST → K_REVISION → HOSTNAME →
+        // HOST) covers Cloud Run and env-providing shells; the gethostname
+        // syscall fallback covers local runs where none of those are set.
+        if config.host.is_none() {
+            config.host = host_identity().map(str::to_owned);
+        }
 
         let slack = config.slack.as_ref().map(SlackClient::new);
         let email = config.email.as_ref().and_then(|c| {

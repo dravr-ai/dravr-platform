@@ -226,6 +226,16 @@ impl NotifyEnricher for PierreNotifyEnricher {
             .entry("emoji".to_owned())
             .or_insert_with(|| event_emoji(event).to_owned());
 
+        // Sender identity for both sinks — distinguishes a dev laptop from
+        // the deployed Cloud Run revision. Named `sender_host` because
+        // `host` is the denylisted HTTP Host header inherited from request
+        // spans (tronc's FIELD_DENYLIST and STRIPPED_KEYS above both drop it).
+        if let Some(host) = pierre_logging::host_identity() {
+            fields
+                .entry("sender_host".to_owned())
+                .or_insert_with(|| host.to_owned());
+        }
+
         // Resolve the user's email from the identity cache. Clone the id first
         // to release the immutable borrow before the insert.
         if let Some(user_id) = fields.get("user_id").cloned() {
