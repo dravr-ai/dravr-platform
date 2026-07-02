@@ -11,14 +11,17 @@
 //! and metrics are exported over OTLP HTTP/protobuf (reusing reqwest, so no
 //! tonic/gRPC dependency). Spans flow through the `tracing-opentelemetry`
 //! layer wired in [`crate::LoggingConfig::init`]; metrics flow through the
-//! global meter provider that HTTP middleware records against.
+//! global meter provider that HTTP middleware records against. Batch span and
+//! periodic metric exports run on SDK-owned background threads, so no async
+//! runtime handle is required.
 
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{MetricExporter, Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::Tracer;
-use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+use opentelemetry_sdk::trace::{SdkTracer, SdkTracerProvider};
+use opentelemetry_sdk::Resource;
 use pierre_core::errors::{AppError, AppResult};
 use std::env;
 
@@ -33,25 +36,31 @@ const OTLP_METRICS_ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT";
 /// Overrides the resource `service.name` independent of the logging config.
 const OTEL_SERVICE_NAME_ENV: &str = "OTEL_SERVICE_NAME";
 
+/// Instrumentation scope name stamped on every span the subscriber layer
+/// emits through [`TelemetryHandle::tracer`].
+const INSTRUMENTATION_SCOPE: &str = "pierre-logging";
+
 /// Live OpenTelemetry providers. Held for the process lifetime so batch
 /// exporters keep flushing; [`TelemetryHandle::shutdown`] drains them on exit.
 pub struct TelemetryHandle {
-    tracer: Tracer,
+    tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,
 }
 
 impl TelemetryHandle {
-    /// A clone of the installed tracer, used to build the
+    /// A tracer from the installed provider, used to build the
     /// `tracing-opentelemetry` subscriber layer.
     #[must_use]
-    pub fn tracer(&self) -> Tracer {
-        self.tracer.clone()
+    pub fn tracer(&self) -> SdkTracer {
+        self.tracer_provider.tracer(INSTRUMENTATION_SCOPE)
     }
 
     /// Flush and shut down both providers. Batch span/metric exporters buffer
     /// in the background, so skipping this on exit drops the final batch.
     pub fn shutdown(&self) {
-        global::shutdown_tracer_provider();
+        if let Err(e) = self.tracer_provider.shutdown() {
+            tracing::warn!("OTel tracer provider shutdown error: {e}");
+        }
         if let Err(e) = self.meter_provider.shutdown() {
             tracing::warn!("OTel meter provider shutdown error: {e}");
         }
@@ -61,13 +70,12 @@ impl TelemetryHandle {
 /// Build the OTLP traces + metrics pipeline when an endpoint is configured.
 ///
 /// Returns `Ok(None)` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the
-/// off-by-default path), so callers treat telemetry as a no-op. Must run
-/// inside a Tokio runtime — the batch processors spawn on `runtime::Tokio`.
+/// off-by-default path), so callers treat telemetry as a no-op.
 ///
 /// # Errors
 ///
 /// Returns [`AppError::internal`] when the configured endpoint is set but the
-/// OTLP trace or metric exporter pipeline fails to initialize.
+/// OTLP trace or metric exporter fails to build.
 pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHandle>> {
     let Some(base) = non_empty_env(OTLP_ENDPOINT_ENV) else {
         return Ok(None);
@@ -83,28 +91,30 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
     // W3C Trace Context so spans chain across service boundaries.
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint(traces_endpoint),
-        )
-        .with_trace_config(sdktrace::config().with_resource(resource.clone()))
-        .install_batch(runtime::Tokio)
-        .map_err(|e| AppError::internal(format!("OTLP trace pipeline init failed: {e}")))?;
-
-    let meter_provider = opentelemetry_otlp::new_pipeline()
-        .metrics(runtime::Tokio)
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint(metrics_endpoint),
-        )
-        .with_resource(resource)
+    let span_exporter = SpanExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .with_endpoint(traces_endpoint)
         .build()
-        .map_err(|e| AppError::internal(format!("OTLP metric pipeline init failed: {e}")))?;
+        .map_err(|e| AppError::internal(format!("OTLP trace exporter init failed: {e}")))?;
 
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_batch_exporter(span_exporter)
+        .with_resource(resource.clone())
+        .build();
+    global::set_tracer_provider(tracer_provider.clone());
+
+    let metric_exporter = MetricExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .with_endpoint(metrics_endpoint)
+        .build()
+        .map_err(|e| AppError::internal(format!("OTLP metric exporter init failed: {e}")))?;
+
+    let meter_provider = SdkMeterProvider::builder()
+        .with_periodic_exporter(metric_exporter)
+        .with_resource(resource)
+        .build();
     global::set_meter_provider(meter_provider.clone());
 
     // The tracing subscriber is not installed yet at this point in bootstrap,
@@ -116,18 +126,20 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
     );
 
     Ok(Some(TelemetryHandle {
-        tracer,
+        tracer_provider,
         meter_provider,
     }))
 }
 
 /// Resource attributes that tag every span and metric with service identity.
 fn build_resource(config: &LoggingConfig) -> Resource {
-    Resource::new(vec![
-        KeyValue::new("service.name", resolve_service_name(config)),
-        KeyValue::new("service.version", config.service_version.clone()),
-        KeyValue::new("deployment.environment", config.environment.clone()),
-    ])
+    Resource::builder()
+        .with_service_name(resolve_service_name(config))
+        .with_attributes([
+            KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new("deployment.environment", config.environment.clone()),
+        ])
+        .build()
 }
 
 /// `OTEL_SERVICE_NAME` wins over the logging config's service name when set.

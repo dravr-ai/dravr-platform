@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#[cfg(feature = "telemetry")]
+use crate::trace_propagation::TracePropagationMiddleware;
 use reqwest::ClientBuilder;
 use reqwest_middleware::{ClientBuilder as MiddlewareClientBuilder, ClientWithMiddleware};
 use std::env;
@@ -137,6 +139,6 @@ fn wrap_client(inner: reqwest::Client) -> ClientWithMiddleware {
     // Inject W3C `traceparent` into every outbound request and emit a client
     // span when the OTLP pipeline is active. No-op when no propagator is set.
     #[cfg(feature = "telemetry")]
-    let builder = builder.with(reqwest_tracing::TracingMiddleware::default());
+    let builder = builder.with(TracePropagationMiddleware);
     builder.build()
 }

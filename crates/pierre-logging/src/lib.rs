@@ -54,7 +54,7 @@ use tracing_subscriber::{
 };
 
 #[cfg(feature = "telemetry")]
-use opentelemetry_sdk::trace::Tracer;
+use opentelemetry_sdk::trace::SdkTracer;
 
 /// Per-event closure type for the chromiumoxide teardown suppression
 /// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
@@ -380,7 +380,7 @@ impl LoggingConfig {
     /// aborting startup. Runs before the subscriber is installed, so it does
     /// not use tracing macros.
     #[cfg(feature = "telemetry")]
-    fn init_telemetry(&self) -> Option<Tracer> {
+    fn init_telemetry(&self) -> Option<SdkTracer> {
         if !self.features.telemetry {
             return None;
         }

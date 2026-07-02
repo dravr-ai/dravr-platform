@@ -48,9 +48,17 @@ provider-errors = ["dep:reqwest"]
 # telemetry is compiled in; the tracing middleware is layered on by `telemetry`.
 http-client = ["dep:reqwest", "dep:reqwest-middleware"]
 
-# Outbound W3C trace-context propagation on the shared HTTP clients via
-# reqwest-tracing's TracingMiddleware (injects `traceparent`, emits client spans).
-telemetry = ["http-client", "dep:reqwest-tracing"]
+# Outbound W3C trace-context propagation on the shared HTTP clients via the in-house
+# trace_propagation middleware (injects `traceparent`, emits client spans). In-house
+# because reqwest-tracing's opentelemetry_0_32 support requires reqwest 0.13, which
+# the workspace has not adopted.
+telemetry = [
+    "http-client",
+    "dep:async-trait",
+    "dep:http",
+    "dep:opentelemetry",
+    "dep:tracing-opentelemetry",
+]
 
 # Cryptographic error conversions (ring::error::Unspecified)
 crypto-errors = ["dep:ring"]
@@ -89,9 +97,11 @@ sqlx = { version = "0.8", optional = true, default-features = false }
 reqwest = { version = "0.12", optional = true, default-features = false }
 
 # Optional: middleware wrapper for the shared HTTP clients (always paired with
-# `http-client`) and the OTLP trace-propagation middleware (paired with `telemetry`).
+# `http-client`); the OTLP trace-propagation middleware (paired with `telemetry`)
+# needs the OpenTelemetry propagation API plus the tracing-span bridge.
 reqwest-middleware = { version = "0.3", optional = true, features = ["json"] }
-reqwest-tracing = { version = "0.5", default-features = false, features = ["opentelemetry_0_22"], optional = true }
+opentelemetry = { version = "0.32", optional = true, default-features = false, features = ["trace"] }
+tracing-opentelemetry = { version = "0.33", optional = true, default-features = false }
 
 # Optional: Cryptographic error types
 ring = { version = "0.17", optional = true }
@@ -138,7 +148,11 @@ bcrypt = { version = "0.16", optional = true }
 
 [dev-dependencies]
 # Used by the in-tree DummyProvider unit tests under `billing::dummy::tests`.
-tokio = { version = "1.48", features = ["macros", "rt"] }
+tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
+# tests/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
+# (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.
+opentelemetry_sdk = { version = "0.32.1", features = ["trace", "testing"] }
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 [lints]
 workspace = true
