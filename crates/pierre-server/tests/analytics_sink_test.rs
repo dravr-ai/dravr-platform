@@ -149,6 +149,42 @@ fn enricher_no_email_without_user_id() {
 }
 
 #[test]
+fn enricher_injects_sender_host_without_clobbering_explicit_value() {
+    // host_identity() resolves K_REVISION or the machine hostname; either
+    // way a test process always has one.
+    let resolved = pierre_logging::host_identity().expect("host identity resolves on test hosts");
+    assert!(!resolved.is_empty());
+
+    let mut f = HashMap::new();
+    PierreNotifyEnricher.enrich("provider.fetch_started", &mut f);
+    assert_eq!(f.get("sender_host").map(String::as_str), Some(resolved));
+
+    // A call site that set its own sender_host wins (entry().or_insert).
+    let mut preset = fields(&[("sender_host", "explicit-sender")]);
+    PierreNotifyEnricher.enrich("provider.fetch_started", &mut preset);
+    assert_eq!(
+        preset.get("sender_host").map(String::as_str),
+        Some("explicit-sender")
+    );
+}
+
+#[test]
+fn sender_host_survives_posthog_property_stripping() {
+    // `host` is denylisted as HTTP-header noise; `sender_host` must not be.
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[
+        ("tenant_id", "tenant-1"),
+        ("sender_host", "dev-laptop.local"),
+        ("host", "api.dravr.ai"),
+    ]);
+    let capture = provider
+        .capture_for("provider.fetch_started", &f)
+        .expect("operational event captures");
+    assert_eq!(capture.properties["sender_host"], "dev-laptop.local");
+    assert!(capture.properties.get("host").is_none());
+}
+
+#[test]
 fn enricher_keeps_call_site_emoji() {
     let mut f = fields(&[("emoji", "🎯")]);
     PierreNotifyEnricher.enrich("user.login", &mut f);

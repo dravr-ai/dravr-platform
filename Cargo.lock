@@ -1466,8 +1466,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.1.7"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.7#ec76b52be9919db98c7321068bbbe328fbcdac61"
+version = "0.1.8"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.8#0f6fcf982cc6047582b3c553c0cf9d3366b7392c"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1484,8 +1484,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.5.3"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.5.3#cac9d67e1cdbc43cc94afa96bfb96df98b4259ce"
+version = "0.6.0"
+source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.6.0#8e82465879a0045282d237af7f6fa6f862564c31"
 dependencies = [
  "async-trait",
  "axum",
@@ -1941,6 +1941,16 @@ dependencies = [
  "typenum",
  "version_check",
  "zeroize",
+]
+
+[[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
 ]
 
 [[package]]
@@ -3689,6 +3699,7 @@ dependencies = [
  "chrono",
  "dravr-sciotte",
  "dravr-tronc",
+ "gethostname",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
