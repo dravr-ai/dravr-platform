@@ -166,10 +166,21 @@ resource "google_cloud_run_v2_service" "service" {
   # Disable IAM-based invoker checks for public access (bypasses org policy restrictions on allUsers)
   invoker_iam_disabled = var.allow_unauthenticated
 
-  # CI/CD deploys update the image outside Terraform; prevent drift
+  # CI/CD deploys (gcloud / GitHub Actions) mutate these outside Terraform, so
+  # ignore them — otherwise the nightly drift monitor reds on deploy-stamped
+  # metadata (which re-appears on every deploy) instead of only on real config
+  # drift. `image`: the deployed container tag. `client` / `client_version`: the
+  # "who last wrote me" annotation gcloud stamps on the resource.
+  # `template[0].labels`: the per-revision labels the deploy sets (commit-sha,
+  # token-rotated, component, …) — Terraform owns the top-level service `labels`
+  # (var.labels), not the revision-template labels, so scoping to the template
+  # map leaves the managed labels governed.
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
+      client,
+      client_version,
+      template[0].labels,
     ]
   }
 }
