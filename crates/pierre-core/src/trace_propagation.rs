@@ -24,6 +24,7 @@ use opentelemetry::propagation::Injector;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next, Result};
+use tracing::field::Empty;
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -71,10 +72,10 @@ impl Middleware for TracePropagationMiddleware {
             "http.client.request",
             otel.kind = "client",
             otel.name = format!("{method} {host}"),
-            otel.status_code = tracing::field::Empty,
+            otel.status_code = Empty,
             http.request.method = method,
             server.address = host,
-            http.response.status_code = tracing::field::Empty,
+            http.response.status_code = Empty,
         );
 
         global::get_text_map_propagator(|propagator| {
