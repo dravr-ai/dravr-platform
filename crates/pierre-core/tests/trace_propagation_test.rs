@@ -17,6 +17,7 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tracing::subscriber::set_default;
 use tracing_subscriber::layer::SubscriberExt;
 
 /// Minimal one-shot HTTP server: accepts a single connection, captures the
@@ -74,7 +75,7 @@ async fn test_traceparent_injected_when_pipeline_active() {
     let subscriber = tracing_subscriber::registry().with(
         tracing_opentelemetry::layer().with_tracer(provider.tracer("trace-propagation-test")),
     );
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let _guard = set_default(subscriber);
 
     let (addr, rx) = spawn_header_capture_server().await;
     let response = api_client()
@@ -113,7 +114,7 @@ async fn test_traceparent_injected_when_pipeline_active() {
 #[tokio::test]
 async fn test_no_traceparent_when_pipeline_inactive() {
     global::set_text_map_propagator(TraceContextPropagator::new());
-    let _guard = tracing::subscriber::set_default(tracing_subscriber::registry());
+    let _guard = set_default(tracing_subscriber::registry());
 
     let (addr, rx) = spawn_header_capture_server().await;
     let response = api_client()
