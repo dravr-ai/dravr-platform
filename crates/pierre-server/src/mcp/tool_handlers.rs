@@ -31,9 +31,11 @@ use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::SecurityLabels;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -1035,16 +1037,16 @@ impl ToolHandlers {
         // requirements (minting hosted-login / provider-authorize URLs, MCP
         // request-id shaping) that don't fit the standard McpTool pattern.
         //
-        // S4 CARVE-OUT: this is the ONE registered-tool path that bypasses
-        // `UniversalExecutor::execute_tool`, so `disconnect_provider`'s
-        // `IRREVERSIBLE` Guardian label does not fire here. connect/get_status are
-        // non-destructive (safe to bypass); disconnect_provider IS destructive,
-        // and its carve-out handler (`route_disconnect_tool` → provider_registry +
-        // coach DB) does MORE than the registry `DisconnectProviderTool`
-        // (plain `delete_token`), so it cannot simply fall through to the
-        // chokepoint without a behaviour change. Closing this gap needs a design
-        // decision (canonicalize disconnect on the registry tool, or gate the
-        // carve-out inline) — see the guardians-review #1 follow-up.
+        // S4 CARVE-OUT: this path bypasses `UniversalExecutor::execute_tool`.
+        // connect/get_status are non-destructive (empty Guardian labels), so
+        // bypassing the chokepoint is a no-op for them. `disconnect_provider` IS
+        // `IRREVERSIBLE`, and its carve-out handler (`route_disconnect_tool` →
+        // provider_registry + coach DB) does MORE than the registry
+        // `DisconnectProviderTool` (plain `delete_token`), so it can't just fall
+        // through to the chokepoint. Instead it runs the SAME shared
+        // `guardian::guardian_gate` inline (#1) — so the taint→irreversible +
+        // per-turn destructive budget fire on this /mcp path exactly as at the
+        // chokepoint, without changing the disconnect behaviour.
         match tool_name {
             CONNECT_PROVIDER => {
                 return Self::handle_connect_provider(args, request_id);
@@ -1053,7 +1055,7 @@ impl ToolHandlers {
                 return Self::handle_get_connection_status(args, request_id, ctx).await;
             }
             DISCONNECT_PROVIDER => {
-                return Self::handle_disconnect_provider(args, request_id, ctx).await;
+                return Self::guarded_disconnect_provider(args, request_id, ctx).await;
             }
             _ => {}
         }
@@ -1203,6 +1205,81 @@ impl ToolHandlers {
             &ctx.resources.common.config,
         )
         .await
+    }
+
+    /// Gate `disconnect_provider` through the shared Guardian decision before the
+    /// carve-out handler runs (#1).
+    ///
+    /// `disconnect_provider` is dispatched here instead of through
+    /// `execute_tool`, so without this it would skip the taint→irreversible +
+    /// per-turn destructive budget gate every chokepoint dispatch enforces.
+    /// Labels are `IRREVERSIBLE` + `WRITES_DATA`, matching
+    /// `declare_security!(DisconnectProviderTool => IRREVERSIBLE)` and its
+    /// capabilities (pinned by `disconnect_provider_gate_labels_match_registry`);
+    /// the reserved budget is refunded if the disconnect itself fails, mirroring
+    /// the chokepoint's post-execution refund.
+    async fn guarded_disconnect_provider(
+        args: &Value,
+        request_id: Value,
+        ctx: &ToolRoutingContext<'_>,
+    ) -> McpResponse {
+        let labels = SecurityLabels::IRREVERSIBLE;
+        let writes_data = true;
+        let tenant_uuid = Uuid::parse_str(&ctx.tenant_context.tenant_id.to_string()).ok();
+        // Same turn key the chokepoint uses: the per-turn/session token so taint
+        // and budgets accumulate across ONE turn's calls (a fresh nonce for a
+        // token-less call makes it its own bucket).
+        let turn_token = ctx
+            .tenant_context
+            .session_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let turn_key = TurnKey::new(tenant_uuid, turn_token);
+        let (outcome, reserved) = guardian::guardian_gate(
+            ctx.resources.guardian(),
+            ctx.resources.guardian_turns(),
+            &turn_key,
+            DISCONNECT_PROVIDER,
+            labels,
+            writes_data,
+            tenant_uuid,
+        );
+        if let GateOutcome::Blocked(reason) = outcome {
+            return Self::guardian_denied_mcp(reason, request_id);
+        }
+        let response = Self::handle_disconnect_provider(args, request_id, ctx).await;
+        if reserved && Self::mcp_response_is_error(&response) {
+            ctx.resources
+                .guardian_turns()
+                .refund(&turn_key, labels, writes_data);
+        }
+        response
+    }
+
+    /// Build the MCP-direct response for a Guardian-blocked carve-out tool.
+    ///
+    /// Shaped like a normal tool `isError` result (via
+    /// [`Self::tool_response_to_mcp_response`]) carrying the machine `guardian_reason`
+    /// so an MCP client sees a policy block, not a tool crash. (The chat transport
+    /// localizes via `KEY_GUARDIAN_DENIED`; a raw MCP client gets the code.)
+    fn guardian_denied_mcp(reason: DenyReason, request_id: Value) -> McpResponse {
+        let response = ToolResponse::error(format!(
+            "Blocked by the Guardian safety policy ({}).",
+            reason.as_str()
+        ));
+        Self::tool_response_to_mcp_response(&response, request_id)
+    }
+
+    /// Whether an `McpResponse` represents a failed call (JSON-RPC error or an
+    /// `isError` tool result) — used to decide whether to refund reserved budget.
+    fn mcp_response_is_error(response: &McpResponse) -> bool {
+        response.error.is_some()
+            || response
+                .result
+                .as_ref()
+                .and_then(|r| r.get("isError"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
     }
 
     /// Handle `disconnect_provider` OAuth tool

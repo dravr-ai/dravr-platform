@@ -230,10 +230,11 @@ async fn extract_tenant_from_token<C: MiddlewareCtx>(
     let repos = resources.repos().auth_repos();
     let tenant_id =
         resolve_tenant_id_from_claims(&claims, user_id, explicit_tenant_id, &repos).await?;
-    // Carry the JWT `jti` as the Guardian turn token (one token per chat turn).
+    // Carry the Guardian turn token: the `jti` only for a per-turn (ACP) token,
+    // else `None` so a reused session token is keyed per-call, not per-session (#2).
     build_tenant_context(tenant_id, user_id, &repos)
         .await
-        .map(|ctx| ctx.with_session_id(Some(claims.jti.clone())))
+        .map(|ctx| ctx.with_session_id(claims.guardian_turn_token()))
 }
 
 /// Resolve the tenant ID from JWT claims, header, or fall back to user's default tenant

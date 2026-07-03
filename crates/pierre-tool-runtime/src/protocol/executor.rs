@@ -7,7 +7,7 @@
 use super::auth::AuthService;
 use crate::context::{AuthMethod, CONVERSATION_ID, GUARDIAN_TURN_TOKEN};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
-use crate::guardian::{self, Decision, DenyReason, TurnKey};
+use crate::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
@@ -326,33 +326,32 @@ impl UniversalExecutor {
         let turn_key = TurnKey::new(tenant_uuid, resolved_turn_token.clone());
 
         // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
-        // decide + budget-reserve run atomically under one store lock so
+        // The decision + atomic budget-reserve is the shared `guardian_gate`
+        // (also called by the server's `/mcp` OAuth carve-out) so no dispatch
+        // path can bypass it. decide + reserve run under one store lock so
         // concurrent same-turn dispatch (headless loopback / A2A pipelining
         // sharing one turn token) cannot both read a pre-state and both pass a
         // cap (the E2 TOCTOU fix).
-        let guardian = self.resources.guardian();
-        let mode_blocks = guardian.mode().blocks();
-        let (decision, reserved) = self.resources.guardian_turns().decide_and_reserve(
+        let (outcome, reserved) = guardian::guardian_gate(
+            self.resources.guardian(),
+            self.resources.guardian_turns(),
             &turn_key,
             &tool_name,
             labels,
             writes_data,
-            |turn_state| guardian.decide(labels, writes_data, tenant_uuid, turn_state),
-            // Reserve budget when the call WILL run: on an allow, and on a
-            // would-deny in a non-blocking mode (observe/off executes anyway).
-            |decision| matches!(decision, Decision::Allow) || !mode_blocks,
+            tenant_uuid,
         );
-        if let Some(reason) = decision.denied() {
-            warn!(
-                tool_name = %tool_name,
-                reason = reason.as_str(),
-                mode = guardian.mode().as_str(),
-                "guardian flagged tool dispatch"
-            );
-            if mode_blocks {
-                // Blocked before execution: nothing ran, nothing was reserved.
-                return Ok(guardian_denied_response(&tool_name, reason));
-            }
+        if let GateOutcome::Blocked(reason) = outcome {
+            // #10: record the denial under the (tenant, user) headless key so the
+            // Copilot-headless loop surfaces a deterministic refusal for a block
+            // that fired inside its ACP subprocess loopback (a separate HTTP task
+            // that can't return this out-of-band). Harmless for other transports —
+            // only the headless loop consumes it, and it clears the key first.
+            self.resources
+                .guardian_turns()
+                .record_denial(&TurnKey::new(tenant_uuid, request.user_id.clone()), reason);
+            // Blocked before execution: nothing ran, nothing was reserved.
+            return Ok(guardian_denied_response(&tool_name, reason));
         }
 
         // Scope the originating conversation id into the task-local for the

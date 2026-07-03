@@ -360,5 +360,9 @@ harness = false
 name = "sse_concurrency_bench"
 harness = false
 
+[[bench]]
+name = "guardian_bench"
+harness = false
+
 [lints]
 workspace = true

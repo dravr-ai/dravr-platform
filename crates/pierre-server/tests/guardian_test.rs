@@ -16,8 +16,8 @@
 use std::collections::HashSet;
 
 use pierre_tool_runtime::guardian::{
-    Decision, DenyReason, ExternalSendAllowlist, Guardian, GuardianMode, GuardianPolicy,
-    GuardianTurns, PlanMode, TaintedDestructive, TurnKey, TurnState,
+    guardian_gate, Decision, DenyReason, ExternalSendAllowlist, GateOutcome, Guardian,
+    GuardianMode, GuardianPolicy, GuardianTurns, PlanMode, TaintedDestructive, TurnKey, TurnState,
 };
 use pierre_tool_runtime::SecurityLabels;
 use uuid::Uuid;
@@ -326,4 +326,128 @@ fn per_turn_keys_do_not_share_budget_or_taint() {
     store.record_taint(&k1, "get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
     assert_eq!(peek(&store, &k2, TurnState::destructive_count), 0);
     assert!(!peek(&store, &k2, TurnState::is_tainted));
+}
+
+// `guardian_gate` is the SINGLE gate shared by the chokepoint executor and the
+// server's `/mcp` OAuth carve-out (disconnect_provider). These pin that shared
+// gate so the carve-out (#1) cannot silently diverge from the chokepoint.
+
+#[test]
+fn guardian_gate_blocks_second_destructive_in_enforce() {
+    let guardian = Guardian::new(enforce_policy());
+    let turns = GuardianTurns::new();
+    let key = TurnKey::new(None, "turn-1");
+
+    // First IRREVERSIBLE dispatch this turn: allowed, reserves the 1 destructive slot.
+    let (first, reserved) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    assert_eq!(first, GateOutcome::Proceed);
+    assert!(reserved, "an allowed destructive call reserves budget");
+
+    // Second in the SAME turn: per-turn destructive budget exhausted → blocked,
+    // exactly as the chokepoint would block it.
+    let (second, _) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    assert_eq!(second, GateOutcome::Blocked(DenyReason::BudgetExceeded));
+}
+
+#[test]
+fn guardian_gate_observe_reports_but_proceeds() {
+    let mut policy = enforce_policy();
+    policy.mode = GuardianMode::Observe;
+    let guardian = Guardian::new(policy);
+    let turns = GuardianTurns::new();
+    let key = TurnKey::new(None, "turn-2");
+
+    // Exhaust the destructive budget in observe.
+    let _ = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    // A would-deny in observe still PROCEEDS (logs, runs anyway) and still
+    // reserves budget for the call that will run.
+    let (outcome, reserved) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    assert_eq!(outcome, GateOutcome::Proceed);
+    assert!(reserved);
+}
+
+// #2: a per-turn (ACP) token yields a Guardian turn key (its jti); a reused
+// session token yields None, so a stateless MCP client is keyed per-call and does
+// not accumulate budget/taint across its whole session.
+#[test]
+fn turn_scoped_claim_gates_the_guardian_turn_token() {
+    use pierre_auth::auth::Claims;
+    let session_token = Claims {
+        sub: "user".to_owned(),
+        email: "u@example.com".to_owned(),
+        iat: 0,
+        exp: 0,
+        iss: "pierre".to_owned(),
+        jti: "the-jti".to_owned(),
+        providers: Vec::new(),
+        aud: "mcp".to_owned(),
+        active_tenant_id: None,
+        impersonator_id: None,
+        impersonation_session_id: None,
+        turn_scoped: None,
+    };
+    // A reused session token → no per-turn key (each call keyed independently).
+    assert_eq!(session_token.guardian_turn_token(), None);
+    // A per-turn ACP token → its jti is the turn key.
+    let acp_token = Claims {
+        turn_scoped: Some(true),
+        ..session_token
+    };
+    assert_eq!(acp_token.guardian_turn_token(), Some("the-jti".to_owned()));
+}
+
+// #10: the denial flag the chokepoint sets and the Copilot-headless loop consumes
+// so a block that fired inside the ACP subprocess loopback surfaces as a
+// deterministic refusal. Recorded under the headless key, taken exactly once,
+// and clearable so a stale denial can't leak into the next turn.
+#[test]
+fn headless_denial_flag_records_takes_once_and_clears() {
+    let store = GuardianTurns::new();
+    let key = TurnKey::new(None, "tenant:user");
+
+    // Nothing recorded yet.
+    assert_eq!(store.take_denial(&key), None);
+
+    // The chokepoint records a block; the headless loop takes it once.
+    store.record_denial(&key, DenyReason::BudgetExceeded);
+    assert_eq!(store.take_denial(&key), Some(DenyReason::BudgetExceeded));
+    // Single consumption — a second take sees nothing.
+    assert_eq!(store.take_denial(&key), None);
+
+    // Clearing (before a turn) drops a stale denial so it can't leak.
+    store.record_denial(&key, DenyReason::TaintedSink);
+    store.clear_denial(&key);
+    assert_eq!(store.take_denial(&key), None);
 }
