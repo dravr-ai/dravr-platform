@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 #![cfg(feature = "telemetry")]
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use opentelemetry::trace::{Span, Tracer};
 use pierre_logging::otel::build_telemetry;
