@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 #![cfg(feature = "telemetry")]
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use opentelemetry::global;
 use opentelemetry::trace::TracerProvider as _;
@@ -13,22 +13,21 @@ use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
 use pierre_core::http_client::api_client;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tracing_subscriber::layer::SubscriberExt;
 
 /// Minimal one-shot HTTP server: accepts a single connection, captures the
 /// request headers, and answers `200 OK`. Returns the bound address and a
 /// receiver that yields the captured header map (lowercased names).
-async fn spawn_header_capture_server() -> (
-    std::net::SocketAddr,
-    tokio::sync::oneshot::Receiver<HashMap<String, String>>,
-) {
+async fn spawn_header_capture_server() -> (SocketAddr, oneshot::Receiver<HashMap<String, String>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind local test listener");
     let addr = listener.local_addr().expect("local addr");
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
 
     tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.expect("accept test connection");
