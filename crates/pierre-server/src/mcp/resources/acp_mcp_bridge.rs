@@ -98,6 +98,9 @@ impl McpBridgeProvider for AcpMcpBridge {
             &self.jwks_manager,
             Some(tenant_id.to_string()),
             Duration::minutes(15),
+            // Minted fresh per chat turn → the Guardian keys taint/budget on its
+            // jti for this turn's native tool calls (#2).
+            true,
         ) {
             Ok(token) => token,
             Err(e) => {

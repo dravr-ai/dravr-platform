@@ -45,11 +45,13 @@ pub struct TenantContext {
     pub user_id: Uuid,
     /// User's role within the tenant
     pub user_role: TenantRole,
-    /// Originating session/token id (the JWT `jti`) when this context was built
-    /// from a validated bearer token; `None` otherwise. The Guardian uses it as
-    /// the per-turn token for taint accumulation on the MCP/headless path — the
-    /// ACP bridge mints one token (one `jti`) per chat turn, so every native
-    /// tool call in that turn shares it.
+    /// The Guardian per-turn token for the MCP/headless path — the JWT `jti`, but
+    /// ONLY when the token is minted per turn (the ACP bridge mints one `jti` per
+    /// chat turn, so every native tool call in that turn shares it). `None` for a
+    /// reused session token (a stateless MCP client) so the Guardian keys each of
+    /// its calls independently rather than accumulating budget/taint across the
+    /// whole session (#2). Not an identity/audit field — its sole consumer is the
+    /// Guardian turn key.
     #[serde(default)]
     pub session_id: Option<String>,
 }

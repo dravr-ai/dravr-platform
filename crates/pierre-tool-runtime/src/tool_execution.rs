@@ -25,7 +25,7 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
-use crate::guardian::StepOutput;
+use crate::guardian::{StepOutput, TurnKey};
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::registry::ToolRegistry;
@@ -1658,6 +1658,14 @@ async fn run_headless_tool_loop(
 
     // Copilot Headless handles tool execution internally via ACP — and, when
     // mcp_servers are present, calls Dravr tools natively over those servers.
+    // #10: clear any stale denial for this (tenant, user) so only a block raised
+    // during THIS turn's ACP subprocess is surfaced by finalize_headless_turn.
+    params
+        .executor
+        .resources
+        .guardian_turns()
+        .clear_denial(&headless_denial_key(params));
+
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
         run_headless_streaming(headless_runner, &request, sink).await
@@ -1729,6 +1737,16 @@ async fn run_headless_tool_loop(
     .await
 }
 
+/// The Guardian denial key for a headless turn — `(tenant, user)`. A block that
+/// fires at the chokepoint during the ACP subprocess's loopback calls is recorded
+/// and later consumed under this key, so the headless loop can surface it (#10).
+/// One user runs one headless turn at a time, so `(tenant, user)` identifies it;
+/// [`run_headless_tool_loop`] clears the key before the subprocess and
+/// [`finalize_headless_turn`] takes it after, bounding it to this turn.
+fn headless_denial_key(params: &ToolLoopParams<'_>) -> TurnKey {
+    TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
+}
+
 /// Strip the headless reply, retry once if the turn was degenerate, and
 /// assemble the [`ToolLoopResult`].
 ///
@@ -1775,6 +1793,20 @@ async fn finalize_headless_turn(
         tools_called.extend(retry.tool_calls);
     }
 
+    // #10: surface a Guardian block that fired inside the ACP subprocess's `/mcp`
+    // loopback as a deterministic denial (the chat pipeline renders it as the
+    // localized KEY_GUARDIAN_DENIED) instead of the model's paraphrase. Consumed
+    // once at the end of the turn — after any degenerate-turn retry.
+    let guardian_denied = params
+        .executor
+        .resources
+        .guardian_turns()
+        .take_denial(&headless_denial_key(params))
+        .map(|reason| GuardianDenial {
+            tool_name: "(headless)".to_owned(),
+            reason: reason.as_str().to_owned(),
+        });
+
     Ok(ToolLoopResult {
         content,
         usage,
@@ -1789,10 +1821,11 @@ async fn finalize_headless_turn(
         // platform-side ProviderAuthRequired handoff is not possible without
         // visibility into the subprocess tool dispatches. Leave as None.
         pending_provider_auth_required: None,
-        // Same blind spot: the runtime Guardian chokepoint sits in the platform
-        // executor, which the ACP subprocess bypasses, so no per-tool denial is
-        // observable here.
-        guardian_denied: None,
+        // #10: a block that fired at the platform chokepoint during the ACP
+        // subprocess's loopback calls is recovered from the shared Guardian store
+        // above (keyed by this turn's (tenant, user)), so the headless path now
+        // surfaces the same deterministic refusal every other transport does.
+        guardian_denied,
     })
 }
 

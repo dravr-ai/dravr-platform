@@ -100,6 +100,61 @@ impl DenyReason {
     }
 }
 
+/// The outcome of the taint/budget/egress gate at one dispatch point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateOutcome {
+    /// The call may run — allowed, or a would-deny in a non-blocking mode
+    /// (`observe`/`off` log the flag and execute anyway).
+    Proceed,
+    /// Blocked: `enforce` mode saw a denial. Carries the reason so the caller
+    /// renders the transport-appropriate refusal.
+    Blocked(DenyReason),
+}
+
+/// Run the taint/budget/egress decision + atomic budget reserve for one
+/// dispatch, applying the active [`GuardianMode`].
+///
+/// This is the SINGLE gate every dispatch point shares — the chokepoint
+/// [`crate::protocol::executor::UniversalExecutor::execute_tool`] and the `/mcp`
+/// OAuth carve-out in the server — so a special-cased dispatch path cannot
+/// silently bypass the guard. Returns the outcome plus whether budget was
+/// `reserved`, so a caller that then runs the tool itself can refund on failure
+/// exactly as the chokepoint does post-execution.
+#[must_use]
+pub fn guardian_gate(
+    guardian: &Guardian,
+    turns: &GuardianTurns,
+    turn_key: &TurnKey,
+    tool_name: &str,
+    labels: SecurityLabels,
+    writes_data: bool,
+    tenant: Option<Uuid>,
+) -> (GateOutcome, bool) {
+    let mode_blocks = guardian.mode().blocks();
+    let (decision, reserved) = turns.decide_and_reserve(
+        turn_key,
+        tool_name,
+        labels,
+        writes_data,
+        |turn_state| guardian.decide(labels, writes_data, tenant, turn_state),
+        // Reserve budget when the call WILL run: on an allow, and on a would-deny
+        // in a non-blocking mode (observe/off execute anyway).
+        |decision| matches!(decision, Decision::Allow) || !mode_blocks,
+    );
+    if let Some(reason) = decision.denied() {
+        warn!(
+            tool_name = %tool_name,
+            reason = reason.as_str(),
+            mode = guardian.mode().as_str(),
+            "guardian flagged tool dispatch"
+        );
+        if mode_blocks {
+            return (GateOutcome::Blocked(reason), reserved);
+        }
+    }
+    (GateOutcome::Proceed, reserved)
+}
+
 /// The dispatch-time security guard. Holds the resolved [`GuardianPolicy`];
 /// the per-turn state it reads lives in the shared [`GuardianTurns`] store.
 #[derive(Debug, Clone)]
@@ -114,7 +169,7 @@ impl Guardian {
         Self { policy }
     }
 
-    /// Build a Guardian from `GUARDIAN_*` env vars (observe-by-default).
+    /// Build a Guardian from `GUARDIAN_*` env vars (enforce-by-default).
     #[must_use]
     pub fn from_env() -> Self {
         Self::new(GuardianPolicy::from_env())

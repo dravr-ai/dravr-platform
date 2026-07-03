@@ -513,8 +513,10 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
-            // JWT `jti` becomes the Guardian turn token for the MCP/headless path.
-            session_id: Some(claims.jti.clone()),
+            // The Guardian turn token: the `jti` only for a per-turn (ACP) token;
+            // `None` for a reused session token so a stateless MCP client is keyed
+            // per-call, not across its whole session (#2).
+            session_id: claims.guardian_turn_token(),
         })
     }
 

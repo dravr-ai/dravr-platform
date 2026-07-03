@@ -1,5 +1,5 @@
 // ABOUTME: Guardian policy — mode (off/observe/enforce), per-turn budgets, egress allowlist, taint-rule severities.
-// ABOUTME: Loaded from GUARDIAN_* env vars; observe-by-default so Phase 1 ships security-neutral.
+// ABOUTME: Loaded from GUARDIAN_* env vars; ENFORCE-by-default (a guard that blocks nothing protects nothing).
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -144,9 +144,22 @@ pub struct GuardianPolicy {
 impl Default for GuardianPolicy {
     fn default() -> Self {
         Self {
-            mode: GuardianMode::Observe,
+            // ENFORCE by default. A guard in `observe` blocks nothing, so the
+            // protection only exists once denials are applied — shipping dark is
+            // the same "install the guard before the sink" argument turned against
+            // itself. What actually bites today is ONLY the budget caps: the
+            // injection rules (tainted→external-send, egress) are 0-impact until
+            // send tools ship, and tainted-destructive stays `Log`. So
+            // enforce-default is safe with the write cap set generously below.
+            mode: GuardianMode::Enforce,
+            // Blast-radius cap: one destructive action per turn. A legit
+            // multi-disconnect ("Strava and Garmin") is done one at a time — rare
+            // and recoverable, worth the ceiling on a fully-injected turn.
             max_destructive_per_turn: 1,
-            max_writes_per_turn: 5,
+            // Generous enough to clear a legit bulk turn (a coach setting goals
+            // across a group) while still bounding a runaway injected write flood.
+            // Tunable via GUARDIAN_MAX_WRITES_PER_TURN.
+            max_writes_per_turn: 50,
             external_send: ExternalSendAllowlist::None,
             tainted_destructive: TaintedDestructive::Log,
             plan_mode: PlanMode::Off,
@@ -156,11 +169,12 @@ impl Default for GuardianPolicy {
 
 impl GuardianPolicy {
     /// Load the policy from `GUARDIAN_*` env vars, falling back to the
-    /// observe-safe [`Default`] for any unset or unparseable var.
+    /// [`Default`] (enforce-by-default) for any unset var. An unrecognized value
+    /// fails the boot (see [`validate_env`]) rather than silently downgrading.
     ///
-    /// - `GUARDIAN_MODE` = `off` | `observe` (default) | `enforce`
+    /// - `GUARDIAN_MODE` = `off` | `observe` | `enforce` (default)
     /// - `GUARDIAN_MAX_DESTRUCTIVE_PER_TURN` (default `1`)
-    /// - `GUARDIAN_MAX_WRITES_PER_TURN` (default `5`)
+    /// - `GUARDIAN_MAX_WRITES_PER_TURN` (default `50`)
     /// - `GUARDIAN_EXTERNAL_SEND_TENANTS` = `all` | comma-separated tenant UUIDs
     /// - `GUARDIAN_TAINTED_DESTRUCTIVE` = `log` (default) | `confirm` | `deny`
     #[must_use]

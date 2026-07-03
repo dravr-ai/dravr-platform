@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
+use super::DenyReason;
 use crate::security::SecurityLabels;
 
 /// How long a turn's state is retained before it is eligible for eviction.
@@ -46,6 +47,12 @@ const HARD_CAP: usize = 40_000;
 /// every call. Comfortably tighter than `TURN_TTL` so stale turns are reclaimed
 /// within one interval of expiring.
 const SWEEP_MIN_INTERVAL: Duration = Duration::from_mins(5);
+
+/// Hard cap on retained unconsumed headless denial-flag entries (#10). Only the
+/// headless loop consumes them, so a chat/direct block for a user who never runs
+/// a headless turn would otherwise linger; blocks are rare enough that this is
+/// unreachable in practice, and overflow simply drops the abandoned entries.
+const DENIAL_CAP: usize = 10_000;
 
 /// Identifies one logical turn for taint accumulation.
 ///
@@ -168,6 +175,14 @@ impl TurnState {
 #[derive(Debug)]
 pub struct GuardianTurns {
     inner: Mutex<Store>,
+    /// Most-recent enforce-mode denial per `(tenant, user)` headless key, set by
+    /// the dispatch chokepoint and consumed by the headless loop. A block that
+    /// fires inside the Copilot ACP subprocess's `/mcp` loopback (a separate HTTP
+    /// task) can't surface back through the subprocess, so the loop reads this to
+    /// render a deterministic refusal instead of letting the model paraphrase the
+    /// block (#10). Separate lock from `inner` — it is touched only on the rare
+    /// deny path and the headless turn boundaries, never on the hot allow path.
+    denials: Mutex<HashMap<TurnKey, DenyReason>>,
 }
 
 /// Locked interior: the per-turn map plus the last stale-sweep time.
@@ -191,6 +206,40 @@ impl GuardianTurns {
                 map: HashMap::new(),
                 last_sweep: Instant::now(),
             }),
+            denials: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Record an enforce-mode denial under `key` (a `(tenant, user)` headless
+    /// key), so the headless loop can detect a block that occurred inside the ACP
+    /// subprocess's loopback (#10). Overwrites any prior unconsumed denial for the
+    /// key. A poisoned lock is skipped — the turn then falls back to the model's
+    /// paraphrase (today's behaviour), never a panic.
+    pub fn record_denial(&self, key: &TurnKey, reason: DenyReason) {
+        if let Ok(mut denials) = self.denials.lock() {
+            // Bound memory: only the headless loop consumes/clears entries, so a
+            // chat/direct block whose user never runs a headless turn would linger.
+            // Blocks are rare, so this cap is effectively unreachable; if it is hit
+            // the entries are abandoned anyway, and a dropped pending denial just
+            // falls back to the model's paraphrase (safe).
+            if denials.len() >= DENIAL_CAP {
+                denials.clear();
+            }
+            denials.insert(key.clone(), reason);
+        }
+    }
+
+    /// Consume and return the denial recorded under `key`, if any.
+    #[must_use]
+    pub fn take_denial(&self, key: &TurnKey) -> Option<DenyReason> {
+        self.denials.lock().ok()?.remove(key)
+    }
+
+    /// Drop any stale denial for `key` before a headless turn starts, so only a
+    /// denial raised during *this* turn's subprocess is later taken.
+    pub fn clear_denial(&self, key: &TurnKey) {
+        if let Ok(mut denials) = self.denials.lock() {
+            denials.remove(key);
         }
     }
 

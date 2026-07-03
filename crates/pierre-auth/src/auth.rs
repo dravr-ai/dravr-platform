@@ -183,6 +183,26 @@ pub struct Claims {
     /// Impersonation session ID for audit trail
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonation_session_id: Option<String>,
+    /// True when this token is minted fresh per chat turn (the ACP MCP bridge),
+    /// so the Guardian may use its `jti` as a per-turn taint/budget key. Absent
+    /// (or false) on a normal user session token — a stateless MCP client reuses
+    /// one token across turns, so its calls must be keyed per-call, not per-token,
+    /// to avoid accumulating budget/taint across the whole session (finding #2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_scoped: Option<bool>,
+}
+
+impl Claims {
+    /// The Guardian per-turn token for this JWT: the `jti` when the token is
+    /// minted per turn ([`Self::turn_scoped`]), else `None`.
+    ///
+    /// `None` keeps a reused session token's calls keyed per-call — the taint/
+    /// budget accumulation the Guardian needs within a single ACP/chat turn must
+    /// NOT bleed across a stateless MCP client's whole session (finding #2).
+    #[must_use]
+    pub fn guardian_turn_token(&self) -> Option<String> {
+        self.turn_scoped.unwrap_or(false).then(|| self.jti.clone())
+    }
 }
 
 /// Authentication result with user context and rate limiting info
@@ -336,6 +356,8 @@ impl AuthManager {
             jwks_manager,
             active_tenant_id,
             Duration::hours(self.token_expiry_hours),
+            // A normal reusable session token — NOT per-turn (#2).
+            false,
         )
     }
 
@@ -355,6 +377,10 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
         ttl: Duration,
+        // True only for a token minted fresh per chat turn (the ACP callback), so
+        // the Guardian may key taint/budget on its jti; false for a reusable
+        // session token, which must be keyed per-call (#2).
+        turn_scoped: bool,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + ttl;
@@ -371,6 +397,9 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            // Per-turn only for the ACP callback (caller passes true); a normal
+            // reused session token stays per-call (#2).
+            turn_scoped: turn_scoped.then_some(true),
         };
 
         // Get active RSA key from JWKS manager
@@ -419,6 +448,7 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: Some(impersonator_id.to_string()),
             impersonation_session_id: Some(session_id.to_owned()),
+            turn_scoped: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -790,6 +820,9 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            // A normal session token, reused across turns — NOT a per-turn key
+            // (the Guardian falls back to per-call keying for it, #2).
+            turn_scoped: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -839,6 +872,9 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            // A normal session token, reused across turns — NOT a per-turn key
+            // (the Guardian falls back to per-call keying for it, #2).
+            turn_scoped: None,
         };
 
         // Get active RSA key from JWKS manager
