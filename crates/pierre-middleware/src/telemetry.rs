@@ -74,7 +74,10 @@ pub async fn telemetry_middleware(req: Request, next: Next) -> Response {
     let parent_cx = global::get_text_map_propagator(|propagator| {
         propagator.extract(&HeaderExtractor(req.headers()))
     });
-    Span::current().set_parent(parent_cx);
+    // Best-effort: `set_parent` returns `Err(SetParentError::LayerNotFound)` when the
+    // OTel subscriber layer is absent — the normal state with telemetry off — so the
+    // failure is expected and dropped rather than logged on every request.
+    let _ = Span::current().set_parent(parent_cx);
 
     let route = req
         .extensions()
