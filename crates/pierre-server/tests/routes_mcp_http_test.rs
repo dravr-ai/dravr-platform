@@ -922,7 +922,7 @@ async fn test_tenant_owner_without_global_admin_is_denied_admin_tool() {
         .as_str()
         .expect("error result must carry text content");
     assert!(
-        text.contains("requires admin privileges"),
+        text.contains("Admin access required"),
         "denial must come from the ADMIN_ONLY gate, got: {text}"
     );
 }
@@ -947,7 +947,7 @@ async fn test_global_admin_user_is_allowed_admin_tool() {
     );
     if let Some(text) = body["result"]["content"][0]["text"].as_str() {
         assert!(
-            !text.contains("requires admin privileges"),
+            !text.contains("Admin access required"),
             "global admin must not hit the admin-privileges denial, got: {text}"
         );
     }
