@@ -79,7 +79,9 @@ fn string_to_unit(s: &str) -> IngredientUnit {
 /// integers as `i32`. UUIDs stored as TEXT are parsed from String.
 fn row_to_recipe_pg(row: &PgRow, ingredients: Vec<RecipeIngredient>) -> AppResult<Recipe> {
     let id_str: String = row.get("id");
-    let user_id_str: String = row.get("user_id");
+    // user_id is a native UUID column on PG (unlike id/tenant_id, which are
+    // TEXT), so it decodes as Uuid directly — a String decode is rejected.
+    let user_id: Uuid = row.get("user_id");
     let meal_timing_str: String = row.get("meal_timing");
     let instructions_json: String = row.get("instructions");
     let tags_json: String = row.get("tags");
@@ -129,8 +131,7 @@ fn row_to_recipe_pg(row: &PgRow, ingredients: Vec<RecipeIngredient>) -> AppResul
     Ok(Recipe {
         id: Uuid::parse_str(&id_str)
             .map_err(|e| AppError::internal(format!("Invalid UUID: {e}")))?,
-        user_id: Uuid::parse_str(&user_id_str)
-            .map_err(|e| AppError::internal(format!("Invalid UUID: {e}")))?,
+        user_id,
         name: row.get("name"),
         description: row.get("description"),
         servings: servings as u8,
@@ -150,7 +151,9 @@ fn row_to_recipe_pg(row: &PgRow, ingredients: Vec<RecipeIngredient>) -> AppResul
 fn row_to_ingredient_pg(row: &PgRow) -> RecipeIngredient {
     let unit_str: String = row.get("unit");
     RecipeIngredient {
-        fdc_id: row.get("fdc_id"),
+        // INT4 column widened to the domain's i64: sqlx's strict PG decode
+        // rejects an i64 read of INTEGER.
+        fdc_id: row.get::<Option<i32>, _>("fdc_id").map(i64::from),
         name: row.get("name"),
         amount: row.get("amount"),
         unit: string_to_unit(&unit_str),
@@ -271,7 +274,7 @@ impl RecipeRepository for PostgresDatabase {
         )
         .bind(&recipe_id)
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .bind(&recipe.name)
         .bind(&recipe.description)
         .bind(i32::from(recipe.servings))
@@ -344,7 +347,7 @@ impl RecipeRepository for PostgresDatabase {
         )
         .bind(recipe_id)
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get recipe: {e}")))?;
@@ -384,7 +387,7 @@ impl RecipeRepository for PostgresDatabase {
                 ",
             )
             .bind(user_id)
-            .bind(tenant_id)
+            .bind(tenant_id.to_string())
             .bind(meal_timing_to_string(timing))
             .bind(limit_val)
             .bind(offset_val)
@@ -406,7 +409,7 @@ impl RecipeRepository for PostgresDatabase {
                 ",
             )
             .bind(user_id)
-            .bind(tenant_id)
+            .bind(tenant_id.to_string())
             .bind(limit_val)
             .bind(offset_val)
             .fetch_all(self.pool())
@@ -480,7 +483,7 @@ impl RecipeRepository for PostgresDatabase {
         .bind(now)
         .bind(recipe_id)
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .execute(guard.executor()?)
         .await
         .map_err(|e| AppError::database(format!("Failed to update recipe: {e}")))?;
@@ -538,7 +541,7 @@ impl RecipeRepository for PostgresDatabase {
         )
         .bind(recipe_id)
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to delete recipe: {e}")))?;
@@ -573,7 +576,7 @@ impl RecipeRepository for PostgresDatabase {
         .bind(Utc::now())
         .bind(recipe_id)
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to update nutrition cache: {e}")))?;
@@ -609,7 +612,7 @@ impl RecipeRepository for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .bind(&search_pattern)
         .bind(limit_val)
         .bind(offset_val)
@@ -639,7 +642,7 @@ impl RecipeRepository for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id)
+        .bind(tenant_id.to_string())
         .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to count recipes: {e}")))?;

@@ -9,7 +9,7 @@ use super::PostgresDatabase;
 use crate::backends::shared;
 use crate::database::{A2AUsage, A2AUsageStats};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::{A2AClient, A2ASession, A2ATask, TaskStatus};
 use serde_json::Value;
@@ -748,21 +748,25 @@ impl A2ARepository for PostgresDatabase {
         client_id: &str,
         days: u32,
     ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>> {
+        // Compute the cutoff in Rust and bind a timestamp (mirrors the SQLite
+        // impl): a placeholder inside an INTERVAL string literal is never
+        // substituted, so the extra bind made PG reject every execution.
+        let start_time = Utc::now() - Duration::days(i64::from(days));
         let rows = sqlx::query(
             r"
-            SELECT 
+            SELECT
                 DATE_TRUNC('day', timestamp) as day,
                 COUNT(CASE WHEN status_code < 400 THEN 1 END) as success_count,
                 COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count
             FROM a2a_usage
-            WHERE client_id = $1 
-              AND timestamp >= NOW() - INTERVAL '$2 days'
+            WHERE client_id = $1
+              AND timestamp >= $2
             GROUP BY DATE_TRUNC('day', timestamp)
             ORDER BY day
             ",
         )
         .bind(client_id)
-        .bind(i32::try_from(days).unwrap_or(i32::MAX))
+        .bind(start_time)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get A2A client usage history: {e}")))?;
