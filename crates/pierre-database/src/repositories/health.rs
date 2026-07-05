@@ -39,8 +39,11 @@ pub struct SyncCursorRow {
     pub records_synced: i64,
     /// Error message from the last failed sync
     pub error_message: Option<String>,
-    /// Number of consecutive retry attempts
-    pub retry_count: i64,
+    /// Number of consecutive retry attempts. `i32` so the PG backend decodes
+    /// the INTEGER (INT4) column natively — sqlx's strict PG decode rejects an
+    /// `i64` read of INT4 (and `Row::get` panics on it); `SQLite` INTEGER
+    /// decodes either width.
+    pub retry_count: i32,
     /// When to attempt the next retry
     pub next_retry_at: Option<DateTime<Utc>>,
 }
