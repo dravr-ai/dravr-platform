@@ -12,12 +12,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{
-    backends::factory::Database, database::AddMessageParams,
+    backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
     repository_registry::RepositoryRegistry,
 };
 use std::sync::Arc;
@@ -560,6 +560,129 @@ async fn test_parity_chat_list_conversations() {
         sqlite_deleted, pg_deleted,
         "Delete all should remove same count"
     );
+}
+
+// ============================================================================
+// Sync Cursor Parity Tests
+// ============================================================================
+
+/// Truncate to microseconds so timestamps survive the `PostgreSQL` TIMESTAMPTZ
+/// round-trip (micro precision) unchanged; `SQLite` stores full-precision
+/// RFC 3339 TEXT.
+fn micros(ts: DateTime<Utc>) -> DateTime<Utc> {
+    DateTime::from_timestamp_micros(ts.timestamp_micros()).expect("in-range timestamp")
+}
+
+/// Regression: `sync_state.retry_count` is INTEGER (INT4) on `PostgreSQL` while
+/// the row struct carried `i64` — sqlx's strict PG decode rejected the read and
+/// `Row::get` panicked inside `get_sync_cursor`. The panic was unreachable
+/// until the cursor *write* path was fixed (TEXT vs TIMESTAMPTZ binds); the
+/// first row ever written then made every chat-pipeline refresh for that user
+/// panic (dev outage 2026-07-05, correlation ids 7df0a1b1 / 69807284). Pins
+/// the full write-then-read cycle on both backends so field/DDL type drift
+/// fails here instead of in production.
+#[tokio::test]
+async fn test_parity_sync_cursor_roundtrip() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+
+        let last_sync_at = micros(Utc::now());
+        let next_retry_at = micros(Utc::now() + Duration::minutes(15));
+        let cursor = SyncCursorRow {
+            id: format!("{user_id}:{tenant_id}:whoop:recovery"),
+            user_id: user_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            provider: "whoop".to_owned(),
+            data_type: "recovery".to_owned(),
+            cursor_value: Some("cursor-token-abc".to_owned()),
+            last_sync_at: Some(last_sync_at),
+            last_sync_status: "failed".to_owned(),
+            records_synced: 42,
+            error_message: Some("provider returned 503".to_owned()),
+            retry_count: 3,
+            next_retry_at: Some(next_retry_at),
+        };
+
+        repos
+            .sync_cursors
+            .upsert_sync_cursor(&cursor)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: cursor upsert must succeed: {e}"));
+
+        // The exact call the chat pipeline's refresh stage makes. Before the
+        // fix this panicked on PostgreSQL: retry_count decoded as i64 from INT4.
+        let read = repos
+            .sync_cursors
+            .get_sync_cursor(&user_id.to_string(), &tenant_id, "whoop", "recovery")
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get_sync_cursor must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: upserted cursor must be found"));
+
+        assert_eq!(
+            read.retry_count, 3,
+            "{backend}: INT4 retry_count must round-trip"
+        );
+        assert_eq!(read.records_synced, 42, "{backend}: records_synced");
+        assert_eq!(
+            read.last_sync_at,
+            Some(last_sync_at),
+            "{backend}: last_sync_at"
+        );
+        assert_eq!(
+            read.next_retry_at,
+            Some(next_retry_at),
+            "{backend}: next_retry_at"
+        );
+        assert_eq!(
+            read.cursor_value.as_deref(),
+            Some("cursor-token-abc"),
+            "{backend}: cursor_value"
+        );
+        assert_eq!(read.last_sync_status, "failed", "{backend}: status");
+        assert_eq!(
+            read.error_message.as_deref(),
+            Some("provider returned 503"),
+            "{backend}: error_message"
+        );
+        assert_eq!(read.user_id, user_id.to_string(), "{backend}: user_id");
+        assert_eq!(
+            read.tenant_id,
+            tenant_id.to_string(),
+            "{backend}: tenant_id"
+        );
+
+        // Upsert again with bumped counters to pin the ON CONFLICT update path.
+        let bumped = SyncCursorRow {
+            retry_count: 4,
+            records_synced: 99,
+            error_message: None,
+            ..cursor
+        };
+        repos
+            .sync_cursors
+            .upsert_sync_cursor(&bumped)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: conflict-update upsert must succeed: {e}"));
+
+        let read = repos
+            .sync_cursors
+            .get_sync_cursor(&user_id.to_string(), &tenant_id, "whoop", "recovery")
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: re-read must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: updated cursor must be found"));
+        assert_eq!(
+            read.retry_count, 4,
+            "{backend}: conflict-update must persist retry_count"
+        );
+        assert_eq!(read.records_synced, 99, "{backend}: updated records_synced");
+        assert_eq!(read.error_message, None, "{backend}: cleared error_message");
+    }
 }
 
 // ============================================================================

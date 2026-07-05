@@ -494,7 +494,7 @@ fn sync_cursor_row_to_enforme(row: &SyncCursorRow) -> SyncCursor {
         status,
         records_synced: row.records_synced as u64,
         error_message: row.error_message.clone(),
-        retry_count: row.retry_count as u32,
+        retry_count: row.retry_count.cast_unsigned(),
         next_retry_at,
     }
 }
@@ -530,7 +530,7 @@ fn sync_cursor_to_row(cursor: &SyncCursor, tenant_id: &TenantId) -> SyncCursorRo
         last_sync_status: status_str.to_owned(),
         records_synced: cursor.records_synced.cast_signed(),
         error_message: cursor.error_message.clone(),
-        retry_count: i64::from(cursor.retry_count),
+        retry_count: cursor.retry_count.cast_signed(),
         next_retry_at: cursor.next_retry_at,
     }
 }
