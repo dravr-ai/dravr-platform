@@ -13,7 +13,12 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::models::recipes::{IngredientUnit, Recipe, RecipeIngredient};
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::{
+    ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType, StoredHealthMetrics,
+    StoredRecoveryMetrics,
+};
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{
@@ -682,6 +687,299 @@ async fn test_parity_sync_cursor_roundtrip() {
         );
         assert_eq!(read.records_synced, 99, "{backend}: updated records_synced");
         assert_eq!(read.error_message, None, "{backend}: cleared error_message");
+    }
+}
+
+// ============================================================================
+// Health Data Parity Tests (INT4 decode regressions)
+// ============================================================================
+
+/// Seed a `data_sources` row so health rows can reference it (the
+/// `data_source_id` columns carry a foreign key on `PostgreSQL`).
+async fn seed_data_source(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> String {
+    let source = DataSource {
+        id: format!("ds-parity-{user_id}"),
+        user_id: user_id.to_string(),
+        provider: "whoop".to_owned(),
+        device_model: None,
+        software_version: None,
+        source: None,
+        device_type: DeviceType::Ring,
+        original_source_name: None,
+    };
+    repos
+        .data_sources
+        .upsert_data_source(&tenant_id, &source)
+        .await
+        .expect("data source upsert must succeed")
+}
+
+/// Regression companion to `test_parity_sync_cursor_roundtrip`:
+/// `recovery_metrics.resting_heart_rate` is INTEGER (INT4) on `PostgreSQL` and
+/// was decoded as `i64`, so any non-NULL value panicked the read path
+/// (`Row::get` unwraps the mismatched-width decode).
+#[tokio::test]
+async fn test_parity_recovery_metrics_roundtrip() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+
+        let metrics = StoredRecoveryMetrics {
+            id: String::new(),
+            user_id: user_id.to_string(),
+            data_source_id,
+            date: Utc::now().date_naive(),
+            recovery_score: Some(85),
+            readiness_score: Some(72),
+            hrv_ms: None,
+            hrv_rmssd: None,
+            resting_heart_rate: Some(48),
+            stress_score: Some(20),
+            body_battery: None,
+            spo2: None,
+            respiratory_rate: Some(14.5),
+            skin_temp_deviation: Some(0.3),
+            source_name: "whoop".to_owned(),
+            recorded_at: Utc::now(),
+        };
+        repos
+            .recovery
+            .upsert_recovery_metrics(&tenant_id, &metrics)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: recovery upsert must succeed: {e}"));
+
+        let read = repos
+            .recovery
+            .get_latest_recovery(user_id, &tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get_latest_recovery must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: upserted recovery metrics must be found"));
+
+        assert_eq!(
+            read.resting_heart_rate,
+            Some(48),
+            "{backend}: INT4 resting_heart_rate must round-trip"
+        );
+        assert_eq!(read.recovery_score, Some(85), "{backend}: recovery_score");
+        assert_eq!(read.readiness_score, Some(72), "{backend}: readiness_score");
+        assert_eq!(read.stress_score, Some(20), "{backend}: stress_score");
+        assert_eq!(
+            read.respiratory_rate,
+            Some(14.5),
+            "{backend}: respiratory_rate"
+        );
+        assert_eq!(
+            read.skin_temp_deviation,
+            Some(0.3),
+            "{backend}: skin_temp_deviation"
+        );
+        assert_eq!(read.user_id, user_id.to_string(), "{backend}: user_id");
+        assert_eq!(read.source_name, "whoop", "{backend}: source_name");
+    }
+}
+
+/// Same INT4 regression class for `health_snapshots.bp_systolic` /
+/// `bp_diastolic`, which were decoded as `i64` and panicked when non-NULL.
+#[tokio::test]
+async fn test_parity_health_snapshot_roundtrip() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+
+        let snapshot = StoredHealthMetrics {
+            id: String::new(),
+            user_id: user_id.to_string(),
+            data_source_id,
+            date: Utc::now().date_naive(),
+            weight_kg: Some(70.5),
+            body_fat_pct: Some(12.5),
+            muscle_mass_kg: None,
+            bmi: None,
+            bone_mass_kg: None,
+            water_pct: None,
+            systolic_bp: Some(120),
+            diastolic_bp: Some(80),
+            blood_glucose: Some(5.2),
+            source_name: "whoop".to_owned(),
+            recorded_at: Utc::now(),
+        };
+        repos
+            .health_snapshots
+            .upsert_health_snapshot(&tenant_id, &snapshot)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: snapshot upsert must succeed: {e}"));
+
+        let read = repos
+            .health_snapshots
+            .get_latest_health_snapshot(user_id, &tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get_latest_health_snapshot must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: upserted snapshot must be found"));
+
+        assert_eq!(
+            read.systolic_bp,
+            Some(120),
+            "{backend}: INT4 bp_systolic must round-trip"
+        );
+        assert_eq!(
+            read.diastolic_bp,
+            Some(80),
+            "{backend}: INT4 bp_diastolic must round-trip"
+        );
+        assert_eq!(read.weight_kg, Some(70.5), "{backend}: weight_kg");
+        assert_eq!(read.body_fat_pct, Some(12.5), "{backend}: body_fat_pct");
+        assert_eq!(read.blood_glucose, Some(5.2), "{backend}: blood_glucose");
+        assert_eq!(read.user_id, user_id.to_string(), "{backend}: user_id");
+    }
+}
+
+/// Same INT4 regression class for `recipe_ingredients.fdc_id`: the domain
+/// struct (dravr-cageux) types it `Option<i64>`, and an untyped `row.get`
+/// decoded it as `i64` from the INTEGER column — panicking whenever a recipe
+/// with a USDA-validated ingredient was read on `PostgreSQL`.
+#[tokio::test]
+async fn test_parity_recipe_ingredient_fdc_id_roundtrip() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+
+        let mut recipe = Recipe::new(user_id, "Parity Oat Bowl", 2);
+        recipe.ingredients = vec![RecipeIngredient {
+            fdc_id: Some(171_705),
+            name: "Rolled oats".to_owned(),
+            amount: 100.0,
+            unit: IngredientUnit::Grams,
+            grams: 100.0,
+            preparation: None,
+        }];
+        recipe.instructions = vec!["Combine and serve.".to_owned()];
+
+        let recipe_id = repos
+            .recipes
+            .create(user_id, tenant_id, &recipe)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: recipe create must succeed: {e}"));
+
+        let read = repos
+            .recipes
+            .get_by_id(&recipe_id, user_id, tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: recipe read must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: created recipe must be found"));
+
+        assert_eq!(read.ingredients.len(), 1, "{backend}: ingredient count");
+        assert_eq!(
+            read.ingredients[0].fdc_id,
+            Some(171_705),
+            "{backend}: INT4 fdc_id must round-trip"
+        );
+        assert_eq!(read.ingredients[0].name, "Rolled oats", "{backend}: name");
+    }
+}
+
+/// `get_top_tools_analysis` averages `response_time_ms` (INTEGER): PG's
+/// `AVG(int)` yields NUMERIC, which an `f64` `try_get(..).ok()` silently
+/// dropped to `None` — so `average_response_time` was always 0 on `PostgreSQL`.
+/// The query now casts to DOUBLE PRECISION; this pins the real average (and
+/// the BIGINT count decodes) on both backends.
+#[tokio::test]
+async fn test_parity_api_key_top_tools_analysis() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, _tenant_id) = create_test_user(&repos).await;
+
+        let api_key = ApiKey {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            name: "parity-key".to_owned(),
+            key_prefix: "pk_parity".to_owned(),
+            key_hash: "parity-hash".to_owned(),
+            description: None,
+            tier: ApiKeyTier::Starter,
+            rate_limit_requests: 1000,
+            rate_limit_window_seconds: 3600,
+            is_active: true,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+        };
+        repos
+            .api_keys
+            .create(&api_key)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
+
+        for (response_time_ms, status_code) in [(90, 200), (100, 200), (110, 500)] {
+            let usage = ApiKeyUsage {
+                id: None,
+                api_key_id: api_key.id.clone(),
+                timestamp: Utc::now(),
+                tool_name: "get_activities".to_owned(),
+                response_time_ms: Some(response_time_ms),
+                status_code,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+            };
+            repos
+                .usage
+                .record_api_key(&usage)
+                .await
+                .unwrap_or_else(|e| panic!("{backend}: usage record must succeed: {e}"));
+        }
+
+        let tools = repos
+            .usage
+            .get_top_tools_analysis(
+                user_id,
+                Utc::now() - Duration::hours(1),
+                Utc::now() + Duration::hours(1),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: top tools analysis must not error: {e}"));
+
+        assert_eq!(tools.len(), 1, "{backend}: one tool expected");
+        let tool = &tools[0];
+        assert_eq!(tool.tool_name, "get_activities", "{backend}: tool_name");
+        assert_eq!(tool.request_count, 3, "{backend}: request_count");
+        assert!(
+            (tool.average_response_time - 100.0).abs() < 1e-6,
+            "{backend}: average_response_time must be the real mean, got {}",
+            tool.average_response_time
+        );
+        assert!(
+            (tool.success_rate - 200.0 / 3.0).abs() < 1e-6,
+            "{backend}: success_rate 66.67% expected, got {}",
+            tool.success_rate
+        );
     }
 }
 

@@ -619,7 +619,8 @@ fn pg_row_to_stored_recovery(row: &PgRow) -> StoredRecoveryMetrics {
     let recovery_score: Option<f64> = row.get("recovery_score");
     let readiness_score: Option<f64> = row.get("readiness_score");
     let stress_level: Option<f64> = row.get("stress_level");
-    let resting_heart_rate: Option<i64> = row.get("resting_heart_rate");
+    // INT4 column: sqlx's strict PG decode rejects an i64 read of INTEGER.
+    let resting_heart_rate: Option<i32> = row.get("resting_heart_rate");
     let body_temperature: Option<f64> = row.get("body_temperature");
     let resting_respiratory_rate: Option<f64> = row.get("resting_respiratory_rate");
 
@@ -634,7 +635,7 @@ fn pg_row_to_stored_recovery(row: &PgRow) -> StoredRecoveryMetrics {
         readiness_score: readiness_score.map(|v| v as u32),
         hrv_ms: None,
         hrv_rmssd: None,
-        resting_heart_rate: resting_heart_rate.map(|v| v as u32),
+        resting_heart_rate: resting_heart_rate.map(i32::cast_unsigned),
         stress_score: stress_level.map(|v| v as u32),
         body_battery: None,
         spo2: None,
@@ -814,8 +815,9 @@ impl HealthSnapshotRepository for PostgresDatabase {
 fn pg_row_to_stored_health_metrics(row: &PgRow) -> StoredHealthMetrics {
     let date: NaiveDate = row.get("date");
     let recorded_at: DateTime<Utc> = row.get("created_at");
-    let bp_systolic: Option<i64> = row.get("bp_systolic");
-    let bp_diastolic: Option<i64> = row.get("bp_diastolic");
+    // INT4 columns: sqlx's strict PG decode rejects an i64 read of INTEGER.
+    let bp_systolic: Option<i32> = row.get("bp_systolic");
+    let bp_diastolic: Option<i32> = row.get("bp_diastolic");
 
     StoredHealthMetrics {
         id: row.get("id"),
@@ -830,8 +832,8 @@ fn pg_row_to_stored_health_metrics(row: &PgRow) -> StoredHealthMetrics {
         bmi: None,
         bone_mass_kg: row.get("bone_mass"),
         water_pct: row.get("body_water_percentage"),
-        systolic_bp: bp_systolic.map(|v| v as u32),
-        diastolic_bp: bp_diastolic.map(|v| v as u32),
+        systolic_bp: bp_systolic.map(i32::cast_unsigned),
+        diastolic_bp: bp_diastolic.map(i32::cast_unsigned),
         blood_glucose: row.get("blood_glucose"),
         source_name: row.get("provider"),
         recorded_at,

@@ -358,7 +358,7 @@ impl UsageRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"
             SELECT endpoint, COUNT(*) as usage_count,
-                   AVG(response_time_ms) as avg_response_time,
+                   AVG(response_time_ms)::DOUBLE PRECISION as avg_response_time,
                    COUNT(CASE WHEN status_code < 400 THEN 1 END) as success_count,
                    COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count
             FROM api_key_usage aku
@@ -404,9 +404,13 @@ impl UsageRepository for PostgresDatabase {
             tool_usage.push(ToolUsage {
                 tool_name: endpoint,
                 request_count: u64::try_from(usage_count.max(0)).unwrap_or(0),
+                // Percentage (0-100), mirroring the SQLite impl and the
+                // ToolUsage field doc — a bare ratio here made the two
+                // backends disagree by a factor of 100.
                 success_rate: if usage_count > 0 {
                     f64::from(u32::try_from(success_count.max(0)).unwrap_or(0))
                         / f64::from(u32::try_from(usage_count.max(1)).unwrap_or(1))
+                        * 100.0
                 } else {
                     0.0
                 },
