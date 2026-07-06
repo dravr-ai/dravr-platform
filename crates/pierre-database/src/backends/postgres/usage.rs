@@ -102,7 +102,7 @@ impl UsageRepository for PostgresDatabase {
             r"
             SELECT tool_name,
                    COUNT(*) as tool_count,
-                   AVG(response_time_ms) as avg_response_time,
+                   AVG(response_time_ms)::DOUBLE PRECISION as avg_response_time,
                    COUNT(CASE WHEN status_code >= $1 AND status_code <= $2 THEN 1 END) as success_count
             FROM api_key_usage
             WHERE api_key_id = $3 AND timestamp >= $4 AND timestamp <= $5
