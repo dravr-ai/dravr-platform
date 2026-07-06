@@ -4,8 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! OTLP telemetry pipeline activation-contract test.
+//
+// This `//!` must precede the crate-level `#![cfg]`: when the feature is off the
+// cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so without
+// a surviving crate doc the command-line `-D warnings` trips `missing_docs`.
 #![cfg(feature = "telemetry")]
-#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use opentelemetry::trace::{Span, Tracer};
 use pierre_logging::otel::build_telemetry;
