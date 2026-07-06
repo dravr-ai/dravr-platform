@@ -16,8 +16,8 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::recipes::{IngredientUnit, Recipe, RecipeIngredient};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
-    ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType, StoredHealthMetrics,
-    StoredRecoveryMetrics,
+    A2AClient, A2AUsage, ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType,
+    StoredHealthMetrics, StoredRecoveryMetrics,
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -979,6 +979,201 @@ async fn test_parity_api_key_top_tools_analysis() {
             (tool.success_rate - 200.0 / 3.0).abs() < 1e-6,
             "{backend}: success_rate 66.67% expected, got {}",
             tool.success_rate
+        );
+    }
+}
+
+/// `get_api_key_stats` aggregates `AVG(response_time_ms)` over the INTEGER
+/// column, so PG returns NUMERIC. The `query_as` tuple decodes that slot as
+/// `f64`, which sqlx rejects for NUMERIC — the whole call errored on PG until
+/// the `::DOUBLE PRECISION` cast landed (the sibling `get_top_tools_analysis`
+/// dropped it to a silent 0 via `try_get().ok()`; this path failed loud).
+#[tokio::test]
+async fn test_parity_api_key_stats() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, _tenant_id) = create_test_user(&repos).await;
+
+        let api_key = ApiKey {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            name: "parity-key".to_owned(),
+            key_prefix: "pk_parity".to_owned(),
+            key_hash: "parity-hash".to_owned(),
+            description: None,
+            tier: ApiKeyTier::Starter,
+            rate_limit_requests: 1000,
+            rate_limit_window_seconds: 3600,
+            is_active: true,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+        };
+        repos
+            .api_keys
+            .create(&api_key)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
+
+        for (response_time_ms, status_code) in [(90, 200), (100, 200), (110, 500)] {
+            let usage = ApiKeyUsage {
+                id: None,
+                api_key_id: api_key.id.clone(),
+                timestamp: Utc::now(),
+                tool_name: "get_activities".to_owned(),
+                response_time_ms: Some(response_time_ms),
+                status_code,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+            };
+            repos
+                .usage
+                .record_api_key(&usage)
+                .await
+                .unwrap_or_else(|e| panic!("{backend}: usage record must succeed: {e}"));
+        }
+
+        let stats = repos
+            .usage
+            .get_api_key_stats(
+                &api_key.id,
+                Utc::now() - Duration::hours(1),
+                Utc::now() + Duration::hours(1),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: api key stats must not error: {e}"));
+
+        assert_eq!(stats.total_requests, 3, "{backend}: total_requests");
+        assert_eq!(
+            stats.successful_requests, 2,
+            "{backend}: successful_requests"
+        );
+        assert_eq!(stats.failed_requests, 1, "{backend}: failed_requests");
+        assert_eq!(
+            stats.total_response_time_ms, 300,
+            "{backend}: total_response_time_ms"
+        );
+
+        let avg = stats.tool_usage["get_activities"]["avg_response_time_ms"]
+            .as_f64()
+            .unwrap_or_else(|| panic!("{backend}: avg_response_time_ms must be a number"));
+        assert!(
+            (avg - 100.0).abs() < 1e-6,
+            "{backend}: avg_response_time_ms must be the real mean, got {avg}"
+        );
+    }
+}
+
+/// `get_usage_stats` aggregates `AVG(response_time_ms)` over the INTEGER column
+/// (NUMERIC on PG), then `try_get::<Option<f64>>` — which sqlx rejects for
+/// NUMERIC — so every call failed at decode on PG until the `::DOUBLE
+/// PRECISION` cast landed. Mirrors `test_parity_api_key_stats` for the A2A path.
+#[tokio::test]
+async fn test_parity_a2a_usage_stats() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, _tenant_id) = create_test_user(&repos).await;
+
+        let api_key = ApiKey {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            name: "parity-a2a-key".to_owned(),
+            key_prefix: "pk_a2a".to_owned(),
+            key_hash: "parity-a2a-hash".to_owned(),
+            description: None,
+            tier: ApiKeyTier::Starter,
+            rate_limit_requests: 1000,
+            rate_limit_window_seconds: 3600,
+            is_active: true,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+        };
+        repos
+            .api_keys
+            .create(&api_key)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
+
+        let client = A2AClient {
+            id: Uuid::new_v4().to_string(),
+            name: "parity-client".to_owned(),
+            description: "parity a2a client".to_owned(),
+            public_key: "parity-public-key".to_owned(),
+            user_id,
+            capabilities: vec!["fitness-data-analysis".to_owned()],
+            redirect_uris: vec!["https://test.example.com".to_owned()],
+            permissions: vec!["read_activities".to_owned()],
+            rate_limit_requests: 1000,
+            rate_limit_window_seconds: 3600,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        repos
+            .a2a
+            .create_client(&client, "parity-secret", &api_key.id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: a2a client create must succeed: {e}"));
+
+        for (response_time_ms, status_code) in [(90, 200), (100, 200), (110, 500)] {
+            let usage = A2AUsage {
+                id: None,
+                client_id: client.id.clone(),
+                session_token: None,
+                timestamp: Utc::now(),
+                tool_name: "analyze".to_owned(),
+                response_time_ms: Some(response_time_ms),
+                status_code,
+                error_message: None,
+                request_size_bytes: Some(256),
+                response_size_bytes: Some(512),
+                ip_address: None,
+                user_agent: None,
+                protocol_version: "1.0".to_owned(),
+                client_capabilities: vec!["analysis".to_owned()],
+                granted_scopes: vec!["read".to_owned()],
+            };
+            repos
+                .a2a
+                .record_usage(&usage)
+                .await
+                .unwrap_or_else(|e| panic!("{backend}: a2a usage record must succeed: {e}"));
+        }
+
+        let stats = repos
+            .a2a
+            .get_usage_stats(
+                &client.id,
+                Utc::now() - Duration::hours(1),
+                Utc::now() + Duration::hours(1),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: a2a usage stats must not error: {e}"));
+
+        assert_eq!(stats.total_requests, 3, "{backend}: total_requests");
+        assert_eq!(
+            stats.successful_requests, 2,
+            "{backend}: successful_requests"
+        );
+        assert_eq!(stats.failed_requests, 1, "{backend}: failed_requests");
+        assert_eq!(
+            stats.avg_response_time_ms,
+            Some(100),
+            "{backend}: avg_response_time_ms must be the real mean"
         );
     }
 }

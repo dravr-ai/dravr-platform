@@ -676,7 +676,7 @@ impl A2ARepository for PostgresDatabase {
                 COUNT(*) as total_requests,
                 COUNT(CASE WHEN status_code < 400 THEN 1 END) as successful_requests,
                 COUNT(CASE WHEN status_code >= 400 THEN 1 END) as failed_requests,
-                AVG(response_time_ms) as avg_response_time,
+                AVG(response_time_ms)::DOUBLE PRECISION as avg_response_time,
                 SUM(request_size_bytes) as total_request_bytes,
                 SUM(response_size_bytes) as total_response_bytes
             FROM a2a_usage
