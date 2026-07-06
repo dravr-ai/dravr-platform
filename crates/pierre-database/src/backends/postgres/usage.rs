@@ -100,13 +100,13 @@ impl UsageRepository for PostgresDatabase {
         // Get tool usage aggregation
         let tool_usage_stats = sqlx::query_as::<Postgres, (String, i64, Option<f64>, i64)>(
             r"
-            SELECT tool_name,
+            SELECT COALESCE(endpoint, 'unknown') as tool_name,
                    COUNT(*) as tool_count,
                    AVG(response_time_ms)::DOUBLE PRECISION as avg_response_time,
                    COUNT(CASE WHEN status_code >= $1 AND status_code <= $2 THEN 1 END) as success_count
             FROM api_key_usage
             WHERE api_key_id = $3 AND timestamp >= $4 AND timestamp <= $5
-            GROUP BY tool_name
+            GROUP BY endpoint
             ORDER BY tool_count DESC
             "
         )
