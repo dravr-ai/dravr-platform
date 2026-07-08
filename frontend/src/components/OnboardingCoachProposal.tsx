@@ -8,7 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ProposedCoach } from '@pierre/shared-types';
 import { coachesApi } from '../services/api';
-import { Button, Card } from './ui';
+import { Button } from './ui';
+import OnboardingShell from './OnboardingShell';
 
 /** One-time onboarding snapshot; not invalidated elsewhere. */
 const COACH_PROPOSAL_QUERY_KEY = ['coaches', 'proposal'] as const;
@@ -57,7 +58,7 @@ export default function OnboardingCoachProposal({
   // "Analyzing your data" — shown while the activity scan + LLM re-rank run.
   if (isLoading) {
     return (
-      <Shell>
+      <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface font-label">Analyzing your training data…</p>
@@ -66,13 +67,13 @@ export default function OnboardingCoachProposal({
             you actually train.
           </p>
         </div>
-      </Shell>
+      </OnboardingShell>
     );
   }
 
   if (isError || !data) {
     return (
-      <Shell>
+      <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <p className="text-sm text-on-surface font-label">
             We couldn&apos;t build your coach suggestions just now.
@@ -81,7 +82,7 @@ export default function OnboardingCoachProposal({
             Continue to dashboard
           </Button>
         </div>
-      </Shell>
+      </OnboardingShell>
     );
   }
 
@@ -89,7 +90,7 @@ export default function OnboardingCoachProposal({
   const primary = profile.primary_sport;
 
   return (
-    <Shell
+    <OnboardingShell
       heading={
         userDisplayName ? `Here's your starting lineup, ${userDisplayName}` : "Here's your starting lineup"
       }
@@ -151,7 +152,7 @@ export default function OnboardingCoachProposal({
           Skip for now
         </Button>
       </div>
-    </Shell>
+    </OnboardingShell>
   );
 }
 
@@ -184,27 +185,6 @@ function CoachProposalCard({
         </Button>
       </div>
       {reason ? <p className="mt-2 text-sm text-on-surface-variant font-label">{reason}</p> : null}
-    </div>
-  );
-}
-
-/** Shared full-screen onboarding chrome (gradient accent + card). */
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
-  return (
-    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
-      <div className="max-w-2xl w-full">
-        <Card className="overflow-hidden">
-          <div className="h-1 w-full boreal-hero-gradient" />
-          <div className="px-8 py-10">
-            {heading ? (
-              <h1 className="font-display font-semibold text-2xl text-on-surface text-center">
-                {heading}
-              </h1>
-            ) : null}
-            {children}
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }

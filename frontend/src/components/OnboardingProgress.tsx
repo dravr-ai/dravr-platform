@@ -1,0 +1,71 @@
+// ABOUTME: Onboarding progress indicator — labeled step dots (done / current / upcoming) for the onboarding journey
+// ABOUTME: Fixed to the top of the viewport and pointer-events-none, so it never disturbs the centered step cards below
+
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+import type { OnboardingProgressItem, OnboardingStepStatus } from '../onboarding/steps';
+
+/**
+ * The labeled step-dots progress indicator shown above every onboarding step.
+ *
+ * Rendered `fixed` at the top-center of the viewport and `pointer-events-none`
+ * so it floats above the vertically-centered step cards without pushing them
+ * off-screen or intercepting clicks. The step sequence is stable across steps
+ * (the full canonical pipeline), so the indicator never reflows mid-flow.
+ */
+export default function OnboardingProgress({ steps }: { steps: OnboardingProgressItem[] }) {
+  const currentIndex = steps.findIndex((s) => s.status === 'current');
+  const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
+
+  return (
+    <nav
+      aria-label="Onboarding progress"
+      className="pointer-events-none fixed inset-x-0 top-0 z-20 flex justify-center px-4 pt-6"
+    >
+      {current ? (
+        <span className="sr-only">
+          Step {currentIndex + 1} of {steps.length}: {current.label}
+        </span>
+      ) : null}
+      <ol className="flex items-start" aria-hidden="true">
+        {steps.map((step, index) => (
+          <li key={step.id} className="flex items-start">
+            {index > 0 ? (
+              <span
+                className={`mt-[6px] h-0.5 w-8 rounded-full sm:w-12 ${
+                  steps[index - 1].status === 'done' ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+              />
+            ) : null}
+            <div className="flex min-w-16 flex-col items-center gap-1.5">
+              <StepDot status={step.status} />
+              <span
+                className={`text-center text-[11px] leading-tight ${labelClass(step.status)}`}
+              >
+                {step.label}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/** The dot marker for a single step, styled per its status. */
+function StepDot({ status }: { status: OnboardingStepStatus }) {
+  if (status === 'current') {
+    return <span className="h-3.5 w-3.5 rounded-full bg-primary ring-4 ring-primary/20" />;
+  }
+  if (status === 'done') {
+    return <span className="h-3.5 w-3.5 rounded-full bg-primary" />;
+  }
+  return <span className="h-3.5 w-3.5 rounded-full border border-outline-variant bg-surface" />;
+}
+
+function labelClass(status: OnboardingStepStatus): string {
+  if (status === 'current') return 'font-medium text-on-surface';
+  if (status === 'done') return 'text-on-surface-variant';
+  return 'text-on-surface-variant/60';
+}

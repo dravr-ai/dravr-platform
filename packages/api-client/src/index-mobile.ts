@@ -88,6 +88,14 @@ export type {
   ForgetMemoryFactResponse,
 } from './domains/user';
 
+export { createMessagingApi } from './domains/messaging';
+export type {
+  MessagingApi,
+  AvailableChannel,
+  LinkInitResponse,
+  ChannelLink,
+} from './domains/messaging';
+
 export { createNotificationsApi } from './domains/notifications';
 export type {
   NotificationsApi,
@@ -134,6 +142,7 @@ import { createOAuthApi } from './domains/oauth';
 import { createSocialApi } from './domains/social';
 import { createStoreApi } from './domains/store';
 import { createUserApi } from './domains/user';
+import { createMessagingApi } from './domains/messaging';
 import { createNotificationsApi } from './domains/notifications';
 import { createGroupsApi } from './domains/groups';
 
@@ -156,6 +165,8 @@ export interface PierreApiService {
   store: ReturnType<typeof createStoreApi>;
   /** User API */
   user: ReturnType<typeof createUserApi>;
+  /** Messaging API (end-user channel linking for onboarding) */
+  messaging: ReturnType<typeof createMessagingApi>;
   /** Notifications API */
   notifications: ReturnType<typeof createNotificationsApi>;
   /** Groups API */
@@ -189,6 +200,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     social: createSocialApi(axios),
     store: createStoreApi(axios),
     user: createUserApi(axios),
+    messaging: createMessagingApi(axios),
     notifications: createNotificationsApi(axios),
     groups: createGroupsApi(axios),
     axios,

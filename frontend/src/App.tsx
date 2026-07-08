@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect, useRef } from 'react';
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
-import OnboardingConnectProvider from './components/OnboardingConnectProvider';
-import OnboardingCoachProposal from './components/OnboardingCoachProposal';
-import OnboardingProfileType from './components/OnboardingProfileType';
+import OnboardingFlow from './components/OnboardingFlow';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import OAuthCallback from './components/OAuthCallback';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -20,7 +18,7 @@ import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
-import { userApi } from './services/api';
+import { useOnboardingState } from './hooks/useOnboardingState';
 import './App.css';
 
 const queryClient = new QueryClient();
@@ -63,69 +61,11 @@ function AppContent() {
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const localQueryClient = useQueryClient();
 
-  // Onboarding gate: a fresh account with zero `provider_connections` rows
-  // cannot reach chat/coach without the server returning a 403, so route
-  // those users to the connect-provider screen instead of the dashboard.
-  // The query only fires once the user is active — pending / suspended
-  // states get their own screens upstream of this check.
-  //
-  // Admins are exempt: their primary intent is administering, not chatting,
-  // so a missing provider on the admin account must not block them from
-  // the dashboard / settings / admin panels. The backend 403 still applies
-  // if an admin tries to chat without a provider — same hallucination guard,
-  // just no forced redirect off the entire UI.
-  // (See `feedback_spa_gate_on_role_not_is_admin`: gate on `user.role`.)
-  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
-  const onboardingActive =
-    isAuthenticated && user?.user_status === 'active' && !isAdminRole;
-  const { data: onboardingStatus } = useQuery({
-    queryKey: QUERY_KEYS.user.onboardingStatus(),
-    queryFn: () => userApi.getOnboardingStatus(),
-    enabled: onboardingActive,
-    // Keep this fresh during the OAuth round-trip so the redirect flips as
-    // soon as the provider connection lands.
-    staleTime: 5_000,
-  });
-
-  // Session-only "continue without a provider": lets the user into the app
-  // without connecting. Deliberately not persisted (no skip flag) — the connect
-  // prompts in chat and on the coach screens carry the nudge from here on.
-  const [skippedOnboarding, setSkippedOnboarding] = useState(false);
-
-  // Coach-proposal step: shown once, right after the provider connection lands
-  // and before the dashboard, to drive the
-  // `connect → analyzing → profile → coaches` onboarding flow.
-  //
-  // It fires ONLY when the user connects their first provider *in this session*
-  // — detected as a `needs_provider_connection` true→false transition — so it
-  // never intercepts an already-onboarded user simply logging in (or an E2E
-  // run that authenticates a provider-connected fixture user). Completion is
-  // also persisted per-user in localStorage as a belt-and-suspenders guard.
-  const coachProposalKey = user?.user_id ? `dravr.coach_proposal_done.${user.user_id}` : null;
-  const [coachProposalDone, setCoachProposalDone] = useState(false);
-  useEffect(() => {
-    setCoachProposalDone(coachProposalKey ? localStorage.getItem(coachProposalKey) === '1' : true);
-  }, [coachProposalKey]);
-
-  // Profile-type step: a fresh, not-yet-connected user picks athlete vs coach
-  // before the connect-provider screen. Gated on `needs_provider_connection`
-  // (below) so an already-onboarded user never sees it, plus a per-user
-  // localStorage flag so it shows once within the first-run connect flow.
-  const profileTypeKey = user?.user_id ? `dravr.profile_type_chosen.${user.user_id}` : null;
-  const [profileTypeChosen, setProfileTypeChosen] = useState(false);
-  useEffect(() => {
-    setProfileTypeChosen(profileTypeKey ? localStorage.getItem(profileTypeKey) === '1' : true);
-  }, [profileTypeKey]);
-
-  const [justOnboarded, setJustOnboarded] = useState(false);
-  const prevNeedsProvider = useRef<boolean | undefined>(undefined);
-  useEffect(() => {
-    const now = onboardingStatus?.needs_provider_connection;
-    if (prevNeedsProvider.current === true && now === false) {
-      setJustOnboarded(true);
-    }
-    prevNeedsProvider.current = now;
-  }, [onboardingStatus?.needs_provider_connection]);
+  // Onboarding flow state (server status + per-step flags + transitions). Kept
+  // here — above the `oauthCallback` early return — so the status query stays
+  // mounted across the OAuth-callback screen and the needs→false transition
+  // that fires the coach-proposal step is never missed.
+  const onboarding = useOnboardingState();
 
   // Boot/teardown PostHog analytics in lockstep with the user's
   // analytics_consent flag. Default is opt-out so this is a no-op
@@ -152,9 +92,9 @@ function AppContent() {
     if (params) {
       setOauthCallback(params);
       // Invalidate OAuth status queries to refresh connection state.
-      // Also invalidate onboarding-status so a first-run connect flips the
-      // route guard from `<OnboardingConnectProvider>` to `<Dashboard>`
-      // without a page reload.
+      // Also invalidate onboarding-status so a first-run connect advances the
+      // onboarding flow from the connect step to the dashboard without a page
+      // reload.
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.status() });
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connections() });
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
@@ -302,77 +242,23 @@ function AppContent() {
     );
   }
 
-  // Render the dashboard immediately while onboarding-status is in flight.
-  // Only switch to the connect-provider screen when the server explicitly
-  // confirms `needs_provider_connection: true` — flashing a full-screen
-  // spinner first races E2E tests against UI elements that don't render
-  // until the query resolves, and a one-frame flash of dashboard chrome
-  // before a redirect is acceptable on the first-login edge case.
-  // Profile-type onboarding step: first run, before the connect-provider gate.
-  // Only a fresh account (needs a provider) that hasn't chosen yet sees this —
-  // already-onboarded users (provider connected) skip straight past it.
-  if (
-    onboardingActive &&
-    onboardingStatus?.needs_provider_connection === true &&
-    !skippedOnboarding &&
-    profileTypeKey &&
-    !profileTypeChosen
-  ) {
-    return (
-      <div className="min-h-dvh bg-surface">
-        <ImpersonationBanner />
-        <OnboardingProfileType
-          userDisplayName={user?.display_name}
-          onComplete={() => {
-            localStorage.setItem(profileTypeKey, '1');
-            setProfileTypeChosen(true);
-          }}
-        />
-      </div>
-    );
-  }
-
-  if (onboardingStatus?.needs_provider_connection === true && !skippedOnboarding) {
-    return (
-      <div className="min-h-dvh bg-surface">
-        <ImpersonationBanner />
-        <OnboardingConnectProvider
-          userDisplayName={user?.display_name}
-          onContinueWithoutProvider={() => setSkippedOnboarding(true)}
-        />
-      </div>
-    );
-  }
-
-  // Coach-proposal onboarding step: a provider is connected (needs === false)
-  // but the user hasn't seen their inferred-profile coach suggestions yet.
-  if (
-    onboardingActive &&
-    justOnboarded &&
-    onboardingStatus?.needs_provider_connection === false &&
-    coachProposalKey &&
-    !coachProposalDone
-  ) {
-    return (
-      <div className="min-h-dvh bg-surface">
-        <ImpersonationBanner />
-        <OnboardingCoachProposal
-          userDisplayName={user?.display_name}
-          onComplete={() => {
-            localStorage.setItem(coachProposalKey, '1');
-            setCoachProposalDone(true);
-            setJustOnboarded(false);
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Authenticated and active - show dashboard
+  // Authenticated and active — hand off to the onboarding flow, which renders
+  // the current onboarding step (the first applicable step not yet complete) or
+  // the dashboard once onboarding is finished. The step decision and its state
+  // live in `useOnboardingState` and the step registry (`onboarding/steps`).
   return (
     <div className="min-h-dvh bg-surface">
       <ImpersonationBanner />
-      <Dashboard pendingInviteCode={pendingInviteCode} onInviteCodeConsumed={() => setPendingInviteCode(null)} />
+      <OnboardingFlow
+        state={onboarding}
+        userDisplayName={user?.display_name}
+        fallback={
+          <Dashboard
+            pendingInviteCode={pendingInviteCode}
+            onInviteCodeConsumed={() => setPendingInviteCode(null)}
+          />
+        }
+      />
     </div>
   );
 }

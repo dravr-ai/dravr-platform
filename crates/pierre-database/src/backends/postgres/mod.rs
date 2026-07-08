@@ -68,6 +68,8 @@ pub mod training_history;
 pub mod usage;
 /// User and profile repository implementations
 pub mod user;
+/// Durable per-user onboarding step completion state (Postgres)
+pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (Postgres)
 pub mod user_physiological_profiles;
 /// Per-user rate-limit exemption table (`Postgres`) backing `UserRateLimitOverrideRepository`.

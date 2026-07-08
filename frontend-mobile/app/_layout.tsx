@@ -38,6 +38,13 @@ import { QueryProvider } from '../src/providers/QueryProvider';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
 import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
+import { useProfileTypeChosen } from '../src/hooks/useProfileTypeChosen';
+import { useMessagingOnboarding } from '../src/hooks/useMessagingOnboarding';
+import {
+  currentOnboardingStep,
+  type OnboardingContext,
+  type OnboardingStepId,
+} from '@pierre/shared-constants';
 import { trackMobile } from '../src/services/analytics';
 
 LogBox.ignoreLogs([
@@ -49,6 +56,22 @@ LogBox.ignoreLogs([
 ]);
 
 SplashScreen.preventAutoHideAsync();
+
+/** Map an onboarding step id to its `(onboarding)` route (literals for typed routes). */
+function routeForStep(id: OnboardingStepId) {
+  switch (id) {
+    case 'profile_type':
+      return '/(onboarding)/profile-type' as const;
+    case 'connect_provider':
+      return '/(onboarding)/connect' as const;
+    case 'coach_proposal':
+      return '/(onboarding)/coach-proposal' as const;
+    case 'messaging_channel':
+      return '/(onboarding)/messaging-channel' as const;
+    case 'messaging_configure':
+      return '/(onboarding)/messaging-configure' as const;
+  }
+}
 
 function RootLayoutNav() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -137,13 +160,15 @@ function RootLayoutNav() {
   const needsOnboardingFetch =
     isAuthenticated && user?.user_status === 'active' && !isAdminRole;
   const { data: onboardingStatus } = useOnboardingStatus(needsOnboardingFetch);
-  // One-time coach-proposal step shown after the provider connection lands.
   const { seen: coachProposalSeen } = useCoachProposalSeen(user?.id);
+  const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
+  // The messaging steps live post-connect; only fetch the channel list there.
+  const postConnect =
+    Boolean(needsOnboardingFetch) && onboardingStatus?.needs_provider_connection === false;
+  const messaging = useMessagingOnboarding(user?.id, postConnect);
 
-  // Only divert to the coach proposal when the user connects their first
-  // provider *in this session* (a `needs_provider_connection` true→false
-  // transition), so an already-onboarded user simply opening the app — or an
-  // E2E run authenticating a provider-connected fixture — is never intercepted.
+  // First-connect transition (needs true→false) — gates coach-proposal only, so
+  // an already-onboarded user simply opening the app is never intercepted by it.
   const [justOnboarded, setJustOnboarded] = React.useState(false);
   const prevNeedsProvider = React.useRef<boolean | undefined>(undefined);
   React.useEffect(() => {
@@ -154,13 +179,14 @@ function RootLayoutNav() {
     prevNeedsProvider.current = now;
   }, [onboardingStatus?.needs_provider_connection]);
 
+  // Decide the onboarding route from the SHARED step registry (single source with
+  // web): build the onboarding context, ask the registry for the current step,
+  // and map it to its `(onboarding)` route — or route to chat when none remain.
   React.useEffect(() => {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
-    const onCoachProposal =
-      inOnboardingGroup && (segments as readonly string[])[1] === 'coach-proposal';
     const showAuth = !isAuthenticated || user?.user_status === 'pending';
 
     if (showAuth) {
@@ -170,36 +196,36 @@ function RootLayoutNav() {
       return;
     }
 
-    // Authenticated + active. Land the user on the chat stack by default and
-    // only divert to onboarding when the server explicitly confirms
-    // `needs_provider_connection: true`. Holding routing on the in-flight
-    // query produced a flicker / hung-spinner on slow networks.
-    if (onboardingStatus?.needs_provider_connection === true) {
-      if (!inOnboardingGroup) {
-        router.replace('/(onboarding)/connect');
+    // Hold routing while the AsyncStorage-backed flags for the current phase are
+    // still in flight, to avoid flashing chat then bouncing back to a step.
+    const preConnect = onboardingStatus?.needs_provider_connection === true;
+    if (preConnect && profileTypeChosen === undefined) return;
+    if (postConnect && (coachProposalSeen === undefined || messaging.loading)) return;
+
+    const ctx: OnboardingContext = {
+      onboardingActive: Boolean(needsOnboardingFetch),
+      needsProviderConnection: onboardingStatus?.needs_provider_connection,
+      skippedProvider: false,
+      justOnboarded,
+      profileTypeChosen: profileTypeChosen ?? true,
+      coachProposalDone: coachProposalSeen ?? true,
+      messagingAvailableCount: messaging.availableCount,
+      messagingChannelChosen: messaging.channelChosen,
+      messagingChannelDone: messaging.channelDone,
+      messagingConfigureDone: messaging.configureDone,
+    };
+
+    const step = currentOnboardingStep(ctx);
+    if (step) {
+      const route = routeForStep(step.id);
+      const sub = route.split('/').pop();
+      if (!(inOnboardingGroup && (segments as readonly string[])[1] === sub)) {
+        router.replace(route);
       }
       return;
     }
 
-    // Provider connected: insert the one-time coach-proposal step before chat.
-    // `seen === undefined` means the AsyncStorage read is still in flight — hold
-    // routing rather than flash chat then bounce back to the proposal.
-    if (
-      needsOnboardingFetch &&
-      justOnboarded &&
-      onboardingStatus?.needs_provider_connection === false
-    ) {
-      if (coachProposalSeen === undefined) {
-        return;
-      }
-      if (coachProposalSeen === false) {
-        if (!onCoachProposal) {
-          router.replace('/(onboarding)/coach-proposal');
-        }
-        return;
-      }
-    }
-
+    // Onboarding complete → chat.
     if (inAuthGroup || inOnboardingGroup) {
       router.replace('/(app)/(tabs)/(chat)');
     }
@@ -210,9 +236,16 @@ function RootLayoutNav() {
     router,
     user?.user_status,
     needsOnboardingFetch,
+    postConnect,
     justOnboarded,
     onboardingStatus?.needs_provider_connection,
     coachProposalSeen,
+    profileTypeChosen,
+    messaging.availableCount,
+    messaging.channelChosen,
+    messaging.channelDone,
+    messaging.configureDone,
+    messaging.loading,
   ]);
 
   if (isLoading || !fontsLoaded) {

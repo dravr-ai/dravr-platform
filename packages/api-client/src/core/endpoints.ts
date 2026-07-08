@@ -261,8 +261,21 @@ export const ENDPOINTS = {
     OAUTH_APP: (provider: string) => `/api/users/oauth-apps/${provider}`,
     /** Onboarding status — cheap self-read used by web + mobile to gate routing right after login */
     ONBOARDING_STATUS: '/api/me/onboarding-status',
+    /** Durable per-step onboarding progress — clients PUT a step's status as it completes */
+    ONBOARDING_STEP: (stepId: string) => `/api/me/onboarding/steps/${encodeURIComponent(stepId)}`,
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
+  },
+  /** End-user messaging channel linking (onboarding) — not the admin channel-config surface */
+  MESSAGING: {
+    /** Secret-free connectable-channel list for the onboarding picker */
+    CHANNELS_AVAILABLE: '/api/messaging/channels/available',
+    /** Start linking a channel — returns linking URL/code (+ QR for deep-link) */
+    LINK_INIT: (channel: string) => `/api/messaging/link/init/${encodeURIComponent(channel)}`,
+    /** The channels the user has already linked (poll to detect link completion) */
+    LINKS: '/api/messaging/links',
+    /** Unlink a channel */
+    LINK: (channel: string) => `/api/messaging/links/${encodeURIComponent(channel)}`,
   },
 } as const;
 

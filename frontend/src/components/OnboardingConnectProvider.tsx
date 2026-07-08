@@ -179,9 +179,12 @@ export default function OnboardingConnectProvider({
     );
   }
 
+  // `pt-20` reserves a top safe-area for the fixed OnboardingProgress bar so
+  // this taller provider-list card clears it; `my-auto` still centers it when
+  // the viewport has room.
   return (
-    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
-      <div className="max-w-2xl w-full">
+    <div className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-20 bg-surface-container-low">
+      <div className="max-w-2xl w-full my-auto">
         <Card className="overflow-hidden">
           {/* Gradient accent bar — matches the PendingApproval brand moment. */}
           <div className="h-1 w-full boreal-hero-gradient" />

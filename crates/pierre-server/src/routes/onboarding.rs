@@ -17,10 +17,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -48,10 +48,42 @@ pub struct OnboardingStatusResponse {
     pub pillars_total: usize,
     /// `true` once all pillar context + North Star are captured.
     pub onboarding_complete: bool,
+    /// Durable per-step onboarding progress. Only steps the user has reached
+    /// appear; a step absent here is still pending. Lets the flow be
+    /// server-driven and survive device changes rather than `localStorage`-only.
+    pub steps: Vec<OnboardingStepState>,
+    /// The messaging channel the user chose during onboarding, if any.
+    pub chosen_channel: Option<String>,
+}
+
+/// A single onboarding step's persisted status, for the client progress model.
+#[derive(Debug, Serialize)]
+pub struct OnboardingStepState {
+    /// Step id (`profile_type`, `connect_provider`, `coach_proposal`,
+    /// `messaging_channel`, `messaging_configure`).
+    pub step_id: String,
+    /// `complete` or `skipped`.
+    pub status: String,
 }
 
 /// Total onboarding topics: the North Star plus the six pillars.
 const ONBOARDING_TOPIC_TOTAL: usize = 7;
+
+/// The onboarding step ids the `PUT` endpoint accepts, kept in sync with the
+/// client step registry (`frontend/src/onboarding/steps.ts`).
+const ONBOARDING_STEP_IDS: [&str; 5] = [
+    "profile_type",
+    "connect_provider",
+    "coach_proposal",
+    "messaging_channel",
+    "messaging_configure",
+];
+
+/// The statuses a step may be set to. A missing row means "pending".
+const ONBOARDING_STATUSES: [&str; 2] = ["complete", "skipped"];
+
+/// Max length for a `chosen_channel` value (channel names are short slugs).
+const MAX_CHOSEN_CHANNEL_LEN: usize = 32;
 
 /// Best-effort (covered, complete) pillar coverage from the user's dossier.
 /// Returns `(0, false)` when there is no active tenant or the dossier cannot be
@@ -101,6 +133,24 @@ pub async fn handle_self_get(
     let (pillars_covered, onboarding_complete) =
         pillar_coverage(&resources, auth.active_tenant_id, auth.user_id).await;
 
+    // Durable per-step onboarding state. Best-effort like pillar coverage: a read
+    // error degrades to "no persisted steps" rather than failing the routing gate.
+    let step_records = resources
+        .common
+        .repos
+        .user_onboarding
+        .get_onboarding_steps(&auth.user_id.to_string())
+        .await
+        .unwrap_or_default();
+    let chosen_channel = step_records.iter().find_map(|r| r.chosen_channel.clone());
+    let steps = step_records
+        .into_iter()
+        .map(|r| OnboardingStepState {
+            step_id: r.step_id,
+            status: r.status,
+        })
+        .collect();
+
     Ok((
         StatusCode::OK,
         Json(OnboardingStatusResponse {
@@ -108,6 +158,8 @@ pub async fn handle_self_get(
             pillars_covered,
             pillars_total: ONBOARDING_TOPIC_TOTAL,
             onboarding_complete,
+            steps,
+            chosen_channel,
         }),
     )
         .into_response())
@@ -206,6 +258,68 @@ pub async fn handle_parq_post(
     Ok((StatusCode::OK, Json(ParqSubmitResponse { flags_raised })).into_response())
 }
 
+/// Request body for `PUT /api/me/onboarding/steps/{step_id}`.
+#[derive(Debug, Deserialize)]
+pub struct SetOnboardingStepRequest {
+    /// `complete` or `skipped`.
+    pub status: String,
+    /// For the `messaging_channel` step: the messaging app the user chose.
+    #[serde(default)]
+    pub chosen_channel: Option<String>,
+}
+
+/// `PUT /api/me/onboarding/steps/{step_id}` — persist a step's completion status.
+///
+/// Durable, server-side onboarding progress: the web/mobile flows call this as
+/// each step completes so onboarding follows the user across devices. Scoped by
+/// the authenticated `user_id`.
+///
+/// # Errors
+///
+/// Returns `AppError` when authentication fails, the step id or status is not
+/// recognised, `chosen_channel` is too long, or persistence fails.
+pub async fn handle_step_put(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path(step_id): Path<String>,
+    Json(req): Json<SetOnboardingStepRequest>,
+) -> Result<Response, AppError> {
+    if !ONBOARDING_STEP_IDS.contains(&step_id.as_str()) {
+        return Err(AppError::invalid_input(format!(
+            "unknown onboarding step id: {step_id}"
+        )));
+    }
+    if !ONBOARDING_STATUSES.contains(&req.status.as_str()) {
+        return Err(AppError::invalid_input(format!(
+            "invalid onboarding status: {}",
+            req.status
+        )));
+    }
+    let chosen_channel = match req.chosen_channel.as_deref() {
+        None | Some("") => None,
+        Some(c) if c.len() <= MAX_CHOSEN_CHANNEL_LEN => Some(c),
+        Some(_) => {
+            return Err(AppError::invalid_input(
+                "chosen_channel exceeds the maximum length",
+            ));
+        }
+    };
+    let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
+    resources
+        .common
+        .repos
+        .user_onboarding
+        .set_onboarding_step(
+            &auth.user_id.to_string(),
+            &step_id,
+            &req.status,
+            chosen_channel,
+            tenant_id.as_deref(),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 /// Mount-helper for the onboarding-status endpoint. Same shape as
 /// [`pierre_routes_admin::FeatureFlagsRoutes`].
 pub struct OnboardingRoutes;
@@ -215,6 +329,7 @@ impl OnboardingRoutes {
     pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route("/api/me/onboarding-status", get(handle_self_get))
+            .route("/api/me/onboarding/steps/{step_id}", put(handle_step_put))
             .route("/api/me/parq", get(handle_parq_get).post(handle_parq_post))
             .with_state(resources)
     }
