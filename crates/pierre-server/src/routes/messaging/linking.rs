@@ -62,6 +62,9 @@ pub struct LinkInitResponse {
     pub linking_url: String,
     /// Expiration timestamp
     pub expires_at: String,
+    /// Inline SVG QR code encoding `linking_url` (deep-link channels only, for the
+    /// desktop→phone handoff). `None` for OAuth channels or on render failure.
+    pub qr_svg: Option<String>,
 }
 
 /// Response body for a linked channel
@@ -129,6 +132,22 @@ fn build_linking_url(
     }
 }
 
+/// Render a QR code for a deep-link URL as an inline SVG string, or `None` on
+/// failure. Only deep-link channels (Telegram / `WhatsApp`) get a QR — it bridges the
+/// desktop→phone gap when the user onboards on a laptop but runs the chat app only
+/// on their phone. Failure is non-fatal: the tappable `linking_url` still works.
+fn qr_svg_for(url: &str) -> Option<String> {
+    use qrcode::render::svg;
+    use qrcode::QrCode;
+    let code = QrCode::new(url.as_bytes()).ok()?;
+    Some(
+        code.render::<svg::Color>()
+            .min_dimensions(220, 220)
+            .quiet_zone(true)
+            .build(),
+    )
+}
+
 /// POST /api/messaging/link/init/:channel
 ///
 /// Initiates channel linking by generating a verification code and returning
@@ -186,6 +205,12 @@ pub async fn init_channel_link(
         "Initiated channel linking"
     );
 
+    // QR only for deep-link channels — OAuth flows redirect in the same browser.
+    let qr_svg = match method {
+        LinkingMethod::DeepLink => qr_svg_for(&linking_url),
+        LinkingMethod::OAuth => None,
+    };
+
     let response = LinkInitResponse {
         channel: channel_type.to_string(),
         method: method.to_string(),
@@ -195,6 +220,7 @@ pub async fn init_channel_link(
         },
         linking_url,
         expires_at: expires_at_str,
+        qr_svg,
     };
 
     Ok((StatusCode::OK, Json(json!(response))))

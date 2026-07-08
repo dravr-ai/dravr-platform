@@ -77,6 +77,85 @@ pub async fn list_channel_configs(
     ))
 }
 
+/// A messaging channel the tenant has configured and a user can connect to — with
+/// no credentials exposed. Backs the onboarding channel-picker (step 3).
+#[derive(Debug, Serialize)]
+pub struct AvailableChannel {
+    /// Channel id (`telegram`, `whatsapp`, `slack`, `discord`, `messenger`).
+    pub channel: String,
+    /// User-facing name.
+    pub display_name: String,
+    /// Linking method: `deep_link` (QR / tap) or `oauth` (redirect).
+    pub method: String,
+    /// Whether to pre-select this channel (Telegram is the most complete).
+    pub recommended: bool,
+}
+
+/// Every messaging channel, in picker order (recommended first).
+const ALL_CHANNELS: [ChannelType; 5] = [
+    ChannelType::Telegram,
+    ChannelType::WhatsApp,
+    ChannelType::Slack,
+    ChannelType::Discord,
+    ChannelType::Messenger,
+];
+
+/// User-facing display name for a channel.
+const fn channel_display_name(channel: ChannelType) -> &'static str {
+    match channel {
+        ChannelType::Telegram => "Telegram",
+        ChannelType::WhatsApp => "WhatsApp",
+        ChannelType::Slack => "Slack",
+        ChannelType::Discord => "Discord",
+        ChannelType::Messenger => "Messenger",
+    }
+}
+
+/// GET /api/messaging/channels/available
+///
+/// Secret-free list of channels the tenant has configured and enabled, for the
+/// onboarding channel-picker. Reads only each config's `enabled` flag and never
+/// returns credentials — unlike `list_channel_configs`, which is the admin
+/// surface. Requires a valid session.
+///
+/// # Errors
+///
+/// Returns `AppError` when authentication fails, no tenant can be resolved, or a
+/// channel-config read errors.
+pub async fn list_available_channels(
+    State(resources): State<Arc<ServerContext>>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+
+    let mut available = Vec::new();
+    for channel in ALL_CHANNELS {
+        let channel_str = channel.to_string();
+        // Connectable = the tenant has a config row that is not explicitly
+        // disabled. We read ONLY the `enabled` flag from the config — no secrets.
+        let Some(config) = db.get_channel_config(tenant_id, &channel_str).await? else {
+            continue;
+        };
+        let enabled = config
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+        if !enabled {
+            continue;
+        }
+        available.push(AvailableChannel {
+            channel: channel_str,
+            display_name: channel_display_name(channel).to_owned(),
+            method: channel.linking_method().to_string(),
+            recommended: channel == ChannelType::Telegram,
+        });
+    }
+
+    Ok((StatusCode::OK, Json(available)))
+}
+
 /// Get a specific channel configuration
 pub async fn get_channel_config(
     State(resources): State<Arc<ServerContext>>,

@@ -17,6 +17,10 @@
     "./notifications": {
       "types": "./src/notifications.ts",
       "import": "./src/notifications.ts"
+    },
+    "./onboarding": {
+      "types": "./src/onboarding.ts",
+      "import": "./src/onboarding.ts"
     }
   },
   "scripts": {

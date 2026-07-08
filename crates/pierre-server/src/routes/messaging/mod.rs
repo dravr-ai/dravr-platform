@@ -52,6 +52,12 @@ impl MessagingRoutes {
             )
             // Channel configuration CRUD
             .route("/api/messaging/channels", get(config::list_channel_configs))
+            // Secret-free connectable-channel list for the onboarding picker.
+            // Static segment; matchit prioritises it over `/channels/{channel}`.
+            .route(
+                "/api/messaging/channels/available",
+                get(config::list_available_channels),
+            )
             .route(
                 "/api/messaging/channels/{channel}",
                 get(config::get_channel_config),

@@ -21,8 +21,9 @@ use crate::repositories::{
     SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
     StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
     ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -78,6 +79,8 @@ pub struct RepositoryRegistry {
     pub playbooks: Arc<dyn PlaybookRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
+    /// Durable per-user onboarding step completion state (server-driven onboarding flow)
+    pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Social features (friend connections, shared insights, reactions)
     pub social: Option<Arc<dyn SocialRepository>>,
     /// Store listings for coach marketplace
@@ -182,6 +185,7 @@ impl RepositoryRegistry {
             seeder: db.clone(),
             playbooks: db.clone(),
             short_links: db.clone(),
+            user_onboarding: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -243,6 +247,7 @@ impl RepositoryRegistry {
             seeder: db.clone(),
             playbooks: db.clone(),
             short_links: db.clone(),
+            user_onboarding: db.clone(),
             social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),

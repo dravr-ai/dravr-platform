@@ -56,6 +56,8 @@ pub mod tenants;
 pub mod tool_selection;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
+/// Repository trait for durable per-user onboarding step completion state.
+pub mod user_onboarding;
 /// Repository traits for user accounts, profiles, password resets, impersonation, physiological profile.
 pub mod users;
 /// Repository traits for weather cache persistence.
@@ -89,6 +91,7 @@ pub use social::*;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use usage::*;
+pub use user_onboarding::*;
 pub use users::*;
 pub use weather::*;
 pub use workouts::*;

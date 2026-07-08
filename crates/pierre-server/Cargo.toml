@@ -263,6 +263,9 @@ urlencoding = "2.1"
 sha2 = "0.10"
 hmac = "0.12"
 rand = "0.9"
+# QR codes for the messaging deep-link onboarding step (desktop→phone handoff).
+# Only the `svg` renderer — drops the heavy `image`/`bmp` integrations (binary size).
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 aes-gcm = "0.10"
 # Encryption and database support for multi-tenant
 ring = "0.17"

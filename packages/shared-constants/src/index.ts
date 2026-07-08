@@ -1,6 +1,9 @@
 // ABOUTME: Main entry point for @pierre/shared-constants package
 // ABOUTME: Re-exports all shared constants for convenient importing
 
+// Onboarding step registry (pure decision logic shared by web + mobile)
+export * from './onboarding';
+
 // Social constants (colors, labels, emojis for insights and reactions)
 export {
   REACTION_EMOJIS,

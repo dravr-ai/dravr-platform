@@ -690,6 +690,100 @@ async fn test_parity_sync_cursor_roundtrip() {
     }
 }
 
+/// `user_onboarding` write-then-read parity: durable onboarding step state must
+/// round-trip identically on both backends, including the nullable
+/// `chosen_channel` column, upsert-in-place on the `(user_id, step_id)` key, and
+/// per-`user_id` isolation. All columns are TEXT by design, so this pins that
+/// choice (no INT4/native-uuid decode surprise) against a real `PostgreSQL`.
+#[tokio::test]
+async fn test_parity_user_onboarding() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, _tenant_id) = create_test_user(&repos).await;
+        let uid = user_id.to_string();
+
+        // A plain step, plus the messaging-channel step carrying a chosen_channel
+        // (exercises the nullable TEXT column on both backends).
+        repos
+            .user_onboarding
+            .set_onboarding_step(&uid, "profile_type", "complete", None, Some("tenant-abc"))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: set profile_type must succeed: {e}"));
+        repos
+            .user_onboarding
+            .set_onboarding_step(
+                &uid,
+                "messaging_channel",
+                "complete",
+                Some("telegram"),
+                Some("tenant-abc"),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: set messaging_channel must succeed: {e}"));
+
+        // Re-mark profile_type to prove the upsert overwrites in place (PK conflict).
+        repos
+            .user_onboarding
+            .set_onboarding_step(&uid, "profile_type", "skipped", None, None)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: re-set profile_type must succeed: {e}"));
+
+        let mut steps = repos
+            .user_onboarding
+            .get_onboarding_steps(&uid)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get_onboarding_steps must not error: {e}"));
+        steps.sort_by(|a, b| a.step_id.cmp(&b.step_id));
+
+        assert_eq!(
+            steps.len(),
+            2,
+            "{backend}: two distinct steps (upsert overwrote, not inserted)"
+        );
+
+        let messaging = steps
+            .iter()
+            .find(|s| s.step_id == "messaging_channel")
+            .unwrap_or_else(|| panic!("{backend}: messaging_channel row must be found"));
+        assert_eq!(messaging.status, "complete", "{backend}: messaging status");
+        assert_eq!(
+            messaging.chosen_channel.as_deref(),
+            Some("telegram"),
+            "{backend}: chosen_channel round-trips"
+        );
+
+        let profile = steps
+            .iter()
+            .find(|s| s.step_id == "profile_type")
+            .unwrap_or_else(|| panic!("{backend}: profile_type row must be found"));
+        assert_eq!(
+            profile.status, "skipped",
+            "{backend}: upsert overwrote status in place"
+        );
+        assert_eq!(
+            profile.chosen_channel, None,
+            "{backend}: NULL chosen_channel round-trips as None"
+        );
+
+        // Isolation: a different user_id (never inserted) sees none of these rows.
+        let other_user = Uuid::new_v4().to_string();
+        let other = repos
+            .user_onboarding
+            .get_onboarding_steps(&other_user)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get for other user must not error: {e}"));
+        assert!(
+            other.is_empty(),
+            "{backend}: onboarding steps are scoped per user_id"
+        );
+    }
+}
+
 // ============================================================================
 // Health Data Parity Tests (INT4 decode regressions)
 // ============================================================================

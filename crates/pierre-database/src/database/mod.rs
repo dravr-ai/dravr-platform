@@ -88,6 +88,8 @@ pub mod usage_counters;
 pub mod user_mcp_tokens;
 /// User OAuth token storage and management
 pub mod user_oauth_tokens;
+/// Durable per-user onboarding step completion state (`SQLite`)
+pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (`SQLite`)
 pub mod user_physiological_profiles;
 /// Per-user rate-limit exemption table (`SQLite`) backing `UserRateLimitOverrideRepository`.

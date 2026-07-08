@@ -17,6 +17,9 @@ export const oauthApi = pierreApi.oauth;
 export const socialApi = pierreApi.social;
 export const storeApi = pierreApi.store;
 export const userApi = pierreApi.user;
+// End-user messaging channel linking (onboarding). Distinct from the web-only
+// admin `messagingApi` (channel-config CRUD) re-exported from './messaging'.
+export const messagingLinkApi = pierreApi.messaging;
 export const notificationsApi = pierreApi.notifications;
 export const groupsApi = pierreApi.groups;
 

@@ -42,5 +42,7 @@ export const oauthApi = api.oauth;
 export const socialApi = api.social;
 export const storeApi = api.store;
 export const userApi = api.user;
+// End-user messaging channel linking (onboarding): getAvailableChannels/initLink/listLinks/deleteLink.
+export const messagingApi = api.messaging;
 export const notificationsApi = api.notifications;
 export const groupsApi = api.groups;

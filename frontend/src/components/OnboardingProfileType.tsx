@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
-import { Card } from './ui';
+import OnboardingShell from './OnboardingShell';
 
 /**
  * Athlete-vs-coach onboarding step.
@@ -59,7 +59,7 @@ export default function OnboardingProfileType({
   };
 
   return (
-    <Shell heading={userDisplayName ? `Welcome, ${userDisplayName}` : 'Welcome to Dravr'}>
+    <OnboardingShell heading={userDisplayName ? `Welcome, ${userDisplayName}` : 'Welcome to Dravr'}>
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
         How will you use Dravr? This tailors the coaches we suggest. You can change it anytime in
         Settings.
@@ -80,7 +80,7 @@ export default function OnboardingProfileType({
           onSelect={() => void handleCoach()}
         />
       </div>
-    </Shell>
+    </OnboardingShell>
   );
 }
 
@@ -114,26 +114,5 @@ function ChoiceCard({
         </span>
       ) : null}
     </button>
-  );
-}
-
-/** Shared full-screen onboarding chrome (gradient accent + card). */
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
-  return (
-    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
-      <div className="max-w-2xl w-full">
-        <Card className="overflow-hidden">
-          <div className="h-1 w-full boreal-hero-gradient" />
-          <div className="px-8 py-10">
-            {heading ? (
-              <h1 className="font-display font-semibold text-2xl text-on-surface text-center">
-                {heading}
-              </h1>
-            ) : null}
-            {children}
-          </div>
-        </Card>
-      </div>
-    </div>
   );
 }

@@ -96,8 +96,26 @@ export interface UpdateProfileResponse {
  * `provider_connections` and must complete the onboarding flow before the
  * messaging endpoints will accept their requests.
  */
+/** A single onboarding step's persisted status (server-driven progress). */
+export interface OnboardingStepState {
+  /** Step id: `profile_type`, `connect_provider`, `coach_proposal`, `messaging_channel`, `messaging_configure`. */
+  step_id: string;
+  /** `complete` or `skipped`. */
+  status: string;
+}
+
 export interface OnboardingStatusResponse {
   needs_provider_connection: boolean;
+  /** How many onboarding topics (North Star + 6 pillars) the user has covered. */
+  pillars_covered: number;
+  /** Total onboarding topics (North Star + 6 pillars = 7). */
+  pillars_total: number;
+  /** `true` once all pillar context + North Star are captured. */
+  onboarding_complete: boolean;
+  /** Durable per-step progress; only steps the user has reached appear. */
+  steps: OnboardingStepState[];
+  /** The messaging channel the user chose during onboarding, if any. */
+  chosen_channel: string | null;
 }
 
 /**
@@ -356,6 +374,24 @@ export function createUserApi(axios: AxiosInstance) {
         ENDPOINTS.USER.ONBOARDING_STATUS,
       );
       return response.data;
+    },
+
+    /**
+     * Persist an onboarding step's completion status so the flow is durable and
+     * follows the user across devices (rather than living only in localStorage).
+     * `chosenChannel` is set only for the messaging-channel step. Returns nothing
+     * (204); callers treat failure as non-fatal — the local flag still advances
+     * the flow, the server write is a durability best-effort.
+     */
+    async setOnboardingStep(
+      stepId: string,
+      status: 'complete' | 'skipped',
+      chosenChannel?: string,
+    ): Promise<void> {
+      await axios.put(ENDPOINTS.USER.ONBOARDING_STEP(stepId), {
+        status,
+        chosen_channel: chosenChannel,
+      });
     },
   };
 }

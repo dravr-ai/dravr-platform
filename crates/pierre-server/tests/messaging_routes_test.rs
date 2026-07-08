@@ -147,6 +147,77 @@ mod messaging_routes_tests {
     }
 
     #[tokio::test]
+    async fn test_channels_available_lists_only_configured_no_secrets() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Configure Telegram (a deep-link channel); leave the rest unconfigured.
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        // Telegram is configured → present, deep_link, recommended, and secret-free.
+        let telegram = channels
+            .iter()
+            .find(|c| c["channel"] == "telegram")
+            .expect("telegram must be listed as available");
+        assert_eq!(telegram["method"], "deep_link");
+        assert_eq!(telegram["recommended"], true);
+        assert_eq!(telegram["display_name"], "Telegram");
+        assert!(
+            telegram.get("bot_token").is_none() && telegram.get("credentials").is_none(),
+            "channels/available must never leak credentials"
+        );
+
+        // A never-configured channel must not appear.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "discord"),
+            "unconfigured channels must not appear"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_link_init_deep_link_returns_qr_svg() {
+        let (router, token) = setup_messaging_router().await;
+
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::post("/api/messaging/link/init/telegram")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["method"], "deep_link");
+        assert!(body["code"].is_string(), "deep-link channels return a code");
+        let qr = body["qr_svg"]
+            .as_str()
+            .expect("deep-link init must include an inline QR SVG");
+        assert!(qr.contains("<svg"), "qr_svg is an inline SVG document");
+    }
+
+    #[tokio::test]
     async fn test_delete_channel_config() {
         let (router, token) = setup_messaging_router().await;
 

@@ -41,6 +41,7 @@
     "@expo-google-fonts/space-grotesk": "^0.4.1",
     "@pierre/api-client": "file:../packages/api-client",
     "@pierre/chat-utils": "file:../packages/chat-utils",
+    "@pierre/shared-constants": "file:../packages/shared-constants",
     "@pierre/shared-types": "file:../packages/shared-types",
     "@pierre/ui-logic": "file:../packages/ui-logic",
     "@react-native-async-storage/async-storage": "^2.2.0",
