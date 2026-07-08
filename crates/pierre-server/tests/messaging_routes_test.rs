@@ -190,6 +190,38 @@ mod messaging_routes_tests {
     }
 
     #[tokio::test]
+    async fn test_channels_available_excludes_disabled_channel() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Configure Telegram but DISABLED (enabled:false → stored is_active=false).
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": false,
+                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        // Regression: the filter previously read the wrong JSON key (`enabled` vs
+        // the stored `is_active`), so operator-disabled channels leaked into the
+        // onboarding picker. A disabled channel must NOT be advertised.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "telegram"),
+            "a disabled channel (is_active=false) must not appear in channels/available"
+        );
+    }
+
+    #[tokio::test]
     async fn test_link_init_deep_link_returns_qr_svg() {
         let (router, token) = setup_messaging_router().await;
 

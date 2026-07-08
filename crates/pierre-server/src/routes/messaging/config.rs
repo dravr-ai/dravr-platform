@@ -114,7 +114,7 @@ const fn channel_display_name(channel: ChannelType) -> &'static str {
 /// GET /api/messaging/channels/available
 ///
 /// Secret-free list of channels the tenant has configured and enabled, for the
-/// onboarding channel-picker. Reads only each config's `enabled` flag and never
+/// onboarding channel-picker. Reads only each config's `is_active` flag and never
 /// returns credentials — unlike `list_channel_configs`, which is the admin
 /// surface. Requires a valid session.
 ///
@@ -134,15 +134,17 @@ pub async fn list_available_channels(
     for channel in ALL_CHANNELS {
         let channel_str = channel.to_string();
         // Connectable = the tenant has a config row that is not explicitly
-        // disabled. We read ONLY the `enabled` flag from the config — no secrets.
+        // disabled. `get_channel_config` serializes the stored flag as `is_active`
+        // (the write side maps the request's `enabled` onto it); we read ONLY that
+        // scalar flag — never any secret field.
         let Some(config) = db.get_channel_config(tenant_id, &channel_str).await? else {
             continue;
         };
-        let enabled = config
-            .get("enabled")
+        let is_active = config
+            .get("is_active")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
-        if !enabled {
+        if !is_active {
             continue;
         }
         available.push(AvailableChannel {
