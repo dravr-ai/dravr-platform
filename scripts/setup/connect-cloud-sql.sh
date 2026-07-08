@@ -33,6 +33,25 @@ SQL="$1"
 echo "Executing: ${SQL}"
 echo "---"
 
+# Reset the live job's container spec back to the Terraform-canonical connectivity
+# probe (psql -c "SELECT 1", no PGQUERY) so an ad-hoc debug query never leaves the
+# job drifted from infra/environments/dev/main.tf — the Terraform Drift monitor reds
+# on any divergence. Registered before the mutating update and fired on every exit
+# (including query failure) so the job is self-cleaning. Best-effort: a reset failure
+# warns rather than masking the query's own exit status.
+reset_job_to_canonical() {
+    gcloud run jobs update "${JOB_NAME}" \
+        --project="${GCP_PROJECT}" \
+        --region="${GCP_REGION}" \
+        --command="psql" \
+        --args="-c,SELECT 1" \
+        --remove-env-vars="PGQUERY" \
+        --quiet \
+        >/dev/null 2>&1 \
+        || echo "WARN: failed to reset ${JOB_NAME} to canonical spec — re-run this script or 'terraform apply' to clear drift" >&2
+}
+trap reset_job_to_canonical EXIT
+
 # Pass the SQL query via env var to avoid gcloud arg parsing issues with spaces/commas.
 # ^;;^ sets the key-value delimiter to ;; so commas in SQL don't break parsing.
 gcloud run jobs update "${JOB_NAME}" \
