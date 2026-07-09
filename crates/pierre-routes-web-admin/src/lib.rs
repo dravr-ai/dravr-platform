@@ -51,7 +51,7 @@ use pierre_config::environment::ServerConfig;
 use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
 use pierre_config::social::SocialInsightsConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
@@ -522,6 +522,60 @@ impl WebAdminRoutes {
         require_admin(auth.user_id, &resources.repos.users).await?;
 
         Ok(auth)
+    }
+
+    /// Authorize the acting admin to read a target user's per-user financial data
+    /// (CWE-863). Super-admins (global operators) may read any user's; a
+    /// tenant-scoped admin may read only for a user who shares one of their
+    /// tenants. Returns `NotFound` for a missing target (404 before 403). This is
+    /// the single source of truth for per-user financial authz — the sibling
+    /// endpoints drifting out of sync is exactly what caused this disclosure.
+    async fn authorize_admin_for_user(
+        resources: &WebAdminContext,
+        admin_user_id: Uuid,
+        target_user_id: &str,
+    ) -> Result<(), AppError> {
+        let user_uuid = Uuid::parse_str(target_user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let admin = resources
+            .data
+            .repos()
+            .users
+            .get_global(admin_user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Admin user not found"))?;
+        // Existence check first so a missing target returns 404, not 403.
+        resources
+            .data
+            .repos()
+            .users
+            .get_global(user_uuid)
+            .await?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+        if !admin.role.is_super_admin() {
+            let admin_tenants = resources
+                .data
+                .repos()
+                .tenants
+                .list_for_user(admin_user_id)
+                .await?;
+            let target_tenants = resources
+                .data
+                .repos()
+                .tenants
+                .list_for_user(user_uuid)
+                .await?;
+            let shares_tenant = target_tenants
+                .iter()
+                .any(|t| admin_tenants.iter().any(|a| a.id == t.id));
+            if !shares_tenant {
+                return Err(AppError::new(
+                    ErrorCode::PermissionDenied,
+                    "Admin is not permitted to view this user's financial data",
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Handle pending users listing for web admin users
@@ -1573,7 +1627,9 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
         let raw_rows = resources
             .repos
@@ -1620,7 +1676,8 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
         let daily = resources
             .repos
@@ -1645,7 +1702,15 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // SECURITY (CWE-863): this reads financial data scoped to a
+        // client-supplied tenant. A tenant-scoped admin must not read another
+        // tenant's usage; `verify_admin_tenant_access` restricts regular admins
+        // to their own tenant while passing super-admin (global operators).
+        let tenant = tenant_id
+            .parse::<TenantId>()
+            .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
+        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
         let by_model = resources
             .repos
@@ -1676,7 +1741,14 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<String>,
         Query(q): Query<InvoicePeriodQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // SECURITY (CWE-863): invoice/billing data scoped to a client-supplied
+        // tenant. Restrict tenant-scoped admins to their own tenant; super-admins
+        // (global operators) pass.
+        let tenant = tenant_id
+            .parse::<TenantId>()
+            .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
+        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
         let (start, _end) = parse_month_period(&q.period)?;
         let from = start.to_rfc3339();
         let by_model = resources
@@ -1707,7 +1779,24 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Query(q): Query<BillingExportQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // SECURITY (CWE-863): this export is platform-wide — it returns every
+        // tenant's billing rows with no tenant filter — so restrict it to
+        // super-admins. A tenant-scoped admin must not read other tenants'
+        // billing data.
+        let admin = resources
+            .data
+            .repos()
+            .users
+            .get_global(auth.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Admin user not found"))?;
+        if !admin.role.is_super_admin() {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Super-admin privileges required to export platform-wide billing",
+            ));
+        }
         let _ = parse_month_period(&q.period)?;
         let limit = q.limit.unwrap_or(1_000).clamp(1, 10_000);
         let records = resources
