@@ -475,6 +475,37 @@ jobs:
           SCRIPT_EOF
           chmod +x /tmp/run-android-e2e.sh
 
+      # Best-effort pre-fetch of the emulator system image with retry. The
+      # android-emulator-runner downloads it itself with NO retry, so a single
+      # truncated/corrupt CDN fetch ("Error on ZipFile unknown archive") aborts
+      # the whole nightly (seen 2026-07-09; the run is otherwise green ~7/8). By
+      # fetching here first — retrying and clearing partial downloads on a bad
+      # fetch — a transient hiccup self-recovers and the action then finds the
+      # package already installed. This step NEVER fails the job: if it cannot
+      # help (tool missing, or 3 corrupt fetches), it exits 0 and hands off to the
+      # emulator-runner exactly as before, so there is zero regression risk.
+      - name: Pre-fetch emulator system image (best-effort, retries transient CDN corruption)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::warning::sdkmanager not found at $SDKMANAGER — leaving the install to the emulator-runner"
+            exit 0
+          fi
+          PACKAGES="system-images;android-34;google_apis;x86_64 platform-tools emulator"
+          for attempt in 1 2 3; do
+            echo "sdkmanager pre-fetch attempt ${attempt}/3 (free: $(df -h / | awk 'NR==2{print $4}'))"
+            if yes | "$SDKMANAGER" --install $PACKAGES; then
+              echo "system image + tools pre-installed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "::warning::sdkmanager pre-fetch failed on attempt ${attempt} (transient CDN?) — clearing partial downloads and retrying"
+            rm -rf "$SDK/system-images" "$SDK/.temp" "$SDK/.downloadIntermediates" 2>/dev/null || true
+            sleep 10
+          done
+          echo "::warning::pre-fetch did not succeed after 3 attempts — the emulator-runner will attempt its own install"
+          exit 0
+
       - name: Run Maestro tests on Android
         timeout-minutes: 45
         uses: reactivecircus/android-emulator-runner@v2
