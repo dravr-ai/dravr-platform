@@ -147,10 +147,13 @@ pub trait ProfileRepository: Send + Sync {
 #[async_trait]
 pub trait PasswordResetRepository: Send + Sync {
     /// Store a password reset token (hashed) for a user
+    /// Store a reset token's `selector` (plaintext lookup half) and `verifier_hash`
+    /// (SHA-256 of the secret half). The delivered token is `<selector>.<verifier>`.
     async fn store_token(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
     ) -> AppResult<Uuid>;
     /// Store a password reset token with a custom TTL (in minutes)
@@ -160,12 +163,16 @@ pub trait PasswordResetRepository: Send + Sync {
     async fn store_token_with_ttl(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
         ttl_minutes: i64,
     ) -> AppResult<Uuid>;
-    /// Consume a password reset token by its hash
-    async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid>;
+    /// Consume a reset token: look it up by `selector`, verify `verifier_hash`, and on
+    /// success mark it used and return the user id. A wrong verifier increments a
+    /// per-token attempt counter; past the attempt cap the token self-invalidates
+    /// (brute-force lockout).
+    async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid>;
     /// Invalidate all unused reset tokens for a user
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()>;
     /// Count recent reset tokens for a user (for rate limiting)

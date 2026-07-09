@@ -1,4 +1,4 @@
-// ABOUTME: Password reset screen for entering the 6-digit code and new password
+// ABOUTME: Password reset screen for entering the emailed reset code and new password
 // ABOUTME: Professional dark theme UI with glassmorphism matching LoginScreen design
 
 import React, { useState } from 'react';
@@ -37,8 +37,8 @@ export function ResetPasswordScreen() {
 
     if (!code.trim()) {
       newErrors.code = 'Reset code is required';
-    } else if (!/^\d{6}$/.test(code)) {
-      newErrors.code = 'Please enter a valid 6-digit code';
+    } else if (!/^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.test(code.trim())) {
+      newErrors.code = 'Please enter the reset code from your email';
     }
 
     if (!newPassword) {
@@ -62,7 +62,7 @@ export function ResetPasswordScreen() {
 
     setIsLoading(true);
     try {
-      await authApi.resetPassword(code, newPassword);
+      await authApi.resetPassword(code.trim(), newPassword);
       Alert.alert(
         'Password Reset',
         'Your password has been reset successfully. Please sign in.',
@@ -128,7 +128,7 @@ export function ResetPasswordScreen() {
                   Enter Reset Code
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  We sent a 6-digit code to {email}
+                  We sent a reset code to {email}
                 </Text>
               </View>
 
@@ -136,11 +136,11 @@ export function ResetPasswordScreen() {
               <View className="mb-4">
                 <Input
                   label="Reset Code"
-                  placeholder="Enter 6-digit code"
+                  placeholder="Paste the code from your email"
                   value={code}
-                  onChangeText={(text) => setCode(text.replace(/\D/g, '').slice(0, 6))}
-                  keyboardType="number-pad"
-                  maxLength={6}
+                  onChangeText={setCode}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   autoFocus
                   error={errors.code}
                   testID="reset-code-input"

@@ -286,3 +286,43 @@ async fn test_import_url_rejects_private_ip() {
 
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
 }
+
+/// Regression (T3MP3ST F4 / CWE-918): the literal-IP SSRF check must also cover the v6
+/// side-channels — v4-mapped v6, v6 unique-local, and v6 link-local ranges — plus the
+/// cloud metadata address. Each must be rejected before any fetch.
+#[tokio::test]
+async fn test_import_url_rejects_ipv6_and_metadata_ssrf_vectors() {
+    let (router, auth_token) = setup_test_environment().await;
+
+    // (label, url) — each is an internal/non-public target that must be blocked.
+    let blocked = [
+        (
+            "cloud metadata (v4 link-local)",
+            "https://169.254.169.254/coach.md",
+        ),
+        (
+            "ipv4-mapped loopback",
+            "https://[::ffff:127.0.0.1]/coach.md",
+        ),
+        (
+            "ipv4-mapped metadata",
+            "https://[::ffff:169.254.169.254]/coach.md",
+        ),
+        ("ipv6 unique-local (fc00::/7)", "https://[fd00::1]/coach.md"),
+        ("ipv6 link-local (fe80::/10)", "https://[fe80::1]/coach.md"),
+        ("ipv6 loopback", "https://[::1]/coach.md"),
+    ];
+
+    for (label, url) in blocked {
+        let response = AxumTestRequest::post("/api/coaches/import/url")
+            .header("authorization", &auth_token)
+            .json(&json!({ "url": url, "save": true }))
+            .send(router.clone())
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::BAD_REQUEST,
+            "SSRF vector must be rejected: {label} ({url})"
+        );
+    }
+}

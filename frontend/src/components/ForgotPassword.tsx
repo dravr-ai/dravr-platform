@@ -72,7 +72,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 Reset Your Password
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant text-center">
-                Enter your email and we&apos;ll send you a 6-digit code
+                Enter your email and we&apos;ll send you a reset code
               </p>
             </div>
 

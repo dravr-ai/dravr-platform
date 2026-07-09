@@ -130,6 +130,43 @@ pub struct SaveCredentialsResponse {
     pub message: String,
 }
 
+/// Extract the lowercase host from a URL without a URL-parser dependency.
+/// Strips scheme, userinfo, IPv6 brackets, and port. Returns `None` for a URL with
+/// no usable host.
+#[must_use]
+pub fn base_url_host(base_url: &str) -> Option<String> {
+    let after_scheme = base_url
+        .split_once("://")
+        .map_or(base_url, |(_, rest)| rest);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, hp)| hp);
+    let host = if let Some(rest) = host_port.strip_prefix('[') {
+        // IPv6 literal, e.g. [::1]:11434
+        rest.split_once(']').map(|(h, _)| h)?
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    };
+    let host = host.trim().to_ascii_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Whether a user-supplied LLM `base_url` is permitted by the operator's allowlist.
+///
+/// Deny-by-default (T3MP3ST F2 / CWE-918): an unparseable URL, a URL with no host, or
+/// an empty allowlist all return `false`. Prevents a tenant from pointing the server's
+/// outbound LLM request at an internal host (SSRF). Host comparison is case-insensitive.
+#[must_use]
+pub fn base_url_allowed(base_url: &str, allowlist: &[String]) -> bool {
+    base_url_host(base_url).is_some_and(|host| {
+        allowlist
+            .iter()
+            .any(|allowed| allowed.trim().eq_ignore_ascii_case(&host))
+    })
+}
+
 /// LLM settings routes container
 pub struct LlmSettingsRoutes;
 
@@ -342,6 +379,16 @@ async fn save_llm_credentials<C: MiddlewareCtx>(
         return Err(AppError::invalid_input("API key cannot be empty"));
     }
 
+    // SSRF guard: a user-supplied base_url must be on the operator's allowlist,
+    // else a tenant could aim the server's outbound LLM request at an internal host.
+    if let Some(base_url) = request.base_url.as_deref() {
+        if !base_url_allowed(base_url, resources.llm_base_url_allowlist()) {
+            return Err(AppError::invalid_input(
+                "LLM base_url host is not permitted; add it to PIERRE_LLM_BASE_URL_ALLOWLIST",
+            ));
+        }
+    }
+
     // Determine scope (user-specific or tenant-level)
     // For tenant-level credentials, user must be the tenant owner or admin
     // For now, we allow any authenticated user to set their own credentials
@@ -424,6 +471,16 @@ async fn validate_llm_credentials<C: MiddlewareCtx>(
     })?;
 
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+
+    // SSRF guard: a user-supplied base_url must be on the operator's allowlist before
+    // we run a health_check() against it (else validation itself becomes an SSRF sink).
+    if let Some(base_url) = request.base_url.as_deref() {
+        if !base_url_allowed(base_url, resources.llm_base_url_allowlist()) {
+            return Err(AppError::invalid_input(
+                "LLM base_url host is not permitted; add it to PIERRE_LLM_BASE_URL_ALLOWLIST",
+            ));
+        }
+    }
 
     // Create credentials for validation
     let credentials = LlmCredentials {

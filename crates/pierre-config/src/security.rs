@@ -10,6 +10,7 @@ use pierre_core::constants::system_monitoring;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::LazyLock;
 
 /// Authentication configuration for JWT tokens
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,4 +169,26 @@ impl MonitoringConfig {
 /// Get environment variable or default value
 fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+/// Deny-by-default allowlist of hostnames permitted as a user-supplied LLM `base_url`.
+///
+/// An empty allowlist rejects every custom `base_url`, closing the SSRF where a tenant
+/// points the server's outbound LLM call at an internal host (T3MP3ST F2 / CWE-918).
+/// Providers with fixed endpoints (gemini/groq/cohere) send no `base_url` and are
+/// unaffected. Configured via `PIERRE_LLM_BASE_URL_ALLOWLIST` (comma-separated hostnames,
+/// e.g. `localhost,127.0.0.1,llm.internal.example.com`); parsed once per process. Kept as
+/// a process-global rather than a `SecurityConfig` field so it is not part of the widely
+/// literal-constructed config struct.
+#[must_use]
+pub fn llm_base_url_allowlist() -> &'static [String] {
+    static ALLOWLIST: LazyLock<Vec<String>> = LazyLock::new(|| {
+        env_var_or("PIERRE_LLM_BASE_URL_ALLOWLIST", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect()
+    });
+    &ALLOWLIST
 }

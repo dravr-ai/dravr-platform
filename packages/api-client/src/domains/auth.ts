@@ -187,7 +187,7 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
     },
 
     /**
-     * Request a password reset code for the given email.
+     * Request a password reset code to be emailed to the given email.
      * Always returns success to prevent account enumeration.
      */
     async forgotPassword(email: string): Promise<{ message: string }> {
@@ -199,7 +199,7 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
     },
 
     /**
-     * Complete a password reset using the 6-digit code and new password.
+     * Complete a password reset using the emailed reset code and new password.
      */
     async resetPassword(
       code: string,

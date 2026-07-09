@@ -15,6 +15,10 @@ use uuid::Uuid;
 /// Duration before a password reset token expires (1 hour)
 const RESET_TOKEN_TTL_HOURS: i64 = 1;
 
+/// Max wrong verifier guesses against one reset token before it self-invalidates
+/// (per-token brute-force lockout). Shared by both backend consume paths.
+pub(crate) const RESET_MAX_VERIFY_ATTEMPTS: i64 = 5;
+
 impl Database {
     /// Store a password reset token
     ///
@@ -27,7 +31,8 @@ impl Database {
     pub async fn store_password_reset_token_impl(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
     ) -> AppResult<Uuid> {
         let id = Uuid::new_v4();
@@ -36,13 +41,14 @@ impl Database {
 
         sqlx::query(
             r"
-            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO password_reset_tokens (id, user_id, selector, token_hash, expires_at, created_by, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ",
         )
         .bind(id.to_string())
         .bind(user_id.to_string())
-        .bind(token_hash)
+        .bind(selector)
+        .bind(verifier_hash)
         .bind(expires_at.to_rfc3339())
         .bind(created_by)
         .bind(now.to_rfc3339())
@@ -61,38 +67,84 @@ impl Database {
     /// # Errors
     ///
     /// Returns `NotFound` if the token doesn't exist or is already used/expired.
-    pub async fn consume_password_reset_token_impl(&self, token_hash: &str) -> AppResult<Uuid> {
+    pub async fn consume_password_reset_token_impl(
+        &self,
+        selector: &str,
+        verifier_hash: &str,
+    ) -> AppResult<Uuid> {
+        // Uniform error for every failure mode (missing selector, expired, wrong
+        // verifier, locked out) so the endpoint never reveals which condition hit.
+        let invalid =
+            || AppError::not_found("Password reset token is invalid, expired, or already used");
         let now = Utc::now().to_rfc3339();
 
-        // Atomically find and mark the token as used
+        // Look up the single live token for this selector — no global token_hash scan.
         let row = sqlx::query(
             r"
-            UPDATE password_reset_tokens
-            SET used_at = ?1
-            WHERE token_hash = ?2
+            SELECT user_id, token_hash, attempt_count
+            FROM password_reset_tokens
+            WHERE selector = ?1
               AND used_at IS NULL
-              AND expires_at > ?1
-            RETURNING user_id
+              AND expires_at > ?2
             ",
         )
+        .bind(selector)
         .bind(&now)
-        .bind(token_hash)
         .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load reset token: {e}")))?;
+
+        let Some(row) = row else {
+            return Err(invalid());
+        };
+        let user_id_str: String = row.get("user_id");
+        let stored_hash: String = row.get("token_hash");
+        let attempts: i64 = row.get("attempt_count");
+
+        // Brute-force lockout: past the attempt cap, invalidate the token outright.
+        if attempts >= RESET_MAX_VERIFY_ATTEMPTS {
+            sqlx::query("UPDATE password_reset_tokens SET used_at = ?1 WHERE selector = ?2")
+                .bind(&now)
+                .bind(selector)
+                .execute(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to lock reset token: {e}")))?;
+            return Err(invalid());
+        }
+
+        // Compare SHA-256 hashes (not the secret itself): a timing side-channel on the
+        // hash cannot help forge the verifier without a preimage, so a plain compare is
+        // safe here. A wrong guess costs one attempt and does NOT consume the token.
+        if stored_hash != verifier_hash {
+            sqlx::query(
+                "UPDATE password_reset_tokens SET attempt_count = attempt_count + 1 WHERE selector = ?1",
+            )
+            .bind(selector)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to record reset attempt: {e}")))?;
+            return Err(invalid());
+        }
+
+        // Success: atomically claim the token. The `used_at IS NULL` guard makes this
+        // exactly-once — only the request that flips NULL->now affects a row; a concurrent
+        // request that read the same live row loses the race here (0 rows) and is rejected,
+        // preventing token replay.
+        let claimed = sqlx::query(
+            "UPDATE password_reset_tokens SET used_at = ?1 WHERE selector = ?2 AND used_at IS NULL",
+        )
+        .bind(&now)
+        .bind(selector)
+        .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to consume reset token: {e}")))?;
 
-        row.map_or_else(
-            || {
-                Err(AppError::not_found(
-                    "Password reset token is invalid, expired, or already used",
-                ))
-            },
-            |row| {
-                let user_id_str: String = row.get("user_id");
-                Uuid::parse_str(&user_id_str)
-                    .map_err(|e| AppError::internal(format!("Invalid user_id in reset token: {e}")))
-            },
-        )
+        if claimed.rows_affected() == 0 {
+            return Err(invalid());
+        }
+
+        Uuid::parse_str(&user_id_str)
+            .map_err(|e| AppError::internal(format!("Invalid user_id in reset token: {e}")))
     }
 
     /// Invalidate all unused reset tokens for a user
@@ -132,7 +184,8 @@ impl Database {
     pub async fn store_password_reset_token_with_ttl_impl(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
         ttl_minutes: i64,
     ) -> AppResult<Uuid> {
@@ -142,13 +195,14 @@ impl Database {
 
         sqlx::query(
             r"
-            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO password_reset_tokens (id, user_id, selector, token_hash, expires_at, created_by, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ",
         )
         .bind(id.to_string())
         .bind(user_id.to_string())
-        .bind(token_hash)
+        .bind(selector)
+        .bind(verifier_hash)
         .bind(expires_at.to_rfc3339())
         .bind(created_by)
         .bind(now.to_rfc3339())
@@ -194,31 +248,35 @@ impl PasswordResetRepository for Database {
     async fn store_token(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
     ) -> AppResult<Uuid> {
-        Self::store_password_reset_token_impl(self, user_id, token_hash, created_by).await
+        Self::store_password_reset_token_impl(self, user_id, selector, verifier_hash, created_by)
+            .await
     }
 
     async fn store_token_with_ttl(
         &self,
         user_id: Uuid,
-        token_hash: &str,
+        selector: &str,
+        verifier_hash: &str,
         created_by: &str,
         ttl_minutes: i64,
     ) -> AppResult<Uuid> {
         Self::store_password_reset_token_with_ttl_impl(
             self,
             user_id,
-            token_hash,
+            selector,
+            verifier_hash,
             created_by,
             ttl_minutes,
         )
         .await
     }
 
-    async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
-        Self::consume_password_reset_token_impl(self, token_hash).await
+    async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid> {
+        Self::consume_password_reset_token_impl(self, selector, verifier_hash).await
     }
 
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {

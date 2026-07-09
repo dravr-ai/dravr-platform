@@ -38,7 +38,7 @@ describe('ForgotPassword', () => {
     it('should render the heading and description', () => {
       renderComponent();
       expect(screen.getByText('Reset Your Password')).toBeInTheDocument();
-      expect(screen.getByText(/send you a 6-digit code/i)).toBeInTheDocument();
+      expect(screen.getByText(/send you a reset code/i)).toBeInTheDocument();
     });
 
     it('should render the email input and submit button', () => {

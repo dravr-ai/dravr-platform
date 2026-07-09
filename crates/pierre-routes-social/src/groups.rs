@@ -829,6 +829,24 @@ impl GroupRoutes {
         let target_uuid = Uuid::parse_str(&target_user_id)
             .map_err(|_| AppError::invalid_input("Invalid user_id format"))?;
 
+        // Cannot change the owner's role via this endpoint. The owner is protected
+        // exactly as in `handle_remove_member` (which rejects removing the owner):
+        // without this check a mere group admin could demote the owner to member.
+        // Ownership changes go through the dedicated transfer flow, not a role edit.
+        let target_member = resources
+            .repos()
+            .groups
+            .get_member(&group_id, target_uuid)
+            .await?
+            .ok_or_else(|| AppError::not_found("Target member not found"))?;
+
+        if target_member.role == GroupRole::Owner {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Cannot change the group owner's role",
+            ));
+        }
+
         // Only owner can promote to admin or transfer ownership
         if (body.role == GroupRole::Owner || body.role == GroupRole::Admin)
             && caller_member.role != GroupRole::Owner

@@ -33,6 +33,7 @@ use pierre_auth::dto::auth::{
 
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
+use pierre_services::password_reset::{generate_reset_token, split_reset_token};
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -574,21 +575,23 @@ pub async fn handle_complete_reset(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<CompleteResetRequest>,
 ) -> Result<Response, AppError> {
-    use sha2::{Digest, Sha256};
-
     // Validate new password strength
     if !AuthService::is_valid_password(&request.new_password) {
         return Err(AppError::invalid_input(error_messages::PASSWORD_TOO_WEAK));
     }
 
-    // Hash the presented token to match against stored hash
-    let token_hash = format!("{:x}", Sha256::digest(request.reset_token.as_bytes()));
+    // Split "<selector>.<verifier>"; a malformed token is treated as invalid.
+    let Some((selector, verifier_hash)) = split_reset_token(&request.reset_token) else {
+        return Err(AppError::not_found(
+            "Password reset token is invalid, expired, or already used",
+        ));
+    };
 
-    // Atomically consume the token (validates existence, expiry, and single-use)
+    // Consume the token: selector lookup, verifier check, single-use + attempt lockout.
     let user_id = resources
         .repos
         .password_reset
-        .consume_token(&token_hash)
+        .consume_token(&selector, &verifier_hash)
         .await?;
 
     // Hash the new password using the service helper
@@ -627,8 +630,9 @@ pub async fn handle_complete_reset(
 
 /// Handle self-service forgot-password requests
 ///
-/// Generates a 6-digit numeric code, stores its SHA-256 hash with a 15-minute TTL,
-/// and sends it to the user via email (if Resend is configured).
+/// Generates a high-entropy `<selector>.<verifier>` reset token, stores the selector
+/// plus the verifier's SHA-256 hash with a 15-minute TTL, and emails the token to the
+/// user (if Resend is configured).
 ///
 /// Security: Always returns HTTP 200 with an identical message regardless of whether
 /// the email exists, to prevent account enumeration attacks.
@@ -638,8 +642,6 @@ pub async fn handle_forgot_password(
     Json(request): Json<ForgotPasswordRequest>,
 ) -> Result<Response, AppError> {
     use pierre_config::constants::password_reset;
-    use rand::Rng;
-    use sha2::{Digest, Sha256};
 
     let anti_enum_message =
         "If an account with that email exists, a reset code has been sent.".to_owned();
@@ -686,13 +688,10 @@ pub async fn handle_forgot_password(
             .into_response());
     }
 
-    // Generate 6-digit numeric code
-    let code: u32 =
-        rand::rng().random_range(password_reset::CODE_RANGE_MIN..password_reset::CODE_RANGE_MAX);
-    let code_str = code.to_string();
-
-    // Hash the code before storing (same SHA-256 approach as admin tokens)
-    let code_hash = format!("{:x}", Sha256::digest(code_str.as_bytes()));
+    // Generate a high-entropy "<selector>.<verifier>" reset token; only the verifier's
+    // SHA-256 hash + the plaintext selector are stored. Retires the brute-forceable
+    // 6-digit code (T3MP3ST F1 / CWE-307).
+    let generated = generate_reset_token();
 
     // Store with short TTL
     resources
@@ -700,7 +699,8 @@ pub async fn handle_forgot_password(
         .password_reset
         .store_token_with_ttl(
             user.id,
-            &code_hash,
+            &generated.selector,
+            &generated.verifier_hash,
             password_reset::CREATED_BY_SELF_SERVICE,
             password_reset::CODE_TTL_MINUTES,
         )
@@ -709,7 +709,7 @@ pub async fn handle_forgot_password(
     // Send email (or log warning if Resend not configured)
     if let Some(email_svc) = &resources.email_service {
         if let Err(e) = email_svc
-            .send_password_reset_code(&request.email, &code_str)
+            .send_password_reset_code(&request.email, &generated.token)
             .await
         {
             warn!(error = %e, "Failed to send password reset email — user will not receive code");

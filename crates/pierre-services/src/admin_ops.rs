@@ -728,27 +728,25 @@ pub async fn issue_password_reset_token(
     target_user_id: Uuid,
     reset_by: &str,
 ) -> Result<String, AppError> {
-    use rand::distr::Alphanumeric;
-    use rand::Rng;
-    use sha2::{Digest, Sha256};
+    use crate::password_reset::generate_reset_token;
 
-    // Generate a cryptographically random reset token (48 chars alphanumeric)
-    let raw_token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect();
-
-    // Store only the SHA-256 hash of the token in the database
-    let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
+    // Selector/verifier token: only the verifier's SHA-256 hash is stored; the plaintext
+    // selector indexes the row. The full "<selector>.<verifier>" token is returned for
+    // delivery to the user and never persisted.
+    let generated = generate_reset_token();
 
     repos
         .password_reset
-        .store_token(target_user_id, &token_hash, reset_by)
+        .store_token(
+            target_user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            reset_by,
+        )
         .await
         .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
 
-    Ok(raw_token)
+    Ok(generated.token)
 }
 
 /// Generate a cryptographically random password reset token and store its hash.
