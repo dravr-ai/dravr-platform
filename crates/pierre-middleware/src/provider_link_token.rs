@@ -53,6 +53,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -364,6 +365,14 @@ pub struct MintRateLimiter<C: CacheProvider> {
     limit: usize,
     window: StdDuration,
     cache: Arc<C>,
+    // Serialises the get→check→set below so parallel mints on the same replica
+    // cannot each read the pre-write window and all slip past the cap. The
+    // limiter is held as a shared `Arc<MintRateLimiter>` in app state, so this
+    // lock is process-wide. Cross-replica atomicity would need a cache-level
+    // atomic primitive (Redis INCR/Lua); `CacheProvider` exposes only get/set,
+    // so this closes the intra-instance race — the realistic vector for a single
+    // caller firing concurrent requests.
+    write_lock: Mutex<()>,
 }
 
 impl<C: CacheProvider> MintRateLimiter<C> {
@@ -374,6 +383,7 @@ impl<C: CacheProvider> MintRateLimiter<C> {
             limit,
             window,
             cache,
+            write_lock: Mutex::new(()),
         }
     }
 
@@ -389,6 +399,10 @@ impl<C: CacheProvider> MintRateLimiter<C> {
         let now = Utc::now().timestamp();
         #[allow(clippy::cast_possible_wrap)]
         let window_secs = self.window.as_secs() as i64;
+
+        // Serialise the read-modify-write so concurrent mints can't all observe
+        // the same pre-write window and collectively exceed the cap.
+        let _guard = self.write_lock.lock().await;
 
         let mut hits: Vec<i64> = self.cache.get(&key).await?.unwrap_or_default();
         hits.retain(|t| (now - t) < window_secs);

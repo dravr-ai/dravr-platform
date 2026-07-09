@@ -170,6 +170,27 @@ fn test_redact_session_id_empty() {
 }
 
 #[test]
+fn test_redact_session_id_multibyte_does_not_panic() {
+    // Regression: a multibyte char straddling the 12th byte used to panic
+    // ("byte index 12 is not a char boundary") because the prefix was byte-
+    // sliced. This is reachable pre-auth via the SSE session_id path segment
+    // (GET /mcp/sse/{session_id} logs it before the auth check), so it must
+    // truncate on a char boundary instead of panicking.
+    // 11 ASCII bytes + 'é' (occupies bytes 11-12) + "bb" => byte index 12 lands
+    // inside 'é'. Reaching this line at all proves the panic is gone.
+    let multibyte = "aaaaaaaaaaaébb";
+    assert!(multibyte.len() > 12 && multibyte.chars().count() > 12);
+    let redacted = redact_session_id(multibyte);
+    let expected: String = multibyte.chars().take(12).collect::<String>() + "...";
+    assert_eq!(redacted, expected);
+    assert!(redacted.ends_with("..."));
+
+    // A short multibyte id (<= 12 chars) is returned verbatim, no panic.
+    let short_multibyte = "café";
+    assert_eq!(redact_session_id(short_multibyte), "café");
+}
+
+#[test]
 fn test_custom_placeholder() {
     let config = RedactionConfig {
         redaction_placeholder: "***".to_owned(),

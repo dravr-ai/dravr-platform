@@ -520,22 +520,6 @@ impl McpAuthMiddleware {
         })
     }
 
-    /// Check if user has access to specific provider
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - JWT token validation fails
-    /// - Token signature is invalid
-    /// - Token is malformed
-    /// - Token claims cannot be deserialized
-    pub fn check_provider_access(&self, token: &str, provider: &str) -> AppResult<bool> {
-        let claims = self
-            .auth_manager
-            .validate_token(token, &self.jwks_manager)?;
-        Ok(claims.providers.contains(&provider.to_owned()))
-    }
-
     /// Get reference to the auth manager for testing purposes
     #[must_use]
     pub const fn auth_manager(&self) -> &AuthManager {
