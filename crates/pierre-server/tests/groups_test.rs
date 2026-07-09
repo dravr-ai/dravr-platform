@@ -732,8 +732,11 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     // Group A owned/administered by user1.
     let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
-    // Group B owned/administered by user2, with its own invite.
-    let (group_b, _code_b) = create_group_with_invite(&router, &auth2, &coach_id).await;
+    // Group B owned/administered by user2. user2 uses its OWN coach — group
+    // creation enforces coach ownership (PostgreSQL rejects a coach the creator
+    // does not own; SQLite was lenient), so reusing user1's coach here 403s.
+    let coach_id_2 = create_test_coach(&router, &auth2).await;
+    let (group_b, _code_b) = create_group_with_invite(&router, &auth2, &coach_id_2).await;
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_b}/invites"))
         .header("authorization", &auth2)
         .send(router.clone())
