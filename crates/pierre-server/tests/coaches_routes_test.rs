@@ -1051,3 +1051,102 @@ async fn test_generate_coach_other_users_conversation() {
     // Should return 404 (not found for security - don't reveal conversation exists)
     assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
 }
+
+/// Regression: version-history reads must be owner/assigned/system-scoped, not
+/// merely tenant-scoped. A different user WITHIN THE SAME TENANT must not be
+/// able to read another user's private coach version history (which leaks the
+/// coach's `system_prompt`/title/tags). The attacker's token is minted with the
+/// VICTIM's `active_tenant_id`, so tenant scoping alone would let it through —
+/// only the ownership check on the coach closes the IDOR.
+#[tokio::test]
+async fn test_version_reads_denied_for_non_owner_same_tenant() {
+    let resources = create_test_server_resources().await.unwrap();
+
+    // Victim (owner) and their tenant.
+    let (owner_id, owner) = create_test_user(&resources.coach.database).await.unwrap();
+    let owner_token = format!("Bearer {}", generate_test_token(&resources, &owner).await);
+    let owner_tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(owner_id)
+        .await
+        .unwrap()
+        .first()
+        .map(|t| t.id.to_string());
+
+    // Attacker: a DIFFERENT user, but carrying the victim's active tenant in
+    // their JWT so the request is same-tenant, different-user.
+    let (_attacker_id, attacker) =
+        create_test_user_with_email(&resources.coach.database, "attacker@example.com")
+            .await
+            .unwrap();
+    let attacker_token = format!(
+        "Bearer {}",
+        resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(&attacker, &resources.auth.jwks_manager, owner_tenant)
+            .unwrap()
+    );
+
+    let router = build_coaches_router::<ServerContext>().with_state(resources);
+
+    // Owner creates a private coach.
+    let create = AxumTestRequest::post("/api/coaches")
+        .header("authorization", &owner_token)
+        .json(&json!({
+            "title": "Private Coach",
+            "system_prompt": "secret system prompt"
+        }))
+        .send(router.clone())
+        .await;
+    assert_eq!(create.status_code(), StatusCode::CREATED);
+    let coach: CoachResponse = create.json();
+
+    // Owner updates it to produce version 1 (snapshot of the original state).
+    let update = AxumTestRequest::put(&format!("/api/coaches/{}", coach.id))
+        .header("authorization", &owner_token)
+        .json(&json!({
+            "title": "Private Coach v2",
+            "system_prompt": "secret system prompt v2"
+        }))
+        .send(router.clone())
+        .await;
+    assert_eq!(update.status_code(), StatusCode::OK);
+
+    // Attacker (same tenant) must NOT list the version history.
+    let attacker_list = AxumTestRequest::get(&format!("/api/coaches/{}/versions", coach.id))
+        .header("authorization", &attacker_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        attacker_list.status_code(),
+        StatusCode::NOT_FOUND,
+        "non-owner (same tenant) must not read version history"
+    );
+
+    // Attacker must NOT read a specific version snapshot either.
+    let attacker_ver = AxumTestRequest::get(&format!("/api/coaches/{}/versions/1", coach.id))
+        .header("authorization", &attacker_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        attacker_ver.status_code(),
+        StatusCode::NOT_FOUND,
+        "non-owner (same tenant) must not read a version snapshot"
+    );
+
+    // Positive control: the legitimate owner CAN read both, on the same URLs.
+    let owner_list = AxumTestRequest::get(&format!("/api/coaches/{}/versions", coach.id))
+        .header("authorization", &owner_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(owner_list.status_code(), StatusCode::OK);
+
+    let owner_ver = AxumTestRequest::get(&format!("/api/coaches/{}/versions/1", coach.id))
+        .header("authorization", &owner_token)
+        .send(router)
+        .await;
+    assert_eq!(owner_ver.status_code(), StatusCode::OK);
+}

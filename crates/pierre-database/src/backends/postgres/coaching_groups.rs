@@ -590,15 +590,19 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn deactivate_invite(&self, invite_id: &str) -> AppResult<bool> {
+    async fn deactivate_invite(&self, group_id: &str, invite_id: &str) -> AppResult<bool> {
         let invite_uuid = parse_uuid(invite_id)?;
+        let group_uuid = parse_uuid(group_id)?;
 
-        // Invite IDs are globally unique — no tenant filter needed
-        let result = sqlx::query(r"UPDATE group_invites SET is_active = false WHERE id = $1")
-            .bind(invite_uuid)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to deactivate invite: {e}")))?;
+        // Scope by group_id so an admin cannot deactivate another group's invite
+        let result = sqlx::query(
+            r"UPDATE group_invites SET is_active = false WHERE id = $1 AND group_id = $2",
+        )
+        .bind(invite_uuid)
+        .bind(group_uuid)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to deactivate invite: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }

@@ -719,6 +719,50 @@ async fn test_deactivate_invite() {
 }
 
 #[tokio::test]
+async fn test_admin_cannot_deactivate_other_groups_invite() {
+    // Regression (Phase 4 authz / CWE-639 IDOR): handle_deactivate_invite proves
+    // the caller administers the `group_id` in the path via require_admin, but the
+    // repo UPDATE only filtered on invite id — so an admin of group A could pass
+    // their own group_id (passing require_admin) while targeting an invite that
+    // belongs to group B, deactivating another group's invite. The repo now scopes
+    // the update by group_id; a cross-group target must 404 (not found), and the
+    // legitimate owner of the invite's group must still be able to deactivate it.
+    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+
+    // Group A owned/administered by user1.
+    let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &coach_id).await;
+
+    // Group B owned/administered by user2, with its own invite.
+    let (group_b, _code_b) = create_group_with_invite(&router, &auth2, &coach_id).await;
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_b}/invites"))
+        .header("authorization", &auth2)
+        .send(router.clone())
+        .await;
+    let body: Value = resp.json();
+    let invite_b_id = body["invites"][0]["id"].as_str().unwrap().to_owned();
+
+    // Attack: admin of group A targets group B's invite via group A's path.
+    // require_admin(group_a) passes, but the invite belongs to group_b → 404.
+    let resp = AxumTestRequest::delete(&format!("/api/groups/{group_a}/invites/{invite_b_id}"))
+        .header("authorization", &auth1)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::NOT_FOUND,
+        "an admin must not deactivate an invite belonging to a different group"
+    );
+
+    // The invite must still be usable — the cross-group deactivation must have
+    // been a no-op, so group B's legitimate admin can still deactivate it.
+    let resp = AxumTestRequest::delete(&format!("/api/groups/{group_b}/invites/{invite_b_id}"))
+        .header("authorization", &auth2)
+        .send(router)
+        .await;
+    assert_success(&resp, "owning group's admin deactivates its own invite");
+}
+
+#[tokio::test]
 async fn test_join_with_invalid_code_fails() {
     let (router, auth, ..) = setup_single_user().await;
 

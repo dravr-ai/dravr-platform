@@ -1009,10 +1009,14 @@ impl GroupRoutes {
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
+        // Scope the deactivation to the group in the path: require_admin only
+        // proves the caller administers `group_id`, so the repo update must also
+        // filter by `group_id` to stop a group admin deactivating another
+        // group's invite (IDOR).
         let deactivated = resources
             .repos()
             .groups
-            .deactivate_invite(&invite_id)
+            .deactivate_invite(&group_id, &invite_id)
             .await?;
 
         if !deactivated {

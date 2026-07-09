@@ -1358,3 +1358,94 @@ async fn test_version_deleted_with_coach() {
     // Should fail because coach no longer exists
     assert!(result.is_err());
 }
+
+// ============================================================================
+// Authorization Regression Tests (version-revert IDOR)
+// ============================================================================
+
+/// A non-owner (a different user within the SAME tenant) must NOT be able to
+/// revert another user's private coach. The revert UPDATE is owner-gated
+/// (`WHERE id AND user_id AND tenant_id`, mirroring `update()`), so a non-owner
+/// matches zero rows and gets a not-found error, leaving the coach unchanged.
+#[tokio::test]
+async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    // Owner creates a private coach.
+    let request = CreateCoachRequest {
+        title: "Original Title".to_owned(),
+        description: Some("Original description".to_owned()),
+        system_prompt: "Original prompt".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec!["original".to_owned()],
+        sample_prompts: vec!["Original sample".to_owned()],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+    };
+    let coach = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    // Owner updates it, snapshotting the original state as version 1.
+    let update = UpdateCoachRequest {
+        title: Some("Updated Title".to_owned()),
+        description: Some("Updated description".to_owned()),
+        system_prompt: Some("Updated prompt".to_owned()),
+        category: Some(CoachCategory::Nutrition),
+        tags: Some(vec!["updated".to_owned()]),
+        sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+    };
+    manager
+        .update(
+            &coach.id.to_string(),
+            test_user_id(),
+            test_tenant(),
+            &update,
+        )
+        .await
+        .unwrap();
+
+    // A DIFFERENT user in the SAME tenant attempts to revert — must be denied.
+    let attacker_revert = manager
+        .revert_to_version(&coach.id.to_string(), 1, other_user_id(), test_tenant())
+        .await;
+    assert!(
+        attacker_revert.is_err(),
+        "non-owner revert must be denied, got: {attacker_revert:?}"
+    );
+
+    // The coach content must be UNCHANGED (still the owner's updated state).
+    let after = manager
+        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.title, "Updated Title", "coach must not be reverted");
+    assert_eq!(after.system_prompt, "Updated prompt");
+    assert_eq!(after.category, CoachCategory::Nutrition);
+
+    // The legitimate owner can still revert (positive control).
+    let reverted = manager
+        .revert_to_version(&coach.id.to_string(), 1, test_user_id(), test_tenant())
+        .await
+        .unwrap();
+    assert_eq!(reverted.title, "Original Title");
+    assert_eq!(reverted.system_prompt, "Original prompt");
+    assert_eq!(reverted.category, CoachCategory::Training);
+}

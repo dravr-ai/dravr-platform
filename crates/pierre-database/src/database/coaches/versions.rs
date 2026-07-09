@@ -287,13 +287,17 @@ impl CoachesManager {
         let sample_prompts_json = serde_json::to_string(&sample_prompts)?;
         let token_count = estimate_prompt_tokens(system_prompt);
 
-        // Update the coach with the reverted content
+        // Update the coach with the reverted content.
+        // Owner-gated write: mirror `update()`'s `WHERE id AND user_id AND
+        // tenant_id` predicate so only the coach owner can revert. A
+        // non-owner (even within the same tenant) matches zero rows and is
+        // denied below, closing the version-revert IDOR.
         let result = sqlx::query(
             r"
             UPDATE coaches SET
                 title = $1, description = $2, system_prompt = $3,
                 category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
-            WHERE id = $9 AND tenant_id = $10
+            WHERE id = $9 AND user_id = $10 AND tenant_id = $11
             ",
         )
         .bind(title)
@@ -305,6 +309,7 @@ impl CoachesManager {
         .bind(i64::from(token_count))
         .bind(now.to_rfc3339())
         .bind(coach_id)
+        .bind(user_id.to_string())
         .bind(tenant_id)
         .execute(&self.pool)
         .await

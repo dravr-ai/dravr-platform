@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
-use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+use pierre_database::backends::{MessagingRepository, TenantRepository, UpsertChannelConfigParams};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
@@ -55,6 +55,52 @@ async fn resolve_tenant_id(
     resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
     require(resolve_tenant(resources, auth, TenantMode::Required).await?)
+}
+
+/// Gate tenant messaging-credential access to the tenant owner or an admin.
+///
+/// Channel configs hold per-tenant secrets (bot tokens, API secrets, webhook /
+/// verify tokens). Reading, writing, or deleting them is an operator action, so
+/// a plain tenant member must be denied. Mirrors the tenant-scoped owner/admin
+/// gate on LLM credential writes (`routes-admin/llm_settings.rs`) and the
+/// `require_admin` gate on fitness tenant-config save/delete
+/// (`config/routes/fitness.rs`).
+///
+/// In single-tenant mode the tenant id equals the user id, so ownership is
+/// implicit and no role lookup is needed.
+///
+/// # Errors
+///
+/// Returns `AppError` when the tenant-role lookup fails, or `PermissionDenied`
+/// when the user is neither the tenant owner nor an admin.
+async fn require_tenant_owner_or_admin(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    resources: &Arc<ServerContext>,
+) -> Result<(), AppError> {
+    // Single-tenant mode: tenant_id == user_id, the user is the implicit owner.
+    if tenant_id.as_uuid() == user_id {
+        return Ok(());
+    }
+
+    let tenants: &dyn TenantRepository = resources.common.repos.tenants.as_ref();
+    let role = tenants
+        .get_user_role(user_id, tenant_id)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to check tenant role: {e}")))?;
+
+    let is_owner_or_admin = role
+        .as_deref()
+        .is_some_and(|r| r == "owner" || r == "admin");
+
+    if !is_owner_or_admin {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Only tenant owners or administrators can manage messaging channel configuration",
+        ));
+    }
+
+    Ok(())
 }
 
 /// List all channel configurations for the authenticated tenant
@@ -166,6 +212,7 @@ pub async fn get_channel_config(
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    require_tenant_owner_or_admin(auth.user_id, tenant_id, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
@@ -192,6 +239,7 @@ pub async fn upsert_channel_config(
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    require_tenant_owner_or_admin(auth.user_id, tenant_id, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
@@ -280,6 +328,7 @@ pub async fn delete_channel_config(
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    require_tenant_owner_or_admin(auth.user_id, tenant_id, &resources).await?;
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
