@@ -7,8 +7,9 @@
 //! Live driver for the conversation eval framework.
 //!
 //! Implements [`ScenarioDriver`] against a real `OpenAI`-compatible LLM
-//! endpoint (the chat-eval workflow pins the model via `PIERRE_LLM_MODEL`
-//! and the API key via the `COHERE_API_KEY` secret). The driver owns:
+//! endpoint — a local Ollama server (the chat-eval workflow provisions it
+//! and pins the model via `PIERRE_LLM_MODEL`; no API key, no rate limit).
+//! The driver owns:
 //!
 //! - a coach-style system prompt that wires the fitness-assistant
 //!   persona + locale + the function-calling contract;
@@ -37,7 +38,7 @@ use pierre_core::errors::AppError;
 use pierre_llm::prompts::PIERRE_SYSTEM_PROMPT;
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
-    LlmCapabilities, LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
+    LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -51,12 +52,6 @@ use tokio::time::timeout as tokio_timeout;
 use super::format::ScenarioActivity;
 use super::runner::{DriverTurnOutput, ScenarioDriver};
 
-/// `OpenAI`-compatible endpoint Cohere exposes for chat completions.
-/// `OpenAiCompatibleProvider` appends the `chat/completions` path on top
-/// of `base_url`, so the constant stops at `/compatibility/v1` — the base
-/// Cohere's compatibility layer expects.
-const COHERE_OPENAI_BASE_URL: &str = "https://api.cohere.ai/compatibility/v1";
-
 /// Hard ceiling on tool-call iterations per turn. Bounded to keep a
 /// runaway model from racking up cost; scenarios that need more rounds
 /// almost certainly indicate a pipeline regression (a tool returning
@@ -65,21 +60,36 @@ const MAX_TOOL_ITERATIONS_PER_TURN: usize = 6;
 
 /// Max retries for a single LLM dispatch.
 ///
-/// The eval runs on Cohere's paid Command tier (10k rpm), so rate-limit
-/// 429s are not expected; retry-with-backoff still absorbs the occasional
-/// transient 5xx so the test fails only on real regressions, not on a
-/// one-off network blip. Bounded low (with [`DISPATCH_TIMEOUT_SECS`]) so a
-/// degraded upstream surfaces as a fast, logged failure instead of a silent
-/// retry-storm that exhausts the CI job's wall-clock budget.
-const MAX_DISPATCH_RETRIES: usize = 3;
+/// The eval runs against a local Ollama model (no metered endpoint, so no
+/// rate-limit 429s); retry-with-backoff still absorbs an occasional local
+/// hiccup (the model reloaded after `OLLAMA_KEEP_ALIVE` lapsed, a transient
+/// connection reset) so the test fails only on real regressions. Bounded
+/// low because every retry is a full, minutes-long CPU inference — a high
+/// ceiling would blow the shard's wall-clock budget on a genuinely broken
+/// call instead of surfacing it fast.
+const MAX_DISPATCH_RETRIES: usize = 2;
 
-/// Per-attempt wall-clock ceiling on a single LLM dispatch. A healthy
-/// command-a completion (even with a tool round) returns well under this;
-/// a hung or pathologically slow upstream call is aborted and retried
-/// rather than blocking the run until the CI job's hard kill (which yields
-/// zero diagnostics). Generous enough not to false-fail a slow-but-healthy
-/// call, tight enough to fail fast on a stall.
-const DISPATCH_TIMEOUT_SECS: u64 = 90;
+/// Per-attempt wall-clock ceiling on a single LLM dispatch, derived from
+/// `LLM_REQUEST_TIMEOUT_SECS` (the shared LLM reqwest client's own request
+/// timeout, default 300s) plus a margin, so the outer tokio guard never
+/// fires *before* the inner HTTP client surfaces its own, more specific
+/// error. CPU inference of Pierre's ~26K-token system prompt on a local
+/// Ollama model runs into the minutes, so the chat-eval workflow raises
+/// `LLM_REQUEST_TIMEOUT_SECS` to 900 — the old fixed 90s ceiling (sized for
+/// Cohere's cloud GPUs) would have aborted every healthy call. A genuinely
+/// hung call still aborts one margin past the HTTP deadline rather than
+/// blocking until the CI job's hard kill (which yields zero diagnostics).
+fn dispatch_timeout_secs() -> u64 {
+    /// Headroom over the HTTP client's own request timeout.
+    const OUTER_MARGIN_SECS: u64 = 30;
+    /// Mirror of `DEFAULT_LLM_REQUEST_TIMEOUT_SECS` in `pierre_core::http_client`.
+    const DEFAULT_LLM_REQUEST_TIMEOUT_SECS: u64 = 300;
+    let request_secs = env::var("LLM_REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LLM_REQUEST_TIMEOUT_SECS);
+    request_secs.saturating_add(OUTER_MARGIN_SECS)
+}
 
 /// Base backoff for retry. Doubles on each attempt (2s → 4s, capped at
 /// [`MAX_DISPATCH_RETRIES`]). Exponential backoff gives a transient
@@ -120,46 +130,42 @@ pub struct LiveScenarioDriver {
 }
 
 impl LiveScenarioDriver {
-    /// Build a driver from process env. Both `COHERE_API_KEY` and
-    /// `PIERRE_LLM_MODEL` must be set — there is no compiled-in default
-    /// because the model is environment-specific (the chat-eval
-    /// workflow pins it; Cloud Run pins it via `infra/environments/`;
-    /// developers running locally use whichever model their `.envrc`
-    /// exports). A silent fallback drifts the moment one of those
-    /// sources rotates, which is exactly the regression class this
-    /// driver is meant to catch. The key must be the paid Cohere tier so
-    /// the nightly burst (~30-50 calls) never hits a rate limit.
+    /// Build a driver from process env. `PIERRE_LLM_MODEL` must be set —
+    /// there is no compiled-in default because the model is
+    /// environment-specific (the chat-eval workflow pins it; developers
+    /// running locally use whichever Ollama model they've pulled). A silent
+    /// fallback drifts the moment one of those sources rotates, which is
+    /// exactly the regression class this driver is meant to catch.
+    ///
+    /// The provider is Ollama — a local, `OpenAI`-compatible endpoint
+    /// (default `http://localhost:11434/v1`, overridable via
+    /// `LOCAL_LLM_BASE_URL`). No API key, no rate limit, no per-call cost,
+    /// so the nightly burst never hits the 429 wall a metered cloud tier
+    /// imposes; the eval grades a fixed local model deterministically
+    /// instead of a rate-limited hosted one.
     ///
     /// # Errors
     ///
-    /// Returns a human-readable string when either env var is unset or
+    /// Returns a human-readable string when `PIERRE_LLM_MODEL` is unset or
     /// empty, or when the underlying provider fails to initialize.
     pub fn from_env() -> Result<Self, String> {
-        let api_key = env::var("COHERE_API_KEY")
-            .map_err(|_| "COHERE_API_KEY must be set for LiveScenarioDriver".to_owned())?;
-        if api_key.trim().is_empty() {
-            return Err("COHERE_API_KEY is set but empty".to_owned());
-        }
         let model = env::var("PIERRE_LLM_MODEL")
             .map_err(|_| "PIERRE_LLM_MODEL must be set for LiveScenarioDriver".to_owned())?;
         if model.trim().is_empty() {
             return Err("PIERRE_LLM_MODEL is set but empty".to_owned());
         }
 
-        let config = OpenAiCompatibleConfig {
-            base_url: COHERE_OPENAI_BASE_URL.to_owned(),
-            api_key: Some(api_key),
-            default_model: model.clone(),
-            fallback_model: model,
-            provider_name: "cohere".to_owned(),
-            display_name: "Cohere (live eval)".to_owned(),
-            capabilities: LlmCapabilities::STREAMING
-                | LlmCapabilities::FUNCTION_CALLING
-                | LlmCapabilities::SYSTEM_MESSAGES
-                | LlmCapabilities::JSON_MODE,
-        };
+        let mut config = OpenAiCompatibleConfig::ollama(&model);
+        // Point at a non-default Ollama / OpenAI-compatible endpoint (remote
+        // host, non-standard port) without recompiling; empty is ignored so
+        // an exported-but-blank var falls back to the localhost default.
+        if let Ok(base_url) = env::var("LOCAL_LLM_BASE_URL") {
+            if !base_url.trim().is_empty() {
+                config.base_url = base_url;
+            }
+        }
         let provider = OpenAiCompatibleProvider::new(config)
-            .map_err(|e| format!("Failed to initialize Cohere provider: {e}"))?;
+            .map_err(|e| format!("Failed to initialize Ollama provider: {e}"))?;
 
         let (tools, tool_names) = build_tool_catalog();
 
@@ -209,8 +215,8 @@ impl LiveScenarioDriver {
             };
             let prefetch_result = self.tool_get_activities(&synthesized.args);
             tools_called.push(synthesized.name);
-            // Directive injection: command-a otherwise sometimes treats the
-            // fetched data as optional and falls back to "general principles,
+            // Directive injection: models otherwise sometimes treat the
+            // fetched data as optional and fall back to "general principles,
             // not specific data" — leaving the asserted figure out. Tell it
             // plainly that this IS its data and the concrete numbers
             // (distances, per-sport totals) must appear in the reply.
@@ -285,19 +291,20 @@ impl LiveScenarioDriver {
     /// the chat-eval test is nightly + dispatch-only, so the cost of one
     /// extra retry on a non-retryable error is dwarfed by the alternative
     /// of flaking the entire run on a single rate-limit blip. The
-    /// [`DISPATCH_TIMEOUT_SECS`] guard turns a hung upstream call into a
+    /// [`dispatch_timeout_secs`] guard turns a hung upstream call into a
     /// fast, logged failure instead of blocking until the CI job's hard
     /// kill — which produces no diagnostics about which call stalled.
     async fn dispatch_with_retry(
         &self,
         request: &ChatRequest,
     ) -> Result<ChatResponseWithTools, AppError> {
+        let timeout_secs = dispatch_timeout_secs();
         let mut last_err: Option<AppError> = None;
         for attempt in 0..MAX_DISPATCH_RETRIES {
             let dispatch = self
                 .provider
                 .complete_with_tools(request, Some(self.tools.clone()));
-            match tokio_timeout(Duration::from_secs(DISPATCH_TIMEOUT_SECS), dispatch).await {
+            match tokio_timeout(Duration::from_secs(timeout_secs), dispatch).await {
                 Ok(Ok(r)) => return Ok(r),
                 Ok(Err(e)) => {
                     eprintln!("live-driver dispatch attempt {attempt} failed: {e} — backing off");
@@ -306,11 +313,11 @@ impl LiveScenarioDriver {
                 Err(_elapsed) => {
                     eprintln!(
                         "live-driver dispatch attempt {attempt} timed out after \
-                         {DISPATCH_TIMEOUT_SECS}s — backing off"
+                         {timeout_secs}s — backing off"
                     );
                     last_err = Some(AppError::external_service(
-                        "cohere",
-                        format!("LLM dispatch timed out after {DISPATCH_TIMEOUT_SECS}s"),
+                        "ollama",
+                        format!("LLM dispatch timed out after {timeout_secs}s"),
                     ));
                 }
             }
@@ -766,17 +773,17 @@ mod tests {
     }
 
     #[test]
-    fn from_env_errors_when_cohere_key_unset() {
+    fn from_env_errors_when_model_unset() {
         // SAFETY: integration test, env is set + cleared synchronously.
-        let prior = env::var("COHERE_API_KEY").ok();
-        env::remove_var("COHERE_API_KEY");
+        let prior = env::var("PIERRE_LLM_MODEL").ok();
+        env::remove_var("PIERRE_LLM_MODEL");
         let result = LiveScenarioDriver::from_env();
         if let Some(value) = prior {
-            env::set_var("COHERE_API_KEY", value);
+            env::set_var("PIERRE_LLM_MODEL", value);
         }
         assert!(
             result.is_err(),
-            "expected from_env to refuse when COHERE_API_KEY is unset"
+            "expected from_env to refuse when PIERRE_LLM_MODEL is unset"
         );
     }
 }

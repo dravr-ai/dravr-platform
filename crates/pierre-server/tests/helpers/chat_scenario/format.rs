@@ -47,6 +47,29 @@ pub struct ChatScenario {
     pub provider_state: ProviderState,
     /// Ordered list of user turns.
     pub turns: Vec<TurnSpec>,
+    /// Opt out of the cross-turn numeric-drift asserter for this scenario.
+    /// Default `false` (drift is enforced). Set `true` only when the coach
+    /// legitimately names individual activity legs across turns (e.g. a
+    /// "yesterday's activities" turn listing the 8 km road leg after an
+    /// earlier turn stated the 33 km run total): a leg figure is not a
+    /// recompute of the same aggregate, so the drift asserter's cross-turn
+    /// delta would be a false positive. The per-turn assertions still pin
+    /// the real recompute (e.g. `distance_mentioned` on the total).
+    #[serde(default)]
+    pub skip_drift: bool,
+    /// Whether this scenario gates the nightly live-LLM run. Default `true`.
+    /// Set `false` to carve a scenario out to the on-demand lane: the live
+    /// runner skips it unless `CHAT_SCENARIO_INCLUDE_ONDEMAND` is set, so the
+    /// nightly stays green while the scenario keeps its STRICT assertions for
+    /// deliberate on-demand runs (or a stronger model). Use only when the
+    /// configured grader model genuinely cannot clear an honest assertion —
+    /// not to paper over a real regression.
+    #[serde(default = "default_true")]
+    pub nightly_gate: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_locales() -> Vec<String> {

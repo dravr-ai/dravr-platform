@@ -172,7 +172,11 @@ fn run_one_locale<D: ScenarioDriver>(
         }
     }
 
-    let drift_findings = timeline.detect_drift(0.5);
+    let drift_findings = if scenario.skip_drift {
+        Vec::new()
+    } else {
+        timeline.detect_drift(0.5)
+    };
 
     ScenarioReport {
         scenario_name: scenario.name.clone(),
@@ -443,6 +447,8 @@ mod tests {
             locales: vec!["en".to_owned()],
             notes: String::new(),
             provider_state: ProviderState::default(),
+            skip_drift: false,
+            nightly_gate: true,
             turns: vec![TurnSpec {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
@@ -486,6 +492,8 @@ mod tests {
             locales: vec!["en".to_owned(), "fr".to_owned()],
             notes: String::new(),
             provider_state: ProviderState::default(),
+            skip_drift: false,
+            nightly_gate: true,
             turns: vec![TurnSpec {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
@@ -513,6 +521,8 @@ mod tests {
             locales: vec!["en".to_owned()],
             notes: String::new(),
             provider_state: ProviderState::default(),
+            skip_drift: false,
+            nightly_gate: true,
             turns: vec![
                 TurnSpec {
                     user: "stats?".to_owned(),
@@ -546,6 +556,8 @@ mod tests {
             locales: vec!["fr".to_owned()],
             notes: String::new(),
             provider_state: ProviderState::default(),
+            skip_drift: false,
+            nightly_gate: true,
             turns: vec![
                 TurnSpec {
                     user: "q1".to_owned(),
