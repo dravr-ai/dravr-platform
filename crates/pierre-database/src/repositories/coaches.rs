@@ -374,8 +374,11 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Increment the use count of an invite
     async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool>;
 
-    /// Deactivate an invite. Invite IDs are globally unique — no tenant filter needed.
-    async fn deactivate_invite(&self, invite_id: &str) -> AppResult<bool>;
+    /// Deactivate an invite, scoped to its owning group.
+    /// The `group_id` filter prevents a group admin from deactivating an invite
+    /// that belongs to a different group (IDOR); returns `false` (not found) when
+    /// the invite does not exist or belongs to another group.
+    async fn deactivate_invite(&self, group_id: &str, invite_id: &str) -> AppResult<bool>;
 
     /// List invites for a group.
     /// No tenant filter — cross-tenant admins view invites by `group_id`.

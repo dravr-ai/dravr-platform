@@ -36,6 +36,19 @@ pub(super) async fn handle_list_versions<C: CoachesCtx + MiddlewareCtx>(
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&ctx);
+    // Authorization: reading version history exposes the coach's private content
+    // (title, system_prompt, tags). Mirror the coach-detail access rule — the
+    // caller may read versions only if they can access the coach itself
+    // (owner, assigned, or system). get_by_id enforces exactly that predicate;
+    // deny (404) when it returns nothing so a non-owner cannot enumerate another
+    // user's private coach via the version endpoints.
+    if manager
+        .get_by_id(&id, auth.user_id, tenant_id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::not_found(format!("Coach {id}")));
+    }
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let versions = manager.get_versions(&id, tenant_id, limit).await?;
     let current_version = manager.get_current_version(&id).await?;
@@ -69,6 +82,15 @@ pub(super) async fn handle_get_version<C: CoachesCtx + MiddlewareCtx>(
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&ctx);
+    // Authorization: mirror the coach-detail access rule (owner, assigned, or
+    // system) before exposing a version snapshot's private content.
+    if manager
+        .get_by_id(&id, auth.user_id, tenant_id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::not_found(format!("Coach {id}")));
+    }
     let version_data = manager
         .get_version(&id, version, tenant_id)
         .await?
@@ -117,6 +139,16 @@ pub(super) async fn handle_diff_versions<C: CoachesCtx + MiddlewareCtx>(
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&ctx);
+
+    // Authorization: mirror the coach-detail access rule (owner, assigned, or
+    // system) before exposing version snapshot content through the diff.
+    if manager
+        .get_by_id(&id, auth.user_id, tenant_id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::not_found(format!("Coach {id}")));
+    }
 
     let version1 = manager
         .get_version(&id, v1, tenant_id)

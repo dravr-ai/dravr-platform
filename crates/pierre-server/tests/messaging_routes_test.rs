@@ -22,7 +22,8 @@ mod helpers;
 #[cfg(feature = "client-messaging")]
 mod messaging_routes_tests {
     use crate::common::{
-        create_test_server_resources, create_test_tenant, create_test_user, generate_test_token,
+        create_test_server_resources, create_test_tenant, create_test_user,
+        create_test_user_with_plan, generate_test_token,
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
@@ -347,6 +348,164 @@ mod messaging_routes_tests {
         assert!(
             body["config"].is_null(),
             "Tenant B must not see Tenant A's Slack config"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Channel-config role gate (owner/admin only) — regression for the
+    // messaging channel-config IDOR: a plain tenant member could read,
+    // overwrite, or delete tenant messaging CREDENTIALS (bot_token,
+    // api_secret, webhook_secret, verify_token, api_key). The get/put/delete
+    // handlers now require the tenant owner or an admin, mirroring the LLM
+    // credential (routes-admin/llm_settings.rs) and fitness tenant-config
+    // (config/routes/fitness.rs) gates.
+    // ════════════════════════════════════════════════════════════════
+
+    /// Build a router plus tokens for the OWNER and a plain MEMBER of the SAME
+    /// tenant. The member holds a valid session scoped to the shared tenant, so
+    /// authentication and tenant resolution pass — the role gate is the only
+    /// thing that stands between them and the credentials.
+    async fn setup_owner_and_member_router() -> (axum::Router, String, String) {
+        let resources = create_test_server_resources().await.unwrap();
+        let db = &resources.coach.database;
+
+        // Owner of the shared tenant (inserted into tenant_users as role `owner`).
+        let (_owner_id, owner_user, shared_tenant) =
+            create_test_user_with_plan(db, "chancfg-owner@example.com", "starter")
+                .await
+                .unwrap();
+
+        // A second user made a plain `member` of the shared tenant:
+        // update_tenant_id upserts a tenant_users row with role `member`.
+        let (member_id, member_user, _member_own_tenant) =
+            create_test_user_with_plan(db, "chancfg-member@example.com", "starter")
+                .await
+                .unwrap();
+        db.repositories()
+            .users
+            .update_tenant_id(member_id, shared_tenant)
+            .await
+            .unwrap();
+
+        let owner_token = resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &owner_user,
+                &resources.auth.jwks_manager,
+                Some(shared_tenant.to_string()),
+            )
+            .unwrap();
+        let member_token = resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &member_user,
+                &resources.auth.jwks_manager,
+                Some(shared_tenant.to_string()),
+            )
+            .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        (
+            router,
+            format!("Bearer {owner_token}"),
+            format!("Bearer {member_token}"),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_get_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not read channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_put_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "member-must-not-set-this" }
+            }))
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not overwrite channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_delete_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::delete("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not delete channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_owner_allowed_channel_config_crud() {
+        let (router, owner, _member) = setup_owner_and_member_router().await;
+
+        // PUT (create) — owner is allowed.
+        let response = AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "owner-slack-key" }
+            }))
+            .send(router.clone())
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "the tenant owner must be allowed to write channel credentials"
+        );
+
+        // GET — owner reads it back.
+        let response = AxumTestRequest::get("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .send(router.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_object(),
+            "owner should read back the config object"
+        );
+
+        // DELETE — owner removes it.
+        let response = AxumTestRequest::delete("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .send(router)
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "the tenant owner must be allowed to delete channel credentials"
         );
     }
 
