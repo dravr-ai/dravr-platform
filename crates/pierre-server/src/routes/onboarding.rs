@@ -85,6 +85,16 @@ const ONBOARDING_STATUSES: [&str; 2] = ["complete", "skipped"];
 /// Max length for a `chosen_channel` value (channel names are short slugs).
 const MAX_CHOSEN_CHANNEL_LEN: usize = 32;
 
+/// A `chosen_channel` value must look like a channel slug: non-empty, lowercase
+/// ASCII alphanumerics and underscores only. Anything else (markup, whitespace,
+/// mixed case) is rejected so the stored value stays inert — defense in depth,
+/// since it is only ever echoed back to its own authenticated owner.
+fn is_channel_slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// Best-effort (covered, complete) pillar coverage from the user's dossier.
 /// Returns `(0, false)` when there is no active tenant or the dossier cannot be
 /// composed — onboarding-status must never fail the routing gate.
@@ -297,12 +307,17 @@ pub async fn handle_step_put(
     }
     let chosen_channel = match req.chosen_channel.as_deref() {
         None | Some("") => None,
-        Some(c) if c.len() <= MAX_CHOSEN_CHANNEL_LEN => Some(c),
-        Some(_) => {
+        Some(c) if c.len() > MAX_CHOSEN_CHANNEL_LEN => {
             return Err(AppError::invalid_input(
                 "chosen_channel exceeds the maximum length",
             ));
         }
+        Some(c) if !is_channel_slug(c) => {
+            return Err(AppError::invalid_input(
+                "chosen_channel must be a lowercase channel slug (a-z, 0-9, underscore)",
+            ));
+        }
+        Some(c) => Some(c),
     };
     let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
     resources
