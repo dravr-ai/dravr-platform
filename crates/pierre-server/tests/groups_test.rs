@@ -10,10 +10,7 @@
 mod common;
 mod helpers;
 
-use common::{
-    create_test_server_resources, create_test_user_with_email, create_test_user_with_plan,
-    generate_test_token,
-};
+use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
@@ -72,15 +69,35 @@ async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, Strin
 }
 
 async fn setup_two_users() -> (axum::Router, String, String, String, String, String) {
+    let (router, a1, a2, u1, u2, cid, _a2_own) = setup_two_users_with_res().await;
+    (router, a1, a2, u1, u2, cid)
+}
+
+/// Like [`setup_two_users`] but also returns a token for user2 that targets
+/// user2's OWN tenant (last tuple element).
+///
+/// The shared-tenant `a2` token deliberately claims user1's tenant so both users
+/// act inside one org, but user2 is never added to that tenant's `tenant_users`
+/// — so `get_user_role(user2, shared_tenant)` is `None` and, under the default
+/// `group_creation_policy = admins_only`, user2 cannot create a group there.
+/// A test where user2 must *own* a group therefore creates it with `a2_own`, in
+/// user2's own tenant where user2 is the owner (owner bypasses the policy). The
+/// group-scoped invite endpoints exercised afterwards carry no tenant filter, so
+/// the group-level IDOR assertion holds regardless of which tenant owns group B.
+async fn setup_two_users_with_res() -> (axum::Router, String, String, String, String, String, String)
+{
     let res = create_test_server_resources().await.unwrap();
     // Owner on Professional: the shared tenant must allow group coaching.
     let (u1id, u1, _t1) =
         create_test_user_with_plan(&res.coach.database, "groupowner@test.com", "professional")
             .await
             .unwrap();
-    let (u2id, u2) = create_test_user_with_email(&res.coach.database, "groupmember@test.com")
-        .await
-        .unwrap();
+    // Professional so user2's OWN tenant also enables group coaching (a starter
+    // tenant would fail the tier gate on group creation, not the permission gate).
+    let (u2id, u2, u2_own_tid) =
+        create_test_user_with_plan(&res.coach.database, "groupmember@test.com", "professional")
+            .await
+            .unwrap();
 
     // Generate tokens. User1 uses their own tenant (owner).
     // User2 needs a token with user1's tenant so both are in the same org.
@@ -97,12 +114,32 @@ async fn setup_two_users() -> (axum::Router, String, String, String, String, Str
             .generate_token_with_tenant(&u2, &res.auth.jwks_manager, Some(shared_tid.to_string()))
             .unwrap()
     );
+
+    // user2's OWN-tenant token: user2 is the owner of this tenant, so it may
+    // create groups there deterministically on both backends (owner short-circuits
+    // check_create_group_permission before the admins_only policy is consulted).
+    let a2_own = format!(
+        "Bearer {}",
+        res.auth
+            .auth_manager
+            .generate_token_with_tenant(&u2, &res.auth.jwks_manager, Some(u2_own_tid.to_string()))
+            .unwrap()
+    );
+
     let router = build_coaches_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
     let cid = create_test_coach(&router, &a1).await;
-    (router, a1, a2, u1id.to_string(), u2id.to_string(), cid)
+    (
+        router,
+        a1,
+        a2,
+        u1id.to_string(),
+        u2id.to_string(),
+        cid,
+        a2_own,
+    )
 }
 
 /// Create a group and return (`group_id`, `invite_code`)
@@ -727,18 +764,20 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     // belongs to group B, deactivating another group's invite. The repo now scopes
     // the update by group_id; a cross-group target must 404 (not found), and the
     // legitimate owner of the invite's group must still be able to deactivate it.
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, _auth2, _u1, _u2, coach_id, auth2_own) = setup_two_users_with_res().await;
 
-    // Group A owned/administered by user1.
+    // Group A owned/administered by user1 (in the shared tenant).
     let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
-    // Group B owned/administered by user2. user2 uses its OWN coach — group
-    // creation enforces coach ownership (PostgreSQL rejects a coach the creator
-    // does not own; SQLite was lenient), so reusing user1's coach here 403s.
-    let coach_id_2 = create_test_coach(&router, &auth2).await;
-    let (group_b, _code_b) = create_group_with_invite(&router, &auth2, &coach_id_2).await;
+    // Group B owned/administered by user2. user2 is not a member of the shared
+    // tenant, so it creates group B in its OWN tenant via `auth2_own` (owner ->
+    // group creation always permitted). The invite endpoints below are group-
+    // scoped with no tenant filter, so the cross-group IDOR check is unaffected
+    // by group B living in a different tenant.
+    let coach_id_2 = create_test_coach(&router, &auth2_own).await;
+    let (group_b, _code_b) = create_group_with_invite(&router, &auth2_own, &coach_id_2).await;
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_b}/invites"))
-        .header("authorization", &auth2)
+        .header("authorization", &auth2_own)
         .send(router.clone())
         .await;
     let body: Value = resp.json();
@@ -759,7 +798,7 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     // The invite must still be usable — the cross-group deactivation must have
     // been a no-op, so group B's legitimate admin can still deactivate it.
     let resp = AxumTestRequest::delete(&format!("/api/groups/{group_b}/invites/{invite_b_id}"))
-        .header("authorization", &auth2)
+        .header("authorization", &auth2_own)
         .send(router)
         .await;
     assert_success(&resp, "owning group's admin deactivates its own invite");
