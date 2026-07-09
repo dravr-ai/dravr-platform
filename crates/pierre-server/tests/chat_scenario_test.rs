@@ -254,7 +254,7 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
 ///
 /// Off by default — set `CHAT_SCENARIO_LIVE=1` (with a local Ollama server
 /// serving `PIERRE_LLM_MODEL`) to opt in. The chat-eval workflow's nightly
-/// + on-demand `live-llm` job provisions Ollama and exports both env vars;
+/// and on-demand `live-llm` job provisions Ollama and exports both env vars;
 /// on developer machines the test self-skips so a casual `cargo test`
 /// doesn't stall for minutes on CPU inference. `CHAT_SCENARIO_SHARD`
 /// (`"<index>/<total>"`) optionally restricts this run to one shard's slice
@@ -290,8 +290,7 @@ fn live_driver_executes_every_scenario() {
     // the scenario keeps its strict assertions for deliberate runs. Empty /
     // unset (the nightly cron case) skips them.
     let include_ondemand = env::var("CHAT_SCENARIO_INCLUDE_ONDEMAND")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
 
     let vocab = VocabularyContractRegistry::with_defaults();
     let mut failures: Vec<String> = Vec::new();
