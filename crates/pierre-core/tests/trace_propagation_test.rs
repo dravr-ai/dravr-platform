@@ -104,9 +104,14 @@ async fn test_traceparent_injected_when_pipeline_active() {
 
     provider.force_flush().expect("flush simple exporter");
     let spans = exporter.get_finished_spans().expect("exported spans");
+    // Match against the trace id's canonical W3C form: `TraceId`'s `Display`
+    // zero-pads to 32 hex, exactly as the injected `traceparent` is formatted.
+    // `{:x}` (LowerHex) instead delegates to `u128` and drops leading zeros, so a
+    // trace id with a zero top nibble (~1/16 of ids) stringifies to 31 chars and
+    // never equals the padded header — the source of this test's historic flake.
     let client_span = spans
         .iter()
-        .find(|s| format!("{:x}", s.span_context.trace_id()) == parts[1])
+        .find(|s| s.span_context.trace_id().to_string() == parts[1])
         .expect("the traceparent trace id must belong to an exported CLIENT span");
     // The otel layer exports under the `otel.name` field ("{method} {host}"),
     // per OTel HTTP client span naming, not the tracing span name.
