@@ -57,7 +57,7 @@ describe('ForgotPasswordScreen', () => {
     it('should render the heading and description', () => {
       const { getByText } = renderComponent();
       expect(getByText('Reset Your Password')).toBeTruthy();
-      expect(getByText(/6-digit code/)).toBeTruthy();
+      expect(getByText(/send you a reset code/)).toBeTruthy();
     });
 
     it('should render the email input', () => {

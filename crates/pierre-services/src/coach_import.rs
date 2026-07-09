@@ -9,9 +9,12 @@ use std::time::Duration;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::coaches::CreateCoachRequest;
+use reqwest::redirect::Policy;
+use tokio::net::lookup_host;
 use url::Url;
 
 use pierre_coach_parser::CoachDefinition;
+use url::Host;
 
 /// Maximum body size for fetched markdown content (1 MB)
 const MAX_BODY_SIZE_BYTES: usize = 1_048_576;
@@ -37,10 +40,17 @@ const TOKEN_COUNT_WARNING_THRESHOLD: u32 = 10_000;
 /// or the HTTP request fails.
 pub async fn fetch_markdown_from_url(url: &str) -> AppResult<String> {
     validate_url_security(url)?;
+    // Literal-host checks (validate_url_security) miss hostnames that RESOLVE to an
+    // internal address, so resolve here and reject any private/loopback result.
+    resolve_and_guard_host(url).await?;
 
     let client = reqwest::Client::builder()
         .timeout(FETCH_TIMEOUT)
         .user_agent(USER_AGENT)
+        // Never follow redirects: a redirect to an internal URL would bypass the
+        // pre-flight host validation (SSRF pivot). A 3xx becomes a non-success status
+        // and is rejected below.
+        .redirect(Policy::none())
         .build()
         .map_err(|e| AppError::internal(format!("Failed to create HTTP client: {e}")))?;
 
@@ -119,47 +129,130 @@ pub fn validate_url_security(url: &str) -> AppResult<()> {
         ));
     }
 
-    // Must have a host
-    let host_str = parsed
-        .host_str()
-        .ok_or_else(|| AppError::new(ErrorCode::InvalidInput, "URL must have a host"))?;
+    // Inspect the PARSED host. `url::Host` hands back already-decoded Ipv4/Ipv6
+    // values, so IPv6 literals are checked directly instead of via `host_str()`
+    // (which returns the bracketed form `[::1]` that would fail `IpAddr::parse`
+    // and silently skip the guard).
+    let private_ip_err = || {
+        AppError::new(
+            ErrorCode::InvalidInput,
+            "Private and loopback IP addresses are not allowed",
+        )
+    };
+    match parsed.host() {
+        None => Err(AppError::new(
+            ErrorCode::InvalidInput,
+            "URL must have a host",
+        )),
+        Some(Host::Ipv4(ip)) if is_private_ip(&IpAddr::V4(ip)) => Err(private_ip_err()),
+        Some(Host::Ipv6(ip)) if is_private_ip(&IpAddr::V6(ip)) => Err(private_ip_err()),
+        Some(Host::Domain(host)) => {
+            let lower_host = host.to_lowercase();
+            if lower_host == "localhost"
+                || lower_host == "ip6-localhost"
+                || lower_host == "ip6-loopback"
+            {
+                return Err(AppError::new(
+                    ErrorCode::InvalidInput,
+                    "Loopback hostnames are not allowed",
+                ));
+            }
+            Ok(())
+        }
+        // Public literal IP (v4 or v6) — allowed.
+        Some(_) => Ok(()),
+    }
+}
 
-    // Check for private/loopback IP addresses
-    if let Ok(ip) = host_str.parse::<IpAddr>() {
-        if is_private_ip(&ip) {
+/// Resolve the URL's host to IP addresses and reject if ANY resolves to a private
+/// or loopback address.
+///
+/// [`validate_url_security`] only inspects literal-IP hosts, so an attacker-controlled
+/// hostname that resolves to an internal address (e.g. cloud metadata at
+/// `169.254.169.254`) would otherwise pass. Literal-IP hosts were already checked, so
+/// they short-circuit here.
+///
+/// Note: this is resolve-then-connect, so a DNS-rebinding record that flips between the
+/// pre-flight lookup and reqwest's own connect-time lookup is a known residual; pinning
+/// the connection to the vetted IP (custom resolver) is the follow-up hardening.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if the host resolves to a private address, or
+/// `ExternalServiceError` if resolution fails or yields no addresses.
+async fn resolve_and_guard_host(url: &str) -> AppResult<()> {
+    let parsed = Url::parse(url)
+        .map_err(|e| AppError::new(ErrorCode::InvalidInput, format!("Invalid URL: {e}")))?;
+
+    // Only domain hosts need resolution; literal IPs were already vetted by
+    // validate_url_security (and short-circuit here).
+    let host = match parsed.host() {
+        Some(Host::Domain(host)) => host.to_owned(),
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => return Ok(()),
+        None => {
             return Err(AppError::new(
                 ErrorCode::InvalidInput,
-                "Private and loopback IP addresses are not allowed",
+                "URL must have a host",
+            ))
+        }
+    };
+
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let mut resolved = lookup_host((host.as_str(), port)).await.map_err(|e| {
+        AppError::new(
+            ErrorCode::ExternalServiceError,
+            format!("Failed to resolve host: {e}"),
+        )
+    })?;
+
+    let mut saw_any = false;
+    for addr in &mut resolved {
+        saw_any = true;
+        if is_private_ip(&addr.ip()) {
+            return Err(AppError::new(
+                ErrorCode::InvalidInput,
+                "URL host resolves to a private or loopback address",
             ));
         }
     }
 
-    // Also reject known loopback hostnames
-    let lower_host = host_str.to_lowercase();
-    if lower_host == "localhost" || lower_host == "ip6-localhost" || lower_host == "ip6-loopback" {
+    if !saw_any {
         return Err(AppError::new(
-            ErrorCode::InvalidInput,
-            "Loopback hostnames are not allowed",
+            ErrorCode::ExternalServiceError,
+            "URL host did not resolve to any address",
         ));
     }
 
     Ok(())
 }
 
-/// Check if an IP address is private or loopback (SSRF protection).
+/// Whether an IP address is private, loopback, or otherwise non-public (SSRF guard).
 ///
-/// Blocks: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, `::1`, link-local
+/// Covers the v4 loopback, private (RFC 1918), link-local (incl. cloud metadata),
+/// unspecified, broadcast, and carrier-grade NAT ranges; the v6 loopback, unspecified,
+/// unique-local, and link-local ranges; and any v4-in-v6 mapped address whose embedded
+/// address is itself non-public. Exact ranges are annotated on the match arms below.
 fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             v4.is_loopback()          // 127.0.0.0/8
                 || v4.is_private()     // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-                || v4.is_link_local()  // 169.254.0.0/16
+                || v4.is_link_local()  // 169.254.0.0/16 (incl. cloud metadata)
                 || v4.is_unspecified() // 0.0.0.0
+                || v4.is_broadcast()   // 255.255.255.255
+                // 100.64.0.0/10 carrier-grade NAT / shared address space
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
         }
         IpAddr::V6(v6) => {
-            v6.is_loopback()          // ::1
-                || v6.is_unspecified() // ::
+            // Re-check IPv4-mapped (::ffff:a.b.c.d) against the v4 rules so a mapped
+            // private/metadata address cannot slip through the v6 branch.
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_private_ip(&IpAddr::V4(mapped));
+            }
+            v6.is_loopback()                       // ::1
+                || v6.is_unspecified()             // ::
+                || (v6.segments()[0] & 0xfe00) == 0xfc00  // fc00::/7 unique-local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
         }
     }
 }

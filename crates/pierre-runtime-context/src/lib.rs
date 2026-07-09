@@ -117,6 +117,14 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
     /// `AppError` if the token is missing/invalid or the user fails policy
     /// checks.
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult>;
+
+    /// Allowlist of hostnames permitted as a user-supplied LLM `base_url` (the
+    /// `local`/OpenAI-compatible provider). An empty slice denies every custom
+    /// `base_url`, closing the SSRF where a tenant points the server's outbound LLM
+    /// call at an internal host (T3MP3ST F2 / CWE-918). Sourced from
+    /// `SecurityConfig::llm_base_url_allowlist`; returned as a primitive slice so this
+    /// crate stays free of a `pierre-config` dependency.
+    fn llm_base_url_allowlist(&self) -> &[String];
 }
 
 /// Slice of runtime state the MCP transport dispatch layer needs.

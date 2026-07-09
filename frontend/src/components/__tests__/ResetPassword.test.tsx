@@ -22,6 +22,8 @@ describe('ResetPassword', () => {
   const mockResetSuccess = vi.fn();
   const mockResendCode = vi.fn();
   const testEmail = 'test@example.com';
+  // High-entropy selector.verifier token (16 + '.' + 32 alphanumeric chars).
+  const validCode = 'AbCd1234EfGh5678.IjKl9012MnOp3456QrSt7890UvWx1234';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,22 +62,34 @@ describe('ResetPassword', () => {
   });
 
   describe('form validation', () => {
-    it('should reject non-numeric code', async () => {
+    it('should reject a code without the selector.verifier format', async () => {
+      const user = userEvent.setup();
+      renderComponent();
+
+      await user.type(screen.getByLabelText('Reset code'), 'notavalidtoken');
+      await user.type(screen.getByLabelText('New password'), 'NewPassword123');
+      await user.type(screen.getByLabelText('Confirm new password'), 'NewPassword123');
+      await user.click(screen.getByRole('button', { name: /reset password/i }));
+
+      expect(screen.getByText(/reset code from your email/i)).toBeInTheDocument();
+      expect(authApi.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('should preserve the full alphanumeric token in the input', async () => {
       const user = userEvent.setup();
       renderComponent();
 
       const codeInput = screen.getByLabelText('Reset code');
-      await user.type(codeInput, 'abcdef');
+      await user.type(codeInput, validCode);
 
-      // Code input should strip non-digit chars
-      expect(codeInput).toHaveValue('');
+      expect(codeInput).toHaveValue(validCode);
     });
 
     it('should reject short password', async () => {
       const user = userEvent.setup();
       renderComponent();
 
-      await user.type(screen.getByLabelText('Reset code'), '123456');
+      await user.type(screen.getByLabelText('Reset code'), validCode);
       await user.type(screen.getByLabelText('New password'), 'short');
       await user.type(screen.getByLabelText('Confirm new password'), 'short');
       await user.click(screen.getByRole('button', { name: /reset password/i }));
@@ -88,7 +102,7 @@ describe('ResetPassword', () => {
       const user = userEvent.setup();
       renderComponent();
 
-      await user.type(screen.getByLabelText('Reset code'), '123456');
+      await user.type(screen.getByLabelText('Reset code'), validCode);
       await user.type(screen.getByLabelText('New password'), 'ValidPassword123');
       await user.type(screen.getByLabelText('Confirm new password'), 'DifferentPassword456');
       await user.click(screen.getByRole('button', { name: /reset password/i }));
@@ -103,13 +117,13 @@ describe('ResetPassword', () => {
       const user = userEvent.setup();
       renderComponent();
 
-      await user.type(screen.getByLabelText('Reset code'), '123456');
+      await user.type(screen.getByLabelText('Reset code'), validCode);
       await user.type(screen.getByLabelText('New password'), 'NewPassword123');
       await user.type(screen.getByLabelText('Confirm new password'), 'NewPassword123');
       await user.click(screen.getByRole('button', { name: /reset password/i }));
 
       await waitFor(() => {
-        expect(authApi.resetPassword).toHaveBeenCalledWith('123456', 'NewPassword123');
+        expect(authApi.resetPassword).toHaveBeenCalledWith(validCode, 'NewPassword123');
       });
     });
 
@@ -117,7 +131,7 @@ describe('ResetPassword', () => {
       const user = userEvent.setup();
       renderComponent();
 
-      await user.type(screen.getByLabelText('Reset code'), '123456');
+      await user.type(screen.getByLabelText('Reset code'), validCode);
       await user.type(screen.getByLabelText('New password'), 'NewPassword123');
       await user.type(screen.getByLabelText('Confirm new password'), 'NewPassword123');
       await user.click(screen.getByRole('button', { name: /reset password/i }));
@@ -135,7 +149,7 @@ describe('ResetPassword', () => {
       const user = userEvent.setup();
       renderComponent();
 
-      await user.type(screen.getByLabelText('Reset code'), '123456');
+      await user.type(screen.getByLabelText('Reset code'), validCode);
       await user.type(screen.getByLabelText('New password'), 'NewPassword123');
       await user.type(screen.getByLabelText('Confirm new password'), 'NewPassword123');
       await user.click(screen.getByRole('button', { name: /reset password/i }));

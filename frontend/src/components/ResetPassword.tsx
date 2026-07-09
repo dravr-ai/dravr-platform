@@ -1,4 +1,4 @@
-// ABOUTME: Password reset form for entering the 6-digit code and new password
+// ABOUTME: Password reset form for entering the emailed reset code and new password
 // ABOUTME: Matches Login.tsx glassmorphism design with code entry and password confirmation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,8 +32,9 @@ export default function ResetPassword({
     e.preventDefault();
     setError('');
 
-    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
-      setError('Please enter a valid 6-digit code');
+    const trimmedCode = code.trim();
+    if (!/^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.test(trimmedCode)) {
+      setError('Please enter the reset code from your email');
       return;
     }
 
@@ -50,7 +51,7 @@ export default function ResetPassword({
     setIsLoading(true);
 
     try {
-      const response = await authApi.resetPassword(code, newPassword);
+      const response = await authApi.resetPassword(trimmedCode, newPassword);
       onResetSuccess(response.message || 'Password has been reset successfully. Please sign in.');
     } catch (err: unknown) {
       const apiError = err as { response?: { data?: { message?: string; error?: string }; status?: number } };
@@ -126,7 +127,7 @@ export default function ResetPassword({
                 Enter Reset Code
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant text-center">
-                We sent a 6-digit code to <span className="text-on-surface">{email}</span>
+                We sent a reset code to <span className="text-on-surface">{email}</span>
               </p>
             </div>
 
@@ -146,14 +147,15 @@ export default function ResetPassword({
                   id="code"
                   name="code"
                   type="text"
-                  inputMode="numeric"
                   label="Reset code"
                   autoComplete="one-time-code"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
-                  placeholder="Enter 6-digit code"
-                  maxLength={6}
+                  placeholder="Reset code from your email"
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => setCode(e.target.value)}
                   variant="dark"
                 />
 

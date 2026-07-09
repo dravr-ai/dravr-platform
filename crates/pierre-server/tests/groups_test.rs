@@ -527,6 +527,74 @@ async fn test_member_cannot_remove_others() {
 }
 
 #[tokio::test]
+async fn test_group_admin_cannot_demote_owner() {
+    // Regression (T3MP3ST F3 / CWE-285): a group admin (not the owner) must not be
+    // able to change the OWNER's role. handle_remove_member already refuses to remove
+    // the owner; handle_update_role skipped the same guard, so an admin could demote
+    // the owner to member and seize effective control. This pins the guard.
+    let (router, auth1, auth2, user1_id, user2_id, coach_id) = setup_two_users().await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+
+    // User2 joins as a member...
+    AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &auth2)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router.clone())
+        .await;
+
+    // ...and the owner promotes user2 to admin (an owner-only op — must succeed).
+    let promote = AxumTestRequest::put(&format!("/api/groups/{group_id}/members/{user2_id}/role"))
+        .header("authorization", &auth1)
+        .json(&json!({ "role": "admin" }))
+        .send(router.clone())
+        .await;
+    assert_success(&promote, "owner promotes member to admin");
+
+    // The freshly-minted admin now tries to demote the owner to member — must 403.
+    let demote = AxumTestRequest::put(&format!("/api/groups/{group_id}/members/{user1_id}/role"))
+        .header("authorization", &auth2)
+        .json(&json!({ "role": "member" }))
+        .send(router)
+        .await;
+    assert_eq!(
+        demote.status_code(),
+        StatusCode::FORBIDDEN,
+        "a group admin must not be able to change the owner's role"
+    );
+}
+
+#[tokio::test]
+async fn test_owner_can_demote_admin_to_member() {
+    // The owner-protection guard must NOT block legitimate role management: the owner
+    // can still demote a (non-owner) admin back to member.
+    let (router, auth1, auth2, _u1, user2_id, coach_id) = setup_two_users().await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+
+    AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &auth2)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router.clone())
+        .await;
+
+    assert_success(
+        &AxumTestRequest::put(&format!("/api/groups/{group_id}/members/{user2_id}/role"))
+            .header("authorization", &auth1)
+            .json(&json!({ "role": "admin" }))
+            .send(router.clone())
+            .await,
+        "owner promotes member to admin",
+    );
+    assert_success(
+        &AxumTestRequest::put(&format!("/api/groups/{group_id}/members/{user2_id}/role"))
+            .header("authorization", &auth1)
+            .json(&json!({ "role": "member" }))
+            .send(router)
+            .await,
+        "owner demotes admin back to member",
+    );
+}
+
+#[tokio::test]
 async fn test_unauthenticated_request_fails() {
     let (router, _auth, _user_id, _coach_id) = setup_single_user().await;
 

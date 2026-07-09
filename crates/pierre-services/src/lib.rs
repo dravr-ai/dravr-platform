@@ -103,6 +103,8 @@ pub mod okf;
 /// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
 pub mod parq;
 
+pub mod password_reset;
+
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;

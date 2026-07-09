@@ -14,8 +14,9 @@ const CHANNEL_LINKING_CODE_EXPIRY_MINUTES: u32 = 10;
 
 /// Generate the HTML body for a password reset code email
 ///
-/// The code is displayed prominently so the user can easily read and enter it
-/// on the reset form. Designed to work well on mobile email clients.
+/// The code is displayed prominently so the user can easily copy it into the reset
+/// form. The code is a high-entropy alphanumeric token, so it is rendered to wrap
+/// cleanly on narrow mobile email clients rather than as spaced single digits.
 #[must_use]
 pub fn password_reset_code_html(code: &str) -> String {
     format!(
@@ -40,7 +41,7 @@ pub fn password_reset_code_html(code: &str) -> String {
           Enter this code to reset your password. It expires in {RESET_CODE_EXPIRY_MINUTES} minutes.
         </p>
         <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:20px;text-align:center;margin-bottom:24px;">
-          <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#ffffff;font-family:'Courier New',monospace;">{code}</span>
+          <span style="font-size:18px;font-weight:700;letter-spacing:1px;color:#ffffff;font-family:'Courier New',monospace;word-break:break-all;">{code}</span>
         </div>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
           If you did not request a password reset, you can safely ignore this email.

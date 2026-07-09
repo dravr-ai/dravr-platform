@@ -24,8 +24,8 @@ use pierre_config::environment::{
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::admin_ops::issue_password_reset_token;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Test setup helper for password reset token testing
@@ -97,27 +97,15 @@ impl ResetTokenTestSetup {
         Ok((user.id, user.email))
     }
 
-    /// Store a reset token for a user and return the raw token
+    /// Store a reset token for a user and return the delivered token.
+    ///
+    /// Exercises the real admin issuance path end-to-end rather than
+    /// replicating its token-generation + storage logic.
     async fn issue_reset_token(&self, user_id: uuid::Uuid) -> anyhow::Result<String> {
-        use rand::distr::Alphanumeric;
-        use rand::Rng;
-
-        let raw_token: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(48)
-            .map(char::from)
-            .collect();
-
-        let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
-
-        self.resources
-            .common
-            .repos
-            .password_reset
-            .store_token(user_id, &token_hash, "test_admin")
-            .await?;
-
-        Ok(raw_token)
+        let token = issue_password_reset_token(&self.resources.common.repos, user_id, "test_admin")
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(token)
     }
 }
 

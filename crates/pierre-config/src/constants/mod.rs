@@ -113,11 +113,18 @@ pub mod password_reset {
     /// Maximum reset codes a user can request per hour
     pub const MAX_CODES_PER_HOUR: i64 = 3;
 
-    /// Lower bound of the 6-digit code range (inclusive)
-    pub const CODE_RANGE_MIN: u32 = 100_000;
+    /// Length of the plaintext `selector` (lookup half of the reset token).
+    /// High enough to be unguessable as an index; stored in plaintext.
+    pub const SELECTOR_LEN: usize = 16;
 
-    /// Upper bound of the 6-digit code range (exclusive)
-    pub const CODE_RANGE_MAX: u32 = 1_000_000;
+    /// Length of the `verifier` (secret half of the reset token).
+    ///
+    /// Only its SHA-256 hash is stored; ~190 bits of entropy makes the token unguessable,
+    /// retiring the old 6-digit code that was brute-forceable (T3MP3ST F1 / CWE-307).
+    pub const VERIFIER_LEN: usize = 32;
+
+    /// Delimiter joining `<selector>.<verifier>` in the delivered reset token.
+    pub const TOKEN_DELIMITER: char = '.';
 
     /// Label used as `created_by` for self-service reset tokens
     pub const CREATED_BY_SELF_SERVICE: &str = "self_service";

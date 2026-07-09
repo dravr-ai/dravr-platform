@@ -10,6 +10,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::environment::SseBufferStrategy;
+use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::Database;
@@ -33,6 +34,10 @@ impl pierre_runtime_context::MiddlewareCtx for ServerContext {
 
     fn csrf_manager(&self) -> &Arc<CsrfTokenManager> {
         &self.auth.csrf_manager
+    }
+
+    fn llm_base_url_allowlist(&self) -> &[String] {
+        config_llm_base_url_allowlist()
     }
 
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {

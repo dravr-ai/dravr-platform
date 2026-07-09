@@ -48,6 +48,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::environment::ServerConfig;
+use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
 use pierre_config::social::SocialInsightsConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_core::errors::{AppError, AppResult};
@@ -119,6 +120,10 @@ impl pierre_runtime_context::MiddlewareCtx for WebAdminContext {
 
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
         self.auth_middleware.authenticate_request(auth_header).await
+    }
+
+    fn llm_base_url_allowlist(&self) -> &[String] {
+        config_llm_base_url_allowlist()
     }
 }
 

@@ -96,7 +96,7 @@ export function ForgotPasswordScreen() {
                   Reset Your Password
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  Enter your email and we&apos;ll send you a 6-digit code
+                  Enter your email and we&apos;ll send you a reset code
                 </Text>
               </View>
 

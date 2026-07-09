@@ -38,6 +38,10 @@ jest.mock('@expo/vector-icons', () => {
 import { ResetPasswordScreen } from '../src/screens/auth/ResetPasswordScreen';
 
 describe('ResetPasswordScreen', () => {
+  // A valid reset code is a `<selector>.<verifier>` token: 16 + 32 alphanumeric
+  // chars joined by a single '.', matching /^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.
+  const validCode = 'abcd1234EFGH5678.abcd1234EFGH5678ijkl9012MNOP3456';
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockRouter.push.mockClear();
@@ -91,22 +95,23 @@ describe('ResetPasswordScreen', () => {
       expect(mockResetPassword).not.toHaveBeenCalled();
     });
 
-    it('should reject code shorter than 6 digits', () => {
+    it('should reject a code that is not selector.verifier format', () => {
       const { getByTestId, getByText } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123');
+      // No '.' separator -> fails /^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.
+      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
       fireEvent.changeText(getByTestId('new-password-input'), 'NewPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'NewPassword123');
       fireEvent.press(getByTestId('reset-password-button'));
 
-      expect(getByText('Please enter a valid 6-digit code')).toBeTruthy();
+      expect(getByText('Please enter the reset code from your email')).toBeTruthy();
       expect(mockResetPassword).not.toHaveBeenCalled();
     });
 
     it('should reject short password', () => {
       const { getByTestId, getByText } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'short');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'short');
       fireEvent.press(getByTestId('reset-password-button'));
@@ -118,7 +123,7 @@ describe('ResetPasswordScreen', () => {
     it('should reject mismatched passwords', () => {
       const { getByTestId, getByText } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'ValidPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'DifferentPassword456');
       fireEvent.press(getByTestId('reset-password-button'));
@@ -133,13 +138,13 @@ describe('ResetPasswordScreen', () => {
       mockResetPassword.mockResolvedValueOnce({ message: 'Password reset' });
       const { getByTestId } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'NewPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'NewPassword123');
       fireEvent.press(getByTestId('reset-password-button'));
 
       await waitFor(() => {
-        expect(mockResetPassword).toHaveBeenCalledWith('123456', 'NewPassword123');
+        expect(mockResetPassword).toHaveBeenCalledWith(validCode, 'NewPassword123');
       });
     });
 
@@ -147,7 +152,7 @@ describe('ResetPasswordScreen', () => {
       mockResetPassword.mockResolvedValueOnce({ message: 'Password reset' });
       const { getByTestId } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'NewPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'NewPassword123');
       fireEvent.press(getByTestId('reset-password-button'));
@@ -169,7 +174,7 @@ describe('ResetPasswordScreen', () => {
       );
       const { getByTestId } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'NewPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'NewPassword123');
       fireEvent.press(getByTestId('reset-password-button'));
@@ -186,7 +191,7 @@ describe('ResetPasswordScreen', () => {
       mockResetPassword.mockRejectedValueOnce(new Error('Server error'));
       const { getByTestId } = renderComponent();
 
-      fireEvent.changeText(getByTestId('reset-code-input'), '123456');
+      fireEvent.changeText(getByTestId('reset-code-input'), validCode);
       fireEvent.changeText(getByTestId('new-password-input'), 'NewPassword123');
       fireEvent.changeText(getByTestId('confirm-password-input'), 'NewPassword123');
       fireEvent.press(getByTestId('reset-password-button'));
