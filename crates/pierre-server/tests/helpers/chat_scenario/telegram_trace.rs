@@ -123,6 +123,12 @@ fn project(trace: TelegramTrace) -> ChatScenario {
         notes,
         provider_state: trace.provider_state,
         turns,
+        // Traces keep drift enforced (the default) — a replayed real
+        // session should still not silently recompute a total across turns.
+        skip_drift: false,
+        // Traces are replays, not model-graded scenarios; keep them in the
+        // default nightly lane.
+        nightly_gate: true,
     }
 }
 

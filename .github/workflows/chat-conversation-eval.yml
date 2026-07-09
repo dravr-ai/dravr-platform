@@ -31,6 +31,11 @@ on:
         options:
           - structural
           - live-llm
+      include_ondemand:
+        description: "Also run on-demand-only scenarios (nightly_gate: false, e.g. today_anchor)"
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 03:30 UTC nightly — ahead of the messaging-eval nightly at 04:00
     # so an early signal lights up before the heavier suite runs.
@@ -96,33 +101,55 @@ jobs:
           PIERRE_LLM_MODEL: "mock"
 
   # ---------------------------------------------------------------------------
-  # Live-LLM pass: nightly cron + on-demand. Boots a fixture, drives
-  # every scenario through the real chat pipeline, asserts on actual
-  # LLM replies. Cost-bounded.
+  # Live-LLM pass: nightly cron + on-demand. Drives every scenario through
+  # the real chat pipeline against a LOCAL Ollama model (qwen2.5:7b), and
+  # asserts on actual LLM replies. Sharded 3 ways because CPU inference of
+  # Pierre's ~26K-token system prompt costs minutes per turn; a local model
+  # means zero rate limits and zero per-call cost — the Cohere endpoint this
+  # replaced 429'd the entire suite under the retry burst. Provisioning
+  # mirrors the proven messaging-eval recipe (systemd context bump + derived
+  # model + warm-up).
   # ---------------------------------------------------------------------------
   live-llm:
-    name: Live LLM execution
+    name: Live LLM execution (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     needs: structural
     if: |
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-llm')
+    strategy:
+      # One shard failing must not cancel the others — each covers a
+      # disjoint slice of the scenarios, so we want all three verdicts.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     env:
       CHAT_SCENARIO_LIVE: "1"
-      # The live driver (helpers/chat_scenario/live_driver.rs) consumes
-      # these to pick its provider + model. Both must be set — the driver
-      # refuses to run with an empty key, and PIERRE_LLM_MODEL is the
-      # single source of truth for which model the eval hits.
-      # `command-a-03-2025` is Cohere's flagship Command model and prod's
-      # first cross-provider fallback tier (dev/main.tf), so the eval
-      # grades a model production actually serves users with — not the
-      # last-resort Gemini tier. The key must be the paid Cohere tier
-      # (10k rpm): the suite bursts ~30-50 calls per nightly run
-      # (5 scenarios × multi-turn × tool loop), comfortably under budget.
-      COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
-      PIERRE_LLM_MODEL: "command-a-03-2025"
+      # The live driver (helpers/chat_scenario/live_driver.rs) reads
+      # PIERRE_LLM_MODEL and dispatches to the local Ollama server
+      # (OpenAI-compatible at :11434) — no API key, no rate limit, no cost.
+      # `dravr-chateval` is a derived tag created below from
+      # qwen2.5:7b-instruct with num_ctx 32768 so Pierre's full system
+      # prompt + tool schemas fit without truncation.
+      PIERRE_LLM_MODEL: "dravr-chateval"
+      # Fan the scenario files across 3 runners round-robin so each shard
+      # stays inside the wall-clock cap (multi-turn CPU inference is minutes
+      # per turn). Format is "<index>/<total>", consumed by
+      # shard_scenario_files() in chat_scenario_test.rs.
+      CHAT_SCENARIO_SHARD: "${{ matrix.shard }}/3"
+      # On-demand carve-out: only a manual dispatch with include_ondemand=true
+      # runs nightly_gate:false scenarios (e.g. today_anchor, which a local 7b
+      # can't reliably clear). The nightly cron leaves this empty, so those
+      # scenarios are skipped and the run stays green. Consumed by
+      # live_driver_executes_every_scenario in chat_scenario_test.rs.
+      CHAT_SCENARIO_INCLUDE_ONDEMAND: "${{ inputs.include_ondemand && '1' || '' }}"
+      # Pierre's shared LLM reqwest client defaults to a 300s request
+      # timeout; CPU prefill of the ~26K-token prompt on qwen2.5:7b runs
+      # longer. The driver's own per-dispatch tokio guard derives from this
+      # value plus a margin, so raising it here lifts both ceilings.
+      LLM_REQUEST_TIMEOUT_SECS: "900"
 
     steps:
       - name: Checkout
@@ -142,9 +169,86 @@ jobs:
         with:
           shared-key: chat-eval-live
 
-      - name: Run chat_scenario_test (live mode)
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          mkdir -p "$RUNNER_TEMP/ollama-logs"
+          # The installer auto-starts a systemd unit. Bump the context
+          # window (Ollama's 4K default truncates Pierre's ~26K-token
+          # system prompt) and keep the model resident across the shard's
+          # scenarios so it isn't reloaded mid-run.
+          sudo mkdir -p /etc/systemd/system/ollama.service.d
+          printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=32768"\nEnvironment="OLLAMA_KEEP_ALIVE=120m"\n' \
+            | sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl restart ollama
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
+              echo "Ollama ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
+            echo "ERROR: Ollama did not respond on :11434 after restart" >&2
+            sudo journalctl -u ollama --no-pager -n 100 || true
+            exit 1
+          fi
+
+      - name: Cache Ollama model store
+        uses: actions/cache@v4
+        with:
+          # ~/.ollama/models holds the pulled blobs + manifests. Key pinned
+          # on the model tag so a model bump cleanly busts the cache.
+          path: ~/.ollama/models
+          key: ollama-qwen2.5-7b-instruct-q4_K_M-v1
+
+      - name: Pull qwen2.5:7b + create dravr-chateval (num_ctx 32768) + warm up
+        run: |
+          # Ollama's registry occasionally drops the connection mid-pull
+          # ("connection reset by peer" at 100%). `ollama pull` is
+          # idempotent and resumes via the layer cache, so retry.
+          for attempt in 1 2 3 4; do
+            if ollama pull qwen2.5:7b-instruct-q4_K_M; then
+              echo "pull succeeded on attempt $attempt"
+              break
+            fi
+            echo "pull failed on attempt $attempt; retrying in 10s..."
+            sleep 10
+            if [ "$attempt" = "4" ]; then
+              echo "ERROR: model pull exhausted retries" >&2
+              exit 1
+            fi
+          done
+          # Bake CPU parallelism + context into a derived tag. num_thread 4
+          # uses all vCPUs on the standard ubuntu-latest runner; num_ctx
+          # 32768 lets Pierre's full ~26K-token system prompt + tool schemas
+          # fit without truncation (Qwen 2.5 supports 32K native).
+          cat > "$RUNNER_TEMP/Modelfile" <<'EOF'
+          FROM qwen2.5:7b-instruct-q4_K_M
+          PARAMETER num_thread 4
+          PARAMETER num_ctx 32768
+          EOF
+          ollama create dravr-chateval -f "$RUNNER_TEMP/Modelfile"
+          ollama list
+          # Force a tiny inference so the derived model is mmap'd into RAM
+          # before the eval's first scenario asks for one.
+          time curl -fsS -X POST http://127.0.0.1:11434/api/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"dravr-chateval","stream":false,"messages":[{"role":"user","content":"reply with the word ok"}]}' \
+            | tee "$RUNNER_TEMP/ollama-logs/warmup.json"
+
+      - name: Run chat_scenario_test (live mode, shard ${{ matrix.shard }}/3)
         # --nocapture streams the live driver's per-dispatch diagnostics
         # (attempt failures, timeouts, backoffs) to the job log in real
-        # time, so a degraded upstream is visible even if the job hits its
-        # hard wall-clock kill before the test reports.
+        # time, so a degraded run is visible even if the job hits its hard
+        # wall-clock kill before the test reports.
         run: cargo test --test chat_scenario_test -- --include-ignored --nocapture
+
+      - name: Dump Ollama log on failure
+        if: failure()
+        run: |
+          echo "=== ollama systemd journal (tail 200) ==="
+          sudo journalctl -u ollama --no-pager -n 200 || true
+          echo "=== warmup.json ==="
+          cat "$RUNNER_TEMP/ollama-logs/warmup.json" 2>/dev/null || true

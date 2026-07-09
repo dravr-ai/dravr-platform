@@ -7,6 +7,14 @@
 name: "Freshness pushback recovers missing activities + recomputes totals (FR)"
 locales: ["fr"]
 notes: "Bug 2 + Bug 3 regression — 2026-05-18 Telegram screenshots 3+4"
+# Turn 2 already pins the real recompute (distance_mentioned 33.10). Turn 3
+# asks "yesterday's activities" and legitimately names the recovered 8 km
+# road leg (turn 3's any_of accepts "8 km"). The cross-turn drift asserter
+# reads that leg figure as the run total drifting 33->8 — a false positive,
+# since naming one leg is not recomputing the aggregate. Opt this scenario
+# out of drift; the per-turn distance_mentioned assertion keeps the recompute
+# honestly pinned. (2026-07-09: surfaced once the eval ran on a local model.)
+skip_drift: true
 provider_state:
   providers:
     strava:
