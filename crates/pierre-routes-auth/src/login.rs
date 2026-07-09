@@ -5,14 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use axum::{
-    extract::{Form, State},
+    extract::{rejection::FormRejection, Form, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use serde_json::json;
 use tokio::task;
-use tracing::{error, field, field::Empty, info, warn, Span};
+use tracing::{debug, error, field, field::Empty, info, warn, Span};
 
 use pierre_routes_admin::auth::service::AdminAuthService;
 
@@ -790,8 +790,8 @@ pub async fn handle_user_stats(
     skip(resources, request),
     fields(
         route = "oauth2_token",
-        grant_type = %request.grant_type,
-        username = %request.username,
+        grant_type = Empty,
+        username = Empty,
         user_id = Empty,
         tenant_id = Empty,
         success = Empty,
@@ -799,8 +799,29 @@ pub async fn handle_user_stats(
 )]
 pub async fn handle_oauth2_token(
     State(resources): State<AuthRoutesContext>,
-    Form(request): Form<OAuth2TokenRequest>,
+    request: Result<Form<OAuth2TokenRequest>, FormRejection>,
 ) -> Result<Response, AppError> {
+    // RFC 6749 §5.2: a malformed or missing-parameter token request must be
+    // answered with an `invalid_request` JSON error, not the framework's bare
+    // 422 text body (which also leaks internal field names like `username`).
+    let Form(request) = match request {
+        Ok(form) => form,
+        Err(rejection) => {
+            debug!(%rejection, "OAuth2 token request rejected: malformed form body");
+            let error_response = OAuth2ErrorResponse {
+                error: "invalid_request".to_owned(),
+                error_description: Some(
+                    "The request is missing a required parameter or is otherwise malformed. \
+                     Expected form fields: grant_type, username, password."
+                        .to_owned(),
+                ),
+            };
+            return Ok((StatusCode::BAD_REQUEST, Json(error_response)).into_response());
+        }
+    };
+    Span::current().record("grant_type", field::display(&request.grant_type));
+    Span::current().record("username", field::display(&request.username));
+
     // Validate grant_type
     if request.grant_type != "password" {
         let error_response = OAuth2ErrorResponse {

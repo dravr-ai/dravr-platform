@@ -413,8 +413,14 @@ async fn test_login_missing_fields() {
         .send(routes)
         .await;
 
-    // Should fail validation
-    assert_ne!(response.status(), 200);
+    // RFC 6749 §5.2: a malformed/missing-parameter token request returns a 400
+    // with an `invalid_request` JSON error — not the bare framework 422 that
+    // leaks the internal field name. (Regression for the Phase-7 finding.)
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+    // The internal deserializer field name must not leak into the response.
+    assert!(!body.to_string().contains("missing field"));
 }
 
 // ============================================================================

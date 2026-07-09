@@ -451,12 +451,17 @@ impl Display for BoundedUserLabel {
 #[must_use]
 pub fn redact_session_id(session_id: &str) -> String {
     // Show enough prefix for log correlation (session_ + first 4 chars of UUID)
-    // without exposing the full bearer-like token
+    // without exposing the full bearer-like token. Count and slice by chars, not
+    // bytes: a byte-slice at a non-char boundary panics on a multibyte session id,
+    // and this runs pre-auth on an attacker-controlled SSE path segment
+    // (GET /mcp/sse/{session_id} logs it before the auth check). Mirrors the
+    // char-aware `mask_recipient` above.
     const PREFIX_LEN: usize = 12;
-    if session_id.len() <= PREFIX_LEN {
+    if session_id.chars().count() <= PREFIX_LEN {
         session_id.to_owned()
     } else {
-        format!("{}...", &session_id[..PREFIX_LEN])
+        let prefix: String = session_id.chars().take(PREFIX_LEN).collect();
+        format!("{prefix}...")
     }
 }
 

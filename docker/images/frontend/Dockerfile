@@ -76,6 +76,10 @@ COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 # Copy nginx config template (envsubst injects BACKEND_URL at startup)
 COPY docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template
 
+# Shared security-header snippet `include`d per-location by the config above.
+# No env vars, so it is copied verbatim (not run through envsubst).
+COPY docker/images/frontend/security-headers.conf /etc/nginx/security-headers.conf
+
 EXPOSE 8080
 
 # Substitute BACKEND_URL and FIREBASE_PROJECT_ID into nginx config at runtime, then start nginx
