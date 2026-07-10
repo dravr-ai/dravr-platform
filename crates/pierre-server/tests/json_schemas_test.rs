@@ -10,9 +10,7 @@
 //! JSON input with proper type safety and validation.
 
 use pierre_config::runtime::ConfigValue;
-use pierre_mcp_schema::json_schemas::{
-    A2ATaskCreateParams, ConfigValueInput, UpdateConfigurationRequest,
-};
+use pierre_mcp_schema::json_schemas::{ConfigValueInput, UpdateConfigurationRequest};
 use std::error::Error;
 
 #[test]
@@ -83,35 +81,6 @@ fn test_update_configuration_request_parsing() -> Result<(), Box<dyn Error>> {
         request.parameter_overrides.len(),
         3,
         "Should have 3 parameter overrides"
-    );
-
-    Ok(())
-}
-
-#[test]
-fn test_a2a_task_create_params_with_alias() -> Result<(), Box<dyn Error>> {
-    // Test with 'task_type' field
-    let json1 = serde_json::json!({
-        "client_id": "test-client",
-        "task_type": "analysis"
-    });
-
-    let params1: A2ATaskCreateParams = serde_json::from_value(json1)?;
-    assert_eq!(
-        params1.task_type, "analysis",
-        "task_type should be 'analysis'"
-    );
-
-    // Test with 'type' alias
-    let json2 = serde_json::json!({
-        "client_id": "test-client",
-        "type": "analysis"
-    });
-
-    let params2: A2ATaskCreateParams = serde_json::from_value(json2)?;
-    assert_eq!(
-        params2.task_type, "analysis",
-        "task_type should be 'analysis' when using 'type' alias"
     );
 
     Ok(())

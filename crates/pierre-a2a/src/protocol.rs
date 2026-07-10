@@ -1,5 +1,5 @@
-// ABOUTME: Core A2A protocol message handling and JSON-RPC implementation
-// ABOUTME: Processes A2A protocol requests, tool execution, and task management for agent communication
+// ABOUTME: A2A 1.0 JSON-RPC method dispatch and task lifecycle execution
+// ABOUTME: PascalCase spec methods (SendMessage, GetTask, ListTasks, CancelTask, push-config CRUD)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,28 +10,43 @@
 // - JSON-RPC message ownership for protocol serialization
 // - Request/response ownership across async boundaries
 //!
-//! Implements the core A2A (Agent-to-Agent) protocol for Pierre,
-//! providing JSON-RPC 2.0 based communication between AI agents.
+//! Implements the A2A 1.0 protocol for Pierre: JSON-RPC 2.0 method dispatch
+//! with the spec's `PascalCase` method names, task lifecycle persistence,
+//! streaming event publication, and push notification delivery. The two
+//! streaming methods (`SendStreamingMessage`, `SubscribeToTask`) are
+//! initiated by the HTTP layer through [`A2AServer::start_streaming_message`]
+//! and [`A2AServer::start_task_subscription`], which return the initial task
+//! snapshot plus a live event receiver.
 
-use crate::{
-    A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2AMessage, A2ARequest,
-    A2AResponse, MessagePart, A2A_VERSION,
+use crate::events::TASK_EVENTS;
+use crate::protocol_types::{
+    error_info, A2ASpecError, Artifact, GetTaskRequest, ListTasksRequest, ListTasksResponse,
+    Message, Part, PartContent, PushNotificationAuthenticationInfo, PushNotificationConfigInput,
+    SendMessageRequest, StreamResponse, Task, TaskArtifactUpdateEvent, TaskPushNotificationConfig,
+    TaskState, TaskStatusUpdateEvent, WireTaskStatus,
 };
+use crate::{push, A2AErrorResponse, A2ARequest, A2AResponse};
+use chrono::SecondsFormat;
+use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
-use pierre_core::models::OAuthAppCredentials;
-use pierre_mcp_schema::json_schemas;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-// Trait methods dispatched through repos.a2a / repos.oauth_tokens Arc<dyn Trait>;
+// Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Number, Value};
-use std::collections::HashMap;
+use std::cmp::Reverse;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tokio::sync::broadcast;
+use tracing::{error, info};
 use uuid::Uuid;
+
+/// Default `ListTasks` page size (spec §9: default 50, range 1..=100).
+const LIST_TASKS_DEFAULT_PAGE_SIZE: u32 = 50;
+/// Maximum `ListTasks` page size.
+const LIST_TASKS_MAX_PAGE_SIZE: u32 = 100;
 
 /// Bundle of runtime handles required for full A2A protocol operation.
 ///
@@ -43,86 +58,131 @@ use uuid::Uuid;
 pub struct A2AResources {
     /// Narrow runtime-context slice: auth manager, JWKS, repos, base URL.
     pub ctx: Arc<dyn A2ACtx>,
-    /// Tool runtime façade — used by `tools/list` and `tools/call` to
-    /// dispatch into the shared `ToolRegistry`.
+    /// Tool runtime façade — dispatches `SendMessage` tool intents into the
+    /// shared `ToolRegistry`.
     pub tool_runtime: Arc<dyn ToolRuntime>,
 }
 
 /// A2A Protocol Server implementation
 pub struct A2AServer {
-    /// A2A protocol version
-    pub version: String,
-    /// Optional server resources for MCP integration
+    /// Optional server resources for tool execution and persistence
     pub resources: Option<A2AResources>,
+}
+
+/// Resolved state shared by the blocking, non-blocking, and streaming
+/// `SendMessage` paths after the task and history have been prepared.
+struct PreparedSend {
+    task_id: String,
+    context_id: String,
+    user_message: Message,
+    history: Vec<Message>,
+}
+
+/// Result of executing a message against its task.
+enum SendOutcome {
+    /// A named tool ran successfully and produced this result
+    Tool(String, Value),
+    /// No tool intent — the agent echoes the message text
+    Echo,
+    /// Tool execution failed with this human-readable reason
+    Failure(String),
+}
+
+/// Validated `ListTasks` query: the parsed request plus derived pagination
+/// state (clamped page size, `pageToken` offset, parsed timestamp filter).
+struct ListTasksQuery {
+    params: ListTasksRequest,
+    page_size: u32,
+    offset: u32,
+    updated_after: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl A2AServer {
     /// Create a new A2A server without resources
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            version: A2A_VERSION.to_owned(),
-            resources: None,
-        }
+    pub const fn new() -> Self {
+        Self { resources: None }
     }
 
     /// Create a new A2A server with server resources
     #[must_use]
     pub fn new_with_resources(ctx: Arc<dyn A2ACtx>, tool_runtime: Arc<dyn ToolRuntime>) -> Self {
         Self {
-            version: A2A_VERSION.to_owned(),
             resources: Some(A2AResources { ctx, tool_runtime }),
         }
     }
 
-    /// Handle incoming A2A request
+    /// Handle an incoming non-streaming A2A request.
+    ///
+    /// Method names are the A2A 1.0 `PascalCase` strings (identical to the
+    /// `gRPC` method names). The streaming methods are dispatched by the HTTP
+    /// layer (they need an SSE response); reaching them here is an error.
     pub async fn handle_request(&self, request: A2ARequest) -> A2AResponse {
         match request.method.as_str() {
-            "a2a/initialize" => {
-                // Use OAuth-aware initialization if authentication is provided
-                if request.auth_token.is_some() && self.resources.is_some() {
-                    self.handle_initialize_with_oauth(request).await
-                } else {
-                    self.handle_initialize(request)
-                }
-            }
-            "message/send" | "a2a/message/send" => {
+            "SendMessage" => {
                 self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_message_send(req, user_id))
+                    Box::pin(s.handle_send_message(req, user_id))
                 })
                 .await
             }
-            "message/stream" | "a2a/message/stream" => Self::handle_message_stream(request),
-            // Authenticated endpoints: require valid JWT and pass user_id to handler
-            "tasks/create" | "a2a/tasks/create" => {
+            "GetTask" => {
                 self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_task_create(req, user_id))
+                    Box::pin(s.handle_get_task(req, user_id))
                 })
                 .await
             }
-            "tasks/get" | "a2a/tasks/get" => {
+            "ListTasks" => {
                 self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_task_get(req, user_id))
+                    Box::pin(s.handle_list_tasks(req, user_id))
                 })
                 .await
             }
-            "tasks/cancel" => Self::handle_task_cancel(request),
-            "tasks/resubscribe" | "a2a/tasks/resubscribe" => Self::handle_task_resubscribe(request),
-            "tasks/pushNotificationConfig/set" => Self::handle_push_notification_config(request),
-            "a2a/tasks/list" => {
+            "CancelTask" => {
                 self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_task_list(req, user_id))
+                    Box::pin(s.handle_cancel_task(req, user_id))
                 })
                 .await
             }
-            "tools/list" | "a2a/tools/list" => self.handle_tools_list(request),
-            "tools/call" | "a2a/tools/call" => {
+            "CreateTaskPushNotificationConfig" => {
                 self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_tool_call(req, user_id))
+                    Box::pin(s.handle_create_push_config(req, user_id))
                 })
                 .await
             }
-            _ => Self::handle_unknown_method(request),
+            "GetTaskPushNotificationConfig" => {
+                self.require_auth_then(request, |s, req, user_id| {
+                    Box::pin(s.handle_get_push_config(req, user_id))
+                })
+                .await
+            }
+            "ListTaskPushNotificationConfigs" => {
+                self.require_auth_then(request, |s, req, user_id| {
+                    Box::pin(s.handle_list_push_configs(req, user_id))
+                })
+                .await
+            }
+            "DeleteTaskPushNotificationConfig" => {
+                self.require_auth_then(request, |s, req, user_id| {
+                    Box::pin(s.handle_delete_push_config(req, user_id))
+                })
+                .await
+            }
+            // No differentiated authenticated card is configured on this server.
+            "GetExtendedAgentCard" => {
+                Self::spec_error(A2ASpecError::ExtendedAgentCardNotConfigured, request.id)
+            }
+            // SSE-only methods: the HTTP layer intercepts these before
+            // non-streaming dispatch; a non-SSE caller lands here.
+            "SendStreamingMessage" | "SubscribeToTask" => Self::a2a_error(
+                -32600,
+                "Streaming methods require the SSE transport",
+                request.id,
+            ),
+            _ => Self::a2a_error(
+                -32601,
+                format!("Method not found: {}", request.method),
+                request.id,
+            ),
         }
     }
 
@@ -148,120 +208,11 @@ impl A2AServer {
         }
     }
 
-    fn handle_initialize(&self, request: A2ARequest) -> A2AResponse {
-        let result = json!({
-            "version": self.version,
-            "capabilities": [
-                "message/send",
-                "message/stream",
-                "tasks/create",
-                "tasks/get",
-                "tasks/cancel",
-                "tasks/pushNotificationConfig/set",
-                "tools/list",
-                "tools/call"
-            ],
-            "agent": {
-                "name": "Dravr Agent",
-                "version": "1.0.0",
-                "description": "AI-powered fitness data analysis and insights platform"
-            }
-        });
-
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(result),
-            error: None,
-            id: request.id,
-        }
-    }
-
-    /// Handle A2A initialize request with runtime resources for OAuth credential storage
-    async fn handle_initialize_with_oauth(&self, request: A2ARequest) -> A2AResponse {
-        // Extract resources with defensive error handling
-        let Some(resources) = self.resources.as_ref() else {
-            return Self::a2a_error(-32603, "Internal server error", request.id.clone());
-        };
-
-        let user_id = match Self::authenticate_request(&request, resources) {
-            Ok(user_id) => user_id,
-            Err(error_response) => return *error_response,
-        };
-
-        // Handle OAuth credentials if provided
-        let response = self.handle_initialize_internal(request.clone()); // Safe: Request ownership for internal call
-
-        // If initialization successful and OAuth credentials provided, store them
-        if response.error.is_none() {
-            if let Some(params) = &request.params {
-                if let Ok(init_request) = from_value::<A2AInitializeRequest>(params.clone())
-                // Safe: JSON value ownership for deserialization
-                {
-                    if let Some(oauth_creds) = init_request.oauth_credentials {
-                        if let Err(e) =
-                            Self::store_oauth_credentials(oauth_creds, &user_id, resources).await
-                        {
-                            warn!(
-                                "Failed to store OAuth credentials during A2A initialization: {e}"
-                            );
-                        } else {
-                            info!("Successfully stored OAuth credentials for A2A user {user_id}");
-                        }
-                    }
-                }
-            }
-        }
-
-        response
-    }
-
-    /// Internal A2A initialize handler with proper protocol version negotiation
-    fn handle_initialize_internal(&self, request: A2ARequest) -> A2AResponse {
-        // Parse A2A initialize request parameters
-        let init_request = request.params.as_ref().and_then(|params| {
-            from_value::<A2AInitializeRequest>(params.clone()) // Safe: JSON value ownership for deserialization
-                .inspect_err(|e| {
-                    warn!(
-                        error = ?e,
-                        "Failed to parse A2A initialize request parameters - using defaults (params redacted)"
-                    );
-                })
-                .ok()
-        });
-
-        let (protocol_version, client_name) = if let Some(req) = init_request {
-            // For now, accept any protocol version - A2A is more flexible
-            (req.protocol_version, req.client_info.name)
-        } else {
-            // Default values if parsing fails
-            debug!("A2A initialize: using default values (no valid params provided)");
-            (A2A_VERSION.to_owned(), "unknown".to_owned())
-        };
-
-        info!("A2A initialization from client: {client_name} with protocol version: {protocol_version}");
-
-        // Create A2A initialize response
-        let init_response = A2AInitializeResponse::new(
-            protocol_version,
-            "pierre-a2a-server".to_owned(),
-            self.version.clone(), // Safe: String ownership for response
-        );
-
-        match to_value(&init_response) {
-            Ok(result) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(result),
-                error: None,
-                id: request.id,
-            },
-            Err(e) => {
-                error!("Failed to serialize A2A initialize response: {e}");
-                Self::a2a_error(-32603, "Internal server error", request.id)
-            }
-        }
-    }
-
-    /// Authenticate the A2A request and extract user information
+    /// Authenticate the A2A request and extract user information.
+    ///
+    /// Authentication is transport-level per the spec (the card's
+    /// `securitySchemes`); failures carry the `AUTHENTICATION_REQUIRED`
+    /// reason so the HTTP layer can surface a 401 status.
     fn authenticate_request(
         request: &A2ARequest,
         resources: &A2AResources,
@@ -273,8 +224,7 @@ impl A2AServer {
 
         // Extract auth token from request
         let auth_token = request.auth_token.as_deref().ok_or_else(|| {
-            Box::new(Self::a2a_error(
-                -32001,
+            Box::new(Self::auth_error(
                 "Authentication token required",
                 Some(request_id.clone()),
             ))
@@ -288,16 +238,14 @@ impl A2AServer {
         {
             Ok(claims) => Uuid::parse_str(&claims.sub).map_or_else(
                 |_| {
-                    Err(Box::new(Self::a2a_error(
-                        -32001,
+                    Err(Box::new(Self::auth_error(
                         "Invalid user ID in authentication token",
                         Some(request_id.clone()),
                     )))
                 },
                 Ok,
             ),
-            Err(_) => Err(Box::new(Self::a2a_error(
-                -32001,
+            Err(_) => Err(Box::new(Self::auth_error(
                 "Invalid authentication token",
                 Some(request_id),
             ))),
@@ -338,18 +286,45 @@ impl A2AServer {
             })?;
 
         if !owned_ids.iter().any(|id| id == client_id) {
-            return Err(Self::permission_denied_error(request_id.cloned()));
+            // Do not reveal whether the task exists for another principal.
+            return Err(Self::spec_error(
+                A2ASpecError::TaskNotFound,
+                request_id.cloned(),
+            ));
         }
         Ok(())
     }
 
-    /// Create a standard permission denied error response
-    fn permission_denied_error(request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(
-            -32001,
-            "Permission denied: client does not belong to authenticated user",
-            request_id,
-        )
+    /// Load a task and verify the authenticated user may access it.
+    async fn load_owned_task(
+        resources: &A2AResources,
+        task_id: &str,
+        user_id: &Uuid,
+        request_id: Option<&Value>,
+    ) -> Result<A2ATask, Box<A2AResponse>> {
+        let task = match resources.ctx.repos().a2a.get_task(task_id).await {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                return Err(Box::new(Self::spec_error(
+                    A2ASpecError::TaskNotFound,
+                    request_id.cloned(),
+                )))
+            }
+            Err(e) => {
+                error!("A2A task lookup database error: {e}");
+                return Err(Box::new(Self::a2a_error(
+                    -32000,
+                    "Database error",
+                    request_id.cloned(),
+                )));
+            }
+        };
+
+        Self::verify_client_ownership(&task.client_id, user_id, resources, request_id)
+            .await
+            .map_err(Box::new)?;
+
+        Ok(task)
     }
 
     /// Create a standard A2A JSON-RPC error response
@@ -366,134 +341,623 @@ impl A2AServer {
         }
     }
 
+    /// Create an A2A-spec error response (`-32001..-32009`) with the
+    /// mandatory `google.rpc.ErrorInfo` detail.
+    fn spec_error(err: A2ASpecError, request_id: Option<Value>) -> A2AResponse {
+        A2AResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(err.into()),
+            id: request_id,
+        }
+    }
+
+    /// Create an invalid-params (`-32602`) error response.
+    fn invalid_params(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
+        Self::a2a_error(-32602, message, request_id)
+    }
+
+    /// Create an authentication-failure response. Carries the
+    /// `AUTHENTICATION_REQUIRED` reason so HTTP bindings can map it to 401.
+    fn auth_error(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
+        A2AResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(A2AErrorResponse {
+                code: -32000,
+                message: message.into(),
+                data: Some(error_info("AUTHENTICATION_REQUIRED")),
+            }),
+            id: request_id,
+        }
+    }
+
     /// Create a standard server-not-configured error response
     fn server_not_configured_error(request_id: Option<Value>) -> A2AResponse {
         Self::a2a_error(-32000, "A2A server not properly configured", request_id)
     }
 
-    /// Store OAuth credentials provided during A2A initialization
-    async fn store_oauth_credentials(
-        oauth_creds: HashMap<String, OAuthAppCredentials>,
-        user_id: &Uuid,
-        resources: &A2AResources,
-    ) -> Result<(), String> {
-        for (provider, creds) in oauth_creds {
-            info!("Storing OAuth credentials for provider {provider} for A2A user {user_id}");
-
-            // Store encrypted OAuth app credentials in database
-            // Use default redirect URI for A2A clients
-            let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:a2a");
-            resources
-                .ctx
-                .repos()
-                .oauth_tokens
-                .store_user_oauth_app(
-                    *user_id,
-                    &provider,
-                    &creds.client_id,
-                    &creds.client_secret,
-                    &redirect_uri,
-                )
-                .await
-                .map_err(|e| format!("Failed to store {provider} OAuth credentials: {e}"))?;
+    /// Successful JSON-RPC response wrapper.
+    fn ok(result: Value, request_id: Option<Value>) -> A2AResponse {
+        A2AResponse {
+            jsonrpc: "2.0".into(),
+            result: Some(result),
+            error: None,
+            id: request_id,
         }
-
-        Ok(())
     }
 
-    /// Handle A2A `message/send`: deliver a client message to the agent and
-    /// return the agent's response.
+    /// Current instant in the spec's ISO-8601 UTC millisecond format.
+    fn now_timestamp() -> String {
+        chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+    }
+
+    /// Assemble the wire `Task` from a database record, applying
+    /// `historyLength` truncation and artifact inclusion.
+    fn wire_task(record: &A2ATask, history_length: Option<u32>, include_artifacts: bool) -> Task {
+        let status_message = record
+            .status_message
+            .as_ref()
+            .and_then(|value| from_value::<Message>(value.clone()).ok()); // Safe: JSON value ownership for deserialization
+
+        let mut history = record
+            .history
+            .as_ref()
+            .and_then(|value| from_value::<Vec<Message>>(value.clone()).ok()) // Safe: JSON value ownership for deserialization
+            .unwrap_or_default();
+        if let Some(limit) = history_length {
+            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+            if history.len() > limit {
+                history.drain(..history.len() - limit);
+            }
+        }
+
+        let artifacts = if include_artifacts {
+            record
+                .artifacts
+                .as_ref()
+                .and_then(|value| from_value::<Vec<Artifact>>(value.clone()).ok()) // Safe: JSON value ownership for deserialization
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        Task {
+            id: record.id.clone(), // Safe: String ownership for wire object
+            status: WireTaskStatus {
+                state: record.status,
+                message: status_message,
+                timestamp: Some(
+                    record
+                        .updated_at
+                        .to_rfc3339_opts(SecondsFormat::Millis, true),
+                ),
+            },
+            context_id: record.context_id.clone(), // Safe: String ownership for wire object
+            artifacts,
+            history,
+            metadata: None,
+        }
+    }
+
+    /// Serialize a wire task into a success response.
+    fn task_response(task: &Task, request_id: Option<Value>) -> A2AResponse {
+        match to_value(task) {
+            Ok(value) => Self::ok(value, request_id),
+            Err(e) => {
+                error!("Failed to serialize A2A task: {e}");
+                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+            }
+        }
+    }
+
+    /// Serialize a wire task into a `SendMessage` success response — the
+    /// result is the `SendMessageResponse` oneof, so the task is wrapped as
+    /// `{"task": ...}` (the message alternative is `{"message": ...}`).
+    fn send_message_task_response(task: &Task, request_id: Option<Value>) -> A2AResponse {
+        match to_value(task) {
+            Ok(value) => Self::ok(json!({ "task": value }), request_id),
+            Err(e) => {
+                error!("Failed to serialize A2A task: {e}");
+                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+            }
+        }
+    }
+
+    // ============================== SendMessage ==============================
+
+    /// Handle A2A 1.0 `SendMessage`.
     ///
-    /// Per the A2A specification a client posts a `Message` and receives the
-    /// agent's reply. Two intents are supported, both backed by real work:
+    /// Two intents are supported, both backed by real work:
     ///
-    /// - **Tool invocation.** When the message names a tool — either as a
-    ///   `Data` part carrying `{"tool_name": ..., "parameters": {...}}` or via
-    ///   top-level `tool_name`/`parameters` params (mirroring `tools/call`) —
-    ///   the named tool is executed against the authenticated user's tenant
-    ///   through the shared registry path, and its real output is returned as
-    ///   the agent's reply message.
-    /// - **Plain message.** When no tool is named, the agent acknowledges the
-    ///   message by returning a real reply `Message` (fresh id) that echoes the
-    ///   received text content, so the client receives an A2A `Message` rather
-    ///   than a hardcoded status constant.
-    async fn handle_message_send(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    /// - **Tool invocation.** When the message carries a `data` part with
+    ///   `{"tool_name": ..., "parameters": {...}}`, the named tool executes
+    ///   against the authenticated user's tenant through the shared registry
+    ///   path; the output lands on the task as an artifact.
+    /// - **Plain message.** A message that names no tool and references no
+    ///   task is answered directly with an agent `Message` (the spec's
+    ///   message-only exchange) echoing the received text.
+    ///
+    /// With `configuration.returnImmediately == false` (the default) the
+    /// call blocks until the task reaches a terminal state and returns the
+    /// final task snapshot; with `true` it returns the submitted snapshot
+    /// and execution continues in the background.
+    async fn handle_send_message(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
 
-        let params = request.params.as_ref().unwrap_or(&Value::Null);
+        let params: SendMessageRequest = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => return Self::invalid_params("Missing params: message", request.id),
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
 
-        // Resolve an optional tool invocation from either a structured `Data`
-        // message part or top-level `tool_name`/`parameters` params.
-        if let Some((tool_name, tool_params)) = Self::extract_tool_intent(params) {
-            let result = Self::execute_registered_tool(
-                resources,
-                user_id,
-                &tool_name,
-                tool_params,
-                request.id.as_ref(),
-            )
-            .await;
-            return match result {
-                Ok(reply) => A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: Some(reply),
-                    error: None,
-                    id: request.id,
-                },
-                Err(err) => *err,
+        if params.message.parts.is_empty() {
+            return Self::invalid_params("message.parts must not be empty", request.id);
+        }
+
+        let configuration = params.configuration.clone().unwrap_or_default(); // Safe: config ownership for send flow
+
+        // Message-only exchange: no tool intent and no task reference.
+        if Self::extract_tool_intent(&params.message).is_none() && params.message.task_id.is_none()
+        {
+            let reply = Message::agent(
+                Uuid::new_v4().to_string(),
+                vec![Part::text(Self::collect_message_text(&params.message))],
+            );
+            return match to_value(&reply) {
+                Ok(message) => Self::ok(json!({ "message": message }), request.id),
+                Err(e) => {
+                    error!("Failed to serialize A2A reply message: {e}");
+                    Self::a2a_error(-32603, "Failed to serialize reply message", request.id)
+                }
             };
         }
 
-        // No tool intent: acknowledge with a real reply message echoing the
-        // received text parts.
-        let echoed_text = Self::collect_message_text(params);
-        let reply = A2AMessage {
-            id: Uuid::new_v4().to_string(),
-            parts: vec![MessagePart::Text {
-                content: echoed_text,
-            }],
-            metadata: None,
+        let prepared = match Self::prepare_send(
+            resources,
+            &user_id,
+            params.message,
+            request.id.as_ref(),
+        )
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(err) => return *err,
         };
 
-        match to_value(&reply) {
-            Ok(message) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(json!({ "message": message })),
-                error: None,
-                id: request.id,
-            },
-            Err(e) => {
-                error!("Failed to serialize A2A reply message: {e}");
-                Self::a2a_error(-32603, "Failed to serialize reply message", request.id)
+        if let Some(config_input) = configuration.push_notification_config {
+            if let Err(err) = Self::store_push_config(
+                resources,
+                &prepared.task_id,
+                config_input,
+                request.id.as_ref(),
+            )
+            .await
+            {
+                return *err;
+            }
+        }
+
+        let task_id = prepared.task_id.clone(); // Safe: String ownership for post-run lookup
+
+        if configuration.return_immediately {
+            // Snapshot first, then execute in the background.
+            let snapshot =
+                match Self::load_owned_task(resources, &task_id, &user_id, request.id.as_ref())
+                    .await
+                {
+                    Ok(record) => Self::wire_task(&record, configuration.history_length, true),
+                    Err(err) => return *err,
+                };
+
+            let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
+            let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
+            let handle = tokio::spawn(async move {
+                Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
+            });
+            drop(handle); // Detached by design: progress is observable via GetTask/SubscribeToTask.
+
+            return Self::send_message_task_response(&snapshot, request.id);
+        }
+
+        Self::run_task_message(&resources.ctx, &resources.tool_runtime, user_id, prepared).await;
+
+        match Self::load_owned_task(resources, &task_id, &user_id, request.id.as_ref()).await {
+            Ok(record) => {
+                let task = Self::wire_task(&record, configuration.history_length, true);
+                Self::send_message_task_response(&task, request.id)
+            }
+            Err(err) => *err,
+        }
+    }
+
+    /// Resolve the target task for an incoming message (continuation or
+    /// creation), persist the user message into its history, and return the
+    /// state shared by the blocking/background/streaming paths.
+    async fn prepare_send(
+        resources: &A2AResources,
+        user_id: &Uuid,
+        mut message: Message,
+        request_id: Option<&Value>,
+    ) -> Result<PreparedSend, Box<A2AResponse>> {
+        let repos = resources.ctx.repos();
+
+        let (task_id, context_id, mut history) = if let Some(task_id) = message.task_id.clone() {
+            // Continuation: the referenced task must exist (client-created
+            // task ids are unsupported in A2A 1.0) and belong to the caller.
+            let record = Self::load_owned_task(resources, &task_id, user_id, request_id).await?;
+            if record.status.is_terminal() {
+                return Err(Box::new(Self::spec_error(
+                    A2ASpecError::UnsupportedOperation,
+                    request_id.cloned(),
+                )));
+            }
+            let record_context = record.context_id.clone().unwrap_or_default();
+            if let Some(requested_context) = &message.context_id {
+                // A mismatched contextId/taskId pair MUST be rejected.
+                if *requested_context != record_context {
+                    return Err(Box::new(Self::invalid_params(
+                        "contextId does not match the referenced task",
+                        request_id.cloned(),
+                    )));
+                }
+            }
+            let history = record
+                .history
+                .as_ref()
+                .and_then(|value| from_value::<Vec<Message>>(value.clone()).ok()) // Safe: JSON value ownership for deserialization
+                .unwrap_or_default();
+            (task_id, record_context, history)
+        } else {
+            // New task: the server generates ids and returns them.
+            let context_id = message
+                .context_id
+                .clone() // Safe: String ownership for task record
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+            let owned = Self::get_owned_client_ids(user_id, resources)
+                .await
+                .map_err(|e| {
+                    error!("Failed to resolve client ownership: {e}");
+                    Box::new(Self::a2a_error(
+                        -32000,
+                        "Failed to resolve client ownership",
+                        request_id.cloned(),
+                    ))
+                })?;
+            let Some(client_id) = owned.first() else {
+                return Err(Box::new(Self::invalid_params(
+                    "No A2A client is registered for this user",
+                    request_id.cloned(),
+                )));
+            };
+
+            let input = to_value(&message).map_err(|e| {
+                error!("Failed to serialize A2A message: {e}");
+                Box::new(Self::a2a_error(
+                    -32603,
+                    "Failed to serialize message",
+                    request_id.cloned(),
+                ))
+            })?;
+
+            let task_id = repos
+                .a2a
+                .create_task(client_id, None, "message", &input, Some(&context_id))
+                .await
+                .map_err(|e| {
+                    error!("Failed to persist task: {e}");
+                    Box::new(Self::a2a_error(
+                        -32000,
+                        "Failed to persist task",
+                        request_id.cloned(),
+                    ))
+                })?;
+            info!("Created A2A task {task_id} for client {client_id}");
+            (task_id, context_id, Vec::new())
+        };
+
+        // Stamp the resolved ids onto the stored user message.
+        message.task_id = Some(task_id.clone()); // Safe: String ownership for message
+        message.context_id = Some(context_id.clone()); // Safe: String ownership for message
+        history.push(message.clone()); // Safe: Message ownership for history
+
+        let history_json = to_value(&history).map_err(|e| {
+            error!("Failed to serialize A2A history: {e}");
+            Box::new(Self::a2a_error(
+                -32603,
+                "Failed to serialize history",
+                request_id.cloned(),
+            ))
+        })?;
+        repos
+            .a2a
+            .update_task_wire_state(&task_id, Some(&history_json), None)
+            .await
+            .map_err(|e| {
+                error!("Failed to persist task history: {e}");
+                Box::new(Self::a2a_error(
+                    -32000,
+                    "Failed to persist task history",
+                    request_id.cloned(),
+                ))
+            })?;
+
+        Ok(PreparedSend {
+            task_id,
+            context_id,
+            user_message: message,
+            history,
+        })
+    }
+
+    /// Execute a prepared message against its task: transition to `working`,
+    /// run the tool intent (or echo), persist history/artifacts/status,
+    /// publish stream events, close the stream, and deliver push
+    /// notifications. Infallible by design — failures land on the task as
+    /// the `failed` state.
+    async fn run_task_message(
+        ctx: &Arc<dyn A2ACtx>,
+        tool_runtime: &Arc<dyn ToolRuntime>,
+        user_id: Uuid,
+        prepared: PreparedSend,
+    ) {
+        let PreparedSend {
+            task_id,
+            context_id,
+            user_message,
+            history,
+        } = prepared;
+
+        Self::transition_status(ctx, &task_id, &context_id, TaskState::Working, None).await;
+
+        let outcome = match Self::extract_tool_intent(&user_message) {
+            Some((tool_name, tool_params)) => {
+                Self::execute_registered_tool(ctx, tool_runtime, user_id, &tool_name, tool_params)
+                    .await
+                    .map_or_else(SendOutcome::Failure, |result| {
+                        SendOutcome::Tool(tool_name, result)
+                    })
+            }
+            // No tool intent: acknowledge with a real reply echoing the text.
+            None => SendOutcome::Echo,
+        };
+
+        match outcome {
+            SendOutcome::Failure(failure) => {
+                Self::finalize_failed(ctx, &task_id, &context_id, history, failure).await;
+            }
+            SendOutcome::Tool(tool_name, result) => {
+                let artifact = Artifact {
+                    artifact_id: Uuid::new_v4().to_string(),
+                    parts: vec![Part::data(result.clone())], // Safe: JSON value ownership for part
+                    name: Some(format!("{tool_name} result")),
+                    description: None,
+                    extensions: Vec::new(),
+                    metadata: None,
+                };
+                Self::finalize_completed(
+                    ctx,
+                    &task_id,
+                    &context_id,
+                    history,
+                    Some(artifact),
+                    format!("Tool {tool_name} completed"),
+                    Some(result),
+                )
+                .await;
+            }
+            SendOutcome::Echo => {
+                Self::finalize_completed(
+                    ctx,
+                    &task_id,
+                    &context_id,
+                    history,
+                    None,
+                    Self::collect_message_text(&user_message),
+                    None,
+                )
+                .await;
+            }
+        }
+
+        // Terminal state reached: end all subscriptions and notify webhooks.
+        TASK_EVENTS.close(&task_id);
+        Self::notify_webhooks(ctx, &task_id).await;
+    }
+
+    /// Build the agent reply for a terminal transition, stamped with the
+    /// task/context ids and appended to the history.
+    fn build_reply(
+        task_id: &str,
+        context_id: &str,
+        text: String,
+        history: &mut Vec<Message>,
+    ) -> Message {
+        let mut reply = Message::agent(Uuid::new_v4().to_string(), vec![Part::text(text)]);
+        reply.task_id = Some(task_id.to_owned());
+        reply.context_id = Some(context_id.to_owned());
+        history.push(reply.clone()); // Safe: Message ownership for history
+        reply
+    }
+
+    /// Terminal `failed` transition: explanatory agent reply, persisted
+    /// history and status, and a status-update stream event.
+    async fn finalize_failed(
+        ctx: &Arc<dyn A2ACtx>,
+        task_id: &str,
+        context_id: &str,
+        mut history: Vec<Message>,
+        failure: String,
+    ) {
+        let reply = Self::build_reply(task_id, context_id, failure, &mut history);
+        Self::persist_history(ctx, task_id, &history).await;
+
+        let status_message = to_value(&reply).ok();
+        if let Err(e) = ctx
+            .repos()
+            .a2a
+            .update_task_status(task_id, &TaskState::Failed, None, status_message.as_ref())
+            .await
+        {
+            error!("Failed to persist A2A task failure: {e}");
+        }
+        Self::publish_status(task_id, context_id, TaskState::Failed, Some(reply));
+    }
+
+    /// Terminal `completed` transition: agent reply, optional artifact with
+    /// its stream event, persisted wire state and status, and the final
+    /// status-update stream event.
+    async fn finalize_completed(
+        ctx: &Arc<dyn A2ACtx>,
+        task_id: &str,
+        context_id: &str,
+        mut history: Vec<Message>,
+        artifact: Option<Artifact>,
+        reply_text: String,
+        result: Option<Value>,
+    ) {
+        let reply = Self::build_reply(task_id, context_id, reply_text, &mut history);
+
+        let artifacts_json = artifact
+            .as_ref()
+            .and_then(|artifact| to_value(vec![artifact]).ok());
+        let history_json = to_value(&history).ok();
+        if let Err(e) = ctx
+            .repos()
+            .a2a
+            .update_task_wire_state(task_id, history_json.as_ref(), artifacts_json.as_ref())
+            .await
+        {
+            error!("Failed to persist A2A task wire state: {e}");
+        }
+
+        if let Some(artifact) = artifact {
+            TASK_EVENTS.publish(
+                task_id,
+                &StreamResponse::ArtifactUpdate(TaskArtifactUpdateEvent {
+                    task_id: task_id.to_owned(),
+                    context_id: context_id.to_owned(),
+                    artifact,
+                    append: false,
+                    last_chunk: true,
+                    metadata: None,
+                }),
+            );
+        }
+
+        let status_message = to_value(&reply).ok();
+        if let Err(e) = ctx
+            .repos()
+            .a2a
+            .update_task_status(
+                task_id,
+                &TaskState::Completed,
+                result.as_ref(),
+                status_message.as_ref(),
+            )
+            .await
+        {
+            error!("Failed to persist A2A task completion: {e}");
+        }
+        Self::publish_status(task_id, context_id, TaskState::Completed, Some(reply));
+    }
+
+    /// Persist the task's message history, logging (not propagating) failures.
+    async fn persist_history(ctx: &Arc<dyn A2ACtx>, task_id: &str, history: &[Message]) {
+        if let Ok(history_json) = to_value(history) {
+            if let Err(e) = ctx
+                .repos()
+                .a2a
+                .update_task_wire_state(task_id, Some(&history_json), None)
+                .await
+            {
+                error!("Failed to persist A2A task history: {e}");
             }
         }
     }
 
-    /// Extract a `(tool_name, parameters)` tool invocation from `message/send`
-    /// params. Recognizes a top-level `tool_name`/`parameters` shape and a
-    /// `Data` message part carrying the same keys.
-    #[must_use]
-    pub fn extract_tool_intent(params: &Value) -> Option<(String, Value)> {
-        if let Some(tool_name) = params.get("tool_name").and_then(Value::as_str) {
-            let tool_params = params
-                .get("parameters")
-                .cloned()
-                .unwrap_or_else(|| Value::Object(Map::default()));
-            return Some((tool_name.to_owned(), tool_params));
+    /// Persist and publish a non-terminal status transition.
+    async fn transition_status(
+        ctx: &Arc<dyn A2ACtx>,
+        task_id: &str,
+        context_id: &str,
+        state: TaskState,
+        message: Option<Message>,
+    ) {
+        let status_message = message.as_ref().and_then(|m| to_value(m).ok());
+        if let Err(e) = ctx
+            .repos()
+            .a2a
+            .update_task_status(task_id, &state, None, status_message.as_ref())
+            .await
+        {
+            error!("Failed to persist A2A task status transition: {e}");
         }
+        Self::publish_status(task_id, context_id, state, message);
+    }
 
-        let parts = params.get("parts").and_then(Value::as_array)?;
-        for part in parts {
-            if part.get("type").and_then(Value::as_str) != Some("data") {
-                continue;
+    /// Publish a status-update stream event.
+    fn publish_status(task_id: &str, context_id: &str, state: TaskState, message: Option<Message>) {
+        TASK_EVENTS.publish(
+            task_id,
+            &StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
+                task_id: task_id.to_owned(),
+                context_id: context_id.to_owned(),
+                status: WireTaskStatus {
+                    state,
+                    message,
+                    timestamp: Some(Self::now_timestamp()),
+                },
+                metadata: None,
+            }),
+        );
+    }
+
+    /// Deliver the task's current state to its registered webhooks.
+    async fn notify_webhooks(ctx: &Arc<dyn A2ACtx>, task_id: &str) {
+        let repos = ctx.repos();
+        let configs = match repos.a2a.list_push_configs(task_id).await {
+            Ok(configs) if !configs.is_empty() => configs,
+            Ok(_) => return,
+            Err(e) => {
+                error!("Failed to load A2A push configs: {e}");
+                return;
             }
-            let content = part.get("content")?;
+        };
+
+        let Ok(Some(record)) = repos.a2a.get_task(task_id).await else {
+            return;
+        };
+        let task = Self::wire_task(&record, None, true);
+        let event = StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
+            task_id: task.id.clone(), // Safe: String ownership for event
+            context_id: task.context_id.clone().unwrap_or_default(), // Safe: String ownership for event
+            status: task.status,
+            metadata: None,
+        });
+        push::deliver_task_update(&configs, &event).await;
+    }
+
+    /// Extract a `(tool_name, parameters)` tool invocation from a message:
+    /// a `data` part carrying `{"tool_name": ..., "parameters": {...}}`.
+    #[must_use]
+    pub fn extract_tool_intent(message: &Message) -> Option<(String, Value)> {
+        for part in &message.parts {
+            let PartContent::Data(content) = &part.content else {
+                continue;
+            };
             if let Some(tool_name) = content.get("tool_name").and_then(Value::as_str) {
                 let tool_params = content
                     .get("parameters")
-                    .cloned()
+                    .cloned() // Safe: JSON value ownership for execution
                     .unwrap_or_else(|| Value::Object(Map::default()));
                 return Some((tool_name.to_owned(), tool_params));
             }
@@ -501,71 +965,49 @@ impl A2AServer {
         None
     }
 
-    /// Concatenate the text content of all `text` message parts in a
-    /// `message/send` payload, falling back to an empty string.
+    /// Concatenate the text content of all `text` parts of a message.
     #[must_use]
-    pub fn collect_message_text(params: &Value) -> String {
-        params
-            .get("parts")
-            .and_then(Value::as_array)
-            .map(|parts| {
-                parts
-                    .iter()
-                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
-                    .filter_map(|part| part.get("content").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+    pub fn collect_message_text(message: &Message) -> String {
+        message
+            .parts
+            .iter()
+            .filter_map(|part| match &part.content {
+                PartContent::Text(text) => Some(text.as_str()),
+                _ => None,
             })
-            .unwrap_or_default()
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
-    /// Execute a registered tool against the authenticated user's tenant and
-    /// return the A2A tool-result JSON. Shared by `tools/call` and
-    /// `message/send` so both dispatch through the same real execution path.
+    /// Execute a registered tool against the authenticated user's tenant.
+    /// Returns the tool output on success, or a human-readable failure
+    /// description (surfaced on the task as the `failed` status message).
     async fn execute_registered_tool(
-        resources: &A2AResources,
+        ctx: &Arc<dyn A2ACtx>,
+        tool_runtime: &Arc<dyn ToolRuntime>,
         user_id: Uuid,
         tool_name: &str,
         tool_params: Value,
-        request_id: Option<&Value>,
-    ) -> Result<Value, Box<A2AResponse>> {
+    ) -> Result<Value, String> {
         // Resolve tenant context — required for all A2A tool execution.
         let tenant_context =
-            match extract_tenant_context_internal(resources.ctx.repos(), Some(user_id), None, None)
-                .await
-            {
-                Ok(Some(ctx)) => ctx,
-                Ok(None) => {
-                    return Err(Box::new(Self::a2a_error(
-                        -32001,
-                        "User does not belong to any tenant",
-                        request_id.cloned(),
-                    )));
-                }
+            match extract_tenant_context_internal(ctx.repos(), Some(user_id), None, None).await {
+                Ok(Some(context)) => context,
+                Ok(None) => return Err("User does not belong to any tenant".into()),
                 Err(e) => {
                     error!("Failed to resolve tenant context: {e}");
-                    return Err(Box::new(Self::a2a_error(
-                        -32603,
-                        "Failed to resolve tenant context",
-                        request_id.cloned(),
-                    )));
+                    return Err("Failed to resolve tenant context".into());
                 }
             };
 
-        let tool_registry = resources.tool_runtime.tool_registry();
-        if !tool_registry.contains(tool_name) {
-            return Err(Box::new(Self::a2a_error(
-                -32601,
-                format!("Unknown tool: {tool_name}"),
-                request_id.cloned(),
-            )));
+        if !tool_runtime.tool_registry().contains(tool_name) {
+            return Err(format!("Unknown tool: {tool_name}"));
         }
 
         // Route through the unified executor so A2A tool calls pass the Guardian
         // chokepoint and resolve admin/tenant context exactly like the MCP and
-        // chat paths. A2A previously called `ToolRegistry::execute` directly,
-        // bypassing both — this folds it onto the single execution path.
-        let executor = UniversalToolExecutor::new(resources.tool_runtime.clone());
+        // chat paths.
+        let executor = UniversalToolExecutor::new(tool_runtime.clone()); // Safe: Arc clone for executor
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -577,395 +1019,636 @@ impl A2AServer {
             progress_reporter: None,
         };
 
-        // Tool failures are reported in-band via `isError`, not as A2A protocol
-        // errors (preserving the prior contract).
         match executor.execute_tool(request).await {
-            Ok(response) => Ok(json!({
-                "content": response.result.unwrap_or_else(|| json!({ "error": response.error })),
-                "isError": !response.success,
-            })),
-            Err(e) => Ok(json!({
-                "content": json!({ "error": e.to_string() }),
-                "isError": true,
-            })),
+            Ok(response) if response.success => Ok(response
+                .result
+                .unwrap_or_else(|| Value::Object(Map::default()))),
+            Ok(response) => Err(response
+                .error
+                .unwrap_or_else(|| "Tool execution failed".into())),
+            Err(e) => Err(e.to_string()),
         }
     }
 
-    fn handle_message_stream(request: A2ARequest) -> A2AResponse {
-        // Advertise SSE streaming capability without a per-task endpoint;
-        // the transport-level stream is established by the A2A client.
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(json!({
-                "streaming_supported": true,
-                "stream_type": "text/event-stream",
-                "protocol": "SSE",
-                "status": "available"
-            })),
-            error: None,
-            id: request.id,
-        }
-    }
+    // ============================ Streaming entry ============================
 
-    async fn handle_task_create(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
-        let params_value = request.params.as_ref().unwrap_or(&Value::Null);
-
-        let task_params =
-            match from_value::<json_schemas::A2ATaskCreateParams>(params_value.clone()) {
-                Ok(params) => params,
-                Err(e) => {
-                    error!("Failed to parse A2A task create parameters: {}", e);
-                    return Self::a2a_error(-32602, "Invalid parameters", request.id);
-                }
-            };
-
-        let client_id = task_params.client_id;
-        let task_type = task_params.task_type;
-
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
-        if let Err(err) =
-            Self::verify_client_ownership(&client_id, &user_id, resources, request.id.as_ref())
-                .await
-        {
-            return err;
-        }
-
-        self.persist_and_respond_task(resources, &client_id, &task_type, params_value, request.id)
-            .await
-    }
-
-    /// Persist a new task to the database and return the A2A response.
-    async fn persist_and_respond_task(
+    /// Start a `SendStreamingMessage` exchange: prepare the task, subscribe
+    /// to its event stream, kick off background execution, and return the
+    /// initial task snapshot plus the live receiver. The HTTP layer frames
+    /// the snapshot and subsequent events as SSE.
+    ///
+    /// # Errors
+    ///
+    /// Returns the JSON-RPC error response when authentication, parameter
+    /// validation, or task preparation fails.
+    pub async fn start_streaming_message(
         &self,
-        resources: &A2AResources,
-        client_id: &str,
-        task_type: &str,
-        params_value: &Value,
-        request_id: Option<Value>,
-    ) -> A2AResponse {
-        let task_id = match resources
-            .ctx
-            .repos()
-            .a2a
-            .create_task(client_id, None, task_type, params_value)
-            .await
+        request: A2ARequest,
+    ) -> Result<(Task, broadcast::Receiver<StreamResponse>), Box<A2AResponse>> {
+        let Some(resources) = &self.resources else {
+            return Err(Box::new(Self::server_not_configured_error(request.id)));
+        };
+        let user_id = Self::authenticate_request(&request, resources)?;
+
+        let params: SendMessageRequest = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
         {
-            Ok(id) => {
-                info!("Created A2A task {} for client {}", id, client_id);
-                id
+            Ok(Some(params)) => params,
+            Ok(None) => {
+                return Err(Box::new(Self::invalid_params(
+                    "Missing params: message",
+                    request.id,
+                )))
             }
             Err(e) => {
-                error!("Failed to persist task: {e}");
-                return Self::a2a_error(-32000, "Failed to persist task", request_id);
+                return Err(Box::new(Self::invalid_params(
+                    format!("Invalid params: {e}"),
+                    request.id,
+                )))
             }
         };
 
-        let task = A2ATask {
-            id: task_id,
-            status: TaskStatus::Pending,
-            created_at: chrono::Utc::now(),
-            completed_at: None,
-            result: None,
-            error: None,
-            client_id: client_id.to_owned(),
-            task_type: task_type.to_owned(),
-            input_data: params_value.clone(), // Safe: JSON value ownership for task input
-            output_data: None,
-            error_message: None,
-            updated_at: chrono::Utc::now(),
-        };
-
-        match to_value(task) {
-            Ok(task_value) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(task_value),
-                error: None,
-                id: request_id,
-            },
-            Err(e) => {
-                error!("Failed to serialize A2A task: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task", request_id)
-            }
+        if params.message.parts.is_empty() {
+            return Err(Box::new(Self::invalid_params(
+                "message.parts must not be empty",
+                request.id,
+            )));
         }
-    }
 
-    async fn handle_task_get(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
+        let configuration = params.configuration.unwrap_or_default();
 
-        // Parse task_id from params
-        let params_value = request.params.as_ref().unwrap_or(&Value::Null);
-        let task_params = match from_value::<json_schemas::A2ATaskGetParams>(params_value.clone()) {
-            Ok(params) => params,
-            Err(e) => {
-                error!("Failed to parse A2A task get parameters: {}", e);
-                return Self::a2a_error(-32602, "Invalid parameters", request.id);
-            }
-        };
+        let prepared =
+            Self::prepare_send(resources, &user_id, params.message, request.id.as_ref()).await?;
 
-        let task_id = &task_params.task_id;
-        // Get task from database
-        match resources.ctx.repos().a2a.get_task(task_id).await {
-            Ok(Some(task)) => {
-                // Verify the task belongs to a client owned by the authenticated user
-                if let Err(err) = Self::verify_client_ownership(
-                    &task.client_id,
-                    &user_id,
-                    resources,
-                    request.id.as_ref(),
-                )
-                .await
-                {
-                    return err;
-                }
-                A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: Some(to_value(task).unwrap_or_default()),
-                    error: None,
-                    id: request.id,
-                }
-            }
-            Ok(None) => Self::a2a_error(-32601, "Task not found", request.id),
-            Err(e) => {
-                error!("A2A task get database error: {e}");
-                Self::a2a_error(-32000, "Database error", request.id)
-            }
+        if let Some(config_input) = configuration.push_notification_config {
+            Self::store_push_config(
+                resources,
+                &prepared.task_id,
+                config_input,
+                request.id.as_ref(),
+            )
+            .await?;
         }
-    }
 
-    async fn handle_task_list(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
+        // Subscribe before spawning so no event can be missed.
+        let receiver = TASK_EVENTS.subscribe(&prepared.task_id);
 
-        // Get the authenticated user's owned client IDs to scope the query
-        let owned_client_ids = match Self::get_owned_client_ids(&user_id, resources).await {
-            Ok(ids) => ids,
-            Err(e) => {
-                error!("Failed to resolve client ownership: {e}");
-                return Self::a2a_error(-32000, "Failed to resolve client ownership", request.id);
-            }
-        };
-
-        let params_value = request.params.as_ref().unwrap_or(&Value::Null);
-        let list_params = from_value::<json_schemas::A2ATaskListParams>(params_value.clone())
-            .unwrap_or(json_schemas::A2ATaskListParams {
-                client_id: None,
-                status: None,
-                limit: 20,
-                offset: None,
-            });
-
-        // If caller specifies a client_id, verify they own it; otherwise use their first client
-        let scoped_client_id = if let Some(ref requested) = list_params.client_id {
-            if !owned_client_ids.contains(requested) {
-                return Self::permission_denied_error(request.id);
-            }
-            Some(requested.as_str())
-        } else {
-            // Scope to first owned client; if user has no clients, return empty list
-            owned_client_ids.first().map(String::as_str)
-        };
-
-        let limit = Some(list_params.limit);
-        let offset = list_params.offset;
-
-        let status_filter = list_params
-            .status
-            .as_deref()
-            .and_then(|status_str| match status_str {
-                "pending" => Some(TaskStatus::Pending),
-                "running" => Some(TaskStatus::Running),
-                "completed" => Some(TaskStatus::Completed),
-                "failed" => Some(TaskStatus::Failed),
-                "cancelled" => Some(TaskStatus::Cancelled),
-                _ => None,
-            });
-
-        match resources
-            .ctx
-            .repos()
-            .a2a
-            .list_tasks(scoped_client_id, status_filter.as_ref(), limit, offset)
-            .await
-        {
-            Ok(tasks) => {
-                let tasks_json = to_value(&tasks).unwrap_or_default();
-                A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: Some(json!({
-                        "tasks": tasks_json,
-                        "total": tasks.len(),
-                        "limit": limit,
-                        "offset": offset.unwrap_or(0)
-                    })),
-                    error: None,
-                    id: request.id,
-                }
-            }
-            Err(e) => {
-                error!("A2A task list database error: {e}");
-                Self::a2a_error(-32000, "Database error", request.id)
-            }
-        }
-    }
-
-    fn handle_tools_list(&self, request: A2ARequest) -> A2AResponse {
-        // Get tools from registry if resources are available
-        let tools = self.resources.as_ref().map_or_else(
-            || {
-                // Fallback to minimal static list when resources unavailable
-                json!([
-                    {
-                        "name": "get_activities",
-                        "description": "Retrieve user fitness activities",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "limit": {"type": "number", "description": "Number of activities to retrieve"},
-                                "before": {"type": "string", "description": "ISO date to get activities before"}
-                            }
-                        }
-                    }
-                ])
-            },
-            |resources| {
-                // Use registry's user-visible schemas (excludes admin-only tools)
-                let schemas = resources.tool_runtime.tool_registry().user_visible_schemas();
-                // Convert ToolSchema structs to JSON values
-                let schema_values: Vec<Value> = schemas
-                    .into_iter()
-                    .filter_map(|schema| to_value(schema).ok())
-                    .collect();
-                Value::Array(schema_values)
-            },
-        );
-
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(json!({ "tools": tools })),
-            error: None,
-            id: request.id,
-        }
-    }
-
-    async fn handle_tool_call(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
-        // Extract tool call parameters
-        let params = request.params.unwrap_or_default();
-
-        let tool_name = params
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| {
-                warn!("Missing tool_name in A2A tool execution request, using 'unknown'");
-                "unknown"
-            });
-
-        let tool_params = params
-            .get("parameters")
-            .and_then(|v| v.as_object())
-            .cloned()
-            .map_or_else(|| Value::Object(Map::default()), Value::Object);
-
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
-
-        match Self::execute_registered_tool(
+        let snapshot = match Self::load_owned_task(
             resources,
-            user_id,
-            tool_name,
-            tool_params,
+            &prepared.task_id,
+            &user_id,
             request.id.as_ref(),
         )
         .await
         {
-            Ok(result) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(result),
-                error: None,
-                id: request.id,
+            Ok(record) => Self::wire_task(&record, configuration.history_length, true),
+            Err(err) => return Err(err),
+        };
+
+        let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
+        let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
+        let handle = tokio::spawn(async move {
+            Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
+        });
+        drop(handle); // Detached by design: completion is signalled by stream closure.
+
+        Ok((snapshot, receiver))
+    }
+
+    /// Start a `SubscribeToTask` stream: validate access, reject terminal
+    /// tasks, and return the current snapshot plus the live receiver. The
+    /// snapshot MUST be the first SSE frame (spec §9.4.2).
+    ///
+    /// # Errors
+    ///
+    /// Returns the JSON-RPC error response when authentication fails, the
+    /// task is unknown, or it is already terminal (`UnsupportedOperation`).
+    pub async fn start_task_subscription(
+        &self,
+        request: A2ARequest,
+    ) -> Result<(Task, broadcast::Receiver<StreamResponse>), Box<A2AResponse>> {
+        let Some(resources) = &self.resources else {
+            return Err(Box::new(Self::server_not_configured_error(request.id)));
+        };
+        let user_id = Self::authenticate_request(&request, resources)?;
+
+        let params: SubscribeParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => {
+                return Err(Box::new(Self::invalid_params(
+                    "Missing params: id",
+                    request.id,
+                )))
+            }
+            Err(e) => {
+                return Err(Box::new(Self::invalid_params(
+                    format!("Invalid params: {e}"),
+                    request.id,
+                )))
+            }
+        };
+
+        let record =
+            Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await?;
+
+        if record.status.is_terminal() {
+            return Err(Box::new(Self::spec_error(
+                A2ASpecError::UnsupportedOperation,
+                request.id,
+            )));
+        }
+
+        let receiver = TASK_EVENTS.subscribe(&record.id);
+        let snapshot = Self::wire_task(&record, params.history_length, true);
+        Ok((snapshot, receiver))
+    }
+
+    // ============================== Task queries =============================
+
+    async fn handle_get_task(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let params: GetTaskRequest = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => return Self::invalid_params("Missing params: id", request.id),
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
+
+        match Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await {
+            Ok(record) => {
+                let task = Self::wire_task(&record, params.history_length, true);
+                Self::task_response(&task, request.id)
+            }
+            Err(err) => *err,
+        }
+    }
+
+    /// Parse and validate `ListTasks` params into a [`ListTasksQuery`].
+    fn parse_list_tasks_params(request: &A2ARequest) -> Result<ListTasksQuery, Box<A2AResponse>> {
+        let params: ListTasksRequest = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(params) => params.unwrap_or_default(),
+            Err(e) => {
+                return Err(Box::new(Self::invalid_params(
+                    format!("Invalid params: {e}"),
+                    request.id.clone(),
+                )))
+            }
+        };
+
+        let page_size = params
+            .page_size
+            .unwrap_or(LIST_TASKS_DEFAULT_PAGE_SIZE)
+            .clamp(1, LIST_TASKS_MAX_PAGE_SIZE);
+
+        let offset = match params.page_token.as_deref() {
+            None | Some("") => 0_u32,
+            Some(token) => match token.strip_prefix('o').and_then(|n| n.parse::<u32>().ok()) {
+                Some(offset) => offset,
+                None => {
+                    return Err(Box::new(Self::invalid_params(
+                        "Invalid pageToken",
+                        request.id.clone(),
+                    )))
+                }
+            },
+        };
+
+        let updated_after = match params.status_timestamp_after.as_deref() {
+            None => None,
+            Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
+                Ok(instant) => Some(instant.with_timezone(&chrono::Utc)),
+                Err(_) => {
+                    return Err(Box::new(Self::invalid_params(
+                        "Invalid statusTimestampAfter: expected ISO-8601",
+                        request.id.clone(),
+                    )))
+                }
+            },
+        };
+
+        Ok(ListTasksQuery {
+            params,
+            page_size,
+            offset,
+            updated_after,
+        })
+    }
+
+    /// Fetch the caller's task records across every owned client (usually a
+    /// single client), merged and sorted by status timestamp descending.
+    async fn fetch_owned_task_records(
+        resources: &A2AResources,
+        user_id: &Uuid,
+        params: &ListTasksRequest,
+        updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        fetch_limit: u32,
+        request_id: Option<&Value>,
+    ) -> Result<Vec<A2ATask>, Box<A2AResponse>> {
+        let owned_client_ids = Self::get_owned_client_ids(user_id, resources)
+            .await
+            .map_err(|e| {
+                error!("Failed to resolve client ownership: {e}");
+                Box::new(Self::a2a_error(
+                    -32000,
+                    "Failed to resolve client ownership",
+                    request_id.cloned(),
+                ))
+            })?;
+
+        let mut records: Vec<A2ATask> = Vec::new();
+        for client_id in &owned_client_ids {
+            let tasks = resources
+                .ctx
+                .repos()
+                .a2a
+                .list_tasks(
+                    Some(client_id),
+                    params.status.as_ref(),
+                    params.context_id.as_deref(),
+                    updated_after,
+                    Some(fetch_limit),
+                    None,
+                )
+                .await
+                .map_err(|e| {
+                    error!("A2A task list database error: {e}");
+                    Box::new(Self::a2a_error(
+                        -32000,
+                        "Database error",
+                        request_id.cloned(),
+                    ))
+                })?;
+            records.extend(tasks);
+        }
+        records.sort_by_key(|record| Reverse(record.updated_at));
+        Ok(records)
+    }
+
+    async fn handle_list_tasks(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let query = match Self::parse_list_tasks_params(&request) {
+            Ok(query) => query,
+            Err(err) => return *err,
+        };
+        let ListTasksQuery {
+            params,
+            page_size,
+            offset,
+            updated_after,
+        } = query;
+
+        // Fetch one page-plus-one rows so the continuation token is exact.
+        let fetch_limit = offset.saturating_add(page_size).saturating_add(1);
+        let records = match Self::fetch_owned_task_records(
+            resources,
+            &user_id,
+            &params,
+            updated_after,
+            fetch_limit,
+            request.id.as_ref(),
+        )
+        .await
+        {
+            Ok(records) => records,
+            Err(err) => return *err,
+        };
+
+        let skip_count = usize::try_from(offset).unwrap_or(usize::MAX);
+        let take_count = usize::try_from(page_size).unwrap_or(usize::MAX);
+        let has_more = records.len() > skip_count.saturating_add(take_count);
+
+        let tasks: Vec<Task> = records
+            .iter()
+            .skip(skip_count)
+            .take(take_count)
+            .map(|record| Self::wire_task(record, params.history_length, params.include_artifacts))
+            .collect();
+
+        let next_page_token = if has_more {
+            format!("o{}", offset.saturating_add(page_size))
+        } else {
+            String::new()
+        };
+
+        let response = ListTasksResponse {
+            tasks,
+            next_page_token,
+        };
+        match to_value(&response) {
+            Ok(value) => Self::ok(value, request.id),
+            Err(e) => {
+                error!("Failed to serialize A2A task list: {e}");
+                Self::a2a_error(-32603, "Failed to serialize task list", request.id)
+            }
+        }
+    }
+
+    async fn handle_cancel_task(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let params: CancelParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => return Self::invalid_params("Missing params: id", request.id),
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
+
+        let record =
+            match Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await
+            {
+                Ok(record) => record,
+                Err(err) => return *err,
+            };
+
+        if record.status.is_terminal() {
+            return Self::spec_error(A2ASpecError::TaskNotCancelable, request.id);
+        }
+
+        if let Err(e) = resources
+            .ctx
+            .repos()
+            .a2a
+            .update_task_status(&record.id, &TaskState::Canceled, None, None)
+            .await
+        {
+            error!("Failed to cancel A2A task: {e}");
+            return Self::a2a_error(-32000, "Failed to cancel task", request.id);
+        }
+
+        let context_id = record.context_id.clone().unwrap_or_default();
+        Self::publish_status(&record.id, &context_id, TaskState::Canceled, None);
+        TASK_EVENTS.close(&record.id);
+        Self::notify_webhooks(&resources.ctx, &record.id).await;
+
+        match Self::load_owned_task(resources, &record.id, &user_id, request.id.as_ref()).await {
+            Ok(updated) => {
+                let task = Self::wire_task(&updated, None, true);
+                Self::task_response(&task, request.id)
+            }
+            Err(err) => *err,
+        }
+    }
+
+    // ========================= Push notification CRUD ========================
+
+    /// Validate and persist a push notification configuration on a task.
+    async fn store_push_config(
+        resources: &A2AResources,
+        task_id: &str,
+        input: PushNotificationConfigInput,
+        request_id: Option<&Value>,
+    ) -> Result<TaskPushNotificationConfig, Box<A2AResponse>> {
+        if let Err(reason) = push::validate_webhook_url(&input.url).await {
+            return Err(Box::new(Self::invalid_params(
+                format!("Invalid push notification URL: {reason}"),
+                request_id.cloned(),
+            )));
+        }
+
+        let now = chrono::Utc::now();
+        let record = A2APushNotificationConfig {
+            config_id: input.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+            task_id: task_id.to_owned(),
+            url: input.url,
+            token: input.token,
+            auth_scheme: input.authentication.as_ref().map(|a| a.scheme.clone()), // Safe: String ownership for record
+            auth_credentials: input
+                .authentication
+                .as_ref()
+                .and_then(|a| a.credentials.clone()), // Safe: String ownership for record
+            created_at: now,
+            updated_at: now,
+        };
+
+        resources
+            .ctx
+            .repos()
+            .a2a
+            .create_push_config(&record)
+            .await
+            .map_err(|e| {
+                error!("Failed to persist A2A push config: {e}");
+                Box::new(Self::a2a_error(
+                    -32000,
+                    "Failed to persist push notification config",
+                    request_id.cloned(),
+                ))
+            })?;
+
+        Ok(Self::wire_push_config(&record))
+    }
+
+    /// Convert a stored push config into its wire shape.
+    fn wire_push_config(record: &A2APushNotificationConfig) -> TaskPushNotificationConfig {
+        TaskPushNotificationConfig {
+            id: record.config_id.clone(), // Safe: String ownership for wire object
+            task_id: record.task_id.clone(), // Safe: String ownership for wire object
+            url: record.url.clone(),      // Safe: String ownership for wire object
+            token: record.token.clone(),  // Safe: String ownership for wire object
+            authentication: record.auth_scheme.as_ref().map(|scheme| {
+                PushNotificationAuthenticationInfo {
+                    scheme: scheme.clone(), // Safe: String ownership for wire object
+                    credentials: record.auth_credentials.clone(), // Safe: String ownership for wire object
+                }
+            }),
+        }
+    }
+
+    async fn handle_create_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let params: CreatePushConfigParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => return Self::invalid_params("Missing params: taskId, config", request.id),
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
+
+        if let Err(err) =
+            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+        {
+            return *err;
+        }
+
+        match Self::store_push_config(
+            resources,
+            &params.task_id,
+            params.config,
+            request.id.as_ref(),
+        )
+        .await
+        {
+            Ok(config) => match to_value(&config) {
+                Ok(value) => Self::ok(value, request.id),
+                Err(e) => {
+                    error!("Failed to serialize A2A push config: {e}");
+                    Self::a2a_error(-32603, "Failed to serialize push config", request.id)
+                }
             },
             Err(err) => *err,
         }
     }
 
-    fn handle_task_resubscribe(request: A2ARequest) -> A2AResponse {
-        let params = request.params.as_ref().unwrap_or(&Value::Null);
-        let task_id = params.get("task_id").and_then(|v| v.as_str());
+    async fn handle_get_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
 
-        if let Some(task_id) = task_id {
-            // Acknowledge resubscription; the SSE stream is re-established at
-            // the transport layer by the A2A client.
-            A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(json!({
-                    "task_id": task_id,
-                    "stream_type": "text/event-stream",
-                    "protocol": "SSE",
-                    "reconnected": true,
-                    "message": "Task stream available for resubscription"
-                })),
-                error: None,
-                id: request.id,
+        let params: PushConfigRefParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => {
+                return Self::invalid_params("Missing params: taskId, configId", request.id)
             }
-        } else {
-            Self::a2a_error(-32602, "Missing required parameter: task_id", request.id)
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
+
+        if let Err(err) =
+            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+        {
+            return *err;
+        }
+
+        match resources
+            .ctx
+            .repos()
+            .a2a
+            .get_push_config(&params.task_id, &params.config_id)
+            .await
+        {
+            Ok(Some(record)) => match to_value(Self::wire_push_config(&record)) {
+                Ok(value) => Self::ok(value, request.id),
+                Err(e) => {
+                    error!("Failed to serialize A2A push config: {e}");
+                    Self::a2a_error(-32603, "Failed to serialize push config", request.id)
+                }
+            },
+            Ok(None) => Self::invalid_params("Unknown push notification config id", request.id),
+            Err(e) => {
+                error!("Failed to load A2A push config: {e}");
+                Self::a2a_error(-32000, "Database error", request.id)
+            }
         }
     }
 
-    fn handle_task_cancel(request: A2ARequest) -> A2AResponse {
-        let params = request.params.unwrap_or_default();
-        let task_id = params
-            .get("task_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| {
-                warn!("Missing task_id in A2A task cancel request, using 'unknown'");
-                "unknown"
-            });
+    async fn handle_list_push_configs(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
 
-        // In a full implementation, this would cancel an active task
-        // Simulate task cancellation until full task management is implemented
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(json!({
-                "task_id": task_id,
-                "status": "cancelled",
-                "cancelled_at": chrono::Utc::now().to_rfc3339()
-            })),
-            error: None,
-            id: request.id,
+        let params: PushConfigListParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => return Self::invalid_params("Missing params: taskId", request.id),
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
+
+        if let Err(err) =
+            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+        {
+            return *err;
+        }
+
+        match resources
+            .ctx
+            .repos()
+            .a2a
+            .list_push_configs(&params.task_id)
+            .await
+        {
+            Ok(records) => {
+                let configs: Vec<TaskPushNotificationConfig> =
+                    records.iter().map(Self::wire_push_config).collect();
+                Self::ok(json!({ "configs": configs }), request.id)
+            }
+            Err(e) => {
+                error!("Failed to list A2A push configs: {e}");
+                Self::a2a_error(-32000, "Database error", request.id)
+            }
         }
     }
 
-    fn handle_push_notification_config(request: A2ARequest) -> A2AResponse {
-        let params = request.params.unwrap_or_default();
+    async fn handle_delete_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
 
-        // Extract notification configuration from params
-        let config = params.get("config").cloned().unwrap_or_default();
+        let params: PushConfigRefParams = match request
+            .params
+            .clone() // Safe: JSON value ownership for deserialization
+            .map(from_value)
+            .transpose()
+        {
+            Ok(Some(params)) => params,
+            Ok(None) => {
+                return Self::invalid_params("Missing params: taskId, configId", request.id)
+            }
+            Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
+        };
 
-        // In a full implementation, this would store push notification settings
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(json!({
-                "status": "configured",
-                "config": config,
-                "updated_at": chrono::Utc::now().to_rfc3339()
-            })),
-            error: None,
-            id: request.id,
+        if let Err(err) =
+            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+        {
+            return *err;
         }
-    }
 
-    fn handle_unknown_method(request: A2ARequest) -> A2AResponse {
-        Self::a2a_error(
-            -32601,
-            format!("Method not found: {}", request.method),
-            request.id,
-        )
+        match resources
+            .ctx
+            .repos()
+            .a2a
+            .delete_push_config(&params.task_id, &params.config_id)
+            .await
+        {
+            Ok(true) => Self::ok(Value::Object(Map::default()), request.id),
+            Ok(false) => Self::invalid_params("Unknown push notification config id", request.id),
+            Err(e) => {
+                error!("Failed to delete A2A push config: {e}");
+                Self::a2a_error(-32000, "Database error", request.id)
+            }
+        }
     }
 }
 
@@ -973,4 +1656,50 @@ impl Default for A2AServer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// `SubscribeToTask` params (`id` + optional `historyLength` for the snapshot).
+#[derive(serde::Deserialize)]
+struct SubscribeParams {
+    /// Task identifier
+    id: String,
+    /// History truncation for the initial snapshot
+    #[serde(rename = "historyLength", default)]
+    history_length: Option<u32>,
+}
+
+/// `CancelTask` params.
+#[derive(serde::Deserialize)]
+struct CancelParams {
+    /// Task identifier
+    id: String,
+}
+
+/// `CreateTaskPushNotificationConfig` params.
+#[derive(serde::Deserialize)]
+struct CreatePushConfigParams {
+    /// Task the config attaches to
+    #[serde(rename = "taskId")]
+    task_id: String,
+    /// The configuration to register
+    config: PushNotificationConfigInput,
+}
+
+/// `GetTaskPushNotificationConfig` / `DeleteTaskPushNotificationConfig` params.
+#[derive(serde::Deserialize)]
+struct PushConfigRefParams {
+    /// Task the config attaches to
+    #[serde(rename = "taskId")]
+    task_id: String,
+    /// The configuration identifier
+    #[serde(rename = "configId")]
+    config_id: String,
+}
+
+/// `ListTaskPushNotificationConfigs` params.
+#[derive(serde::Deserialize)]
+struct PushConfigListParams {
+    /// Task the configs attach to
+    #[serde(rename = "taskId")]
+    task_id: String,
 }

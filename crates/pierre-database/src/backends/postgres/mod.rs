@@ -202,16 +202,20 @@ impl PostgresDatabase {
     fn build_a2a_tasks_query(
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
+        context_id: Option<&str>,
+        updated_after: bool,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<String> {
         use std::fmt::Write;
-        // parameters/result are JSONB; cast to text so the shared row mapper (which
-        // decodes them as JSON strings, matching the SQLite TEXT columns) works on both backends.
+        // JSONB columns are cast to text so the shared row mapper (which decodes
+        // them as JSON strings, matching the SQLite TEXT columns) works on both backends.
         let mut query = String::from(
             r"
             SELECT task_id, session_token, task_type, parameters::text AS parameters,
-                   status, result::text AS result, created_at, updated_at
+                   status, result::text AS result, context_id,
+                   status_message::text AS status_message, history::text AS history,
+                   artifacts::text AS artifacts, created_at, updated_at
             FROM a2a_tasks
             ",
         );
@@ -231,12 +235,23 @@ impl PostgresDatabase {
             conditions.push(format!("status = ${bind_count}"));
         }
 
+        if context_id.is_some() {
+            bind_count += 1;
+            conditions.push(format!("context_id = ${bind_count}"));
+        }
+
+        if updated_after {
+            bind_count += 1;
+            conditions.push(format!("updated_at > ${bind_count}"));
+        }
+
         if !conditions.is_empty() {
             query.push_str(" WHERE ");
             query.push_str(&conditions.join(" AND "));
         }
 
-        query.push_str(" ORDER BY created_at DESC");
+        // A2A 1.0 ListTasks: ordered by status timestamp, most recent first.
+        query.push_str(" ORDER BY updated_at DESC");
 
         if limit.is_some() {
             bind_count += 1;

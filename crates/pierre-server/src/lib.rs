@@ -104,10 +104,6 @@ pub use pierre_health as health;
 /// Model Context Protocol server implementation
 pub mod mcp;
 
-/// A2A-coupled protocol converter (free functions that touch `crate::a2a::*`)
-#[cfg(feature = "protocol-a2a")]
-pub mod protocols_a2a;
-
 /// `HTTP` routes for user registration and `OAuth` flows
 pub mod routes;
 

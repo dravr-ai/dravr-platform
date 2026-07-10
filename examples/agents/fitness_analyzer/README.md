@@ -31,10 +31,12 @@ FitnessAnalysisAgent
 
 ## Technical Implementation
 
-**A2A Protocol Usage:**
+**A2A Protocol Usage (spec 1.0):**
 - HTTP POST to `/a2a/auth` with client_id/client_secret
 - JWT token management with expiry tracking
-- JSON-RPC 2.0 requests to `/a2a/execute` with `tools/call` method
+- JSON-RPC 2.0 requests to `/a2a/jsonrpc` with the `SendMessage` method
+  (`A2A-Version: 1.0` header; tool intent as a `data` part)
+- Tool output read from the terminal task's artifact `data` part
 - Request/response correlation via UUID
 
 **Analysis Logic:**
@@ -136,16 +138,22 @@ Response:
 
 ### Tool Execution
 ```json
-POST /a2a/execute
+POST /a2a/jsonrpc
+A2A-Version: 1.0
 Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbG...
 {
   "jsonrpc": "2.0",
-  "method": "tools/call",
+  "method": "SendMessage",
   "params": {
-    "name": "get_activities",
-    "arguments": {
-      "provider": "strava",
-      "limit": 100
+    "message": {
+      "messageId": "req_12345",
+      "role": "ROLE_USER",
+      "parts": [{
+        "data": {
+          "tool_name": "get_activities",
+          "parameters": { "provider": "strava", "limit": 100 }
+        }
+      }]
     }
   },
   "id": "req_12345"
@@ -154,16 +162,26 @@ Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbG...
 Response:
 {
   "jsonrpc": "2.0",
-  "result": [
-    {
-      "id": "activity_123",
-      "name": "Morning Run",
-      "sport_type": "Run",
-      "distance_meters": 5000,
-      "duration_seconds": 1800,
-      "start_date": "2024-01-15T08:00:00Z"
+  "result": {
+    "task": {
+      "id": "task_9f2...",
+      "contextId": "ctx_7c1...",
+      "status": { "state": "TASK_STATE_COMPLETED", "timestamp": "2026-07-09T19:00:00.000Z" },
+      "artifacts": [{
+        "artifactId": "a_1",
+        "parts": [{ "data": [
+          {
+            "id": "activity_123",
+            "name": "Morning Run",
+            "sport_type": "Run",
+            "distance_meters": 5000,
+            "duration_seconds": 1800,
+            "start_date": "2024-01-15T08:00:00Z"
+          }
+        ] }]
+      }]
     }
-  ],
+  },
   "id": "req_12345"
 }
 ```

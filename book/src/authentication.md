@@ -101,7 +101,7 @@ Save api key - cannot be retrieved later.
 
 ```bash
 curl -H "X-API-Key: <api_key>" \
-  http://localhost:8081/a2a/tools
+  http://localhost:8081/api/activities
 ```
 
 ### API Key Tiers

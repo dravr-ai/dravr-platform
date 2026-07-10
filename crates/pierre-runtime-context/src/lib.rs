@@ -154,14 +154,13 @@ pub trait McpDispatchCtx: Send + Sync + 'static {
 /// Covers what `pierre_a2a::protocol::A2AServer` and `pierre_a2a::auth::A2AAuthenticator`
 /// pull from `ServerContext` today: the JWT-validation auth pair (manager + JWKS) used
 /// by the A2A protocol's bearer-token authentication, the repository registry for
-/// A2A-client / OAuth-token / tenant lookups, and the configured server base URL
-/// used to construct SSE stream endpoints in `message/stream` and `tasks/resubscribe`
-/// responses.
+/// A2A-client / task / push-config lookups, and the configured server base URL
+/// used to construct the agent card's `supportedInterfaces` URLs.
 ///
 /// Deliberately omitted from this trait (to keep `pierre-runtime-context` free of
 /// `pierre-tool-runtime` / `pierre-middleware` / `pierre-a2a` cycles):
 /// - `Arc<dyn ToolRuntime>` — `A2AServer` accepts a separate `Arc<dyn ToolRuntime>`
-///   for `tools/list` and `tools/call` dispatch.
+///   for `SendMessage` tool-intent dispatch.
 /// - `Arc<McpAuthMiddleware>` — `A2AAuthenticator` accepts a separate handle for
 ///   API-key authentication.
 /// - `Arc<A2AClientManager>` — `A2AAuthenticator` accepts a separate handle for
@@ -174,13 +173,13 @@ pub trait A2ACtx: Send + Sync + 'static {
     fn jwks_manager(&self) -> &Arc<JwksManager>;
 
     /// Repository registry — primary data-access surface for A2A operations
-    /// (a2a clients, sessions, tasks, usage; `oauth_tokens` for credential
-    /// storage during `a2a/initialize`; `tenants` for default-tenant resolution
-    /// during `OAuth2` authentication).
+    /// (a2a clients, sessions, tasks, push-notification configs, usage;
+    /// `tenants` for default-tenant resolution during `OAuth2`
+    /// authentication).
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
-    /// Configured server base URL — used to construct SSE stream endpoints
-    /// returned in `message/stream` and `tasks/resubscribe` responses.
+    /// Configured server base URL — used to construct the agent card's
+    /// `supportedInterfaces` URLs.
     fn base_url(&self) -> &str;
 }
 

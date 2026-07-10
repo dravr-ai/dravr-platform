@@ -357,8 +357,8 @@ async fn test_get_agent_card_success() {
     assert!(!agent_card.name.is_empty());
     assert!(!agent_card.description.is_empty());
     assert!(!agent_card.version.is_empty());
-    assert!(!agent_card.capabilities.is_empty());
-    assert!(!agent_card.tools.is_empty());
+    assert!(!agent_card.supported_interfaces.is_empty());
+    assert!(!agent_card.skills.is_empty());
 }
 
 #[tokio::test]
@@ -372,28 +372,25 @@ async fn test_agent_card_structure_compliance() {
     assert!(agent_card.description.contains("AI-powered fitness"));
     assert!(!agent_card.version.is_empty());
 
-    // Test capabilities structure
-    assert!(agent_card
-        .capabilities
-        .contains(&"fitness-data-analysis".to_owned()));
-    assert!(agent_card
-        .capabilities
-        .contains(&"goal-management".to_owned()));
+    // A2A 1.0 capabilities object (this server implements both).
+    assert!(agent_card.capabilities.streaming);
+    assert!(agent_card.capabilities.push_notifications);
 
-    // Test tools structure
-    for tool in &agent_card.tools {
-        assert!(!tool.name.is_empty());
-        assert!(!tool.description.is_empty());
-        assert!(tool.input_schema.is_object());
-        assert!(tool.output_schema.is_object());
+    // Skills structure (required fields per AgentSkill).
+    for skill in &agent_card.skills {
+        assert!(!skill.id.is_empty());
+        assert!(!skill.name.is_empty());
+        assert!(!skill.description.is_empty());
+        assert!(!skill.tags.is_empty());
     }
 
-    // Test authentication configuration
-    assert!(!agent_card.authentication.schemes.is_empty());
-    assert!(agent_card
-        .authentication
-        .schemes
-        .contains(&"api-key".to_owned()));
+    // Security schemes are declared and referenced by the requirements.
+    let schemes = agent_card
+        .security_schemes
+        .as_ref()
+        .expect("securitySchemes must be declared");
+    assert!(schemes.contains_key("bearerAuth"));
+    assert!(!agent_card.security_requirements.is_empty());
 }
 
 // =============================================================================

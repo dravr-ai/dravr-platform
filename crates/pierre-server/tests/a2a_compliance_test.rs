@@ -1,301 +1,291 @@
-// ABOUTME: Integration tests for A2A (Agent-to-Agent) protocol compliance
-// ABOUTME: Validates adherence to Google A2A specification requirements
+// ABOUTME: Integration tests for A2A 1.0 protocol compliance
+// ABOUTME: Pins PascalCase methods, ProtoJSON wire shapes, spec error codes with google.rpc.ErrorInfo
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! A2A Protocol Compliance Tests
 //!
-//! Tests to ensure our A2A implementation complies with the official
-//! Google A2A specification at <https://github.com/google-a2a/A2A>
+//! Tests to ensure our A2A implementation complies with the A2A 1.0
+//! specification at <https://a2a-protocol.org/v1.0.0/specification>
+//! (normative data shapes per `specification/a2a.proto` at the tag).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use pierre_mcp_server::a2a::protocol::A2AServer;
+use pierre_mcp_server::a2a::protocol_types::{
+    Message, Part, PartContent, Role, StreamResponse, TaskState, TaskStatusUpdateEvent,
+    WireTaskStatus, A2A_VERSION,
+};
 use pierre_mcp_server::a2a::A2ARequest;
 use serde_json::json;
 use std::collections::HashMap;
 
-/// JSON-RPC error code when A2A server resources are not configured
-const SERVER_NOT_CONFIGURED_CODE: i32 = -32000;
-/// JSON-RPC auth error code used when authentication is required
-const AUTH_ERROR_CODE: i32 = -32001;
+/// JSON-RPC implementation-defined server error (config/auth failures)
+const SERVER_ERROR_CODE: i32 = -32000;
+
+fn request(method: &str, params: Option<serde_json::Value>) -> A2ARequest {
+    A2ARequest {
+        jsonrpc: "2.0".to_owned(),
+        method: method.to_owned(),
+        params,
+        id: Some(json!(1)),
+        auth_token: None,
+        headers: None,
+        metadata: HashMap::new(),
+    }
+}
+
+#[test]
+fn test_protocol_version_is_major_minor() {
+    // Spec §3.6: negotiated versions are Major.Minor — never a patch digit.
+    assert_eq!(A2A_VERSION, "1.0");
+}
 
 #[tokio::test]
 async fn test_jsonrpc_2_0_compliance() {
     let server = A2AServer::new();
 
-    // Test that all responses have jsonrpc: "2.0" (initialize does not require auth)
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "a2a/initialize".to_owned(),
-        params: None,
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = server.handle_request(request).await;
+    let response = server.handle_request(request("GetTask", None)).await;
     assert_eq!(response.jsonrpc, "2.0");
 }
 
 #[tokio::test]
-async fn test_unauthenticated_methods_require_auth() {
+async fn test_spec_methods_require_auth() {
     let server = A2AServer::new();
 
-    // Methods that use require_auth_then must reject unauthenticated requests
-    let protected_methods = vec!["tasks/create", "tasks/get", "a2a/tasks/list", "tools/call"];
+    // Every task/message/push method is authenticated (transport-level auth
+    // per the card's securitySchemes).
+    let protected_methods = vec![
+        "SendMessage",
+        "GetTask",
+        "ListTasks",
+        "CancelTask",
+        "CreateTaskPushNotificationConfig",
+        "GetTaskPushNotificationConfig",
+        "ListTaskPushNotificationConfigs",
+        "DeleteTaskPushNotificationConfig",
+    ];
 
     for method in protected_methods {
-        let request = A2ARequest {
-            jsonrpc: "2.0".to_owned(),
-            method: method.to_owned(),
-            params: None,
-            id: Some(json!(1)),
-            auth_token: None,
-            headers: None,
-            metadata: HashMap::new(),
-        };
-
-        let response = server.handle_request(request).await;
+        let response = server.handle_request(request(method, None)).await;
 
         assert!(
             response.error.is_some(),
             "Method {method} should require authentication"
         );
         let code = response.error.as_ref().unwrap().code;
-        assert!(
-            code == AUTH_ERROR_CODE || code == SERVER_NOT_CONFIGURED_CODE,
-            "Method {method} should return auth ({AUTH_ERROR_CODE}) or config ({SERVER_NOT_CONFIGURED_CODE}) error, got {code}"
+        assert_eq!(
+            code, SERVER_ERROR_CODE,
+            "Method {method} should return a -32000 auth/config error, got {code}"
         );
     }
 }
 
 #[tokio::test]
-async fn test_initialize_does_not_require_auth() {
+async fn test_pre_1_0_methods_are_gone() {
     let server = A2AServer::new();
 
-    // a2a/initialize is the bootstrapping endpoint and must work without auth
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "a2a/initialize".to_owned(),
-        params: None,
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
+    // The category/action strings of pre-1.0 and Pierre's bespoke methods
+    // were removed in the 1.0 cutover — all must be unknown (-32601).
+    let dead_methods = vec![
+        "a2a/initialize",
+        "message/send",
+        "message/stream",
+        "tasks/get",
+        "tasks/cancel",
+        "tasks/create",
+        "tasks/resubscribe",
+        "tasks/pushNotificationConfig/set",
+        "tools/list",
+        "tools/call",
+        "a2a/tools/call",
+        "a2a/tasks/list",
+        "agent/getAuthenticatedExtendedCard",
+    ];
 
-    let response = server.handle_request(request).await;
-    assert!(
-        response.error.is_none(),
-        "a2a/initialize should not require auth"
+    for method in dead_methods {
+        let response = server.handle_request(request(method, None)).await;
+        assert!(
+            response.error.is_some(),
+            "Method {method} should be unknown"
+        );
+        assert_eq!(
+            response.error.as_ref().unwrap().code,
+            -32601,
+            "Method {method} should return -32601 Method not found"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_extended_agent_card_not_configured() {
+    let server = A2AServer::new();
+
+    // capabilities.extendedAgentCard is false — the method must return
+    // -32007 ExtendedAgentCardNotConfiguredError with google.rpc.ErrorInfo.
+    let response = server
+        .handle_request(request("GetExtendedAgentCard", None))
+        .await;
+    let error = response.error.expect("expected -32007");
+    assert_eq!(error.code, -32007);
+
+    let details = error.data.expect("A2A errors must carry error.data");
+    let detail = &details.as_array().expect("data is an ErrorInfo array")[0];
+    assert_eq!(
+        detail["@type"], "type.googleapis.com/google.rpc.ErrorInfo",
+        "detail must be a google.rpc.ErrorInfo"
     );
-    assert!(response.result.is_some());
+    assert_eq!(detail["reason"], "EXTENDED_AGENT_CARD_NOT_CONFIGURED");
+    assert_eq!(detail["domain"], "a2a-protocol.org");
+}
+
+#[tokio::test]
+async fn test_streaming_methods_rejected_without_sse() {
+    let server = A2AServer::new();
+
+    // SendStreamingMessage/SubscribeToTask are answered with SSE by the HTTP
+    // layer; the non-streaming dispatcher must reject them.
+    for method in ["SendStreamingMessage", "SubscribeToTask"] {
+        let response = server.handle_request(request(method, None)).await;
+        assert!(response.error.is_some());
+        assert_eq!(response.error.as_ref().unwrap().code, -32600);
+    }
 }
 
 #[tokio::test]
 async fn test_error_code_compliance() {
     let server = A2AServer::new();
 
-    // Test unknown method returns correct error code (-32601 Method not found)
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "unknown/method".to_owned(),
-        params: None,
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = server.handle_request(request).await;
+    // Unknown method returns -32601 Method not found.
+    let response = server.handle_request(request("unknown/method", None)).await;
     assert!(response.error.is_some());
-    // Unknown methods are routed to handle_unknown_method which returns -32601
     assert_eq!(response.error.unwrap().code, -32601);
 }
 
-#[tokio::test]
-async fn test_agent_card_compliance() {
-    use pierre_mcp_server::a2a::agent_card::AgentCard;
-
-    let agent_card = AgentCard::new();
-
-    // Test required AgentCard fields
-    assert!(!agent_card.name.is_empty());
-    assert!(!agent_card.description.is_empty());
-    assert!(!agent_card.version.is_empty());
-    assert!(!agent_card.capabilities.is_empty());
-    assert!(!agent_card.tools.is_empty());
-
-    // Test authentication schemes are present
-    assert!(!agent_card.authentication.schemes.is_empty());
-
-    // Test tools have required fields
-    for tool in &agent_card.tools {
-        assert!(!tool.name.is_empty());
-        assert!(!tool.description.is_empty());
-        assert!(tool.input_schema.is_object());
-        assert!(tool.output_schema.is_object());
-    }
-}
-
-#[tokio::test]
-async fn test_message_structure_compliance() {
-    use pierre_mcp_server::a2a::{A2AMessage, MessagePart};
-    use std::collections::HashMap;
-
-    // Test message structure matches spec
-    let message = A2AMessage {
-        id: "test-message".to_owned(),
+#[test]
+fn test_message_structure_compliance() {
+    // ProtoJSON Message: messageId, ROLE_* enum, kindless parts whose oneof
+    // member name (text/raw/url/data) is the discriminator.
+    let message = Message {
+        message_id: "msg-1".to_owned(),
+        role: Role::User,
         parts: vec![
-            MessagePart::Text {
-                content: "Hello".to_owned(),
-            },
-            MessagePart::Data {
-                content: json!({"key": "value"}),
-            },
+            Part::text("Hello".to_owned()),
+            Part::data(json!({"key": "value"})),
         ],
-        metadata: Some(HashMap::new()),
+        context_id: None,
+        task_id: None,
+        reference_task_ids: Vec::new(),
+        extensions: Vec::new(),
+        metadata: None,
     };
 
-    // Verify serialization works and has correct structure
     let serialized = serde_json::to_value(&message).unwrap();
-    assert!(serialized["id"].is_string());
-    assert!(serialized["parts"].is_array());
-    assert_eq!(serialized["parts"].as_array().unwrap().len(), 2);
+    assert_eq!(serialized["messageId"], "msg-1");
+    assert_eq!(serialized["role"], "ROLE_USER");
+    let parts = serialized["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0]["text"], "Hello");
+    assert_eq!(parts[1]["data"]["key"], "value");
+    // kind discriminators were removed in 1.0.
+    assert!(parts[0].get("kind").is_none());
+    assert!(serialized.get("kind").is_none());
+
+    // Round-trip: the wire form deserializes back.
+    let round: Message = serde_json::from_value(serialized).unwrap();
+    assert_eq!(round, message);
 }
 
-#[tokio::test]
-async fn test_task_management_compliance() {
-    let server = A2AServer::new();
-
-    // Test that unauthenticated task creation is rejected (security requirement)
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "a2a/tasks/create".to_owned(),
-        params: Some(json!({"task_type": "example"})),
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = server.handle_request(request).await;
-    // tasks/create requires authentication - unauthenticated requests must be rejected
-    assert!(
-        response.error.is_some(),
-        "Unauthenticated tasks/create must return an error"
-    );
-    assert!(response.result.is_none());
-}
-
-#[tokio::test]
-async fn test_tools_schema_compliance() {
-    let server = A2AServer::new();
-
-    // Test tools list returns proper schema
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "a2a/tools/list".to_owned(),
-        params: None,
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = server.handle_request(request).await;
-    assert!(response.result.is_some());
-
-    let result = response.result.unwrap();
-    // Response format is {"tools": [...]} with tools wrapped in an object
-    let tools = &result["tools"];
-    assert!(tools.is_array(), "Expected tools array in response");
-
-    // Verify each tool has required schema
-    for tool in tools.as_array().unwrap() {
-        assert!(tool["name"].is_string());
-        assert!(tool["description"].is_string());
-        // Schema may use either "inputSchema" (MCP standard) or "parameters" (legacy)
-        assert!(
-            tool["inputSchema"].is_object() || tool["parameters"].is_object(),
-            "Tool must have inputSchema or parameters"
-        );
+#[test]
+fn test_task_state_wire_strings() {
+    // TaskState serializes as the ProtoJSON TASK_STATE_* names.
+    let cases = [
+        (TaskState::Submitted, "TASK_STATE_SUBMITTED"),
+        (TaskState::Working, "TASK_STATE_WORKING"),
+        (TaskState::Completed, "TASK_STATE_COMPLETED"),
+        (TaskState::Failed, "TASK_STATE_FAILED"),
+        (TaskState::Canceled, "TASK_STATE_CANCELED"),
+        (TaskState::InputRequired, "TASK_STATE_INPUT_REQUIRED"),
+        (TaskState::Rejected, "TASK_STATE_REJECTED"),
+        (TaskState::AuthRequired, "TASK_STATE_AUTH_REQUIRED"),
+    ];
+    for (state, wire) in cases {
+        assert_eq!(serde_json::to_value(state).unwrap(), json!(wire));
     }
+
+    assert!(TaskState::Completed.is_terminal());
+    assert!(TaskState::Rejected.is_terminal());
+    assert!(!TaskState::Working.is_terminal());
+    assert!(TaskState::InputRequired.is_interrupted());
+    assert!(TaskState::AuthRequired.is_interrupted());
+}
+
+#[test]
+fn test_stream_response_oneof_naming() {
+    // StreamResponse members are the proto oneof names statusUpdate /
+    // artifactUpdate — and the pre-1.0 `final` flag no longer exists.
+    let event = StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
+        task_id: "task-1".to_owned(),
+        context_id: "ctx-1".to_owned(),
+        status: WireTaskStatus {
+            state: TaskState::Completed,
+            message: None,
+            timestamp: Some("2026-07-09T00:00:00.000Z".to_owned()),
+        },
+        metadata: None,
+    });
+
+    let serialized = serde_json::to_value(&event).unwrap();
+    let update = &serialized["statusUpdate"];
+    assert_eq!(update["taskId"], "task-1");
+    assert_eq!(update["contextId"], "ctx-1");
+    assert_eq!(update["status"]["state"], "TASK_STATE_COMPLETED");
+    assert!(update.get("final").is_none());
+}
+
+#[test]
+fn test_part_content_variants() {
+    // The four oneof content members of Part, with mediaType (not mimeType).
+    let raw: Part = serde_json::from_value(json!({
+        "raw": "aGVsbG8=",
+        "filename": "hello.bin",
+        "mediaType": "application/octet-stream"
+    }))
+    .unwrap();
+    assert!(matches!(raw.content, PartContent::Raw(ref b) if b == "aGVsbG8="));
+    assert_eq!(raw.filename.as_deref(), Some("hello.bin"));
+    assert_eq!(raw.media_type.as_deref(), Some("application/octet-stream"));
+
+    let url: Part = serde_json::from_value(json!({"url": "https://example.com/x.gpx"})).unwrap();
+    assert!(matches!(url.content, PartContent::Url(_)));
 }
 
 #[tokio::test]
-async fn test_streaming_requirements() {
+async fn test_auth_errors_carry_error_info_reason() {
     let server = A2AServer::new();
 
-    // Test streaming endpoint exists and responds appropriately
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "a2a/message/stream".to_owned(),
-        params: Some(json!({"stream_id": "test"})),
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = server.handle_request(request).await;
-
-    // Should respond with status (even if not fully implemented)
-    assert!(response.result.is_some());
-    let result = response.result.unwrap();
-    assert!(result["status"].is_string());
-}
-
-#[tokio::test]
-async fn test_authentication_scheme_support() {
-    use pierre_mcp_server::a2a::agent_card::AgentCard;
-
-    let agent_card = AgentCard::new();
-
-    // Verify supported authentication schemes match A2A spec
-    let auth_schemes = &agent_card.authentication.schemes;
-
-    // Should support at least api-key and oauth2
-    assert!(auth_schemes.contains(&"api-key".to_owned()));
-    assert!(auth_schemes.contains(&"oauth2".to_owned()));
-
-    // Verify OAuth2 configuration is present
-    assert!(agent_card.authentication.oauth2.is_some());
-    let oauth2 = agent_card.authentication.oauth2.unwrap();
-    assert!(!oauth2.authorization_url.is_empty());
-    assert!(!oauth2.token_url.is_empty());
-    assert!(!oauth2.scopes.is_empty());
-
-    // Verify API key configuration
-    assert!(agent_card.authentication.api_key.is_some());
-    let api_key = agent_card.authentication.api_key.unwrap();
-    assert!(!api_key.header_name.is_empty());
-    assert!(!api_key.registration_url.is_empty());
+    // The A2A server without resources reports -32000 without auth details;
+    // a configured server tags auth failures with AUTHENTICATION_REQUIRED so
+    // the HTTP layer can map them to 401. Both stay in the -32000 space,
+    // never colliding with the A2A protocol codes -32001..-32099.
+    let response = server.handle_request(request("GetTask", None)).await;
+    let error = response.error.expect("expected error");
+    assert_eq!(error.code, SERVER_ERROR_CODE);
 }
 
 #[tokio::test]
 async fn test_id_preservation() {
     let server = A2AServer::new();
 
-    // Test that request ID is preserved in response (using initialize which doesn't need auth)
     let test_ids = vec![json!(1), json!("string-id"), json!(null)];
 
     for test_id in test_ids {
-        let request = A2ARequest {
-            jsonrpc: "2.0".to_owned(),
-            method: "a2a/initialize".to_owned(),
-            params: None,
-            id: Some(test_id.clone()),
-            auth_token: None,
-            headers: None,
-            metadata: HashMap::new(),
-        };
+        let mut req = request("GetExtendedAgentCard", None);
+        req.id = Some(test_id.clone());
 
-        let response = server.handle_request(request).await;
+        let response = server.handle_request(req).await;
         assert_eq!(response.id, Some(test_id));
     }
 }
@@ -304,48 +294,17 @@ async fn test_id_preservation() {
 async fn test_id_preservation_on_auth_errors() {
     let server = A2AServer::new();
 
-    // Verify request ID is preserved even when auth fails
     let test_ids = vec![json!(42), json!("req-abc"), json!(null)];
 
     for test_id in test_ids {
-        let request = A2ARequest {
-            jsonrpc: "2.0".to_owned(),
-            method: "tools/list".to_owned(),
-            params: None,
-            id: Some(test_id.clone()),
-            auth_token: None,
-            headers: None,
-            metadata: HashMap::new(),
-        };
+        let mut req = request("ListTasks", None);
+        req.id = Some(test_id.clone());
 
-        let response = server.handle_request(request).await;
+        let response = server.handle_request(req).await;
         assert_eq!(
             response.id,
             Some(test_id),
             "Request ID must be preserved in auth error responses"
         );
     }
-}
-
-#[tokio::test]
-async fn test_agent_card_with_custom_base_url() {
-    use pierre_mcp_server::a2a::agent_card::AgentCard;
-
-    let base_url = "https://api.pierre.ai";
-    let agent_card = AgentCard::with_base_url(base_url);
-
-    // Verify transport endpoints use the custom base URL
-    assert!(!agent_card.transports.is_empty());
-    let transport = &agent_card.transports[0];
-    assert!(
-        transport.endpoint.starts_with(base_url),
-        "Transport endpoint should use custom base URL"
-    );
-
-    // Verify OAuth URLs use the custom base URL
-    let oauth2 = agent_card.authentication.oauth2.as_ref().unwrap();
-    assert!(
-        oauth2.authorization_url.starts_with(base_url),
-        "OAuth URLs should use custom base URL"
-    );
 }

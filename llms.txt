@@ -338,12 +338,13 @@ templates/
 - **token refresh**: automatic token renewal via refresh tokens
 - **atomic operations**: consume_auth_code, consume_refresh_token (race-free)
 
-### 3. a2a protocol
-- **agent cards**: capability discovery and advertising
-- **cryptographic auth**: secure agent-to-agent communication
-- **protocol versioning**: forward-compatible design (a2a 1.0.0)
-- **async messaging**: non-blocking communication
-- **task queue**: a2a task management and result polling
+### 3. a2a protocol (spec 1.0, linux foundation)
+- **agent card**: /.well-known/agent-card.json with supportedInterfaces, skills, securitySchemes
+- **two bindings**: json-rpc (POST /a2a/jsonrpc) + http+json rest paths (functionally equivalent)
+- **version negotiation**: A2A-Version: 1.0 header required (absent -> -32009)
+- **task lifecycle**: SendMessage/GetTask/ListTasks/CancelTask, TASK_STATE_* states, artifacts + history
+- **streaming**: SendStreamingMessage/SubscribeToTask over sse (snapshot first, close on terminal)
+- **push notifications**: per-task webhook configs (CRUD) with ssrf-validated urls
 
 ### 4. pierre sdk (mcp bridge)
 - **stdio → http**: connects claude desktop to pierre server

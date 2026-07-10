@@ -9,6 +9,7 @@
 
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
+use pierre_core::models::a2a::A2APushNotificationConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -16,11 +17,7 @@ use pierre_database::{
     backends::{A2ARepository, ApiKeyRepository, UserRepository},
     database::{a2a::A2AUsage, Database},
 };
-use pierre_mcp_server::a2a::{
-    auth::A2AClient,
-    client::A2ASession,
-    protocol::{A2ATask, TaskStatus},
-};
+use pierre_mcp_server::a2a::{auth::A2AClient, client::A2ASession, protocol::TaskStatus};
 use uuid::Uuid;
 
 async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
@@ -201,35 +198,21 @@ async fn test_a2a_task_management() {
 
     let (client, _user_id) = create_test_client(&db).await;
 
-    // The canonical a2a_tasks is session-keyed with a FK to a2a_sessions, so a task
-    // must reference an existing session token. Create one first.
     let session_token = db
         .create_session(&client.id, None, &["read".into()], 1)
         .await
         .expect("Failed to create A2A session");
 
-    // Create task
-    let task = A2ATask {
-        id: format!("task_{}", Uuid::new_v4()),
-        client_id: client.id.clone(),
-        task_type: "analysis".into(),
-        input_data: serde_json::json!({"data": "test"}),
-        output_data: None,
-        status: TaskStatus::Pending,
-        result: None,
-        error: None,
-        error_message: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        completed_at: None,
-    };
-
+    // Create task — new tasks start in the A2A 1.0 `submitted` state and
+    // carry the server-assigned contextId.
+    let input_data = serde_json::json!({"data": "test"});
     let task_id = db
         .create_task(
-            &task.client_id,
+            &client.id,
             Some(&session_token),
-            &task.task_type,
-            &task.input_data,
+            "analysis",
+            &input_data,
+            Some("ctx-test-1"),
         )
         .await
         .expect("Failed to create A2A task");
@@ -242,13 +225,39 @@ async fn test_a2a_task_management() {
         .expect("Task not found");
 
     assert_eq!(retrieved.id, task_id);
-    assert_eq!(retrieved.status, TaskStatus::Pending);
+    assert_eq!(retrieved.status, TaskStatus::Submitted);
+    assert_eq!(retrieved.context_id.as_deref(), Some("ctx-test-1"));
+    assert_eq!(retrieved.input_data, input_data);
 
-    // Update task status
-    let output_data = serde_json::json!({"result": "success"});
-    db.update_task_status(&task_id, &TaskStatus::Completed, Some(&output_data), None)
+    // Persist wire history/artifacts JSON.
+    let history = serde_json::json!([{
+        "messageId": "m-1",
+        "role": "ROLE_USER",
+        "parts": [{ "text": "run analysis" }]
+    }]);
+    let artifacts = serde_json::json!([{
+        "artifactId": "a-1",
+        "parts": [{ "data": { "ok": true } }]
+    }]);
+    db.update_task_wire_state(&task_id, Some(&history), Some(&artifacts))
         .await
-        .expect("Failed to update task status");
+        .expect("Failed to update task wire state");
+
+    // Update task status with a result and a status message.
+    let result = serde_json::json!({"result": "success"});
+    let status_message = serde_json::json!({
+        "messageId": "m-2",
+        "role": "ROLE_AGENT",
+        "parts": [{ "text": "done" }]
+    });
+    db.update_task_status(
+        &task_id,
+        &TaskStatus::Completed,
+        Some(&result),
+        Some(&status_message),
+    )
+    .await
+    .expect("Failed to update task status");
 
     // Verify update
     let updated = db
@@ -258,8 +267,115 @@ async fn test_a2a_task_management() {
         .expect("Task not found");
 
     assert_eq!(updated.status, TaskStatus::Completed);
-    assert_eq!(updated.output_data, Some(output_data));
-    assert!(updated.completed_at.is_some());
+    assert!(updated.status.is_terminal());
+    assert_eq!(updated.result, Some(result));
+    assert_eq!(updated.status_message, Some(status_message));
+    assert_eq!(updated.history, Some(history));
+    assert_eq!(updated.artifacts, Some(artifacts));
+
+    // ListTasks filters: context + status, ordered by status timestamp.
+    let listed = db
+        .list_tasks(
+            Some(&session_token),
+            Some(&TaskStatus::Completed),
+            Some("ctx-test-1"),
+            None,
+            Some(10),
+            None,
+        )
+        .await
+        .expect("Failed to list A2A tasks");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, task_id);
+
+    let none_listed = db
+        .list_tasks(
+            Some(&session_token),
+            Some(&TaskStatus::Working),
+            None,
+            None,
+            Some(10),
+            None,
+        )
+        .await
+        .expect("Failed to list A2A tasks");
+    assert!(none_listed.is_empty());
+}
+
+#[tokio::test]
+async fn test_a2a_push_notification_config_crud() {
+    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+        .await
+        .expect("Failed to create test database");
+
+    let (client, _user_id) = create_test_client(&db).await;
+    let session_token = db
+        .create_session(&client.id, None, &["read".into()], 1)
+        .await
+        .expect("Failed to create A2A session");
+    let task_id = db
+        .create_task(
+            &client.id,
+            Some(&session_token),
+            "message",
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .expect("Failed to create A2A task");
+
+    let config = A2APushNotificationConfig {
+        config_id: "cfg-1".into(),
+        task_id: task_id.clone(),
+        url: "https://webhooks.example.com/a2a".into(),
+        token: Some("client-token".into()),
+        auth_scheme: Some("Bearer".into()),
+        auth_credentials: Some("secret".into()),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    db.create_push_config(&config)
+        .await
+        .expect("Failed to create push config");
+
+    let fetched = db
+        .get_push_config(&task_id, "cfg-1")
+        .await
+        .expect("Failed to get push config")
+        .expect("Push config not found");
+    assert_eq!(fetched.url, config.url);
+    assert_eq!(fetched.token, config.token);
+    assert_eq!(fetched.auth_scheme, config.auth_scheme);
+
+    // Upsert: same (task_id, config_id) replaces the registration.
+    let mut updated = config.clone();
+    updated.url = "https://webhooks.example.com/a2a/v2".into();
+    db.create_push_config(&updated)
+        .await
+        .expect("Failed to upsert push config");
+
+    let listed = db
+        .list_push_configs(&task_id)
+        .await
+        .expect("Failed to list push configs");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].url, updated.url);
+
+    // Delete reports whether a row existed.
+    assert!(db
+        .delete_push_config(&task_id, "cfg-1")
+        .await
+        .expect("Failed to delete push config"));
+    assert!(!db
+        .delete_push_config(&task_id, "cfg-1")
+        .await
+        .expect("Failed to delete push config twice"));
+    assert!(db
+        .get_push_config(&task_id, "cfg-1")
+        .await
+        .expect("Failed to get push config")
+        .is_none());
 }
 
 #[tokio::test]

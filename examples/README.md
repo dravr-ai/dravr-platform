@@ -279,14 +279,14 @@ examples/
        │ 4. Session Token                │
        │<─────────────────────────────────┤
        │                                  │
-       │ 5. POST /a2a/execute (tool)     │
+       │ 5. POST /a2a/jsonrpc SendMessage │
        ├─────────────────────────────────>│
-       │ 6. Tool Result                  │
+       │ 6. Task (terminal) + artifact   │
        │<─────────────────────────────────┤
        │                                  │
-       │ 7. POST /a2a/execute (task)     │
+       │ 7. SendMessage returnImmediately │
        ├─────────────────────────────────>│
-       │ 8. Task ID                      │
+       │ 8. Task snapshot (submitted)    │
        │<─────────────────────────────────┤
        │                                  │
        │ 9. Poll task status             │
@@ -316,11 +316,11 @@ Agent cards are JSON documents describing an agent's capabilities, similar to Op
 
 A2A supports both synchronous and asynchronous task execution.
 
-**Task Lifecycle:**
+**Task Lifecycle (A2A 1.0 states):**
 ```
-pending → running → completed
-                 ↘ failed
-                 ↘ cancelled
+TASK_STATE_SUBMITTED → TASK_STATE_WORKING → TASK_STATE_COMPLETED
+                                         ↘ TASK_STATE_FAILED
+                                         ↘ TASK_STATE_CANCELED
 ```
 
 **When to use tasks:**
@@ -333,14 +333,16 @@ pending → running → completed
 
 A2A uses JSON-RPC 2.0 over HTTP(S) as the transport protocol.
 
-**Standard methods:**
-- `a2a/initialize` - Protocol handshake
-- `tools/list` - Get available tools
-- `tools/call` - Execute a tool
-- `tasks/create` - Create long-running task
-- `tasks/get` - Query task status
-- `tasks/list` - List all tasks
-- `tasks/cancel` - Cancel a task
+**Standard methods (A2A 1.0, PascalCase):**
+- `SendMessage` - Deliver a message (tool intents run on a task; `returnImmediately` for async)
+- `SendStreamingMessage` / `SubscribeToTask` - Stream task events over SSE
+- `GetTask` - Query task status
+- `ListTasks` - List tasks (cursor-paginated)
+- `CancelTask` - Cancel a task
+- `CreateTaskPushNotificationConfig` (+ get/list/delete) - Webhook registrations
+
+Every request carries the `A2A-Version: 1.0` header. Tool discovery happens
+via the agent card's `skills` (GET /.well-known/agent-card.json).
 
 ### 4. Authentication
 

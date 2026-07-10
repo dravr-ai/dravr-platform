@@ -1,35 +1,34 @@
-// ABOUTME: Demonstrates A2A task lifecycle management with status tracking
-// ABOUTME: Shows how to create, monitor, and manage long-running A2A tasks
+// ABOUTME: Demonstrates A2A 1.0 task lifecycle management with status polling
+// ABOUTME: Shows SendMessage (returnImmediately), GetTask monitoring, and ListTasks pagination
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Task Lifecycle Management Example
+//! # Task Lifecycle Management Example (A2A 1.0)
 //!
-//! This example demonstrates A2A protocol's task management capabilities:
-//! 1. Creating long-running tasks
-//! 2. Monitoring task status with polling
-//! 3. Handling task state transitions (pending → running → completed/failed)
-//! 4. Retrieving task results
-//! 5. Listing and filtering tasks
-//! 6. Cancelling tasks
+//! This example demonstrates the A2A 1.0 task management surface:
+//! 1. Submitting work via `SendMessage` with `returnImmediately: true`
+//! 2. Monitoring task status with `GetTask` polling
+//! 3. Handling task state transitions (submitted → working → terminal)
+//! 4. Retrieving task artifacts
+//! 5. Listing tasks with `ListTasks` (cursor pagination)
 //!
-//! ## A2A Task Lifecycle
+//! ## A2A 1.0 Task Lifecycle
 //! ```text
-//! ┌─────────┐
-//! │ pending │  Task created, awaiting execution
-//! └────┬────┘
-//!      │
-//!      v
-//! ┌─────────┐
-//! │ running │  Task is actively being processed
-//! └────┬────┘
-//!      │
-//!      ├────────┐
-//!      v        v
-//! ┌──────────┐ ┌────────┐
-//! │completed │ │ failed │  Final states
-//! └──────────┘ └────────┘
+//! ┌───────────┐
+//! │ SUBMITTED │  Task received, awaiting execution
+//! └─────┬─────┘
+//!       │
+//!       v
+//! ┌───────────┐
+//! │  WORKING  │  Task is actively being processed
+//! └─────┬─────┘
+//!       │
+//!       ├───────────┬───────────┐
+//!       v           v           v
+//! ┌───────────┐ ┌────────┐ ┌──────────┐
+//! │ COMPLETED │ │ FAILED │ │ CANCELED │  Terminal states
+//! └───────────┘ └────────┘ └──────────┘
 //! ```
 
 use anyhow::{Context, Result};
@@ -40,37 +39,48 @@ use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// Task status enumeration
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum TaskStatus {
-    Pending,
-    Running,
+/// A2A 1.0 task states (ProtoJSON wire strings)
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
+enum TaskState {
+    #[serde(rename = "TASK_STATE_SUBMITTED")]
+    Submitted,
+    #[serde(rename = "TASK_STATE_WORKING")]
+    Working,
+    #[serde(rename = "TASK_STATE_COMPLETED")]
     Completed,
+    #[serde(rename = "TASK_STATE_FAILED")]
     Failed,
-    Cancelled,
+    #[serde(rename = "TASK_STATE_CANCELED")]
+    Canceled,
+    #[serde(rename = "TASK_STATE_INPUT_REQUIRED")]
+    InputRequired,
+    #[serde(rename = "TASK_STATE_REJECTED")]
+    Rejected,
+    #[serde(rename = "TASK_STATE_AUTH_REQUIRED")]
+    AuthRequired,
 }
 
-/// A2A Task representation
+/// A2A 1.0 task status object
 #[derive(Debug, Deserialize, Serialize)]
-struct A2ATask {
+struct TaskStatus {
+    state: TaskState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<Value>,
+}
+
+/// A2A 1.0 wire task
+#[derive(Debug, Deserialize, Serialize)]
+struct Task {
     id: String,
     status: TaskStatus,
-    created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    completed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    client_id: String,
-    task_type: String,
-    input_data: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output_data: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_message: Option<String>,
-    updated_at: String,
+    #[serde(rename = "contextId", skip_serializing_if = "Option::is_none")]
+    context_id: Option<String>,
+    #[serde(default)]
+    artifacts: Vec<Value>,
+    #[serde(default)]
+    history: Vec<Value>,
 }
 
 /// Task Manager Client
@@ -98,7 +108,7 @@ impl TaskManager {
         }
     }
 
-    /// Authenticate with A2A protocol
+    /// Authenticate with A2A client credentials
     async fn authenticate(&mut self, client_secret: &str) -> Result<()> {
         info!("🔐 Authenticating with A2A protocol");
 
@@ -137,26 +147,21 @@ impl TaskManager {
         Ok(())
     }
 
-    /// Create a new task
-    async fn create_task(&self, task_type: &str, input_data: Value) -> Result<A2ATask> {
-        info!("📝 Creating task: {}", task_type);
-
-        let request_id = Uuid::new_v4().to_string();
+    /// POST one A2A 1.0 JSON-RPC request (PascalCase method) and return the result.
+    async fn call(&self, method: &str, params: Value) -> Result<Value> {
         let request = json!({
             "jsonrpc": "2.0",
-            "method": "a2a/tasks/create",
-            "params": {
-                "client_id": self.client_id,
-                "task_type": task_type,
-                "input_data": input_data
-            },
-            "id": request_id
+            "method": method,
+            "params": params,
+            "id": Uuid::new_v4().to_string()
         });
 
         let response = self
             .http_client
-            .post(format!("{}/a2a/execute", self.server_url))
+            .post(format!("{}/a2a/jsonrpc", self.server_url))
             .header("Content-Type", "application/json")
+            // Spec §3.6: every request negotiates the protocol version.
+            .header("A2A-Version", "1.0")
             .header(
                 "Authorization",
                 format!("Bearer {}", self.access_token.as_ref().context("Not authenticated")?),
@@ -164,139 +169,108 @@ impl TaskManager {
             .json(&request)
             .send()
             .await
-            .context("Failed to create task")?;
+            .with_context(|| format!("Failed to call {method}"))?;
 
         let json_response: Value = response.json().await?;
 
         if let Some(error) = json_response.get("error") {
-            anyhow::bail!("Task creation failed: {error}");
+            anyhow::bail!("{method} failed: {error}");
         }
 
-        let task: A2ATask = serde_json::from_value(
-            json_response
-                .get("result")
-                .context("No result in response")?
-                .clone(),
-        )?;
-
-        info!("✅ Task created: {}", task.id);
-        Ok(task)
-    }
-
-    /// Get task status
-    async fn get_task(&self, task_id: &str) -> Result<A2ATask> {
-        let request_id = Uuid::new_v4().to_string();
-        let request = json!({
-            "jsonrpc": "2.0",
-            "method": "a2a/tasks/get",
-            "params": {
-                "task_id": task_id
-            },
-            "id": request_id
-        });
-
-        let response = self
-            .http_client
-            .post(format!("{}/a2a/execute", self.server_url))
-            .header("Content-Type", "application/json")
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.access_token.as_ref().context("Not authenticated")?),
-            )
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to get task")?;
-
-        let json_response: Value = response.json().await?;
-
-        if let Some(error) = json_response.get("error") {
-            anyhow::bail!("Get task failed: {error}");
-        }
-
-        let task: A2ATask = serde_json::from_value(
-            json_response
-                .get("result")
-                .context("No result in response")?
-                .clone(),
-        )?;
-
-        Ok(task)
-    }
-
-    /// List all tasks
-    async fn list_tasks(&self) -> Result<Vec<A2ATask>> {
-        info!("📋 Listing all tasks");
-
-        let request_id = Uuid::new_v4().to_string();
-        let request = json!({
-            "jsonrpc": "2.0",
-            "method": "a2a/tasks/list",
-            "params": {
-                "client_id": self.client_id,
-                "limit": 50
-            },
-            "id": request_id
-        });
-
-        let response = self
-            .http_client
-            .post(format!("{}/a2a/execute", self.server_url))
-            .header("Content-Type", "application/json")
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.access_token.as_ref().context("Not authenticated")?),
-            )
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to list tasks")?;
-
-        let json_response: Value = response.json().await?;
-
-        if let Some(error) = json_response.get("error") {
-            anyhow::bail!("List tasks failed: {error}");
-        }
-
-        let result = json_response
+        json_response
             .get("result")
-            .context("No result in response")?;
+            .cloned()
+            .context("No result in response")
+    }
 
-        let tasks: Vec<A2ATask> = serde_json::from_value(
-            result
-                .get("tasks")
-                .context("No tasks in result")?
-                .clone(),
+    /// Submit work without blocking: `SendMessage` with `returnImmediately`
+    /// returns the `submitted` task snapshot and executes in the background.
+    async fn submit_task(&self, tool_name: &str, parameters: Value) -> Result<Task> {
+        info!("📝 Submitting task for tool: {}", tool_name);
+
+        let result = self
+            .call(
+                "SendMessage",
+                json!({
+                    "message": {
+                        "messageId": Uuid::new_v4().to_string(),
+                        "role": "ROLE_USER",
+                        "parts": [{
+                            "data": { "tool_name": tool_name, "parameters": parameters }
+                        }]
+                    },
+                    "configuration": { "returnImmediately": true }
+                }),
+            )
+            .await?;
+
+        // SendMessage returns the SendMessageResponse oneof {"task": ...}.
+        let task: Task = serde_json::from_value(
+            result.get("task").context("No task in response")?.clone(),
         )?;
+
+        info!("✅ Task submitted: {}", task.id);
+        Ok(task)
+    }
+
+    /// Get task status via `GetTask`
+    async fn get_task(&self, task_id: &str) -> Result<Task> {
+        let result = self.call("GetTask", json!({ "id": task_id })).await?;
+        Ok(serde_json::from_value(result)?)
+    }
+
+    /// List tasks via `ListTasks` (first page)
+    async fn list_tasks(&self) -> Result<Vec<Task>> {
+        info!("📋 Listing tasks");
+
+        let result = self
+            .call("ListTasks", json!({ "pageSize": 50, "includeArtifacts": false }))
+            .await?;
+
+        let tasks: Vec<Task> = serde_json::from_value(
+            result.get("tasks").context("No tasks in result")?.clone(),
+        )?;
+
+        let next = result
+            .get("nextPageToken")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default();
+        if !next.is_empty() {
+            info!("   (more pages available, nextPageToken={next})");
+        }
 
         info!("✅ Found {} tasks", tasks.len());
         Ok(tasks)
     }
 
-    /// Monitor task until completion
-    async fn monitor_task(&self, task_id: &str, max_attempts: usize) -> Result<A2ATask> {
+    /// Monitor task until it reaches a terminal state
+    async fn monitor_task(&self, task_id: &str, max_attempts: usize) -> Result<Task> {
         info!("👀 Monitoring task: {}", task_id);
 
         for attempt in 1..=max_attempts {
             let task = self.get_task(task_id).await?;
 
-            match task.status {
-                TaskStatus::Pending => {
-                    info!("   [{}] Task is pending...", attempt);
+            match task.status.state {
+                TaskState::Submitted => {
+                    info!("   [{}] Task is submitted...", attempt);
                 }
-                TaskStatus::Running => {
-                    info!("   [{}] Task is running...", attempt);
+                TaskState::Working => {
+                    info!("   [{}] Task is working...", attempt);
                 }
-                TaskStatus::Completed => {
+                TaskState::InputRequired | TaskState::AuthRequired => {
+                    warn!("   [{}] ⏸ Task is interrupted: {:?}", attempt, task.status.state);
+                    return Ok(task);
+                }
+                TaskState::Completed => {
                     info!("   [{}] ✅ Task completed!", attempt);
                     return Ok(task);
                 }
-                TaskStatus::Failed => {
-                    warn!("   [{}] ❌ Task failed: {:?}", attempt, task.error_message);
+                TaskState::Failed => {
+                    warn!("   [{}] ❌ Task failed: {:?}", attempt, task.status.message);
                     return Ok(task);
                 }
-                TaskStatus::Cancelled => {
-                    warn!("   [{}] 🚫 Task was cancelled", attempt);
+                TaskState::Canceled | TaskState::Rejected => {
+                    warn!("   [{}] 🚫 Task ended: {:?}", attempt, task.status.state);
                     return Ok(task);
                 }
             }
@@ -311,44 +285,35 @@ impl TaskManager {
 
     /// Demonstrate full task lifecycle
     async fn demonstrate_task_lifecycle(&self) -> Result<()> {
-        info!("\n🔄 Demonstrating A2A Task Lifecycle\n");
+        info!("\n🔄 Demonstrating A2A 1.0 Task Lifecycle\n");
 
-        // Create a fitness analysis task
-        let input_data = json!({
-            "analysis_type": "weekly_summary",
-            "date_range": {
-                "start": "2024-01-01",
-                "end": "2024-01-07"
-            },
-            "metrics": ["distance", "duration", "elevation"]
-        });
-
-        // Step 1: Create task
-        let task = self.create_task("fitness_analysis", input_data).await?;
+        // Step 1: Submit a tool invocation as a non-blocking task
+        let task = self
+            .submit_task("get_activities", json!({ "limit": 5 }))
+            .await?;
         info!("\n📊 Task Details:");
         info!("   ID: {}", task.id);
-        info!("   Type: {}", task.task_type);
-        info!("   Status: {:?}", task.status);
-        info!("   Created: {}", task.created_at);
+        info!("   Context: {:?}", task.context_id);
+        info!("   State: {:?}", task.status.state);
 
-        // Step 2: Monitor task (simulated - in reality, Pierre doesn't have async task execution yet)
+        // Step 2: Monitor task until terminal
         info!("\n👀 Monitoring task status...");
         let final_task = self.monitor_task(&task.id, 5).await?;
 
         info!("\n📋 Final Task Status:");
         info!("   ID: {}", final_task.id);
-        info!("   Status: {:?}", final_task.status);
-        info!("   Updated: {}", final_task.updated_at);
+        info!("   State: {:?}", final_task.status.state);
+        info!("   Timestamp: {:?}", final_task.status.timestamp);
 
-        if let Some(result) = final_task.output_data {
-            info!("   Result: {}", serde_json::to_string_pretty(&result)?);
+        if let Some(artifact) = final_task.artifacts.first() {
+            info!("   Artifact: {}", serde_json::to_string_pretty(artifact)?);
         }
 
-        // Step 3: List all tasks
+        // Step 3: List tasks
         let tasks = self.list_tasks().await?;
-        info!("\n📚 All Tasks ({}):", tasks.len());
+        info!("\n📚 Tasks ({}):", tasks.len());
         for (idx, t) in tasks.iter().take(5).enumerate() {
-            info!("   {}. {} - {:?} - {}", idx + 1, t.id, t.status, t.task_type);
+            info!("   {}. {} - {:?}", idx + 1, t.id, t.status.state);
         }
 
         Ok(())
@@ -362,7 +327,7 @@ async fn main() -> Result<()> {
         .with_env_filter("task_manager_example=info")
         .init();
 
-    info!("🚀 A2A Task Lifecycle Management Example");
+    info!("🚀 A2A 1.0 Task Lifecycle Management Example");
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Load configuration

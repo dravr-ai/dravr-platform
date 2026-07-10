@@ -300,78 +300,64 @@ Implementation: `src/oauth2_server/`, `src/oauth2_server/rate_limiting.rs`
 
 ## A2A (Agent-to-Agent Protocol)
 
-Protocol for autonomous ai systems to communicate.
+Implements the [A2A protocol 1.0](https://a2a-protocol.org/v1.0.0/specification)
+(Linux Foundation) for autonomous agents. Two functionally equivalent
+bindings are exposed and declared in the agent card:
 
-### Endpoints
+- **JSONRPC** — `POST /a2a/jsonrpc` (JSON-RPC 2.0 envelopes; streaming
+  methods answer with SSE)
+- **HTTP+JSON** — REST paths under `/a2a` (`POST /a2a/message:send`,
+  `GET /a2a/tasks/{id}`, `POST /a2a/tasks/{id}:cancel`, …) with
+  `application/a2a+json` responses and `google.rpc.Status` errors
 
-- `GET /a2a/status` - protocol status
-- `GET /a2a/tools` - available tools
-- `POST /a2a/execute` - execute tool
-- `GET /a2a/monitoring` - monitoring info
+### Version negotiation
+
+Every protocol request must carry `A2A-Version: 1.0` (HTTP header, or the
+`?A2A-Version=1.0` query parameter). Requests without it are treated as 0.3
+semantics — unsupported — and receive `VersionNotSupportedError` (`-32009`).
+
+### Discovery
+
+`GET /.well-known/agent-card.json` (public, not version-gated) serves the
+A2A 1.0 agent card: `supportedInterfaces` (preference-ordered),
+`capabilities` (`streaming: true`, `pushNotifications: true`), `skills`,
+`securitySchemes`, and `securityRequirements`.
+
+### Methods (JSON-RPC, PascalCase per spec)
+
+| Method | Purpose |
+|---|---|
+| `SendMessage` | Deliver a message; tool intents run on a task, plain text gets a direct agent `Message` reply |
+| `SendStreamingMessage` | Same, streaming task events over SSE |
+| `GetTask` / `ListTasks` / `CancelTask` | Task queries and cancellation (`ListTasks` is cursor-paginated) |
+| `SubscribeToTask` | Reattach an SSE stream to a live task (snapshot first) |
+| `CreateTaskPushNotificationConfig` + get/list/delete | Webhook registrations, POSTed on task state changes |
+| `GetExtendedAgentCard` | Not configured — returns `-32007` |
+
+Tool invocation travels as a `data` part carrying
+`{"tool_name": ..., "parameters": {...}}`; the tool output lands on the
+task as an artifact `data` part.
 
 ### Authentication
 
-A2A endpoints use JWT Bearer authentication (same as MCP):
-```
-Authorization: Bearer <jwt_token>
-```
+Transport-level per the card's `securitySchemes`: a Pierre JWT bearer
+(`Authorization: Bearer <jwt>`) or an OAuth2 client-credentials token from
+`/oauth/token`. Unauthenticated protocol calls receive HTTP 401.
 
-Create jwt token via admin endpoint:
-```bash
-curl -X POST http://localhost:8081/api/keys \
-  -H "Authorization: Bearer <admin_jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My A2A System", "tier": "professional"}'
-```
+### Errors
 
-### Agent Cards
+A2A-specific JSON-RPC errors (`-32001..-32009`) carry a
+`google.rpc.ErrorInfo` detail in `error.data`
+(`reason`, `domain: "a2a-protocol.org"`). The HTTP+JSON binding maps them
+to HTTP statuses per the v1.0.1 table (`TaskNotFoundError` → 404, most
+others → 400).
 
-Agents advertise capabilities via agent cards:
-```json
-{
-  "agent_id": "fitness-analyzer",
-  "name": "Fitness Analyzer Agent",
-  "version": "1.0.0",
-  "capabilities": [
-    "activity_analysis",
-    "performance_prediction",
-    "goal_tracking"
-  ],
-  "endpoints": [
-    {
-      "path": "/a2a/execute",
-      "method": "POST",
-      "description": "Execute fitness analysis"
-    }
-  ]
-}
-```
+### Management surface (Pierre-specific, not part of the A2A spec)
 
-### Request Format
+- `GET /a2a/status`, `/a2a/clients` CRUD, `/a2a/dashboard/*` — client
+  registration and observability used by the web console.
 
-```json
-{
-  "tool": "analyze_activity",
-  "parameters": {
-    "activity_id": "12345",
-    "analysis_type": "comprehensive"
-  }
-}
-```
-
-### Response Format
-
-```json
-{
-  "success": true,
-  "result": {
-    "analysis": {...},
-    "recommendations": [...]
-  }
-}
-```
-
-Implementation: `src/a2a/`, `src/protocols/universal/`
+Implementation: `crates/pierre-a2a/`, `crates/pierre-routes-a2a/`
 
 ## REST API
 
@@ -441,10 +427,10 @@ Implementation: `src/sse/routes.rs`, `src/sse/`
 | feature | mcp | oauth2 | a2a | rest |
 |---------|-----|--------|-----|------|
 | primary use | ai assistants | client auth | agent comms | web apps |
-| auth method | jwt bearer | - | api key | jwt bearer |
-| transport | http + sse | http | http | http |
-| format | json-rpc 2.0 | oauth2 | json | json |
-| implementation | `src/mcp/` | `src/oauth2_server/` | `src/a2a/` | `src/routes/` |
+| auth method | jwt bearer | - | jwt bearer / oauth2 | jwt bearer |
+| transport | http + sse | http | http + sse | http |
+| format | json-rpc 2.0 | oauth2 | json-rpc 2.0 + http+json (A2A 1.0) | json |
+| implementation | `src/mcp/` | `src/oauth2_server/` | `crates/pierre-a2a/` | `src/routes/` |
 
 ## Choosing a Protocol
 

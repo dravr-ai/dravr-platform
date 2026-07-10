@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::a2a::{
-    A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
+    A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
 
 use serde_json::Value;
@@ -61,25 +61,50 @@ pub trait A2ARepository: Send + Sync {
         session_id: Option<&str>,
         task_type: &str,
         input_data: &Value,
+        context_id: Option<&str>,
     ) -> AppResult<String>;
     /// Get A2A task by ID
     async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>>;
-    /// List A2A tasks for a client with optional filtering
+    /// List A2A tasks for a client with optional filtering, ordered by
+    /// status timestamp (`updated_at`) descending per A2A 1.0 `ListTasks`
     async fn list_tasks(
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
+        context_id: Option<&str>,
+        updated_after: Option<DateTime<Utc>>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>>;
-    /// Update A2A task status
+    /// Update A2A task status, result, and the wire `TaskStatus.message` JSON
     async fn update_task_status(
         &self,
         task_id: &str,
         status: &TaskStatus,
         result: Option<&Value>,
-        error: Option<&str>,
+        status_message: Option<&Value>,
     ) -> AppResult<()>;
+    /// Replace the task's wire `history` (`Message[]`) and `artifacts`
+    /// (`Artifact[]`) JSON documents
+    async fn update_task_wire_state(
+        &self,
+        task_id: &str,
+        history: Option<&Value>,
+        artifacts: Option<&Value>,
+    ) -> AppResult<()>;
+    /// Store a push notification configuration for a task (A2A 1.0
+    /// `CreateTaskPushNotificationConfig`)
+    async fn create_push_config(&self, config: &A2APushNotificationConfig) -> AppResult<()>;
+    /// Get one push notification configuration of a task
+    async fn get_push_config(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> AppResult<Option<A2APushNotificationConfig>>;
+    /// List all push notification configurations of a task
+    async fn list_push_configs(&self, task_id: &str) -> AppResult<Vec<A2APushNotificationConfig>>;
+    /// Delete a push notification configuration; returns whether a row existed
+    async fn delete_push_config(&self, task_id: &str, config_id: &str) -> AppResult<bool>;
     /// Record A2A usage for analytics
     async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()>;
     /// Get current A2A usage count for a client

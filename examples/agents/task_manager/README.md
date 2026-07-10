@@ -4,30 +4,30 @@ Demonstrates A2A protocol's **task management** capabilities for long-running op
 
 ## What This Example Demonstrates
 
-### A2A Task Lifecycle:
-1. **Task Creation** - Submit long-running tasks via `tasks/create`
-2. **Status Monitoring** - Poll task status with `tasks/get`
-3. **State Transitions** - Track progression: pending → running → completed/failed
-4. **Result Retrieval** - Get task output when completed
-5. **Task Listing** - Query all tasks with `tasks/list`
-6. **Task Cancellation** - Cancel running tasks (if supported)
+### A2A 1.0 Task Lifecycle:
+1. **Task Submission** - `SendMessage` with `configuration.returnImmediately: true`
+2. **Status Monitoring** - Poll task status with `GetTask`
+3. **State Transitions** - Track progression: SUBMITTED → WORKING → terminal
+4. **Artifact Retrieval** - Tool output lands on the task as an artifact `data` part
+5. **Task Listing** - Query tasks with `ListTasks` (cursor-paginated)
+6. **Task Cancellation** - `CancelTask` (terminal tasks return TaskNotCancelableError)
 
 ## Task State Machine
 
 ```
-┌─────────┐
-│ pending │  Task created, awaiting execution
-└────┬────┘
-     │
-     v
-┌─────────┐
-│ running │  Task is actively being processed
-└────┬────┘
-     │
-     ├────────┐
-     v        v
-┌──────────┐ ┌────────┐
-│completed │ │ failed │  Final states
+┌───────────┐
+│ SUBMITTED │  Task received, awaiting execution
+└─────┬─────┘
+      │
+      v
+┌───────────┐
+│  WORKING  │  Task is actively being processed
+└─────┬─────┘
+      │
+      ├───────────┐
+      v           v
+┌───────────┐ ┌────────┐
+│ COMPLETED │ │ FAILED │  Final states
 └──────────┘ └────────┘
      ^
      │
@@ -148,54 +148,44 @@ Query all tasks for a client, with optional status filtering.
 | `PIERRE_A2A_CLIENT_ID` | `task_manager_client` | A2A client ID |
 | `PIERRE_A2A_CLIENT_SECRET` | `demo_secret_123` | A2A client secret |
 
-## Advanced Features (Not Yet Implemented)
+## Webhooks for Push Notifications
 
-### Webhooks for Push Notifications
-```json
-POST /a2a/execute
-{
-  "method": "tasks/pushNotificationConfig/set",
-  "params": {
-    "webhook_url": "https://my-agent.com/webhooks/task-updates",
-    "events": ["task.completed", "task.failed"]
-  }
-}
-```
-Instead of polling, receive push notifications when tasks complete.
+Instead of polling, register a webhook and receive a POST when the task
+reaches a significant state:
 
-### Task Prioritization
 ```json
+POST /a2a/jsonrpc  (A2A-Version: 1.0)
 {
-  "method": "tasks/create",
+  "jsonrpc": "2.0",
+  "method": "CreateTaskPushNotificationConfig",
   "params": {
-    "task_type": "urgent_analysis",
-    "priority": "high",  // high, normal, low
-    "input_data": {...}
-  }
+    "taskId": "task_...",
+    "config": {
+      "url": "https://my-agent.com/webhooks/task-updates",
+      "authentication": { "scheme": "Bearer", "credentials": "..." }
+    }
+  },
+  "id": 1
 }
 ```
 
-### Task Dependencies
-```json
-{
-  "method": "tasks/create",
-  "params": {
-    "task_type": "summary_report",
-    "depends_on": ["task_id_1", "task_id_2"]
-  }
-}
-```
+The webhook body is the `StreamResponse` status-update frame. Webhook URLs
+are SSRF-validated (loopback/private/link-local hosts are rejected).
+
+Streaming is also available: `SendStreamingMessage` / `SubscribeToTask`
+deliver task events over SSE (snapshot first, stream closes at the
+terminal state).
 
 ## A2A Specification Compliance
 
-This example demonstrates:
+This example demonstrates (A2A 1.0):
 
-- ✅ Task Creation (`tasks/create`)
-- ✅ Task Status Query (`tasks/get`)
-- ✅ Task Listing (`tasks/list`)
-- ✅ Task State Machine (pending/running/completed/failed/cancelled)
-- ✅ JSON-RPC 2.0 over HTTP
-- ⚠️ Push Notifications (configured but not yet active in Pierre)
+- ✅ Non-blocking submission (`SendMessage` + `returnImmediately`)
+- ✅ Task Status Query (`GetTask`)
+- ✅ Task Listing (`ListTasks`, cursor pagination)
+- ✅ Task State Machine (`TASK_STATE_*` states)
+- ✅ JSON-RPC 2.0 over HTTP with `A2A-Version: 1.0` negotiation
+- ✅ Push Notifications (`CreateTaskPushNotificationConfig` + webhook delivery)
 
 ## Learn More
 

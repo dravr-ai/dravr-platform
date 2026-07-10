@@ -81,7 +81,8 @@ export const a2aApi = {
   },
 
   async getA2AAgentCard() {
-    const response = await axios.get('/a2a/agent-card');
+    // A2A 1.0 discovery lives at the RFC 8615 well-known path.
+    const response = await axios.get('/.well-known/agent-card.json');
     return response.data;
   },
 

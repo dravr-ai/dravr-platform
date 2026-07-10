@@ -184,7 +184,9 @@ pub use api_key::{
 };
 
 // A2A protocol data types
-pub use a2a::{A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus};
+pub use a2a::{
+    A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
+};
 
 /// Usage, dashboard, and quota tracking types.
 pub mod usage;

@@ -25,11 +25,13 @@ dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1", features = ["rt", "macros", "sync"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "net"] }
 tracing = "0.1"
+url = "2"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [lints]

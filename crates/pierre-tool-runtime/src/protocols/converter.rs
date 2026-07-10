@@ -6,13 +6,10 @@
 
 //! Protocol Converter
 //!
-//! Converts between different protocol formats (MCP, A2A) and the universal format.
-//!
-//! The A2A-coupled bits (`a2a_to_universal`, `universal_to_a2a`) live in
-//! `pierre-server` because they touch `crate::a2a::*` types. The non-a2a
-//! surface (`mcp_to_universal`, `universal_to_mcp`, `detect_protocol`,
-//! tool-format helpers) lives here so `pierre-tool-runtime` can use them
-//! without pulling in the a2a glue.
+//! Converts between different protocol formats (MCP, A2A) and the universal
+//! format: `mcp_to_universal`, `universal_to_mcp`, `detect_protocol`, and
+//! the tool-format helpers. A2A requests are dispatched natively by
+//! `pierre_a2a::A2AServer` (no universal-format conversion step).
 
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalTool};
 use crate::protocols::{ProtocolError, ProtocolType};
@@ -216,10 +213,24 @@ impl ProtocolConverter {
             ProtocolError::SerializationError("Invalid JSON during protocol detection".into())
         })?;
 
-        // Check for A2A indicators
+        // Check for A2A indicators: the A2A 1.0 JSON-RPC method names are
+        // PascalCase (identical to the gRPC method names).
         if json.get("jsonrpc").is_some() && json.get("method").is_some() {
             if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                if method.starts_with("a2a/") {
+                const A2A_METHODS: [&str; 11] = [
+                    "SendMessage",
+                    "SendStreamingMessage",
+                    "GetTask",
+                    "ListTasks",
+                    "CancelTask",
+                    "SubscribeToTask",
+                    "CreateTaskPushNotificationConfig",
+                    "GetTaskPushNotificationConfig",
+                    "ListTaskPushNotificationConfigs",
+                    "DeleteTaskPushNotificationConfig",
+                    "GetExtendedAgentCard",
+                ];
+                if A2A_METHODS.contains(&method) {
                     return Ok(ProtocolType::A2A);
                 }
             }

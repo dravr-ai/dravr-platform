@@ -87,61 +87,6 @@ pub struct UpdateConfigurationRequest {
 }
 
 // ============================================================================
-// A2A Protocol Types
-// ============================================================================
-
-/// Parameters for creating an A2A task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2ATaskCreateParams {
-    /// Client identifier (optional, defaults to "unknown")
-    #[serde(default = "default_client_id")]
-    pub client_id: String,
-
-    /// Task type (accepts both `task_type` and `type` JSON keys)
-    #[serde(alias = "type")]
-    pub task_type: String,
-
-    /// Optional metadata about the task
-    #[serde(default)]
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-fn default_client_id() -> String {
-    "unknown".to_owned()
-}
-
-/// Parameters for retrieving an A2A task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2ATaskGetParams {
-    /// Task ID to retrieve
-    pub task_id: String,
-}
-
-/// Parameters for listing A2A tasks
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2ATaskListParams {
-    /// Optional client ID filter
-    #[serde(default)]
-    pub client_id: Option<String>,
-
-    /// Optional task status filter
-    #[serde(default)]
-    pub status: Option<String>,
-
-    /// Maximum number of results
-    #[serde(default = "default_limit")]
-    pub limit: u32,
-
-    /// Offset for pagination
-    #[serde(default)]
-    pub offset: Option<u32>,
-}
-
-const fn default_limit() -> u32 {
-    20
-}
-
-// ============================================================================
 // MCP Tool Parameter Types
 // ============================================================================
 
