@@ -28,7 +28,7 @@ use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
@@ -431,6 +431,18 @@ async fn login_result_to_response(
             .into_response())
         }
         LoginResult::Failed(reason) => {
+            // Provider rejected the user's credentials (wrong password, locked
+            // account, …). This is a *user* failure, not a server fault: log at
+            // `info!` for forensics only — no `error!` alert to
+            // `#dev-dravr-errors` and no `sync.failed` notify, which would be
+            // noise — and surface the provider's own (already user-appropriate)
+            // rejection text. Contrast `report_login_system_failure`, which
+            // alerts operators on an `Err(ScraperError)`.
+            info!(
+                user_id = %user_id,
+                provider = %provider_name,
+                "Sciotte login rejected by provider (user credentials)"
+            );
             drop(permit);
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
@@ -665,35 +677,70 @@ pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
     })
 }
 
-/// Log + alert a sciotte credential-login failure (hard error or timeout), then
-/// build the user-facing error. Emits the catalogued `sync.failed` notify event
-/// so a blocked/slow login reaches Slack + `PostHog` — the error reason carries
-/// the last page reached (sciotte v0.7.12), so the alert is actionable instead
-/// of a silent multi-minute spin. Extracted from `handle_sciotte_login` to keep
-/// that handler under the cognitive-complexity budget.
-fn report_credential_login_failure<E: Display>(
+/// Log + alert a sciotte login *system* failure — an `Err(ScraperError)` from
+/// the scraper (browser launch, navigation, login timeout, provider
+/// misconfiguration), as opposed to a `LoginResult::Failed` credential
+/// rejection (that path is a *user* failure, handled in
+/// `login_result_to_response`). `stage` names where in the flow it failed
+/// (`credential_login` / `two_factor` / `otp`).
+///
+/// Splits the failure between two audiences so neither is served the wrong
+/// thing:
+/// * **Operators** — the full technical reason is logged at `error!`, which
+///   `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel next to
+///   the other server-fault alerts (a browser-launch failure blocks *every*
+///   credential login on the revision, so it belongs there, not the
+///   `#dravr-events` firehose the `sync.failed` business event lands in). The
+///   reason names the last page reached (sciotte v0.7.12); `redact_url`
+///   scrubs any embedded `user:pass@` credentials before it leaves the
+///   process. The catalogued `sync.failed` notify event is still emitted so
+///   the `PostHog` analytics signal is preserved.
+/// * **The end user** — gets a friendly, generic message carrying no browser
+///   stderr, internal paths, or stack detail. `InvalidInput` exposes the
+///   message verbatim (see `AppError::sanitized_message`), so the friendly
+///   copy is exactly what the login modal / hosted login page render.
+pub fn report_login_system_failure<E: Display>(
     user_id: Uuid,
     tenant_id: Uuid,
     provider: &str,
+    stage: &str,
     error: &E,
 ) -> AppError {
-    // The error names the last page reached (sciotte v0.7.12), i.e. a provider
-    // URL. Scrub any embedded `user:pass@` credentials via the canonical
-    // redactor before it reaches the notify sink (Slack + third-party PostHog);
-    // the bare page URL stays so the alert is still actionable.
     let reason = redact_url(&error.to_string());
-    warn!(user_id = %user_id, reason = %reason, "Sciotte credential login failed");
+    error!(
+        user_id = %user_id,
+        provider = %provider,
+        stage = %stage,
+        reason = %reason,
+        "Sciotte login failed (system error)"
+    );
     info!(
         target: "notify",
         event = "sync.failed",
         user_id = %user_id,
         tenant_id = %tenant_id,
         provider = %provider,
-        trigger = "credential_login",
+        trigger = %stage,
         reason = %reason,
-        "sciotte credential login failed"
+        "sciotte login failed"
     );
-    AppError::invalid_input(format!("Login failed: {error}"))
+    AppError::invalid_input(friendly_login_failure_message(provider))
+}
+
+/// Friendly, provider-aware copy shown to the user when a sciotte login hits a
+/// *system* failure. Deliberately carries no technical detail — the actionable
+/// specifics live in the `error!` log + `#dev-dravr-errors` Slack alert emitted
+/// by `report_login_system_failure`.
+pub fn friendly_login_failure_message(provider: &str) -> String {
+    let display = if provider.contains("garmin") {
+        "Garmin"
+    } else {
+        "Strava"
+    };
+    format!(
+        "We couldn't sign you in to {display} right now. \
+         This is usually temporary — please try again in a few minutes."
+    )
 }
 
 /// Credential-based login via in-process dravr-sciotte
@@ -759,7 +806,8 @@ pub async fn handle_sciotte_login(
     {
         Ok(r) => r,
         Err(e) => {
-            let err = report_credential_login_failure(user_id, tenant_id, provider, &e);
+            let err =
+                report_login_system_failure(user_id, tenant_id, provider, "credential_login", &e);
             drop(permit);
             return Err(err);
         }
@@ -802,10 +850,10 @@ pub async fn handle_sciotte_select_2fa(
     let result = match scraper.select_two_factor(&request.option_id).await {
         Ok(r) => r,
         Err(e) => {
+            let err =
+                report_login_system_failure(user_id, tenant_id, &provider_name, "two_factor", &e);
             drop(permit);
-            return Err(AppError::invalid_input(format!(
-                "2FA verification failed: {e}"
-            )));
+            return Err(err);
         }
     };
 
@@ -851,10 +899,9 @@ pub async fn handle_sciotte_submit_otp(
     let result = match scraper.submit_otp(&request.code).await {
         Ok(r) => r,
         Err(e) => {
+            let err = report_login_system_failure(user_id, tenant_id, &provider_name, "otp", &e);
             drop(permit);
-            return Err(AppError::invalid_input(format!(
-                "Code verification failed: {e}"
-            )));
+            return Err(err);
         }
     };
 

@@ -85,6 +85,14 @@ mod short_link;
 
 #[cfg(feature = "provider-sciotte")]
 pub use sciotte::init_sciotte_limiter;
+// Re-exported for the sciotte login error-handling regression test
+// (`sciotte_login_error_handling_test`): the `sciotte` module is private and
+// the login handlers need real Chrome to exercise, so these two pure/near-pure
+// helpers are the testable seam guarding the "no raw error to the user" +
+// friendly-copy contract. Doc-hidden — internal-only, no external consumers.
+#[cfg(feature = "provider-sciotte")]
+#[doc(hidden)]
+pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
 
 // Re-export the cross-cutting auth DTOs so existing
 // `crate::routes::auth::*` paths in pierre-server tests + callers continue
