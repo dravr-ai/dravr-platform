@@ -34,28 +34,34 @@ backend_memory = "2Gi"
 backend_min_instances = 0
 # Capped at 3 by the DB connection budget (see the concurrency block below):
 # max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
-# concurrency=8 a single pod already absorbs a full ~13-request dashboard load,
-# so 3 pods is ample at dev scale (was 15, which fed the connection-slot herd).
+# concurrency=80 a single pod absorbs a whole user's ~13-request dashboard load
+# (one user = one pod), so 3 pods is ample at dev scale — it caps concurrent
+# coaching turns (ACP-mutex-serialized, 1 per pod) at 3 (was 15, which combined
+# with concurrency=1 fed the connection-slot herd).
 backend_max_instances = 3
 
-# Request concurrency is 8, NOT 1. The old "one turn per pod or it OOMs" premise
-# was stale: a coaching turn does NOT hold two fresh heavyweight children. The
-# `copilot --acp` Node process is a single long-lived SINGLETON shared across all
-# turns (built once at startup, kept warm), and the ACP transport mutex already
-# serializes LLM turns onto it — raising concurrency cannot multiply Node procs.
-# Headless Chrome only spawns on a cold-cache sciotte scrape and is independently
-# capped by backend_sciotte_max_concurrent below, not by request concurrency. So
-# a warm-cache turn holds no fresh child, and concurrency=1 only served to turn a
-# ~13-request dashboard load into a 13-instance cold-start herd that then
+# Request concurrency is 80 (Cloud Run's default), NOT 1. The old "one turn per
+# pod or it OOMs" premise was stale: a coaching turn does NOT hold two fresh
+# heavyweight children. The `copilot --acp` Node process is a single long-lived
+# SINGLETON shared across all turns (built once, kept warm), and the ACP transport
+# mutex already serializes LLM turns onto it — so concurrent chat turns per pod are
+# capped by that mutex, NOT by this setting. Headless Chrome only spawns on a
+# cold-cache sciotte scrape and is capped by backend_sciotte_max_concurrent below.
+# concurrency=1 was pure harm: it forced one pod per request, so a single user's
+# ~13-request parallel dashboard load cold-started ~13 pods (a herd) that then
 # exhausted the Postgres connection slots (rev 00679, 2026-07-10 incident).
 #
-# The real binding constraint is the DB connection budget, not memory. The
-# db-f1-micro Postgres allows max_connections=25 − 3 superuser-reserved = 22
-# usable; leave ~4 for migrations / the sql-client + drift-check jobs → ~18 for
-# the api service. INVARIANT: max_instances × POSTGRES_MAX_CONNECTIONS ≤ 18.
+# Key point: request concurrency and the DB connection budget are DECOUPLED. A pod
+# accepts up to 80 concurrent HTTP requests but funnels them through a small sqlx
+# pool (POSTGRES_MAX_CONNECTIONS=6) — each request holds a connection only for its
+# ~1ms query, then releases. So per-pod DB use is bounded by the POOL, not by
+# concurrency, and one pod serves a whole user's dashboard (one user = one pod).
+# INVARIANT: the budget is max_instances × POSTGRES_MAX_CONNECTIONS (NOT ×
+# concurrency) ≤ 18 (22 usable − ~4 for migrations / sql-client + drift jobs).
 # Here 3 × 6 = 18. POSTGRES_MIN_CONNECTIONS=0 (main.tf) so idle/booting pods hold
-# zero slots. Raising either knob requires raising the DB tier first.
-backend_max_instance_request_concurrency = 8
+# zero slots. Raising max_instances or the pool requires a bigger DB tier first;
+# raising concurrency is free (pool-bounded).
+backend_max_instance_request_concurrency = 80
 backend_sciotte_max_concurrent           = 1
 
 # database_tier                = "db-f1-micro"
