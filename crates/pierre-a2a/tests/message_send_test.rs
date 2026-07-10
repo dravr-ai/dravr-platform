@@ -1,91 +1,101 @@
-// ABOUTME: Unit tests for the A2A message/send forwarding logic and helpers
-// ABOUTME: Verifies tool-intent extraction, text collection, and auth gating of message/send
+// ABOUTME: Unit tests for the A2A 1.0 SendMessage helpers and auth gating
+// ABOUTME: Verifies tool-intent extraction from data parts, text collection, and unauthenticated rejection
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tests for `A2AServer::handle_message_send` and its supporting helpers.
+//! Tests for `A2AServer` `SendMessage` supporting helpers.
 //!
-//! `message/send` is now authenticated and forwards real work: either a tool
-//! invocation through the shared registry path, or a real reply `Message`
-//! echoing the received text. These tests cover the pure helpers and confirm
-//! that an unconfigured server rejects `message/send` rather than returning a
-//! hardcoded success constant.
+//! `SendMessage` is authenticated and forwards real work: either a tool
+//! invocation through the shared registry path (a `data` part carrying
+//! `tool_name`/`parameters`), or a message-only exchange answered with a
+//! real reply `Message` echoing the received text.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use pierre_a2a::protocol::A2AServer;
+use pierre_a2a::protocol_types::{Message, Part, Role};
 use pierre_a2a::A2ARequest;
 use serde_json::json;
 use std::collections::HashMap;
 
-#[test]
-fn test_extract_tool_intent_top_level() {
-    let params = json!({
-        "tool_name": "get_activities",
-        "parameters": { "limit": 5 }
-    });
-
-    let (name, tool_params) = A2AServer::extract_tool_intent(&params).expect("intent");
-    assert_eq!(name, "get_activities");
-    assert_eq!(tool_params["limit"], 5);
+fn user_message(parts: Vec<Part>) -> Message {
+    Message {
+        message_id: "m-test".to_owned(),
+        role: Role::User,
+        parts,
+        context_id: None,
+        task_id: None,
+        reference_task_ids: Vec::new(),
+        extensions: Vec::new(),
+        metadata: None,
+    }
 }
 
 #[test]
 fn test_extract_tool_intent_from_data_part() {
-    let params = json!({
-        "parts": [
-            { "type": "text", "content": "please run this" },
-            { "type": "data", "content": { "tool_name": "get_athlete", "parameters": {} } }
-        ]
-    });
+    let message = user_message(vec![
+        Part::text("please run this".to_owned()),
+        Part::data(json!({ "tool_name": "get_athlete", "parameters": { "limit": 5 } })),
+    ]);
 
-    let (name, _params) = A2AServer::extract_tool_intent(&params).expect("intent");
+    let (name, params) = A2AServer::extract_tool_intent(&message).expect("intent");
     assert_eq!(name, "get_athlete");
+    assert_eq!(params["limit"], 5);
+}
+
+#[test]
+fn test_extract_tool_intent_defaults_parameters() {
+    let message = user_message(vec![Part::data(json!({ "tool_name": "get_activities" }))]);
+
+    let (name, params) = A2AServer::extract_tool_intent(&message).expect("intent");
+    assert_eq!(name, "get_activities");
+    assert!(params.as_object().unwrap().is_empty());
 }
 
 #[test]
 fn test_extract_tool_intent_absent_for_plain_text() {
-    let params = json!({
-        "parts": [{ "type": "text", "content": "hello agent" }]
-    });
+    let message = user_message(vec![Part::text("hello agent".to_owned())]);
 
-    assert!(A2AServer::extract_tool_intent(&params).is_none());
+    assert!(A2AServer::extract_tool_intent(&message).is_none());
 }
 
 #[test]
 fn test_collect_message_text_joins_text_parts() {
-    let params = json!({
-        "parts": [
-            { "type": "text", "content": "line one" },
-            { "type": "data", "content": { "k": "v" } },
-            { "type": "text", "content": "line two" }
-        ]
-    });
+    let message = user_message(vec![
+        Part::text("line one".to_owned()),
+        Part::data(json!({ "k": "v" })),
+        Part::text("line two".to_owned()),
+    ]);
 
     assert_eq!(
-        A2AServer::collect_message_text(&params),
+        A2AServer::collect_message_text(&message),
         "line one\nline two"
     );
 }
 
 #[test]
 fn test_collect_message_text_empty_when_no_text_parts() {
-    let params = json!({ "parts": [] });
-    assert_eq!(A2AServer::collect_message_text(&params), "");
+    let message = user_message(vec![Part::data(json!({}))]);
+    assert_eq!(A2AServer::collect_message_text(&message), "");
 }
 
 #[tokio::test]
-async fn test_message_send_requires_auth() {
+async fn test_send_message_requires_auth() {
     let server = A2AServer::new();
 
-    // Without resources/auth the server must reject message/send instead of
-    // returning the previous hardcoded {"status":"received"} constant.
+    // Without resources/auth the server must reject SendMessage.
     let request = A2ARequest {
         jsonrpc: "2.0".to_owned(),
-        method: "message/send".to_owned(),
-        params: Some(json!({ "parts": [{ "type": "text", "content": "hi" }] })),
+        method: "SendMessage".to_owned(),
+        params: Some(json!({
+            "message": {
+                "messageId": "m-1",
+                "role": "ROLE_USER",
+                "parts": [{ "text": "hi" }]
+            }
+        })),
         id: Some(json!(7)),
         auth_token: None,
         headers: None,
@@ -94,14 +104,10 @@ async fn test_message_send_requires_auth() {
 
     let response = server.handle_request(request).await;
     assert!(response.result.is_none());
-    let error = response
-        .error
-        .expect("message/send must error without auth");
-    // -32001 (auth required) or -32000 (server not configured) are both valid:
-    // the dispatcher requires auth before reaching the (absent) resources.
-    assert!(
-        error.code == -32001 || error.code == -32000,
-        "unexpected error code {}",
+    let error = response.error.expect("SendMessage must error without auth");
+    assert_eq!(
+        error.code, -32000,
+        "auth/config failures stay in the -32000 space, got {}",
         error.code
     );
 }

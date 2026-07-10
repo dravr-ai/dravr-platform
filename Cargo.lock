@@ -3266,11 +3266,13 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-tool-runtime",
  "rand 0.9.4",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -3846,6 +3848,7 @@ dependencies = [
  "sha2",
  "subtle",
  "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
 ]
@@ -6042,6 +6045,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

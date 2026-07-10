@@ -96,51 +96,61 @@ pub fn str_to_user_status(s: &str) -> UserStatus {
 
 /// Convert `TaskStatus` enum to database string representation
 ///
+/// The strings are the compact A2A 1.0 task-state names; the JSON wire
+/// serialization uses the `TASK_STATE_*` `ProtoJSON` names instead.
+///
 /// # Examples
 /// ```
 /// use pierre_core::models::a2a::TaskStatus;
 /// use pierre_database::backends::shared::enums::task_status_to_str;
 ///
-/// assert_eq!(task_status_to_str(&TaskStatus::Pending), "pending");
-/// assert_eq!(task_status_to_str(&TaskStatus::Running), "running");
+/// assert_eq!(task_status_to_str(&TaskStatus::Submitted), "submitted");
+/// assert_eq!(task_status_to_str(&TaskStatus::Working), "working");
 /// assert_eq!(task_status_to_str(&TaskStatus::Completed), "completed");
-/// assert_eq!(task_status_to_str(&TaskStatus::Failed), "failed");
-/// assert_eq!(task_status_to_str(&TaskStatus::Cancelled), "cancelled");
+/// assert_eq!(task_status_to_str(&TaskStatus::Canceled), "canceled");
+/// assert_eq!(task_status_to_str(&TaskStatus::InputRequired), "input-required");
 /// ```
 #[must_use]
 #[inline]
 pub fn task_status_to_str(status: &TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Running => "running",
+        TaskStatus::Working => "working",
         TaskStatus::Completed => "completed",
         TaskStatus::Failed => "failed",
-        TaskStatus::Cancelled => "cancelled",
-        // Pending is the default; wildcard required by #[non_exhaustive]
-        TaskStatus::Pending | _ => "pending",
+        TaskStatus::Canceled => "canceled",
+        TaskStatus::InputRequired => "input-required",
+        TaskStatus::Rejected => "rejected",
+        TaskStatus::AuthRequired => "auth-required",
+        // Submitted is the initial state; wildcard required by #[non_exhaustive]
+        TaskStatus::Submitted | _ => "submitted",
     }
 }
 
 /// Convert database string to `TaskStatus` enum
 ///
-/// Unknown values default to `Pending` for safety.
+/// Unknown values default to `Submitted` for safety.
 ///
 /// # Examples
 /// ```
 /// use pierre_core::models::a2a::TaskStatus;
 /// use pierre_database::backends::shared::enums::str_to_task_status;
 ///
-/// assert_eq!(str_to_task_status("running"), TaskStatus::Running);
+/// assert_eq!(str_to_task_status("working"), TaskStatus::Working);
 /// assert_eq!(str_to_task_status("completed"), TaskStatus::Completed);
-/// assert_eq!(str_to_task_status("unknown"), TaskStatus::Pending); // Default
+/// assert_eq!(str_to_task_status("auth-required"), TaskStatus::AuthRequired);
+/// assert_eq!(str_to_task_status("unknown"), TaskStatus::Submitted); // Default
 /// ```
 #[must_use]
 pub fn str_to_task_status(s: &str) -> TaskStatus {
     match s {
-        "running" => TaskStatus::Running,
+        "working" => TaskStatus::Working,
         "completed" => TaskStatus::Completed,
         "failed" => TaskStatus::Failed,
-        "cancelled" => TaskStatus::Cancelled,
-        _ => TaskStatus::Pending,
+        "canceled" => TaskStatus::Canceled,
+        "input-required" => TaskStatus::InputRequired,
+        "rejected" => TaskStatus::Rejected,
+        "auth-required" => TaskStatus::AuthRequired,
+        _ => TaskStatus::Submitted,
     }
 }
 

@@ -90,22 +90,31 @@ async fn test_a2a_get_activities() -> Result<()> {
 
     // Mock activities endpoint
     Mock::given(method("POST"))
-        .and(path("/a2a/execute"))
+        .and(path("/a2a/jsonrpc"))
         .and(header("authorization", "Bearer test_token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "jsonrpc": "2.0",
-            "result": [
-                {
-                    "id": "123",
-                    "name": "Morning Run",
-                    "sport_type": "Run",
-                    "distance_meters": 5000.0,
-                    "duration_seconds": 1800,
-                    "elevation_gain": 50.0,
-                    "start_date": "2024-01-15T08:00:00Z",
-                    "provider": "strava"
+            "result": {
+                "task": {
+                    "id": "task_1",
+                    "status": { "state": "TASK_STATE_COMPLETED" },
+                    "artifacts": [{
+                        "artifactId": "a-1",
+                        "parts": [{ "data": [
+                            {
+                                "id": "123",
+                                "name": "Morning Run",
+                                "sport_type": "Run",
+                                "distance_meters": 5000.0,
+                                "duration_seconds": 1800,
+                                "elevation_gain": 50.0,
+                                "start_date": "2024-01-15T08:00:00Z",
+                                "provider": "strava"
+                            }
+                        ] }]
+                    }]
                 }
-            ],
+            },
             "id": "test-request-id"
         })))
         .expect(1)
@@ -146,7 +155,7 @@ async fn test_a2a_json_rpc_error_handling() -> Result<()> {
 
     // Mock error response
     Mock::given(method("POST"))
-        .and(path("/a2a/execute"))
+        .and(path("/a2a/jsonrpc"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "jsonrpc": "2.0",
             "error": {
@@ -192,26 +201,35 @@ async fn test_fitness_analyzer_with_mock_data() {
 
     // Mock activities endpoint with multiple activities
     Mock::given(method("POST"))
-        .and(path("/a2a/execute"))
+        .and(path("/a2a/jsonrpc"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "jsonrpc": "2.0",
-            "result": [
-                {
-                    "id": "1", "name": "Run 1", "sport_type": "Run",
-                    "distance_meters": 5000.0, "duration_seconds": 1800,
-                    "start_date": "2024-01-15T08:00:00Z", "provider": "strava"
-                },
-                {
-                    "id": "2", "name": "Run 2", "sport_type": "Run", 
-                    "distance_meters": 6000.0, "duration_seconds": 2000,
-                    "start_date": "2024-01-16T08:00:00Z", "provider": "strava"
-                },
-                {
-                    "id": "3", "name": "Bike Ride", "sport_type": "Ride",
-                    "distance_meters": 20000.0, "duration_seconds": 3600,
-                    "start_date": "2024-01-17T09:00:00Z", "provider": "strava"
+            "result": {
+                "task": {
+                    "id": "task_2",
+                    "status": { "state": "TASK_STATE_COMPLETED" },
+                    "artifacts": [{
+                        "artifactId": "a-1",
+                        "parts": [{ "data": [
+                            {
+                                "id": "1", "name": "Run 1", "sport_type": "Run",
+                                "distance_meters": 5000.0, "duration_seconds": 1800,
+                                "start_date": "2024-01-15T08:00:00Z", "provider": "strava"
+                            },
+                            {
+                                "id": "2", "name": "Run 2", "sport_type": "Run",
+                                "distance_meters": 6000.0, "duration_seconds": 2000,
+                                "start_date": "2024-01-16T08:00:00Z", "provider": "strava"
+                            },
+                            {
+                                "id": "3", "name": "Bike Ride", "sport_type": "Ride",
+                                "distance_meters": 20000.0, "duration_seconds": 3600,
+                                "start_date": "2024-01-17T09:00:00Z", "provider": "strava"
+                            }
+                        ] }]
+                    }]
                 }
-            ],
+            },
             "id": "test-request-id"
         })))
         .mount(&mock_server)
@@ -363,17 +381,26 @@ async fn test_recommendation_generation() {
 
     // Mock recommendations endpoint
     Mock::given(method("POST"))
-        .and(path("/a2a/execute"))
+        .and(path("/a2a/jsonrpc"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "jsonrpc": "2.0",
             "result": {
-                "training_recommendations": [
-                    {
-                        "title": "Increase Weekly Mileage",
-                        "description": "Gradually increase your weekly running distance",
-                        "priority": "medium"
-                    }
-                ]
+                "task": {
+                    "id": "task_3",
+                    "status": { "state": "TASK_STATE_COMPLETED" },
+                    "artifacts": [{
+                        "artifactId": "a-1",
+                        "parts": [{ "data": {
+                            "training_recommendations": [
+                                {
+                                    "title": "Increase Weekly Mileage",
+                                    "description": "Gradually increase your weekly running distance",
+                                    "priority": "medium"
+                                }
+                            ]
+                        } }]
+                    }]
+                }
             },
             "id": "test-request-id"
         })))

@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for protocol converter functionality
-// ABOUTME: Tests conversion between A2A, MCP, and universal protocol formats
+// ABOUTME: Tests MCP/universal conversion and protocol detection (incl. A2A 1.0 method names)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,76 +8,9 @@
 #![allow(missing_docs)]
 
 use pierre_mcp_schema::{Content, ToolCall};
-use pierre_mcp_server::a2a::A2ARequest;
-use pierre_mcp_server::protocols_a2a::{a2a_to_universal, universal_to_a2a};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::protocols::ProtocolType;
 use pierre_tool_runtime::protocols::UniversalResponse;
-use serde_json::Value;
-use std::collections::HashMap;
-
-#[test]
-fn test_a2a_to_universal_conversion() {
-    let a2a_request = A2ARequest {
-        jsonrpc: "2.0".into(),
-        method: "a2a/tools/call".into(),
-        params: Some(serde_json::json!({
-            "tool": "get_activities",
-            "arguments": {
-                "limit": 10
-            }
-        })),
-        id: Some(Value::Number(1.into())),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let tenant_id = Some("test-tenant-id".to_owned());
-    let universal = a2a_to_universal(&a2a_request, "test_user", tenant_id.clone()).unwrap();
-
-    assert_eq!(universal.tool_name, "get_activities");
-    assert_eq!(universal.user_id, "test_user");
-    assert_eq!(universal.protocol, "a2a");
-    assert_eq!(universal.tenant_id, tenant_id);
-    assert_eq!(
-        universal.parameters.get("limit").unwrap().as_u64().unwrap(),
-        10
-    );
-}
-
-#[test]
-fn test_universal_to_a2a_conversion_success() {
-    let universal_response = UniversalResponse {
-        success: true,
-        result: Some(serde_json::json!({"activities": []})),
-        error: None,
-        metadata: None,
-    };
-
-    let a2a_response = universal_to_a2a(universal_response, Some(Value::Number(1.into())));
-
-    assert_eq!(a2a_response.jsonrpc, "2.0");
-    assert!(a2a_response.result.is_some());
-    assert!(a2a_response.error.is_none());
-}
-
-#[test]
-fn test_universal_to_a2a_conversion_error() {
-    let universal_response = UniversalResponse {
-        success: false,
-        result: None,
-        error: Some("Tool not found".into()),
-        metadata: None,
-    };
-
-    let a2a_response = universal_to_a2a(universal_response, Some(Value::Number(1.into())));
-
-    assert_eq!(a2a_response.jsonrpc, "2.0");
-    assert!(a2a_response.result.is_none());
-    assert!(a2a_response.error.is_some());
-    assert_eq!(a2a_response.error.unwrap().message, "Tool not found");
-}
 
 #[test]
 fn test_mcp_to_universal_conversion() {
@@ -158,8 +91,12 @@ fn test_universal_to_mcp_conversion_error() {
 
 #[test]
 fn test_detect_protocol_a2a() {
-    let a2a_request = r#"{"jsonrpc": "2.0", "method": "a2a/tools/call", "id": 1}"#;
+    let a2a_request = r#"{"jsonrpc": "2.0", "method": "SendMessage", "id": 1}"#;
     let protocol = ProtocolConverter::detect_protocol(a2a_request).unwrap();
+    assert_eq!(protocol, ProtocolType::A2A);
+
+    let a2a_subscribe = r#"{"jsonrpc": "2.0", "method": "SubscribeToTask", "id": 2}"#;
+    let protocol = ProtocolConverter::detect_protocol(a2a_subscribe).unwrap();
     assert_eq!(protocol, ProtocolType::A2A);
 }
 

@@ -1,4 +1,4 @@
-// ABOUTME: Smoke test for pierre-a2a's public API (AgentCard, capabilities, JSON shape)
+// ABOUTME: Smoke test for pierre-a2a's public API (A2A 1.0 AgentCard shape)
 // ABOUTME: Guards the discovery payload contract that A2A clients depend on
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,6 +14,7 @@
 )]
 
 use pierre_a2a::agent_card::AgentCard;
+use pierre_a2a::A2A_VERSION;
 
 #[test]
 fn agent_card_default_constructor_populates_required_fields() {
@@ -24,16 +25,22 @@ fn agent_card_default_constructor_populates_required_fields() {
         "agent card must advertise a version"
     );
     assert!(
-        !card.capabilities.is_empty(),
-        "agent card must advertise at least one capability"
+        !card.supported_interfaces.is_empty(),
+        "agent card must advertise at least one interface"
     );
     assert!(
-        !card.transports.is_empty(),
-        "agent card must advertise at least one transport"
+        !card.skills.is_empty(),
+        "agent card must advertise at least one skill"
     );
     assert!(
-        !card.tools.is_empty(),
-        "agent card must advertise at least one tool"
+        !card.default_input_modes.is_empty() && !card.default_output_modes.is_empty(),
+        "agent card must declare default input/output modes"
+    );
+    assert!(
+        card.supported_interfaces
+            .iter()
+            .all(|i| i.protocol_version == A2A_VERSION),
+        "every interface must declare the served protocol version"
     );
 }
 
@@ -46,7 +53,14 @@ fn agent_card_serde_round_trip_preserves_required_fields() {
 
     assert_eq!(parsed.name, card.name);
     assert_eq!(parsed.version, card.version);
-    assert_eq!(parsed.capabilities, card.capabilities);
-    assert_eq!(parsed.transports.len(), card.transports.len());
-    assert_eq!(parsed.tools.len(), card.tools.len());
+    assert_eq!(
+        parsed.supported_interfaces.len(),
+        card.supported_interfaces.len()
+    );
+    assert_eq!(parsed.skills.len(), card.skills.len());
+    assert_eq!(parsed.capabilities.streaming, card.capabilities.streaming);
+    assert_eq!(
+        parsed.capabilities.push_notifications,
+        card.capabilities.push_notifications
+    );
 }

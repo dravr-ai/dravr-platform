@@ -18,13 +18,15 @@
 //!
 //! ## Modules
 //!
-//! * [`agent_card`] — Agent capability discovery and advertisement
+//! * [`agent_card`] — A2A 1.0 agent card (interfaces, capabilities, skills, security)
 //! * [`auth`] — A2A authenticator (API key + `OAuth2`)
 //! * [`client`] — A2A client manager (registration, sessions, usage, rate limits)
 //! * [`client_types`] — Client registration, credentials, usage types
+//! * [`events`] — Per-task event bus backing streaming (SSE) subscriptions
 //! * [`jsonrpc`] — Minimal JSON-RPC 2.0 types for A2A type aliases
-//! * [`protocol`] — A2A JSON-RPC server (handles `a2a/*` methods)
-//! * [`protocol_types`] — Protocol message types and error enum
+//! * [`protocol`] — A2A 1.0 JSON-RPC server (`PascalCase` spec methods)
+//! * [`protocol_types`] — A2A 1.0 wire data model and error types
+//! * [`push`] — Push notification (webhook) delivery with SSRF validation
 //! * [`system_user`] — System-user provisioning for A2A clients
 
 #![deny(unsafe_code)]
@@ -42,12 +44,16 @@ pub mod auth;
 pub mod client;
 /// Client registration and credential types
 pub mod client_types;
+/// Per-task event bus for streaming subscriptions
+pub mod events;
 /// Minimal JSON-RPC 2.0 types for A2A protocol
 pub mod jsonrpc;
 /// A2A protocol JSON-RPC server implementation
 pub mod protocol;
-/// A2A protocol message types and error definitions
+/// A2A 1.0 wire data model and error definitions
 pub mod protocol_types;
+/// Push notification webhook delivery
+pub mod push;
 /// System user management for A2A agents
 pub mod system_user;
 
@@ -60,8 +66,9 @@ pub use client_types::{
 pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};
 pub use protocol::A2AServer;
 pub use protocol_types::{
-    A2AClientInfo, A2AError, A2AInitializeRequest, A2AInitializeResponse, A2AMessage,
-    A2AServerInfo, MessagePart, A2A_VERSION,
+    A2AError, A2ASpecError, Artifact, Message, Part, PartContent, Role, SendMessageRequest,
+    StreamResponse, Task, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent,
+    WireTaskStatus, A2A_VERSION, A2A_VERSION_HEADER,
 };
 
 /// A2A protocol request (JSON-RPC 2.0 request)

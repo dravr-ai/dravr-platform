@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 pub use pierre_core::models::a2a::{
-    A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
+    A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -589,6 +589,7 @@ impl Database {
         session_id: Option<&str>,
         task_type: &str,
         input_data: &Value,
+        context_id: Option<&str>,
     ) -> AppResult<String> {
         let task_id = format!("task_{}", Uuid::new_v4());
         let now = Utc::now();
@@ -602,15 +603,16 @@ impl Database {
             r"
             INSERT INTO a2a_tasks (
                 task_id, session_token, task_type, parameters,
-                status, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                status, context_id, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ",
         )
         .bind(&task_id)
         .bind(session_token)
         .bind(task_type)
         .bind(serde_json::to_string(input_data)?)
-        .bind(enums::task_status_to_str(&TaskStatus::Pending))
+        .bind(enums::task_status_to_str(&TaskStatus::Submitted))
+        .bind(context_id)
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -628,13 +630,16 @@ impl Database {
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
+        context_id: Option<&str>,
+        updated_after: Option<DateTime<Utc>>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>> {
         let mut query = String::from(
             r"
             SELECT task_id, session_token, task_type, parameters, result,
-                   status, created_at, updated_at
+                   status, context_id, status_message, history, artifacts,
+                   created_at, updated_at
             FROM a2a_tasks
             ",
         );
@@ -654,12 +659,23 @@ impl Database {
             conditions.push(format!("status = ${bind_count}"));
         }
 
+        if context_id.is_some() {
+            bind_count += 1;
+            conditions.push(format!("context_id = ${bind_count}"));
+        }
+
+        if updated_after.is_some() {
+            bind_count += 1;
+            conditions.push(format!("updated_at > ${bind_count}"));
+        }
+
         if !conditions.is_empty() {
             query.push_str(" WHERE ");
             query.push_str(&conditions.join(" AND "));
         }
 
-        query.push_str(" ORDER BY created_at DESC");
+        // A2A 1.0 ListTasks: ordered by status timestamp, most recent first.
+        query.push_str(" ORDER BY updated_at DESC");
 
         if limit.is_some() {
             bind_count += 1;
@@ -683,6 +699,14 @@ impl Database {
 
         if let Some(status_val) = status_filter {
             sql_query = sql_query.bind(status_val.to_string());
+        }
+
+        if let Some(context_id_val) = context_id {
+            sql_query = sql_query.bind(context_id_val);
+        }
+
+        if let Some(updated_after_val) = updated_after {
+            sql_query = sql_query.bind(updated_after_val);
         }
 
         if let Some(limit_val) = limit {
@@ -714,7 +738,8 @@ impl Database {
         let row = sqlx::query(
             r"
             SELECT task_id, session_token, task_type, parameters, result,
-                   status, created_at, updated_at
+                   status, context_id, status_message, history, artifacts,
+                   created_at, updated_at
             FROM a2a_tasks
             WHERE task_id = $1
             ",
@@ -732,7 +757,7 @@ impl Database {
         }
     }
 
-    /// Update A2A task status
+    /// Update A2A task status, result, and wire `TaskStatus.message` JSON
     ///
     /// # Errors
     /// Returns an error if database operations fail or JSON serialization fails
@@ -741,30 +766,179 @@ impl Database {
         task_id: &str,
         status: &TaskStatus,
         result: Option<&Value>,
-        error: Option<&str>,
+        status_message: Option<&Value>,
     ) -> AppResult<()> {
         let result_json = result.map(serde_json::to_string).transpose()?;
+        let status_message_json = status_message.map(serde_json::to_string).transpose()?;
 
-        // The canonical a2a_tasks dropped error_message and completed_at; the
-        // error argument is therefore not persisted. updated_at advances to mark
-        // completion (read back into A2ATask.completed_at by the row mapper).
-        let _ = error;
-
+        // updated_at is the A2A status timestamp; it advances on every
+        // status transition. status_message is only replaced when provided.
         sqlx::query(
             r"
             UPDATE a2a_tasks
-            SET status = $2, result = $3, updated_at = datetime('now')
+            SET status = $2,
+                result = COALESCE($3, result),
+                status_message = COALESCE($4, status_message),
+                updated_at = datetime('now')
             WHERE task_id = $1
             ",
         )
         .bind(task_id)
         .bind(status.to_string())
         .bind(result_json)
+        .bind(status_message_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update A2A task status: {e}")))?;
 
         Ok(())
+    }
+
+    /// Replace the task's wire `history` / `artifacts` JSON documents
+    ///
+    /// # Errors
+    /// Returns an error if database operations fail or JSON serialization fails
+    pub async fn update_a2a_task_wire_state(
+        &self,
+        task_id: &str,
+        history: Option<&Value>,
+        artifacts: Option<&Value>,
+    ) -> AppResult<()> {
+        let history_json = history.map(serde_json::to_string).transpose()?;
+        let artifacts_json = artifacts.map(serde_json::to_string).transpose()?;
+
+        sqlx::query(
+            r"
+            UPDATE a2a_tasks
+            SET history = COALESCE($2, history),
+                artifacts = COALESCE($3, artifacts)
+            WHERE task_id = $1
+            ",
+        )
+        .bind(task_id)
+        .bind(history_json)
+        .bind(artifacts_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update A2A task wire state: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Store a push notification configuration for a task
+    ///
+    /// # Errors
+    /// Returns an error if database operations fail
+    pub async fn create_a2a_push_config_impl(
+        &self,
+        config: &A2APushNotificationConfig,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO a2a_push_notification_configs (
+                config_id, task_id, url, token, auth_scheme, auth_credentials,
+                created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (task_id, config_id) DO UPDATE SET
+                url = excluded.url,
+                token = excluded.token,
+                auth_scheme = excluded.auth_scheme,
+                auth_credentials = excluded.auth_credentials,
+                updated_at = excluded.updated_at
+            ",
+        )
+        .bind(&config.config_id)
+        .bind(&config.task_id)
+        .bind(&config.url)
+        .bind(&config.token)
+        .bind(&config.auth_scheme)
+        .bind(&config.auth_credentials)
+        .bind(config.created_at)
+        .bind(config.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create A2A push config: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Get one push notification configuration of a task
+    ///
+    /// # Errors
+    /// Returns an error if database operations fail
+    pub async fn get_a2a_push_config_impl(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> AppResult<Option<A2APushNotificationConfig>> {
+        let row = sqlx::query(
+            r"
+            SELECT config_id, task_id, url, token, auth_scheme, auth_credentials,
+                   created_at, updated_at
+            FROM a2a_push_notification_configs
+            WHERE task_id = $1 AND config_id = $2
+            ",
+        )
+        .bind(task_id)
+        .bind(config_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get A2A push config: {e}")))?;
+
+        row.as_ref()
+            .map(mappers::parse_a2a_push_config_from_row)
+            .transpose()
+    }
+
+    /// List all push notification configurations of a task
+    ///
+    /// # Errors
+    /// Returns an error if database operations fail
+    pub async fn list_a2a_push_configs_impl(
+        &self,
+        task_id: &str,
+    ) -> AppResult<Vec<A2APushNotificationConfig>> {
+        let rows = sqlx::query(
+            r"
+            SELECT config_id, task_id, url, token, auth_scheme, auth_credentials,
+                   created_at, updated_at
+            FROM a2a_push_notification_configs
+            WHERE task_id = $1
+            ORDER BY created_at ASC
+            ",
+        )
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list A2A push configs: {e}")))?;
+
+        rows.iter()
+            .map(mappers::parse_a2a_push_config_from_row)
+            .collect()
+    }
+
+    /// Delete a push notification configuration; returns whether a row existed
+    ///
+    /// # Errors
+    /// Returns an error if database operations fail
+    pub async fn delete_a2a_push_config_impl(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM a2a_push_notification_configs
+            WHERE task_id = $1 AND config_id = $2
+            ",
+        )
+        .bind(task_id)
+        .bind(config_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete A2A push config: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     /// Record A2A usage for rate limiting and analytics
@@ -1112,8 +1286,12 @@ impl A2ARepository for Database {
         session_id: Option<&str>,
         task_type: &str,
         input_data: &Value,
+        context_id: Option<&str>,
     ) -> AppResult<String> {
-        Self::create_a2a_task(self, client_id, session_id, task_type, input_data).await
+        Self::create_a2a_task(
+            self, client_id, session_id, task_type, input_data, context_id,
+        )
+        .await
     }
     async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
         Self::get_a2a_task_impl(self, task_id).await
@@ -1122,19 +1300,54 @@ impl A2ARepository for Database {
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
+        context_id: Option<&str>,
+        updated_after: Option<DateTime<Utc>>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>> {
-        Self::list_a2a_tasks(self, client_id, status_filter, limit, offset).await
+        Self::list_a2a_tasks(
+            self,
+            client_id,
+            status_filter,
+            context_id,
+            updated_after,
+            limit,
+            offset,
+        )
+        .await
     }
     async fn update_task_status(
         &self,
         task_id: &str,
         status: &TaskStatus,
         result: Option<&Value>,
-        error: Option<&str>,
+        status_message: Option<&Value>,
     ) -> AppResult<()> {
-        Self::update_a2a_task_status(self, task_id, status, result, error).await
+        Self::update_a2a_task_status(self, task_id, status, result, status_message).await
+    }
+    async fn update_task_wire_state(
+        &self,
+        task_id: &str,
+        history: Option<&Value>,
+        artifacts: Option<&Value>,
+    ) -> AppResult<()> {
+        Self::update_a2a_task_wire_state(self, task_id, history, artifacts).await
+    }
+    async fn create_push_config(&self, config: &A2APushNotificationConfig) -> AppResult<()> {
+        Self::create_a2a_push_config_impl(self, config).await
+    }
+    async fn get_push_config(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> AppResult<Option<A2APushNotificationConfig>> {
+        Self::get_a2a_push_config_impl(self, task_id, config_id).await
+    }
+    async fn list_push_configs(&self, task_id: &str) -> AppResult<Vec<A2APushNotificationConfig>> {
+        Self::list_a2a_push_configs_impl(self, task_id).await
+    }
+    async fn delete_push_config(&self, task_id: &str, config_id: &str) -> AppResult<bool> {
+        Self::delete_a2a_push_config_impl(self, task_id, config_id).await
     }
     async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
         Self::record_a2a_usage_impl(self, usage).await

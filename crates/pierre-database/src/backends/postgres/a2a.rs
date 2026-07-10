@@ -11,7 +11,9 @@ use crate::database::{A2AUsage, A2AUsageStats};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::a2a::{A2AClient, A2ASession, A2ATask, TaskStatus};
+use pierre_core::models::a2a::{
+    A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, TaskStatus,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -422,6 +424,7 @@ impl A2ARepository for PostgresDatabase {
         session_id: Option<&str>,
         task_type: &str,
         input_data: &Value,
+        context_id: Option<&str>,
     ) -> AppResult<String> {
         use uuid::Uuid;
 
@@ -437,15 +440,16 @@ impl A2ARepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO a2a_tasks
-            (task_id, session_token, task_type, parameters, status, created_at)
-            VALUES ($1, $2, $3, $4::jsonb, $5, NOW())
+            (task_id, session_token, task_type, parameters, status, context_id, created_at)
+            VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW())
             ",
         )
         .bind(&task_id)
         .bind(session_token)
         .bind(task_type)
         .bind(&input_json)
-        .bind("pending")
+        .bind("submitted")
+        .bind(context_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create A2A task: {e}")))?;
@@ -454,10 +458,14 @@ impl A2ARepository for PostgresDatabase {
     }
 
     async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
+        // JSONB columns are cast to text so the shared row mapper (which decodes
+        // them as JSON strings, matching the SQLite TEXT columns) works here too.
         let row = sqlx::query(
             r"
-            SELECT task_id, session_token, task_type, parameters,
-                   status, result, created_at, updated_at
+            SELECT task_id, session_token, task_type, parameters::text AS parameters,
+                   status, result::text AS result, context_id,
+                   status_message::text AS status_message, history::text AS history,
+                   artifacts::text AS artifacts, created_at, updated_at
             FROM a2a_tasks
             WHERE task_id = $1
             ",
@@ -467,71 +475,26 @@ impl A2ARepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get A2A task: {e}")))?;
 
-        if let Some(row) = row {
-            use sqlx::Row;
-            // parameters/result are JSONB columns; decode them directly as JSON values.
-            let input_data: Value = row.try_get("parameters").map_err(|e| {
-                AppError::database(format!("Failed to parse parameters column: {e}"))
-            })?;
-
-            // Validate input data structure (log type only, never log raw content)
-            if !input_data.is_null() && !input_data.is_object() {
-                warn!(
-                    task_id = %task_id,
-                    value_type = %input_data.as_str().map_or_else(|| "non-object", |_| "string"),
-                    "Invalid input data structure for task, expected object"
-                );
-            }
-
-            let result_data: Option<Value> = row
-                .try_get("result")
-                .map_err(|e| AppError::database(format!("Failed to parse result column: {e}")))?;
-
-            let status_str: String = row
-                .try_get("status")
-                .map_err(|e| AppError::database(format!("Failed to parse status column: {e}")))?;
-            let status = shared::enums::str_to_task_status(&status_str);
-
-            Ok(Some(A2ATask {
-                id: row.try_get("task_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse task_id column: {e}"))
-                })?,
-                status,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                // completed_at column was dropped; reflect completion via updated_at.
-                completed_at: row.try_get("updated_at").ok(),
-                result: result_data.clone(), // Safe: JSON value ownership for A2ATask struct
-                // error/error_message columns were dropped; no longer persisted.
-                error: None,
-                // a2a_tasks is session-keyed; populate client_id best-effort from session_token.
-                client_id: row
-                    .try_get("session_token")
-                    .unwrap_or_else(|_| "unknown".into()),
-                task_type: row.try_get("task_type").map_err(|e| {
-                    AppError::database(format!("Failed to parse task_type column: {e}"))
-                })?,
-                input_data,
-                output_data: result_data,
-                error_message: None,
-                updated_at: row.try_get("updated_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse updated_at column: {e}"))
-                })?,
-            }))
-        } else {
-            Ok(None)
-        }
+        row.as_ref().map(Self::parse_a2a_task_from_row).transpose()
     }
 
     async fn list_tasks(
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
+        context_id: Option<&str>,
+        updated_after: Option<DateTime<Utc>>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>> {
-        let query = Self::build_a2a_tasks_query(client_id, status_filter, limit, offset)?;
+        let query = Self::build_a2a_tasks_query(
+            client_id,
+            status_filter,
+            context_id,
+            updated_after.is_some(),
+            limit,
+            offset,
+        )?;
 
         let mut sql_query = sqlx::query(&query);
 
@@ -542,6 +505,14 @@ impl A2ARepository for PostgresDatabase {
         if let Some(status_val) = status_filter {
             let status_str = shared::enums::task_status_to_str(status_val);
             sql_query = sql_query.bind(status_str);
+        }
+
+        if let Some(context_id_val) = context_id {
+            sql_query = sql_query.bind(context_id_val);
+        }
+
+        if let Some(updated_after_val) = updated_after {
+            sql_query = sql_query.bind(updated_after_val);
         }
 
         if let Some(limit_val) = limit {
@@ -566,31 +537,151 @@ impl A2ARepository for PostgresDatabase {
         task_id: &str,
         status: &TaskStatus,
         result: Option<&Value>,
-        error: Option<&str>,
+        status_message: Option<&Value>,
     ) -> AppResult<()> {
         let status_str = shared::enums::task_status_to_str(status);
 
         let result_json = result.map(serde_json::to_string).transpose()?;
+        let status_message_json = status_message.map(serde_json::to_string).transpose()?;
 
-        // The canonical a2a_tasks dropped the error/method column; the error
-        // argument is therefore not persisted.
-        let _ = error;
-
+        // updated_at is the A2A status timestamp; it advances on every status
+        // transition. result/status_message are only replaced when provided.
         sqlx::query(
             r"
             UPDATE a2a_tasks
-            SET status = $1, result = $2::jsonb, updated_at = NOW()
-            WHERE task_id = $3
+            SET status = $1,
+                result = COALESCE($2::jsonb, result),
+                status_message = COALESCE($3::jsonb, status_message),
+                updated_at = NOW()
+            WHERE task_id = $4
             ",
         )
         .bind(status_str)
         .bind(result_json)
+        .bind(status_message_json)
         .bind(task_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update A2A task status: {e}")))?;
 
         Ok(())
+    }
+
+    async fn update_task_wire_state(
+        &self,
+        task_id: &str,
+        history: Option<&Value>,
+        artifacts: Option<&Value>,
+    ) -> AppResult<()> {
+        let history_json = history.map(serde_json::to_string).transpose()?;
+        let artifacts_json = artifacts.map(serde_json::to_string).transpose()?;
+
+        sqlx::query(
+            r"
+            UPDATE a2a_tasks
+            SET history = COALESCE($1::jsonb, history),
+                artifacts = COALESCE($2::jsonb, artifacts)
+            WHERE task_id = $3
+            ",
+        )
+        .bind(history_json)
+        .bind(artifacts_json)
+        .bind(task_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update A2A task wire state: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn create_push_config(&self, config: &A2APushNotificationConfig) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO a2a_push_notification_configs (
+                config_id, task_id, url, token, auth_scheme, auth_credentials,
+                created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (task_id, config_id) DO UPDATE SET
+                url = EXCLUDED.url,
+                token = EXCLUDED.token,
+                auth_scheme = EXCLUDED.auth_scheme,
+                auth_credentials = EXCLUDED.auth_credentials,
+                updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(&config.config_id)
+        .bind(&config.task_id)
+        .bind(&config.url)
+        .bind(&config.token)
+        .bind(&config.auth_scheme)
+        .bind(&config.auth_credentials)
+        .bind(config.created_at)
+        .bind(config.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create A2A push config: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_push_config(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> AppResult<Option<A2APushNotificationConfig>> {
+        let row = sqlx::query(
+            r"
+            SELECT config_id, task_id, url, token, auth_scheme, auth_credentials,
+                   created_at, updated_at
+            FROM a2a_push_notification_configs
+            WHERE task_id = $1 AND config_id = $2
+            ",
+        )
+        .bind(task_id)
+        .bind(config_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get A2A push config: {e}")))?;
+
+        row.as_ref()
+            .map(shared::mappers::parse_a2a_push_config_from_row)
+            .transpose()
+    }
+
+    async fn list_push_configs(&self, task_id: &str) -> AppResult<Vec<A2APushNotificationConfig>> {
+        let rows = sqlx::query(
+            r"
+            SELECT config_id, task_id, url, token, auth_scheme, auth_credentials,
+                   created_at, updated_at
+            FROM a2a_push_notification_configs
+            WHERE task_id = $1
+            ORDER BY created_at ASC
+            ",
+        )
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list A2A push configs: {e}")))?;
+
+        rows.iter()
+            .map(shared::mappers::parse_a2a_push_config_from_row)
+            .collect()
+    }
+
+    async fn delete_push_config(&self, task_id: &str, config_id: &str) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM a2a_push_notification_configs
+            WHERE task_id = $1 AND config_id = $2
+            ",
+        )
+        .bind(task_id)
+        .bind(config_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete A2A push config: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {

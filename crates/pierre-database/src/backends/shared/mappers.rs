@@ -13,7 +13,7 @@ use crate::database::UserMcpToken;
 use chrono::{DateTime, Utc};
 use pierre_core::admin::models::{AdminAction, AdminPermissions, AdminToken, AdminTokenUsage};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::a2a::A2ATask;
+use pierre_core::models::a2a::{A2APushNotificationConfig, A2ATask};
 use pierre_core::models::default_locale;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::User;
@@ -149,10 +149,38 @@ where
     })
 }
 
+/// Parse an optional JSON text column into a `serde_json::Value`, logging and
+/// returning `None` on decode/parse failure (matches the historical
+/// tolerant-read behavior of the task mapper).
+fn parse_optional_json_column<R>(row: &R, task_id: &str, column: &str) -> Option<Value>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    row.try_get::<Option<String>, _>(column)
+        .map_or(None, |json_str| {
+            json_str.and_then(|s| {
+                serde_json::from_str(&s)
+                    .inspect_err(|e| {
+                        warn!(
+                            task_id = %task_id,
+                            column = %column,
+                            error = %e,
+                            "Failed to deserialize A2A task JSON column"
+                        );
+                    })
+                    .ok()
+            })
+        })
+}
+
 /// Parse A2A Task from database row (database-agnostic)
 ///
-/// Works with both `PostgreSQL` and `SQLite`. Handles JSON deserialization of
-/// `input_data` and `result_data` with fallback to null/None on parse errors.
+/// Works with both `PostgreSQL` and `SQLite` — `PostgreSQL` queries cast the
+/// JSONB columns (`parameters`, `result`, `status_message`, `history`,
+/// `artifacts`) to text so this mapper can decode them as JSON strings,
+/// matching the `SQLite` TEXT columns.
 ///
 /// # Arguments
 /// * `row` - Database row implementing `sqlx::Row` trait
@@ -164,7 +192,7 @@ where
 /// * Returns error if required fields are missing or have invalid types
 ///
 /// # Note
-/// JSON deserialization errors for `input_data`/`result_data` are logged but don't fail
+/// JSON deserialization errors for the JSON columns are logged but don't fail
 /// the parse (returns null/None instead).
 pub fn parse_a2a_task_from_row<R>(row: &R) -> AppResult<A2ATask>
 where
@@ -195,23 +223,10 @@ where
         Value::Null
     });
 
-    // Parse result JSON (optional) with fallback to None. The model fields stay
-    // result/output_data; the canonical column is `result`.
-    let result_data = row
-        .try_get::<Option<String>, _>("result")
-        .map_or(None, |result_str| {
-            result_str.and_then(|s| {
-                serde_json::from_str(&s)
-                    .inspect_err(|e| {
-                        warn!(
-                            task_id = %task_id,
-                            error = %e,
-                            "Failed to deserialize A2A task result"
-                        );
-                    })
-                    .ok()
-            })
-        });
+    let result_data = parse_optional_json_column(row, &task_id, "result");
+    let status_message = parse_optional_json_column(row, &task_id, "status_message");
+    let history = parse_optional_json_column(row, &task_id, "history");
+    let artifacts = parse_optional_json_column(row, &task_id, "artifacts");
 
     // Parse status using shared enum converter
     let status_str: String = row
@@ -222,14 +237,10 @@ where
     Ok(A2ATask {
         id: task_id,
         status,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
-        // completed_at column was dropped; reflect completion via updated_at.
-        completed_at: row.try_get("updated_at").ok(),
-        result: result_data.clone(), // Safe: JSON value ownership for A2ATask struct
-        // error/error_message columns were dropped; no longer persisted.
-        error: None,
+        context_id: row.try_get("context_id").ok().flatten(),
+        status_message,
+        history,
+        artifacts,
         // a2a_tasks is session-keyed with no client_id column; the model field is
         // populated best-effort from session_token (carries the client_id for
         // client-keyed tasks created without a session).
@@ -240,11 +251,49 @@ where
             .try_get("task_type")
             .map_err(|e| AppError::database(format!("Failed to get column 'task_type': {e}")))?,
         input_data,
-        output_data: result_data,
-        error_message: None,
+        result: result_data,
+        created_at: row
+            .try_get("created_at")
+            .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
         updated_at: row
             .try_get("updated_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'updated_at': {e}")))?,
+    })
+}
+
+/// Parse an A2A push notification configuration from a database row
+/// (database-agnostic).
+///
+/// # Errors
+/// Returns an error if required columns are missing or have invalid types.
+pub fn parse_a2a_push_config_from_row<R>(row: &R) -> AppResult<A2APushNotificationConfig>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column_err =
+        |column: &str, e: sqlx::Error| AppError::database(format!("Failed to get '{column}': {e}"));
+
+    Ok(A2APushNotificationConfig {
+        config_id: row
+            .try_get("config_id")
+            .map_err(|e| column_err("config_id", e))?,
+        task_id: row
+            .try_get("task_id")
+            .map_err(|e| column_err("task_id", e))?,
+        url: row.try_get("url").map_err(|e| column_err("url", e))?,
+        token: row.try_get("token").ok().flatten(),
+        auth_scheme: row.try_get("auth_scheme").ok().flatten(),
+        auth_credentials: row.try_get("auth_credentials").ok().flatten(),
+        created_at: row
+            .try_get("created_at")
+            .map_err(|e| column_err("created_at", e))?,
+        updated_at: row
+            .try_get("updated_at")
+            .map_err(|e| column_err("updated_at", e))?,
     })
 }
 

@@ -137,12 +137,12 @@ describe('a2aApi', () => {
   })
 
   describe('getA2AAgentCard', () => {
-    it('should fetch agent card', async () => {
+    it('should fetch agent card from the well-known discovery path', async () => {
       mockAxios.get.mockResolvedValue({ data: { name: 'Pierre Agent' } })
 
       const result = await a2aApi.getA2AAgentCard()
 
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/agent-card')
+      expect(mockAxios.get).toHaveBeenCalledWith('/.well-known/agent-card.json')
       expect(result.name).toBe('Pierre Agent')
     })
   })

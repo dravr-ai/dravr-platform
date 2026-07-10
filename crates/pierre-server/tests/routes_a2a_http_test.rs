@@ -1,5 +1,5 @@
-// ABOUTME: HTTP integration tests for A2A (Agent-to-Agent) protocol routes
-// ABOUTME: Covers unauthenticated endpoints plus the authenticated message/send execution path
+// ABOUTME: HTTP integration tests for A2A 1.0 protocol routes (JSONRPC + HTTP+JSON bindings)
+// ABOUTME: Covers version negotiation, auth gating, SendMessage echo path, and REST error shapes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,8 @@
 //! Comprehensive HTTP integration tests for A2A protocol routes
 //!
 //! This test suite validates that all A2A endpoints are correctly registered
-//! in the router and handle HTTP requests appropriately.
+//! in the router, enforce `A2A-Version` negotiation, and handle HTTP
+//! requests appropriately on both bindings.
 
 mod common;
 mod helpers;
@@ -78,9 +79,8 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
     )
 }
 
-/// Get A2A routes for testing
-async fn a2a_routes() -> axum::Router {
-    let resources = create_a2a_test_resources().await;
+/// Build the A2A HTTP router from already-seeded resources.
+fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
     let state = A2ARoutesState {
         ctx: resources.clone(),
@@ -89,6 +89,12 @@ async fn a2a_routes() -> axum::Router {
         tool_runtime,
     };
     A2ARoutes::routes(state)
+}
+
+/// Get A2A routes for testing
+async fn a2a_routes() -> axum::Router {
+    let resources = create_a2a_test_resources().await;
+    a2a_router_from(&resources)
 }
 
 // ============================================================================
@@ -118,37 +124,6 @@ async fn test_a2a_status_no_auth_required() {
 }
 
 #[tokio::test]
-async fn test_a2a_status_response_structure() {
-    let routes = a2a_routes().await;
-
-    let response = AxumTestRequest::get("/a2a/status").send(routes).await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body.is_object());
-    assert!(body["status"].is_string());
-    assert_eq!(body["status"], "active");
-}
-
-#[tokio::test]
-async fn test_a2a_status_content_type() {
-    let routes = a2a_routes().await;
-
-    let response = AxumTestRequest::get("/a2a/status").send(routes).await;
-
-    assert_eq!(response.status(), 200);
-
-    // Response should be valid JSON
-    let body: serde_json::Value = response.json();
-    assert!(body.is_object());
-}
-
-// ============================================================================
-// Additional Integration Tests
-// ============================================================================
-
-#[tokio::test]
 async fn test_a2a_status_concurrent_requests() {
     // Make multiple A2A status requests concurrently
     let mut handles = vec![];
@@ -172,41 +147,44 @@ async fn test_a2a_status_concurrent_requests() {
     }
 }
 
+// ============================================================================
+// GET /.well-known/agent-card.json - discovery
+// ============================================================================
+
 #[tokio::test]
-async fn test_a2a_status_idempotency() {
+async fn test_agent_card_discovery_route() {
     let routes = a2a_routes().await;
 
-    // Make multiple requests and verify they all return the same result
-    let responses = vec![
-        AxumTestRequest::get("/a2a/status")
-            .send(routes.clone())
-            .await,
-        AxumTestRequest::get("/a2a/status")
-            .send(routes.clone())
-            .await,
-        AxumTestRequest::get("/a2a/status").send(routes).await,
-    ];
+    // Discovery is public and NOT version-gated (it is how clients learn
+    // the supported versions in the first place).
+    let response = AxumTestRequest::get("/.well-known/agent-card.json")
+        .send(routes)
+        .await;
 
-    for response in responses {
-        assert_eq!(response.status(), 200);
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["status"], "active");
-    }
+    assert_eq!(response.status(), 200);
+    let card: serde_json::Value = response.json();
+    assert_eq!(card["name"], "Dravr AI");
+    let interfaces = card["supportedInterfaces"].as_array().unwrap();
+    assert!(!interfaces.is_empty());
+    assert_eq!(interfaces[0]["protocolBinding"], "JSONRPC");
+    assert_eq!(interfaces[0]["protocolVersion"], "1.0");
+    assert_eq!(card["capabilities"]["streaming"], true);
+    assert_eq!(card["capabilities"]["pushNotifications"], true);
 }
 
 // ============================================================================
-// POST /a2a/jsonrpc - A2A JSON-RPC transport endpoint Tests
+// POST /a2a/jsonrpc - JSONRPC binding
 // ============================================================================
 
 #[tokio::test]
-async fn test_a2a_jsonrpc_route_is_mounted() {
+async fn test_a2a_jsonrpc_requires_version_header() {
     let routes = a2a_routes().await;
 
-    // The agent card advertises {base_url}/a2a/jsonrpc; the route must exist
-    // and dispatch into A2AServer (initialize requires no auth).
+    // Spec §3.6: an absent A2A-Version header means 0.3 semantics, which
+    // this server does not carry — VersionNotSupportedError (-32009).
     let body = serde_json::json!({
         "jsonrpc": "2.0",
-        "method": "a2a/initialize",
+        "method": "GetExtendedAgentCard",
         "id": 1
     });
     let response = AxumTestRequest::post("/a2a/jsonrpc")
@@ -214,117 +192,111 @@ async fn test_a2a_jsonrpc_route_is_mounted() {
         .send(routes)
         .await;
 
-    // A mounted route returns 200, not 404.
     assert_eq!(response.status(), 200, "/a2a/jsonrpc must be mounted");
-
     let envelope: serde_json::Value = response.json();
     assert_eq!(envelope["jsonrpc"], "2.0");
     assert_eq!(envelope["id"], 1);
-    assert!(
-        envelope["error"].is_null(),
-        "a2a/initialize must not error: {envelope:?}"
+    assert_eq!(envelope["error"]["code"], -32009);
+    assert_eq!(
+        envelope["error"]["data"][0]["reason"], "VERSION_NOT_SUPPORTED",
+        "-32009 must carry google.rpc.ErrorInfo: {envelope:?}"
     );
-    assert!(envelope["result"].is_object());
 }
 
 #[tokio::test]
-async fn test_a2a_jsonrpc_tools_list_returns_registry_tools() {
+async fn test_a2a_jsonrpc_rejects_unknown_version() {
     let routes = a2a_routes().await;
 
-    // tools/list is dispatched into A2AServer with real resources, so it
-    // returns the live tool registry's user-visible schemas.
     let body = serde_json::json!({
         "jsonrpc": "2.0",
-        "method": "a2a/tools/list",
+        "method": "GetExtendedAgentCard",
         "id": 2
     });
     let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "0.3")
         .json(&body)
         .send(routes)
         .await;
 
     assert_eq!(response.status(), 200);
-
     let envelope: serde_json::Value = response.json();
-    let tools = &envelope["result"]["tools"];
-    assert!(tools.is_array(), "tools/list must return a tools array");
-    assert!(
-        !tools.as_array().unwrap().is_empty(),
-        "tool registry should expose at least one tool"
+    assert_eq!(envelope["error"]["code"], -32009);
+}
+
+#[tokio::test]
+async fn test_a2a_jsonrpc_version_negotiated_dispatch() {
+    let routes = a2a_routes().await;
+
+    // With A2A-Version: 1.0 the request reaches method dispatch; this server
+    // configures no extended card, so -32007 proves the gate passed.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "GetExtendedAgentCard",
+        "id": 3
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    assert_eq!(envelope["error"]["code"], -32007);
+    assert_eq!(
+        envelope["error"]["data"][0]["reason"],
+        "EXTENDED_AGENT_CARD_NOT_CONFIGURED"
     );
 }
 
 #[tokio::test]
-async fn test_a2a_jsonrpc_message_send_requires_auth() {
+async fn test_a2a_jsonrpc_send_message_requires_auth() {
     let routes = a2a_routes().await;
 
-    // message/send now performs real, tenant-scoped work and is auth-gated;
-    // an unauthenticated call must surface an auth error rather than a
-    // hardcoded success constant.
+    // SendMessage performs real, tenant-scoped work and is auth-gated; an
+    // unauthenticated call surfaces HTTP 401 (auth is transport-level).
     let body = serde_json::json!({
         "jsonrpc": "2.0",
-        "method": "message/send",
-        "params": { "parts": [{ "type": "text", "content": "hi" }] },
-        "id": 3
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-1",
+                "role": "ROLE_USER",
+                "parts": [{ "text": "hi" }]
+            }
+        },
+        "id": 4
     });
     let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
         .json(&body)
         .send(routes)
         .await;
 
-    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.status(),
+        401,
+        "unauthenticated SendMessage must surface HTTP 401"
+    );
 
     let envelope: serde_json::Value = response.json();
     assert!(
         envelope["result"].is_null(),
-        "unauthenticated message/send must not return a result"
+        "unauthenticated SendMessage must not return a result"
     );
+    assert_eq!(envelope["error"]["code"], -32000);
     assert_eq!(
-        envelope["error"]["code"], -32001,
-        "unauthenticated message/send must return an auth error: {envelope:?}"
+        envelope["error"]["data"][0]["reason"], "AUTHENTICATION_REQUIRED",
+        "auth errors must carry the AUTHENTICATION_REQUIRED reason: {envelope:?}"
     );
 }
 
 #[tokio::test]
-async fn test_a2a_status_always_active() {
-    let routes = a2a_routes().await;
-
-    // Verify that status is always "active"
-    for _ in 0..5 {
-        let response = AxumTestRequest::get("/a2a/status")
-            .send(routes.clone())
-            .await;
-
-        assert_eq!(response.status(), 200);
-
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["status"], "active");
-    }
-}
-
-/// Build the A2A HTTP router from already-seeded resources (mirrors
-/// `a2a_routes` but lets the caller seed a user/tenant first so the request
-/// can be authenticated).
-fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
-    let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let state = A2ARoutesState {
-        ctx: resources.clone(),
-        client_manager: resources.a2a.a2a_client_manager.clone(),
-        auth_middleware: resources.auth.auth_middleware.clone(),
-        tool_runtime,
-    };
-    A2ARoutes::routes(state)
-}
-
-#[tokio::test]
-async fn test_a2a_jsonrpc_message_send_authenticated_executes_and_replies() {
-    // `test_a2a_jsonrpc_message_send_requires_auth` proves the unauthenticated
-    // call surfaces -32001. This proves the *authenticated happy path*: a
-    // valid JWT-bearing caller reaches the real, tenant-scoped message/send
-    // execution path and receives an agent reply Message rather than an auth
-    // error — the gap the auth-rejection test leaves open. message/send routes
-    // a plain-text message (no tool intent) to a real echo reply, so the assert
-    // is deterministic and needs no provider or LLM.
+async fn test_a2a_jsonrpc_send_message_authenticated_echo_reply() {
+    // The authenticated happy path: a valid JWT-bearing caller reaches the
+    // real SendMessage path. A plain-text message with no tool intent and no
+    // task reference is a message-only exchange — the result is the
+    // SendMessageResponse `{"message": ...}` alternative echoing the text.
     let resources = create_a2a_test_resources().await;
     let (_user, jwt) = common::create_test_tenant(&resources, "a2a-auth@example.com")
         .await
@@ -333,11 +305,18 @@ async fn test_a2a_jsonrpc_message_send_authenticated_executes_and_replies() {
 
     let body = serde_json::json!({
         "jsonrpc": "2.0",
-        "method": "message/send",
-        "params": { "parts": [{ "type": "text", "content": "hello agent" }] },
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-7",
+                "role": "ROLE_USER",
+                "parts": [{ "text": "hello agent" }]
+            }
+        },
         "id": 7
     });
     let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
         .header("Authorization", &format!("Bearer {jwt}"))
         .json(&body)
         .send(routes)
@@ -346,20 +325,126 @@ async fn test_a2a_jsonrpc_message_send_authenticated_executes_and_replies() {
     assert_eq!(response.status(), 200);
     let envelope: serde_json::Value = response.json();
 
-    // Authenticated: NOT the -32001 the unauth path returns.
     assert!(
         envelope["error"].is_null(),
-        "authenticated message/send must not error, got: {envelope:?}"
+        "authenticated SendMessage must not error, got: {envelope:?}"
     );
-    let parts = &envelope["result"]["message"]["parts"];
-    assert!(
-        parts.is_array() && !parts.as_array().unwrap().is_empty(),
-        "authenticated message/send must return a reply message with parts, got: {envelope:?}"
-    );
-    // The agent's reply echoes the sent text back through the real handler.
-    let reply = serde_json::to_string(&envelope["result"]).unwrap_or_default();
-    assert!(
-        reply.contains("hello agent"),
+    let message = &envelope["result"]["message"];
+    assert_eq!(message["role"], "ROLE_AGENT");
+    assert!(message["messageId"].is_string());
+    assert_eq!(
+        message["parts"][0]["text"], "hello agent",
         "authenticated reply must echo the sent text, got: {envelope:?}"
     );
+}
+
+// ============================================================================
+// HTTP+JSON binding (REST paths)
+// ============================================================================
+
+#[tokio::test]
+async fn test_rest_binding_requires_version() {
+    let routes = a2a_routes().await;
+
+    // REST version failures are google.rpc.Status JSON with HTTP 400.
+    let response = AxumTestRequest::get("/a2a/tasks").send(routes).await;
+
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["code"], 400);
+    assert_eq!(body["error"]["status"], "FAILED_PRECONDITION");
+    assert_eq!(
+        body["error"]["details"][0]["reason"],
+        "VERSION_NOT_SUPPORTED"
+    );
+}
+
+#[tokio::test]
+async fn test_rest_binding_auth_maps_to_401() {
+    let routes = a2a_routes().await;
+
+    let response = AxumTestRequest::get("/a2a/tasks?A2A-Version=1.0")
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 401);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["status"], "UNAUTHENTICATED");
+}
+
+#[tokio::test]
+async fn test_rest_message_send_authenticated_echo() {
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-rest@example.com")
+        .await
+        .expect("seed user + tenant + JWT with active_tenant_id");
+    let routes = a2a_router_from(&resources);
+
+    // The REST body is the SendMessageRequest object itself.
+    let body = serde_json::json!({
+        "message": {
+            "messageId": "m-rest-1",
+            "role": "ROLE_USER",
+            "parts": [{ "text": "ping over rest" }]
+        }
+    });
+    let response = AxumTestRequest::post("/a2a/message:send")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let result: serde_json::Value = response.json();
+    assert_eq!(result["message"]["role"], "ROLE_AGENT");
+    assert_eq!(result["message"]["parts"][0]["text"], "ping over rest");
+}
+
+#[tokio::test]
+async fn test_rest_get_task_not_found_is_404() {
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-404@example.com")
+        .await
+        .expect("seed user + tenant + JWT with active_tenant_id");
+    let routes = a2a_router_from(&resources);
+
+    let response = AxumTestRequest::get("/a2a/tasks/task_missing?A2A-Version=1.0")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 404);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["status"], "NOT_FOUND");
+    assert_eq!(body["error"]["details"][0]["reason"], "TASK_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn test_rest_extended_agent_card_not_configured() {
+    let routes = a2a_routes().await;
+
+    let response = AxumTestRequest::get("/a2a/extendedAgentCard?A2A-Version=1.0")
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"]["status"], "FAILED_PRECONDITION");
+    assert_eq!(
+        body["error"]["details"][0]["reason"],
+        "EXTENDED_AGENT_CARD_NOT_CONFIGURED"
+    );
+}
+
+#[tokio::test]
+async fn test_rest_unknown_task_action_is_404() {
+    let routes = a2a_routes().await;
+
+    let response = AxumTestRequest::post("/a2a/tasks/task_1:explode?A2A-Version=1.0")
+        .json(&serde_json::json!({}))
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 404);
 }

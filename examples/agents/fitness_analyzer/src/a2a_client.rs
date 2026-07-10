@@ -154,19 +154,32 @@ impl A2AClient {
         Ok(())
     }
 
-    /// Execute a tool via A2A JSON-RPC protocol
+    /// Execute a tool via the A2A 1.0 `SendMessage` method.
+    ///
+    /// The tool intent travels as a `data` part carrying
+    /// `{"tool_name": ..., "parameters": {...}}`; the server runs the tool
+    /// on its task lifecycle and returns the terminal task snapshot, whose
+    /// first artifact holds the tool output as a `data` part.
     pub async fn execute_tool(&mut self, tool_name: &str, parameters: Value) -> Result<Value> {
         self.ensure_authenticated().await?;
 
         let request_id = Uuid::new_v4().to_string();
-        
-        // Construct JSON-RPC 2.0 request
+
+        // Construct the A2A 1.0 JSON-RPC request (PascalCase method names).
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
-            method: "tools/call".to_string(),
+            method: "SendMessage".to_string(),
             params: json!({
-                "name": tool_name,
-                "arguments": parameters
+                "message": {
+                    "messageId": Uuid::new_v4().to_string(),
+                    "role": "ROLE_USER",
+                    "parts": [{
+                        "data": {
+                            "tool_name": tool_name,
+                            "parameters": parameters
+                        }
+                    }]
+                }
             }),
             id: request_id.clone(),
         };
@@ -178,8 +191,10 @@ impl A2AClient {
 
         let response = self
             .http_client
-            .post(format!("{}/a2a/execute", self.server_url))
+            .post(format!("{}/a2a/jsonrpc", self.server_url))
             .header("Content-Type", "application/json")
+            // Spec §3.6: every request negotiates the protocol version.
+            .header("A2A-Version", "1.0")
             .header("Authorization", &format!("Bearer {}", access_token))
             .json(&request)
             .send()
@@ -210,10 +225,25 @@ impl A2AClient {
         let result = json_rpc_response.result
             .context("A2A response missing result field")?;
 
-        debug!("📥 A2A response received for {}: {}", tool_name, 
-            serde_json::to_string(&result).unwrap_or_else(|_| "invalid json".to_string()));
+        // SendMessage returns the SendMessageResponse oneof: a terminal task
+        // snapshot ({"task": ...}) for tool intents.
+        let task = result.get("task")
+            .context("SendMessage response missing task")?;
 
-        Ok(result)
+        let state = task["status"]["state"].as_str().unwrap_or_default();
+        if state != "TASK_STATE_COMPLETED" {
+            anyhow::bail!("A2A task ended in state {}: {:?}", state, task["status"]["message"]);
+        }
+
+        let tool_output = task["artifacts"][0]["parts"][0]["data"].clone();
+        if tool_output.is_null() {
+            anyhow::bail!("A2A task completed without an artifact data part");
+        }
+
+        debug!("📥 A2A response received for {}: {}", tool_name,
+            serde_json::to_string(&tool_output).unwrap_or_else(|_| "invalid json".to_string()));
+
+        Ok(tool_output)
     }
 
     /// Get activities from fitness providers via A2A

@@ -86,67 +86,138 @@ pub struct A2ASession {
     pub requests_count: u64,
 }
 
-/// A2A Task structure for long-running operations
+/// A2A Task database record.
+///
+/// Stores the persistent state behind the A2A 1.0 wire `Task` object. The
+/// wire-facing `camelCase` shape (with `TaskStatus{state,message,timestamp}`,
+/// `history`, `artifacts`) is assembled in `pierre-a2a` from this record;
+/// `status_message`, `history`, and `artifacts` hold pre-serialized wire JSON
+/// so this crate stays independent of the protocol types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2ATask {
     /// Unique task identifier
     pub id: String,
-    /// Current status of the task
+    /// Current lifecycle state of the task
     pub status: TaskStatus,
-    /// When the task was created
-    pub created_at: DateTime<Utc>,
-    /// When the task completed (if finished)
+    /// Server-side context grouping identifier (A2A `contextId`)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-    /// Task result data (if completed successfully)
+    pub context_id: Option<String>,
+    /// Wire `Message` JSON attached to the current status (A2A `TaskStatus.message`)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    /// Error message (if failed)
+    pub status_message: Option<serde_json::Value>,
+    /// Wire `Message[]` JSON of the task's message history
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub history: Option<serde_json::Value>,
+    /// Wire `Artifact[]` JSON of the task's generated artifacts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<serde_json::Value>,
     /// Client ID that created this task
     pub client_id: String,
     /// Type of task being performed
     pub task_type: String,
     /// Input data for the task
     pub input_data: serde_json::Value,
-    /// Output data from the task (if completed)
+    /// Result data from the task (if completed)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_data: Option<serde_json::Value>,
-    /// Detailed error message (if failed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    /// When the task was last updated
+    pub result: Option<serde_json::Value>,
+    /// When the task was created
+    pub created_at: DateTime<Utc>,
+    /// When the task was last updated (A2A status timestamp)
     pub updated_at: DateTime<Utc>,
 }
 
-/// Task status enumeration
+/// Task lifecycle states per the A2A protocol 1.0 `TaskState` enum.
+///
+/// Serde names are the `ProtoJSON` wire strings (`TASK_STATE_*`); [`Display`]
+/// yields the compact strings persisted in the database `status` column.
 #[non_exhaustive]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TaskStatus {
-    /// Task is queued but not yet started
-    Pending,
-    /// Task is currently executing
-    Running,
-    /// Task finished successfully
+    /// Task received and acknowledged, not yet processing
+    #[serde(rename = "TASK_STATE_SUBMITTED")]
+    Submitted,
+    /// Task is actively being processed
+    #[serde(rename = "TASK_STATE_WORKING")]
+    Working,
+    /// Task finished successfully (terminal)
+    #[serde(rename = "TASK_STATE_COMPLETED")]
     Completed,
-    /// Task failed with an error
+    /// Task failed with an error (terminal)
+    #[serde(rename = "TASK_STATE_FAILED")]
     Failed,
-    /// Task was cancelled by user or system
-    Cancelled,
+    /// Task was canceled by the client or system (terminal)
+    #[serde(rename = "TASK_STATE_CANCELED")]
+    Canceled,
+    /// Task is paused waiting for client input (interrupted)
+    #[serde(rename = "TASK_STATE_INPUT_REQUIRED")]
+    InputRequired,
+    /// Task was rejected by the agent (terminal)
+    #[serde(rename = "TASK_STATE_REJECTED")]
+    Rejected,
+    /// Task is paused waiting for additional authentication (interrupted)
+    #[serde(rename = "TASK_STATE_AUTH_REQUIRED")]
+    AuthRequired,
+}
+
+impl TaskStatus {
+    /// Whether this state is terminal — no further transitions are allowed
+    /// and any subscription stream must close.
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Completed | Self::Failed | Self::Canceled | Self::Rejected
+        )
+    }
+
+    /// Whether this state is interrupted — paused awaiting client action.
+    #[must_use]
+    pub const fn is_interrupted(self) -> bool {
+        matches!(self, Self::InputRequired | Self::AuthRequired)
+    }
 }
 
 impl Display for TaskStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Pending => write!(f, "pending"),
-            Self::Running => write!(f, "running"),
+            Self::Submitted => write!(f, "submitted"),
+            Self::Working => write!(f, "working"),
             Self::Completed => write!(f, "completed"),
             Self::Failed => write!(f, "failed"),
-            Self::Cancelled => write!(f, "cancelled"),
+            Self::Canceled => write!(f, "canceled"),
+            Self::InputRequired => write!(f, "input-required"),
+            Self::Rejected => write!(f, "rejected"),
+            Self::AuthRequired => write!(f, "auth-required"),
         }
     }
+}
+
+/// A2A push notification configuration record (A2A 1.0
+/// `TaskPushNotificationConfig`).
+///
+/// One row per webhook registration on a task; the server POSTs task state
+/// changes to `url` using the stored authentication material.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct A2APushNotificationConfig {
+    /// Unique configuration identifier (A2A `id`)
+    pub config_id: String,
+    /// Task this configuration is attached to
+    pub task_id: String,
+    /// Webhook URL to POST task updates to
+    pub url: String,
+    /// Opaque client token echoed back in notifications
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Authentication scheme for the webhook request (e.g. "Bearer")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_scheme: Option<String>,
+    /// Credentials paired with `auth_scheme`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_credentials: Option<String>,
+    /// When this configuration was created
+    pub created_at: DateTime<Utc>,
+    /// When this configuration was last updated
+    pub updated_at: DateTime<Utc>,
 }
 
 /// Records of A2A protocol usage for analytics and billing
