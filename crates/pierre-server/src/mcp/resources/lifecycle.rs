@@ -75,6 +75,8 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_services::embedding_sink::RepositoryEmbeddingSink;
+#[cfg(feature = "health-sync")]
+use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::pricing_loader;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
@@ -196,7 +198,7 @@ impl ServerContext {
 
         // Initialize health data sync with Pierre-aware scheduler (needs sse_manager)
         #[cfg(feature = "health-sync")]
-        let (sync_orchestrator, sync_scheduler_abort_handle) =
+        let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) =
             Self::init_health_sync(&repos, &sse_manager);
 
         // Create auth middleware after jwks_manager is initialized
@@ -383,6 +385,8 @@ impl ServerContext {
             #[cfg(feature = "health-sync")]
             sync_orchestrator: Some(sync_orchestrator),
             #[cfg(feature = "health-sync")]
+            sync_storage: Some(sync_storage),
+            #[cfg(feature = "health-sync")]
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
             cageux_config_registry,
             harness_config_registry,
@@ -547,20 +551,25 @@ impl ServerContext {
     /// Uses Pierre's `start_scheduled_sync` instead of enforme's built-in scheduler
     /// to add post-sync behaviors: `last_sync` updates and SSE notifications.
     ///
-    /// Returns the orchestrator and the abort handle for the scheduler task.
+    /// Returns the storage adapter (kept for post-Arc injection of the
+    /// credential refresher), the orchestrator, and the abort handle for the
+    /// scheduler task.
     #[cfg(feature = "health-sync")]
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         sse_manager: &Arc<SseManager>,
-    ) -> (Arc<pierre_enforme::SyncOrchestrator>, AbortHandle) {
-        use pierre_services::health_sync::PierreSyncStorage;
+    ) -> (
+        Arc<PierreSyncStorage>,
+        Arc<pierre_enforme::SyncOrchestrator>,
+        AbortHandle,
+    ) {
         use pierre_services::provider_refresh::start_scheduled_sync;
 
         use pierre_services::provider_rate_limiter::ProviderRateLimiter;
 
         use pierre_services::provider_refresh::SyncNotifier;
-        let adapter = PierreSyncStorage::new(repos);
-        let orchestrator = adapter.into_orchestrator();
+        let adapter = Arc::new(PierreSyncStorage::new(repos));
+        let orchestrator = adapter.build_orchestrator();
         let rate_limiter = Arc::new(ProviderRateLimiter::new());
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
@@ -571,7 +580,7 @@ impl ServerContext {
             Some(rate_limiter),
         );
         info!("Health data sync scheduler started (Pierre-aware)");
-        (orchestrator, abort_handle)
+        (adapter, orchestrator, abort_handle)
     }
 
     /// Create and initialize the tool registry with all built-in tools

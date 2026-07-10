@@ -863,6 +863,41 @@ impl AuthService {
         })
     }
 
+    /// Refresh the stored token for `provider` regardless of its recorded expiry.
+    ///
+    /// Reactive path for provider-rejected tokens (e.g. a 401 despite a
+    /// DB-valid `expires_at` — revoked grant, rotated secret, clock skew).
+    /// Persists the refreshed token and re-arms / flips the connection status
+    /// exactly like the expiry-driven path. Returns `Ok(None)` when no token
+    /// row exists, no refresh token is stored, or the refresh is rejected.
+    ///
+    /// # Errors
+    /// Returns `OAuthError` if the tenant id is malformed or the token lookup fails.
+    pub async fn force_refresh_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        provider: &str,
+    ) -> Result<Option<TokenData>, OAuthError> {
+        let tenant_id_parsed: TenantId = tenant_id.parse().map_err(|_| {
+            OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
+        })?;
+        let token = self
+            .resources
+            .repos()
+            .oauth_tokens
+            .get_token(user_id, tenant_id_parsed, provider)
+            .await
+            .map_err(|e| OAuthError::DatabaseError(e.to_string()))?;
+
+        let Some(oauth_token) = token else {
+            return Ok(None);
+        };
+
+        self.handle_expired_token(user_id, tenant_id, provider, &oauth_token)
+            .await
+    }
+
     /// Check if user has valid authentication for a provider
     pub async fn has_valid_auth(
         &self,

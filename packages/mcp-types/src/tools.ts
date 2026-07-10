@@ -208,7 +208,7 @@ export interface AnalyzePerformanceTrendsParams {
 
 
 /**
- * Analyze sleep data to generate quality scores and insights
+ * Analyze last night's sleep to generate quality scores and insights. Fetches from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically
  */
 export interface AnalyzeSleepQualityParams {
 
@@ -218,8 +218,11 @@ export interface AnalyzeSleepQualityParams {
   /** Array of recent HRV values for trend analysis */
   recent_hrv_values?: number[];
 
-  /** Sleep data with fields: duration_hours, deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms */
-  sleep_data: Record<string, any>;
+  /** Manual sleep data (used instead of a provider fetch) with fields: duration_hours, deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms */
+  sleep_data?: Record<string, any>;
+
+  /** Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  sleep_provider?: string;
 }
 
 
@@ -338,9 +341,12 @@ export interface CalculatePersonalizedZonesParams {
 
 
 /**
- * Calculate holistic recovery score combining training stress, sleep, and HRV
+ * Calculate holistic recovery score combining training stress, sleep, and HRV. Fetches sleep and activity data from connected providers automatically
  */
 export interface CalculateRecoveryScoreParams {
+
+  /** Provider to fetch activities for training load (strava, garmin, fitbit, whoop, terra). Omit to auto-select */
+  activity_provider?: string;
 
   /** User's baseline HRV */
   baseline_hrv?: number;
@@ -348,8 +354,11 @@ export interface CalculateRecoveryScoreParams {
   /** Array of recent HRV values */
   recent_hrv_values?: number[];
 
-  /** Sleep data for recovery calculation */
-  sleep_data: Record<string, any>;
+  /** Manual sleep data for recovery calculation (used instead of a provider fetch) */
+  sleep_data?: Record<string, any>;
+
+  /** Provider to fetch sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  sleep_provider?: string;
 
   /** Training load data with ctl, atl, tsb values (optional) */
   training_load?: Record<string, any>;
@@ -1320,9 +1329,12 @@ export interface SuggestGoalsParams {
 
 
 /**
- * Get AI-powered recommendation on whether to rest or train
+ * Get AI-powered recommendation on whether to rest or train. Fetches sleep and activity data from connected providers automatically
  */
 export interface SuggestRestDayParams {
+
+  /** Provider to fetch activities for training load (strava, garmin, fitbit, whoop, terra). Omit to auto-select */
+  activity_provider?: string;
 
   /** User's baseline HRV */
   baseline_hrv?: number;
@@ -1330,8 +1342,11 @@ export interface SuggestRestDayParams {
   /** Recent HRV values for trend analysis */
   recent_hrv_values?: number[];
 
-  /** Last night's sleep data */
-  sleep_data: Record<string, any>;
+  /** Manual sleep data (used instead of a provider fetch) */
+  sleep_data?: Record<string, any>;
+
+  /** Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  sleep_provider?: string;
 
   /** Training load data (ctl, atl, tsb) */
   training_load?: Record<string, any>;
@@ -1397,12 +1412,15 @@ export interface TrackProgressParams {
 
 
 /**
- * Analyze sleep patterns over time to identify trends and insights
+ * Analyze sleep patterns over time to identify trends and insights. Fetches history from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically
  */
 export interface TrackSleepTrendsParams {
 
+  /** Days of sleep history to fetch from the provider (default 7) */
+  days?: number;
+
   /** Array of sleep data objects (minimum 7 days) */
-  sleep_history: {
+  sleep_history?: {
 
   /** Date of sleep record */
   date: string;
@@ -1410,6 +1428,9 @@ export interface TrackSleepTrendsParams {
   /** Sleep duration in hours */
   duration_hours: number;
 }[];
+
+  /** Provider to fetch sleep history from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  sleep_provider?: string;
 }
 
 

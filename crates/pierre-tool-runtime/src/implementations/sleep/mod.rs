@@ -48,11 +48,24 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). \
+                     Omit to auto-select the best connected provider"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some(
-                    "Sleep data with fields: duration_hours, deep_sleep_hours, rem_sleep_hours, \
+                    "Manual sleep data (used instead of a provider fetch) with fields: \
+                     duration_hours, deep_sleep_hours, rem_sleep_hours, \
                      light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms"
                         .to_owned(),
                 ),
@@ -83,11 +96,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
-            required: Some(vec!["sleep_data".to_owned()]),
+            required: None,
         };
         tool_definition(
             "analyze_sleep_quality",
-            "Analyze sleep data to generate quality scores and insights",
+            "Analyze last night's sleep to generate quality scores and insights. \
+             Fetches from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
             schema,
             None,
         )
@@ -130,10 +144,37 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch sleep from (whoop, fitbit, garmin, terra). \
+                     Omit to auto-select the best connected provider"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch activities for training load (strava, garmin, fitbit, \
+                     whoop, terra). Omit to auto-select"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some("Sleep data for recovery calculation".to_owned()),
+                description: Some(
+                    "Manual sleep data for recovery calculation (used instead of a provider fetch)"
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -171,11 +212,12 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
-            required: Some(vec!["sleep_data".to_owned()]),
+            required: None,
         };
         tool_definition(
             "calculate_recovery_score",
-            "Calculate holistic recovery score combining training stress, sleep, and HRV",
+            "Calculate holistic recovery score combining training stress, sleep, and HRV. \
+             Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
         )
@@ -218,10 +260,36 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). \
+                     Omit to auto-select the best connected provider"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch activities for training load (strava, garmin, fitbit, \
+                     whoop, terra). Omit to auto-select"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some("Last night's sleep data".to_owned()),
+                description: Some(
+                    "Manual sleep data (used instead of a provider fetch)".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -257,11 +325,12 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
-            required: Some(vec!["sleep_data".to_owned()]),
+            required: None,
         };
         tool_definition(
             "suggest_rest_day",
-            "Get AI-powered recommendation on whether to rest or train",
+            "Get AI-powered recommendation on whether to rest or train. \
+             Fetches sleep and activity data from connected providers automatically",
             schema,
             None,
         )
@@ -333,14 +402,37 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch sleep history from (whoop, fitbit, garmin, terra). \
+                     Omit to auto-select the best connected provider"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "days".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some(
+                    "Days of sleep history to fetch from the provider (default 7)".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
-            required: Some(vec!["sleep_history".to_owned()]),
+            required: None,
         };
         tool_definition(
             "track_sleep_trends",
-            "Analyze sleep patterns over time to identify trends and insights",
+            "Analyze sleep patterns over time to identify trends and insights. \
+             Fetches history from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
             schema,
             None,
         )

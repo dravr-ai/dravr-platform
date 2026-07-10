@@ -272,13 +272,32 @@ pub fn handle_analyze_sleep_quality(
                 ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
             })?
         } else {
-            // No data source specified
-            return Err(ProtocolError::InvalidRequest(
-                "Either 'sleep_provider' or 'sleep_data' parameter is required. \
-                 Use sleep_provider to auto-fetch from a connected provider (whoop, fitbit, garmin, terra), \
-                 or provide sleep_data JSON directly."
-                    .to_owned(),
-            ));
+            // Auto-select a connected sleep provider (mirrors
+            // calculate_recovery_score / suggest_rest_day / track_sleep_trends)
+            let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+            if let Some(provider_name) =
+                select_sleep_provider(executor, user_uuid, request.tenant_id.as_deref()).await
+            {
+                match fetch_provider_sleep_data(
+                    executor,
+                    user_uuid,
+                    request.tenant_id.as_deref(),
+                    &provider_name,
+                    1, // Most recent night
+                )
+                .await
+                {
+                    Ok(data) => data,
+                    Err(response) => return Ok(response),
+                }
+            } else {
+                return Err(ProtocolError::InvalidRequest(
+                    "No connected sleep provider found. \
+                     Use sleep_provider to fetch from a connected provider (whoop, fitbit, garmin, terra), \
+                     or provide sleep_data JSON directly."
+                        .to_owned(),
+                ));
+            }
         };
 
         // Get sleep/recovery config
