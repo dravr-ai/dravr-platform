@@ -104,25 +104,3 @@ export const CACHE_TIMES = {
   /** Maximum cache age before garbage collection */
   MAX_CACHE_AGE: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
 } as const;
-
-/**
- * Query key factory for consistent cache key generation
- */
-export const queryKeys = {
-  activities: {
-    all: ['activities'] as const,
-    list: (params?: { days?: number; limit?: number }) =>
-      ['activities', 'list', params] as const,
-    detail: (id: string) => ['activities', 'detail', id] as const,
-  },
-  trainingLoad: {
-    all: ['training-load'] as const,
-    current: () => ['training-load', 'current'] as const,
-    history: (days?: number) => ['training-load', 'history', days] as const,
-  },
-  recovery: {
-    all: ['recovery'] as const,
-    current: () => ['recovery', 'current'] as const,
-    scores: (days?: number) => ['recovery', 'scores', days] as const,
-  },
-} as const;

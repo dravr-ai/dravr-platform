@@ -29,9 +29,11 @@ use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
+use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantOAuthCredentials;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
@@ -54,6 +56,7 @@ use uuid::Uuid;
 use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::endurance;
+use crate::routes::oauth_grants::OAuthGrantsRoutes;
 use crate::routes::user_profile::routes as user_profile_routes;
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -240,6 +243,7 @@ impl ProviderToolRouter {
     async fn store_mcp_oauth_credentials(
         tenant_context: &TenantContext,
         oauth_client: &Arc<TenantOAuthClient>,
+        repos: &Arc<RepositoryRegistry>,
         credentials: &McpOAuthCredentials<'_>,
         config: &Arc<ServerConfig>,
     ) {
@@ -252,6 +256,7 @@ impl ProviderToolRouter {
             Self::store_provider_credentials(
                 tenant_context,
                 oauth_client,
+                repos,
                 OAuthProviderParams {
                     provider: "strava",
                     client_id: id,
@@ -272,6 +277,7 @@ impl ProviderToolRouter {
             Self::store_provider_credentials(
                 tenant_context,
                 oauth_client,
+                repos,
                 OAuthProviderParams {
                     provider: "fitbit",
                     client_id: id,
@@ -285,10 +291,15 @@ impl ProviderToolRouter {
         }
     }
 
-    /// Store OAuth credentials for a specific provider
+    /// Store OAuth credentials for a specific provider.
+    ///
+    /// Writes through to both the durable `tenants` repository (the source of
+    /// truth — survives restart, visible to other replicas) and the per-process
+    /// cache held by `oauth_client` for fast same-process lookups.
     async fn store_provider_credentials(
         tenant_context: &TenantContext,
         oauth_client: &Arc<TenantOAuthClient>,
+        repos: &Arc<RepositoryRegistry>,
         params: OAuthProviderParams<'_>,
     ) {
         info!(
@@ -301,6 +312,44 @@ impl ProviderToolRouter {
             String::clone,
         );
 
+        Self::persist_provider_credentials(tenant_context, repos, &params, redirect_uri.clone())
+            .await;
+        Self::cache_provider_credentials(tenant_context, oauth_client, &params, redirect_uri).await;
+    }
+
+    /// Persist MCP-provided credentials to the durable `tenants` repository (source of truth).
+    async fn persist_provider_credentials(
+        tenant_context: &TenantContext,
+        repos: &Arc<RepositoryRegistry>,
+        params: &OAuthProviderParams<'_>,
+        redirect_uri: String,
+    ) {
+        let credentials = TenantOAuthCredentials {
+            tenant_id: tenant_context.tenant_id,
+            provider: params.provider.to_owned(),
+            client_id: params.client_id.to_owned(),
+            client_secret: params.client_secret.to_owned(),
+            redirect_uri,
+            scopes: params.scopes.to_vec(),
+            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider(
+                params.provider,
+            ),
+        };
+        if let Err(e) = repos.tenants.store_oauth_credentials(&credentials).await {
+            error!(
+                "Failed to persist {} OAuth credentials for tenant {}: {}",
+                params.provider, tenant_context.tenant_id, e
+            );
+        }
+    }
+
+    /// Populate the per-process credential cache held by `oauth_client`.
+    async fn cache_provider_credentials(
+        tenant_context: &TenantContext,
+        oauth_client: &Arc<TenantOAuthClient>,
+        params: &OAuthProviderParams<'_>,
+        redirect_uri: String,
+    ) {
         let request = StoreCredentialsRequest {
             client_id: params.client_id.to_owned(),
             client_secret: params.client_secret.to_owned(),
@@ -308,13 +357,12 @@ impl ProviderToolRouter {
             scopes: params.scopes.to_vec(),
             configured_by: tenant_context.user_id,
         };
-
         if let Err(e) = oauth_client
             .store_credentials(tenant_context.tenant_id, params.provider, request)
             .await
         {
             error!(
-                "Failed to store {} OAuth credentials: {}",
+                "Failed to cache {} OAuth credentials: {}",
                 params.provider, e
             );
         }
@@ -376,6 +424,7 @@ impl ProviderToolRouter {
         Self::store_mcp_oauth_credentials(
             tenant_context,
             tenant_oauth_client,
+            repos,
             &credentials,
             config,
         )
@@ -1283,6 +1332,9 @@ impl ProviderToolRouter {
         // are mounted by `AdminRoutes::cookie_admin_routes` above. Only the
         // webhook handler stays here.
         let app = app.merge(contremaitre_webhook_routes(Arc::clone(resources)));
+
+        // Connected-apps management: list/revoke a user's MCP OAuth client grants.
+        let app = app.merge(OAuthGrantsRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]
         let app = app

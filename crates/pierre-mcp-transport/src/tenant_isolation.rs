@@ -10,8 +10,7 @@ use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_core::models::TenantOAuthCredentials;
-use pierre_core::models::{User, UserOAuthToken};
+use pierre_core::models::User;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_runtime_context::McpDispatchCtx;
 // Trait methods dispatched through repos.tenants / repos.users / repos.oauth_tokens
@@ -316,18 +315,6 @@ impl TenantIsolation {
         }
     }
 
-    /// Isolate database operations to tenant scope
-    ///
-    /// # Errors
-    /// Returns an error if resource isolation fails
-    pub fn isolate_resources(&self, tenant_id: TenantId) -> AppResult<TenantResources> {
-        // Create tenant-scoped resource accessor
-        Ok(TenantResources {
-            tenant_id,
-            repos: self.resources.repos().clone(),
-        })
-    }
-
     /// Validate that a user can perform an action on behalf of a tenant
     ///
     /// # Errors
@@ -364,93 +351,6 @@ impl TenantIsolation {
                 Err(AppError::invalid_input(format!("Unknown action: {action}")))
             }
         }
-    }
-}
-
-/// Tenant-scoped resource accessor
-pub struct TenantResources {
-    /// Unique identifier for the tenant
-    pub tenant_id: TenantId,
-    /// Repository registry for tenant-scoped operations
-    pub repos: Arc<pierre_database::RepositoryRegistry>,
-}
-
-impl TenantResources {
-    /// Get OAuth credentials for this tenant
-    ///
-    /// # Errors
-    /// Returns an error if credential lookup fails
-    pub async fn get_oauth_credentials(
-        &self,
-        provider: &str,
-    ) -> AppResult<Option<TenantOAuthCredentials>> {
-        self.repos
-            .tenants
-            .get_oauth_credentials(self.tenant_id, provider)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get tenant OAuth credentials: {e}")))
-    }
-
-    /// Store OAuth credentials for this tenant
-    ///
-    /// # Errors
-    /// Returns an error if credential storage fails or tenant ID mismatch
-    pub async fn store_oauth_credentials(
-        &self,
-        credential: &TenantOAuthCredentials,
-    ) -> AppResult<()> {
-        // Ensure the credential belongs to this tenant
-        if credential.tenant_id != self.tenant_id {
-            return Err(AppError::invalid_input(format!(
-                "Credential tenant ID mismatch: expected {}, got {}",
-                self.tenant_id, credential.tenant_id
-            )));
-        }
-
-        self.repos
-            .tenants
-            .store_oauth_credentials(credential)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to store tenant OAuth credentials: {e}"))
-            })
-    }
-
-    /// Get user OAuth tokens for this tenant
-    ///
-    /// # Errors
-    /// Returns an error if token lookup fails
-    pub async fn get_user_oauth_tokens(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> AppResult<Option<UserOAuthToken>> {
-        self.repos
-            .oauth_tokens
-            .get_token(user_id, self.tenant_id, provider)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user OAuth token: {e}")))
-    }
-
-    /// Store user OAuth token for this tenant
-    ///
-    /// # Errors
-    /// Returns an error if token storage fails
-    pub async fn store_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
-        // Additional validation could be added here to ensure
-        // the user belongs to this tenant
-        // For now, store using the user's OAuth app approach
-        self.repos
-            .oauth_tokens
-            .store_user_oauth_app(
-                token.user_id,
-                &token.provider,
-                "", // client_id not available in UserOAuthToken
-                "", // client_secret not available in UserOAuthToken
-                "", // redirect_uri not available in UserOAuthToken
-            )
-            .await
-            .map_err(|e| AppError::database(format!("Failed to store user OAuth app: {e}")))
     }
 }
 
@@ -555,8 +455,9 @@ pub async fn validate_jwt_token_for_mcp(
         session_id: Some(claims.jti.clone()),
     };
 
-    // For now, set a default expiration
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(24);
+    // Expiry is the JWT's own `exp` claim (unix seconds), already verified by validate_token.
+    let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
+        .ok_or_else(|| AppError::auth_invalid("Invalid expiry timestamp in token claims"))?;
 
     Ok(JwtValidationResult {
         user_id,

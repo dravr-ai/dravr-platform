@@ -332,6 +332,34 @@ impl AuthorizationCode {
     }
 }
 
+/// Persisted record of a user's consent to an MCP OAuth client.
+///
+/// Written when a user approves a client on the OAuth consent screen. A later
+/// `/oauth2/authorize` for the same `(user_id, tenant_id, client_id, scope)`
+/// finds an un-revoked grant and mints the authorization code without
+/// re-prompting. Revoking a connected app sets `revoked_at` (soft delete,
+/// preserving the audit trail) so the next authorization shows the consent
+/// screen again. `scope` is the exact space-separated scope string that was
+/// consented to — a request for a different scope set does not match and
+/// re-prompts.
+#[derive(Debug, Clone)]
+pub struct OAuthClientGrant {
+    /// Unique grant identifier (uuid string supplied by the caller)
+    pub id: String,
+    /// User who granted consent
+    pub user_id: String,
+    /// Tenant the grant belongs to
+    pub tenant_id: String,
+    /// OAuth client the consent was granted to
+    pub client_id: String,
+    /// Exact space-separated scope string that was consented to
+    pub scope: String,
+    /// When the grant was recorded
+    pub granted_at: DateTime<Utc>,
+    /// When the grant was revoked (soft delete); `None` while active
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
 /// Database record for LLM credentials
 #[derive(Debug, Clone)]
 pub struct LlmCredentialRecord {

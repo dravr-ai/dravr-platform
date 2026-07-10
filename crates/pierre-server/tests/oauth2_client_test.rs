@@ -80,6 +80,7 @@ fn test_oauth2_token_is_expired_when_past() {
         expires_at: Some(Utc::now() - Duration::hours(1)),
         refresh_token: Some("test_refresh_token".to_owned()),
         scope: Some("read write".to_owned()),
+        provider_user_id: None,
     };
 
     assert!(token.is_expired());
@@ -93,6 +94,7 @@ fn test_oauth2_token_not_expired_when_future() {
         expires_at: Some(Utc::now() + Duration::hours(1)),
         refresh_token: Some("test_refresh_token".to_owned()),
         scope: Some("read write".to_owned()),
+        provider_user_id: None,
     };
 
     assert!(!token.is_expired());
@@ -106,6 +108,7 @@ fn test_oauth2_token_not_expired_when_no_expiry() {
         expires_at: None,
         refresh_token: None,
         scope: None,
+        provider_user_id: None,
     };
 
     // Token with no expiration should not be considered expired
@@ -120,6 +123,7 @@ fn test_oauth2_token_will_expire_soon_within_5_minutes() {
         expires_at: Some(Utc::now() + Duration::minutes(3)),
         refresh_token: Some("test_refresh_token".to_owned()),
         scope: Some("read".to_owned()),
+        provider_user_id: None,
     };
 
     assert!(token.will_expire_soon());
@@ -133,6 +137,7 @@ fn test_oauth2_token_will_not_expire_soon_beyond_5_minutes() {
         expires_at: Some(Utc::now() + Duration::minutes(10)),
         refresh_token: Some("test_refresh_token".to_owned()),
         scope: Some("read".to_owned()),
+        provider_user_id: None,
     };
 
     assert!(!token.will_expire_soon());
@@ -146,6 +151,7 @@ fn test_oauth2_token_will_not_expire_soon_when_no_expiry() {
         expires_at: None,
         refresh_token: None,
         scope: None,
+        provider_user_id: None,
     };
 
     assert!(!token.will_expire_soon());
@@ -317,6 +323,7 @@ fn test_oauth2_token_serialization() {
         expires_at: Some(Utc::now() + Duration::hours(1)),
         refresh_token: Some("refresh456".to_owned()),
         scope: Some("read write".to_owned()),
+        provider_user_id: None,
     };
 
     let json = serde_json::to_string(&token).unwrap();
@@ -338,6 +345,7 @@ fn test_oauth2_token_serialization_with_nulls() {
         expires_at: None,
         refresh_token: None,
         scope: None,
+        provider_user_id: None,
     };
 
     let json = serde_json::to_string(&token).unwrap();
@@ -440,6 +448,7 @@ fn test_oauth2_token_boundary_expiration() {
         expires_at: Some(Utc::now()),
         refresh_token: None,
         scope: None,
+        provider_user_id: None,
     };
 
     // Should be considered expired (or just about to)

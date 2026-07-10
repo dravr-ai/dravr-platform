@@ -877,15 +877,30 @@ impl FitnessProvider for WhoopProvider {
         Self::convert_workout(&workout)
     }
 
+    #[instrument(skip(self), fields(provider = "whoop", api_call = "get_stats"))]
     async fn get_stats(&self) -> AppResult<Stats> {
-        // WHOOP doesn't have a direct stats endpoint
-        // We could aggregate from activities, but that would be expensive
-        // Return empty stats for now
+        // WHOOP exposes no aggregate-stats endpoint, so derive the rollup from
+        // the available workouts (WHOOP returns the most recent page) rather than
+        // reporting synthetic zeros. Mirrors the Terra provider's
+        // compute-from-activities approach.
+        let activities = self
+            .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
+            .await?;
+
+        let total_activities = activities.len() as u64;
+        let total_distance: f64 = activities
+            .iter()
+            .filter_map(Activity::distance_meters)
+            .sum();
+        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
+        let total_elevation_gain: f64 =
+            activities.iter().filter_map(Activity::elevation_gain).sum();
+
         Ok(Stats {
-            total_activities: 0,
-            total_distance: 0.0,
-            total_duration: 0,
-            total_elevation_gain: 0.0,
+            total_activities,
+            total_distance,
+            total_duration,
+            total_elevation_gain,
             year_to_date: None,
         })
     }

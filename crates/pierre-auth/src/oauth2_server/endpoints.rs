@@ -222,8 +222,10 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
-        // For now, we'll skip the consent screen and auto-approve
-        // In a real implementation, this would redirect to a consent page
+        // Consent is enforced at the route layer (`OAuth2Routes::execute_authorization`
+        // shows the consent screen and records the grant) before this code-minting
+        // method is reached, so `authorize` mints unconditionally for the authenticated
+        // user once the request has passed client, redirect_uri, scope, and PKCE checks.
         let user_id =
             user_id.ok_or_else(|| OAuth2Error::invalid_request("User authentication required"))?;
 

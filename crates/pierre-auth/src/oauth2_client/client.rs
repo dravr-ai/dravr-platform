@@ -95,6 +95,11 @@ pub struct OAuth2Token {
     pub refresh_token: Option<String>,
     /// Granted OAuth scopes
     pub scope: Option<String>,
+    /// Provider-side user identifier captured from the token-exchange response
+    /// (Strava `athlete.id`, Fitbit `user_id`). `None` for providers that do not
+    /// return an owner id and for refresh responses. Used to map provider push
+    /// events (e.g. Strava webhooks) back to the single owning user.
+    pub provider_user_id: Option<String>,
 }
 
 impl OAuth2Token {
@@ -344,12 +349,21 @@ impl OAuth2Client {
                 + Duration::seconds(i64::try_from(seconds).unwrap_or(DEFAULT_TOKEN_EXPIRY_SECONDS))
         });
 
+        // Capture the provider-side owner id when the response carries one:
+        // Strava returns a nested `athlete.id` (number), Fitbit a top-level
+        // `user_id` (string). Other providers omit both, leaving this `None`.
+        let provider_user_id = response
+            .athlete
+            .map(|athlete| athlete.id.to_string())
+            .or(response.user_id);
+
         OAuth2Token {
             access_token: response.access_token,
             token_type: response.token_type,
             expires_at,
             refresh_token: response.refresh_token,
             scope: response.scope,
+            provider_user_id,
         }
     }
 }
@@ -367,6 +381,19 @@ struct TokenResponse {
     refresh_token: Option<String>,
     /// Space-separated list of granted scopes
     scope: Option<String>,
+    /// Strava returns the authenticated athlete inline in the token response;
+    /// only its numeric id is needed to map webhook `owner_id` back to a user.
+    athlete: Option<AthleteId>,
+    /// Fitbit returns the owner as a top-level `user_id` string (no `athlete`).
+    user_id: Option<String>,
+}
+
+/// Minimal projection of a provider's inline athlete object in the token
+/// response. Only the numeric id is captured (Strava `athlete.id`).
+#[derive(Debug, Deserialize)]
+struct AthleteId {
+    /// Provider-side athlete identifier.
+    id: i64,
 }
 
 /// Strava-specific `OAuth2` extensions and token handling
@@ -452,6 +479,10 @@ pub mod strava {
             )
         })?;
 
+        let provider_user_id = response
+            .athlete
+            .as_ref()
+            .map(|athlete| athlete.id.to_string());
         let token = OAuth2Token {
             access_token: response.access_token,
             token_type: response.token_type,
@@ -460,6 +491,7 @@ pub mod strava {
             ),
             refresh_token: Some(response.refresh_token),
             scope: None,
+            provider_user_id,
         };
 
         Ok((token, response.athlete))
@@ -513,6 +545,10 @@ pub mod strava {
             )
         })?;
 
+        let provider_user_id = response
+            .athlete
+            .as_ref()
+            .map(|athlete| athlete.id.to_string());
         let token = OAuth2Token {
             access_token: response.access_token,
             token_type: response.token_type,
@@ -521,6 +557,7 @@ pub mod strava {
             ),
             refresh_token: Some(response.refresh_token),
             scope: None,
+            provider_user_id,
         };
 
         Ok((token, response.athlete))
@@ -584,6 +621,9 @@ pub mod strava {
             ),
             refresh_token: Some(response.refresh_token),
             scope: None,
+            // Refresh responses do not carry the athlete object; the athlete id
+            // already persisted at connect time is left untouched in storage.
+            provider_user_id: None,
         })
     }
 }
@@ -673,6 +713,7 @@ pub mod fitbit {
             expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
             refresh_token: Some(response.refresh_token),
             scope: Some(response.scope),
+            provider_user_id: Some(response.user_id.clone()),
         };
 
         let user_info = FitbitUserInfo {
@@ -738,6 +779,7 @@ pub mod fitbit {
             expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
             refresh_token: Some(response.refresh_token),
             scope: Some(response.scope),
+            provider_user_id: Some(response.user_id.clone()),
         };
 
         let user_info = FitbitUserInfo {
@@ -803,6 +845,8 @@ pub mod fitbit {
             expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
             refresh_token: Some(response.refresh_token),
             scope: Some(response.scope),
+            // Refresh leaves the connect-time owner id in storage untouched.
+            provider_user_id: None,
         })
     }
 }
@@ -887,6 +931,8 @@ pub mod whoop {
                 .refresh_token
                 .or_else(|| Some(refresh_token.to_owned())),
             scope: response.scope,
+            // WHOOP token responses carry no owner id.
+            provider_user_id: None,
         })
     }
 }

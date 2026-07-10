@@ -16,7 +16,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 use tokio::task::yield_now;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use pierre_core::models::{OAuthNotification, TenantId};
 
@@ -179,81 +179,76 @@ impl WebhookRoutes {
                 return;
             };
 
-            // Find user by looking up OAuth tokens for strava provider
-            // The owner_id from Strava corresponds to the athlete_id stored during OAuth
-            // For now, trigger sync for all strava-connected users (the orchestrator
-            // will use cursors to only fetch new data)
-            match orchestrator
-                .deps()
-                .connections
-                .list_connected_users("strava")
+            // Map the webhook's owner_id (the Strava athlete id) to the single user
+            // who connected that athlete. The athlete id is captured into
+            // provider_user_id at OAuth time, so this resolves to exactly one
+            // (user, tenant). An unknown owner is skipped — never broadcast to
+            // every connected user.
+            let (user_id, tenant_id) = match repos
+                .oauth_tokens
+                .find_user_by_provider_user_id("strava", &owner_id)
                 .await
             {
-                Ok(users) => {
-                    for user in &users {
-                        if !user.is_active {
-                            continue;
-                        }
-                        // Sync the specific user to pick up the new activity
-                        match orchestrator.sync_user(&user.user_id, "strava").await {
-                            Ok(result) if result.records_created > 0 => {
-                                info!(
-                                    user_id = user.user_id,
-                                    strava_owner_id = %owner_id,
-                                    records = result.records_created,
-                                    "Strava webhook-triggered sync completed"
-                                );
-                                // Update last_sync + SSE notify
-                                if let Ok(uuid) = user.user_id.parse::<uuid::Uuid>() {
-                                    if let Ok(tokens) =
-                                        repos.oauth_tokens.get_tokens(uuid, None).await
-                                    {
-                                        if let Some(tok) =
-                                            tokens.iter().find(|t| t.provider == "strava")
-                                        {
-                                            if let Ok(tid) = tok.tenant_id.parse::<TenantId>() {
-                                                let _ = repos
-                                                    .oauth_tokens
-                                                    .update_provider_last_sync(
-                                                        uuid,
-                                                        tid,
-                                                        "strava",
-                                                        chrono::Utc::now(),
-                                                    )
-                                                    .await;
-                                            }
-                                        }
-                                    }
-
-                                    let notification = OAuthNotification {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        user_id: user.user_id.clone(),
-                                        provider: "strava".to_owned(),
-                                        success: true,
-                                        message: format!(
-                                            "New Strava activity synced ({} records)",
-                                            result.records_created
-                                        ),
-                                        expires_at: None,
-                                        created_at: chrono::Utc::now(),
-                                        read_at: None,
-                                    };
-                                    let _ = sse.send_notification(uuid, &notification).await;
-                                }
-                            }
-                            Ok(_) => {} // No new records
-                            Err(e) => {
-                                warn!(
-                                    user_id = user.user_id,
-                                    error = %e,
-                                    "Strava webhook-triggered sync failed"
-                                );
-                            }
-                        }
-                    }
+                Ok(Some(owner)) => owner,
+                Ok(None) => {
+                    warn!(
+                        strava_owner_id = %owner_id,
+                        "Strava webhook for unknown athlete id — no linked user; skipping"
+                    );
+                    return;
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to list Strava users for webhook sync");
+                    error!(
+                        strava_owner_id = %owner_id,
+                        error = %e,
+                        "Failed to resolve Strava webhook owner to a user"
+                    );
+                    return;
+                }
+            };
+
+            // Sync the owning user to pick up the new activity. The orchestrator uses
+            // cursors so only data newer than the last sync is fetched.
+            match orchestrator.sync_user(&user_id.to_string(), "strava").await {
+                Ok(result) if result.records_created > 0 => {
+                    info!(
+                        user_id = %user_id,
+                        strava_owner_id = %owner_id,
+                        records = result.records_created,
+                        "Strava webhook-triggered sync completed"
+                    );
+
+                    // Update last_sync for the resolved tenant, then notify the user's
+                    // live SSE stream that new data landed.
+                    if let Ok(tid) = tenant_id.parse::<TenantId>() {
+                        let _ = repos
+                            .oauth_tokens
+                            .update_provider_last_sync(user_id, tid, "strava", chrono::Utc::now())
+                            .await;
+                    }
+
+                    let notification = OAuthNotification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        user_id: user_id.to_string(),
+                        provider: "strava".to_owned(),
+                        success: true,
+                        message: format!(
+                            "New Strava activity synced ({} records)",
+                            result.records_created
+                        ),
+                        expires_at: None,
+                        created_at: chrono::Utc::now(),
+                        read_at: None,
+                    };
+                    let _ = sse.send_notification(user_id, &notification).await;
+                }
+                Ok(_) => {} // No new records
+                Err(e) => {
+                    warn!(
+                        user_id = %user_id,
+                        error = %e,
+                        "Strava webhook-triggered sync failed"
+                    );
                 }
             }
         });

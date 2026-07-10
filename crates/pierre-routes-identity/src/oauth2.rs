@@ -29,6 +29,7 @@ use pierre_auth::oauth2_server::{
     rate_limiting::OAuth2RateLimiter,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use sha2::{Digest, Sha256};
@@ -110,6 +111,25 @@ pub struct LoginHtmlParams<'a> {
     pub default_password: &'a str,
 }
 
+/// Parameters for rendering the OAuth consent page.
+#[derive(Clone, Copy)]
+pub struct ConsentHtmlParams<'a> {
+    /// OAuth client identifier requesting access
+    pub client_id: &'a str,
+    /// OAuth redirect URI after authorization
+    pub redirect_uri: &'a str,
+    /// OAuth response type (typically "code")
+    pub response_type: &'a str,
+    /// OAuth state parameter for CSRF protection
+    pub state: &'a str,
+    /// OAuth scope being consented to
+    pub scope: &'a str,
+    /// PKCE code challenge
+    pub code_challenge: &'a str,
+    /// PKCE code challenge method (e.g., "S256")
+    pub code_challenge_method: &'a str,
+}
+
 impl OAuth2Routes {
     /// Create all OAuth 2.0 routes with context
     pub fn routes(context: OAuth2Context) -> Router {
@@ -135,6 +155,7 @@ impl OAuth2Routes {
             // Login page and submission
             .route("/oauth2/login", get(Self::handle_oauth_login_page))
             .route("/oauth2/login", post(Self::handle_oauth_login_submit))
+            .route("/oauth2/consent", post(Self::handle_consent_submit))
             // Token validation endpoints
             .route(
                 "/oauth2/validate-and-refresh",
@@ -339,6 +360,82 @@ impl OAuth2Routes {
         tenant_id: Option<String>,
         redirect_uri: String,
     ) -> Response {
+        // Skip the consent screen only when the user has already approved this client
+        // for the requested scope; otherwise show consent before any code is minted.
+        let scope = request.scope.clone().unwrap_or_default();
+        let grant_tenant =
+            Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
+        let has_grant = match &grant_tenant {
+            Some(tid) => context
+                .oauth2_server
+                .find_active_client_grant(
+                    &authenticated_user_id.to_string(),
+                    tid,
+                    &request.client_id,
+                    &scope,
+                )
+                .await
+                .unwrap_or(None)
+                .is_some(),
+            None => false,
+        };
+
+        if has_grant {
+            return Self::mint_authorization_code(
+                context,
+                request,
+                authenticated_user_id,
+                tenant_id,
+                redirect_uri,
+            )
+            .await;
+        }
+
+        Self::render_consent_page(&request)
+    }
+
+    /// Render the consent screen for a not-yet-granted authorization request.
+    fn render_consent_page(request: &AuthorizeRequest) -> Response {
+        let html = Self::generate_consent_html(ConsentHtmlParams {
+            client_id: &request.client_id,
+            redirect_uri: &request.redirect_uri,
+            response_type: &request.response_type,
+            state: request.state.as_deref().unwrap_or_default(),
+            scope: request.scope.as_deref().unwrap_or_default(),
+            code_challenge: request.code_challenge.as_deref().unwrap_or_default(),
+            code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
+        });
+        Html(html).into_response()
+    }
+
+    /// Resolve the tenant used to key an OAuth client grant.
+    ///
+    /// Uses the tenant from the session claims when present, otherwise the user's
+    /// first tenant — mirroring the resolution done when minting the code.
+    async fn resolve_grant_tenant(
+        context: &OAuth2Context,
+        user_id: uuid::Uuid,
+        tenant_id: Option<String>,
+    ) -> Option<String> {
+        if tenant_id.is_some() {
+            return tenant_id;
+        }
+        context
+            .tenants
+            .list_for_user(user_id)
+            .await
+            .ok()
+            .and_then(|tenants| tenants.first().map(|t| t.id.to_string()))
+    }
+
+    /// Mint an authorization code and redirect back to the client.
+    async fn mint_authorization_code(
+        context: &OAuth2Context,
+        request: AuthorizeRequest,
+        authenticated_user_id: uuid::Uuid,
+        tenant_id: Option<String>,
+        redirect_uri: String,
+    ) -> Response {
         let auth_server = OAuth2AuthorizationServer::new(
             context.oauth2_server.clone(),
             context.tenants.clone(),
@@ -382,6 +479,82 @@ impl OAuth2Routes {
                 Self::render_oauth_error_response(&error)
             }
         }
+    }
+
+    /// Handle the OAuth consent form submission (POST /oauth2/consent).
+    ///
+    /// On approval, records a durable grant (so future authorizations for the same
+    /// client + scope skip the prompt) and mints the authorization code. On denial,
+    /// returns `access_denied` to the client's registered redirect URI.
+    async fn handle_consent_submit(
+        State(context): State<OAuth2Context>,
+        headers: HeaderMap,
+        Form(form): Form<HashMap<String, String>>,
+    ) -> Response {
+        let request = match Self::parse_authorize_request(&form) {
+            Ok(req) => req,
+            Err(error) => return Self::render_oauth_error_response(&error),
+        };
+        let redirect_uri = request.redirect_uri.clone();
+
+        // The consent decision must belong to the authenticated user.
+        let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context);
+        let Some(user_id) = user_id else {
+            // Session lapsed between render and submit — restart through login.
+            return Redirect::to(&Self::build_login_url_with_oauth_params(&request))
+                .into_response();
+        };
+
+        let approved = form
+            .get("decision")
+            .is_some_and(|decision| decision == "approve");
+        if !approved {
+            return Self::deny_authorization(&context, &request, &redirect_uri).await;
+        }
+
+        // Record the grant; a duplicate active grant is a no-op at the storage layer.
+        let scope = request.scope.clone().unwrap_or_default();
+        if let Some(tid) = Self::resolve_grant_tenant(&context, user_id, tenant_id.clone()).await {
+            let grant = OAuthClientGrant {
+                id: uuid::Uuid::new_v4().to_string(),
+                user_id: user_id.to_string(),
+                tenant_id: tid,
+                client_id: request.client_id.clone(),
+                scope,
+                granted_at: chrono::Utc::now(),
+                revoked_at: None,
+            };
+            if let Err(e) = context.oauth2_server.store_client_grant(&grant).await {
+                warn!("Failed to persist OAuth client grant: {e}");
+            }
+        }
+
+        Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
+    }
+
+    /// Bounce an `access_denied` error to the client, guarding against open redirect.
+    async fn deny_authorization(
+        context: &OAuth2Context,
+        request: &AuthorizeRequest,
+        redirect_uri: &str,
+    ) -> Response {
+        // Only redirect to a redirect_uri actually registered for the client.
+        let registered = context
+            .tenants
+            .get_oauth_app_by_client_id(&request.client_id)
+            .await
+            .is_ok_and(|app| app.redirect_uris.iter().any(|u| u == redirect_uri));
+        if !registered {
+            return Self::render_oauth_error_response(&OAuth2Error::invalid_request(
+                "Invalid redirect_uri",
+            ));
+        }
+        let mut url = format!("{redirect_uri}?error=access_denied");
+        if let Some(state) = &request.state {
+            use std::fmt::Write;
+            write!(&mut url, "&state={}", urlencoding::encode(state)).ok();
+        }
+        Redirect::to(&url).into_response()
     }
 
     /// Handle token request (POST /oauth2/token)
@@ -650,6 +823,49 @@ impl OAuth2Routes {
                 "{{DEFAULT_PASSWORD}}",
                 &escape_html_attribute(params.default_password),
             )
+    }
+
+    /// Render the OAuth consent page for a client requesting access.
+    #[must_use]
+    pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
+        use std::fmt::Write;
+
+        let displayed_scope = if params.scope.is_empty() {
+            "fitness:read activities:read profile:read"
+        } else {
+            params.scope
+        };
+        // Each scope token becomes a list item; the token text is HTML-escaped
+        // before the (literal) <li> markup is substituted into the template.
+        let scope_items =
+            displayed_scope
+                .split_whitespace()
+                .fold(String::new(), |mut acc, scope| {
+                    write!(acc, "<li>{}</li>", escape_html_attribute(scope)).ok();
+                    acc
+                });
+
+        Self::OAUTH_CONSENT_TEMPLATE
+            .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
+            .replace(
+                "{{REDIRECT_URI}}",
+                &escape_html_attribute(params.redirect_uri),
+            )
+            .replace(
+                "{{RESPONSE_TYPE}}",
+                &escape_html_attribute(params.response_type),
+            )
+            .replace("{{STATE}}", &escape_html_attribute(params.state))
+            .replace("{{SCOPE}}", &escape_html_attribute(displayed_scope))
+            .replace(
+                "{{CODE_CHALLENGE}}",
+                &escape_html_attribute(params.code_challenge),
+            )
+            .replace(
+                "{{CODE_CHALLENGE_METHOD}}",
+                &escape_html_attribute(params.code_challenge_method),
+            )
+            .replace("{{SCOPE_ITEMS}}", &scope_items)
     }
 
     /// Handle OAuth login page (GET /oauth2/login)
@@ -1272,14 +1488,22 @@ impl OAuth2Routes {
 
     /// Extract session token from cookie header
     fn extract_session_token(cookie_header: &str) -> Option<String> {
-        // Parse cookies and look for pierre_session
+        // Accept the authorization server's own `pierre_session` cookie and, as a
+        // bridge, the first-party web app's `auth_token` cookie — both are the same
+        // RS256 JWT type validated by the auth manager. This lets a user already
+        // logged into the web app authorize an MCP client without a second login.
+        // `pierre_session` wins when both are present.
+        let mut app_token = None;
         for cookie in cookie_header.split(';') {
             let cookie = cookie.trim();
             if let Some(session_token) = cookie.strip_prefix("pierre_session=") {
                 return Some(session_token.to_owned());
             }
+            if let Some(auth_token) = cookie.strip_prefix("auth_token=") {
+                app_token = Some(auth_token.to_owned());
+            }
         }
-        None
+        app_token
     }
 
     /// OAuth error template embedded at compile-time
@@ -1288,6 +1512,9 @@ impl OAuth2Routes {
     /// OAuth login page template embedded at compile-time
     /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
     const OAUTH_LOGIN_TEMPLATE: &'static str = include_str!("../templates/oauth_login.html");
+
+    /// OAuth consent page template embedded at compile-time
+    const OAUTH_CONSENT_TEMPLATE: &'static str = include_str!("../templates/oauth_consent.html");
 
     /// OAuth login error template embedded at compile-time
     /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime

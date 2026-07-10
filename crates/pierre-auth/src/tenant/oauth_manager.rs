@@ -35,13 +35,16 @@ pub struct CredentialConfig {
     pub configured_by: Uuid,
 }
 
-/// Manager for tenant-specific OAuth credentials
+/// Manager for tenant-specific OAuth credentials.
 ///
-/// Note: This is a simplified implementation for initial multi-tenant support.
-/// In production, credentials would be encrypted and stored in the database.
+/// Maintains a per-process cache of tenant OAuth credentials plus per-process
+/// daily usage counters for rate limiting. Durable credential storage is the
+/// `tenants` repository (the source of truth); the MCP credential-store path
+/// persists there in addition to populating this cache.
 pub struct TenantOAuthManager {
-    // In-memory storage for now - would be database-backed in production
+    /// Per-process cache of tenant credentials; the durable copy lives in the tenants repository.
     credentials: HashMap<(TenantId, String), TenantOAuthCredentials>,
+    /// Per-process daily usage counters used for rate limiting.
     usage_tracking: HashMap<(TenantId, String, chrono::NaiveDate), u32>,
     // Server-level OAuth configuration (read once at startup)
     oauth_config: Arc<OAuthConfig>,
@@ -500,7 +503,8 @@ impl TenantOAuthManager {
     }
 
     /// Get default rate limit for a provider
-    fn default_rate_limit_for_provider(provider: &str) -> u32 {
+    #[must_use]
+    pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
         match provider.to_lowercase().as_str() {
             "strava" => STRAVA_DEFAULT_DAILY_RATE_LIMIT,
             "fitbit" => FITBIT_DEFAULT_DAILY_RATE_LIMIT,

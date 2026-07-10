@@ -98,6 +98,10 @@ export const ENDPOINTS = {
     MOBILE_INIT: (provider: string) => `/api/oauth/mobile/init/${provider}`,
     /** Disconnect provider (revoke tokens) */
     DISCONNECT: (provider: string) => `/api/oauth/providers/${provider}/disconnect`,
+    /** List the caller's connected MCP OAuth apps (approved on the consent screen) */
+    CONNECTED_APPS: '/api/me/oauth-grants',
+    /** Revoke one connected MCP OAuth app grant by id */
+    CONNECTED_APP: (id: string) => `/api/me/oauth-grants/${id}`,
   },
 
   // ==================== PROVIDERS ====================

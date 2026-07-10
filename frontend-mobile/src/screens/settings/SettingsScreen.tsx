@@ -380,13 +380,32 @@ export function SettingsScreen() {
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={settingsRowStyle} onPress={() => setShowCreateToken(true)} testID="settings-mcp-tokens-button">
+            <TouchableOpacity
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
+              onPress={() => setShowCreateToken(true)}
+              testID="settings-mcp-tokens-button"
+            >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="key" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 16, color: colors.text.primary }}>MCP Tokens</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{tokens.length} active</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/connected-apps')}
+              testID="settings-connected-apps-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="grid" size={20} color={colors.text.secondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Connected Apps</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>External MCP clients</Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>

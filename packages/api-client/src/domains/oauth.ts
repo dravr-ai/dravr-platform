@@ -10,6 +10,7 @@ import type {
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   ApiMetadata,
+  OAuthGrant,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -146,6 +147,25 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     async disconnectProvider(provider: string): Promise<void> {
       await axios.delete(ENDPOINTS.OAUTH.DISCONNECT(provider));
+    },
+
+    /**
+     * List the caller's connected MCP OAuth apps (external clients they approved
+     * on the OAuth consent screen), most recent first.
+     */
+    async listConnectedApps(): Promise<OAuthGrant[]> {
+      const response = await axios.get<{ grants: OAuthGrant[] }>(
+        ENDPOINTS.OAUTH.CONNECTED_APPS
+      );
+      return response.data.grants;
+    },
+
+    /**
+     * Revoke one connected MCP OAuth app; that client must re-consent on its
+     * next authorization.
+     */
+    async revokeConnectedApp(id: string): Promise<void> {
+      await axios.delete(ENDPOINTS.OAUTH.CONNECTED_APP(id));
     },
 
     /**

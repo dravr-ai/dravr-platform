@@ -121,8 +121,13 @@ pub async fn prefetch_activity_context(
         "analysis_type": activities_req.analysis_type,
     });
 
-    // Add sport_type filter if specified (single sport type for now)
-    if let Some(sport_type) = activities_req.sport_types.first() {
+    // Filter by sport_type only when the coach requests exactly one. The
+    // downstream `get_activities` filter accepts a single sport type, so a
+    // multi-sport coach (e.g. sport_types: [Run, Ride]) omits the filter and
+    // fetches across all sports — narrowing to `.first()` would silently drop
+    // every requested sport but the first. Over-fetching is corrected by later
+    // stages; dropped data is not.
+    if let [sport_type] = activities_req.sport_types.as_slice() {
         params["sport_type"] = serde_json::Value::String(String::clone(sport_type));
     }
 

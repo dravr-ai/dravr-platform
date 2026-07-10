@@ -18,13 +18,45 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::OAuthClientState;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    AuthorizationCode, ConnectionStatus, ConnectionType, ProviderConnection, UserOAuthApp,
-    UserOAuthToken,
+    AuthorizationCode, ConnectionStatus, ConnectionType, OAuthClientGrant, ProviderConnection,
+    UserOAuthApp, UserOAuthToken,
 };
 use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
+use sqlx::postgres::PgRow;
 use sqlx::Row;
 use tracing::warn;
 use uuid::Uuid;
+
+/// Map a `oauth_client_grants` row into an [`OAuthClientGrant`].
+///
+/// Extracts every column via `try_get` (never the panicking `r.get()`): all id
+/// columns are TEXT and the timestamps are TIMESTAMPTZ, so a schema/type skew
+/// surfaces as a structured `AppError` rather than a decode panic.
+fn row_to_client_grant(row: &PgRow) -> AppResult<OAuthClientGrant> {
+    Ok(OAuthClientGrant {
+        id: row
+            .try_get("id")
+            .map_err(|e| AppError::database(format!("Failed to parse id column: {e}")))?,
+        user_id: row
+            .try_get("user_id")
+            .map_err(|e| AppError::database(format!("Failed to parse user_id column: {e}")))?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|e| AppError::database(format!("Failed to parse tenant_id column: {e}")))?,
+        client_id: row
+            .try_get("client_id")
+            .map_err(|e| AppError::database(format!("Failed to parse client_id column: {e}")))?,
+        scope: row
+            .try_get("scope")
+            .map_err(|e| AppError::database(format!("Failed to parse scope column: {e}")))?,
+        granted_at: row
+            .try_get("granted_at")
+            .map_err(|e| AppError::database(format!("Failed to parse granted_at column: {e}")))?,
+        revoked_at: row
+            .try_get("revoked_at")
+            .map_err(|e| AppError::database(format!("Failed to parse revoked_at column: {e}")))?,
+    })
+}
 
 #[async_trait]
 impl OAuthTokenRepository for PostgresDatabase {
@@ -230,6 +262,43 @@ impl OAuthTokenRepository for PostgresDatabase {
             tokens.push(self.row_to_user_oauth_token(&row)?);
         }
         Ok(tokens)
+    }
+
+    async fn find_user_by_provider_user_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> AppResult<Option<(Uuid, String)>> {
+        let row = sqlx::query(
+            r"
+            SELECT user_id, tenant_id
+            FROM user_oauth_tokens
+            WHERE provider = $1 AND provider_user_id = $2
+            LIMIT 1
+            ",
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to look up user by provider_user_id: {e}"))
+        })?;
+
+        // Extract via try_get (never the panicking r.get()): user_id is a native
+        // UUID column, tenant_id is TEXT.
+        match row {
+            Some(row) => {
+                let user_id: Uuid = row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?;
+                let tenant_id: String = row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?;
+                Ok(Some((user_id, tenant_id)))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
@@ -995,6 +1064,105 @@ impl OAuth2ServerRepository for PostgresDatabase {
         } else {
             Ok(None)
         }
+    }
+
+    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<()> {
+        // Active partial-unique index makes re-consent a no-op via ON CONFLICT DO NOTHING.
+        sqlx::query(
+            r"
+            INSERT INTO oauth_client_grants
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NULL)
+            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL DO NOTHING
+            ",
+        )
+        .bind(&grant.id)
+        .bind(&grant.user_id)
+        .bind(&grant.tenant_id)
+        .bind(&grant.client_id)
+        .bind(&grant.scope)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store OAuth client grant: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn find_active_client_grant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> AppResult<Option<OAuthClientGrant>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND scope = $4
+              AND revoked_at IS NULL
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(client_id)
+        .bind(scope)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query OAuth client grant: {e}")))?;
+
+        row.map(|row| row_to_client_grant(&row)).transpose()
+    }
+
+    async fn list_client_grants(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Vec<OAuthClientGrant>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL
+            ORDER BY granted_at DESC
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list OAuth client grants: {e}")))?;
+
+        let mut grants = Vec::with_capacity(rows.len());
+        for row in &rows {
+            grants.push(row_to_client_grant(row)?);
+        }
+        Ok(grants)
+    }
+
+    async fn revoke_client_grant(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<bool> {
+        // user_id + tenant_id in the WHERE clause is the ownership check.
+        let result = sqlx::query(
+            r"
+            UPDATE oauth_client_grants
+            SET revoked_at = NOW()
+            WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+            ",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to revoke OAuth client grant: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     // ================================

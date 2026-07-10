@@ -730,7 +730,10 @@ impl OAuthService {
             token_type: token.token_type.clone(),
             expires_at: Some(expires_at),
             scope: token.scope.clone(),
-            provider_user_id: None,
+            // Provider-side owner id (Strava athlete id, Fitbit user id) captured
+            // at token exchange. Persisting it lets provider push events (e.g.
+            // Strava webhooks) be routed to the single owning user.
+            provider_user_id: token.provider_user_id.clone(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
