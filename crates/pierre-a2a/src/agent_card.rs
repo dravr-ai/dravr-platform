@@ -284,7 +284,7 @@ impl AgentCard {
             capabilities: AgentCapabilities {
                 streaming: true,
                 push_notifications: true,
-                extended_agent_card: false,
+                extended_agent_card: true,
                 extensions: Vec::new(),
             },
             default_input_modes: vec!["text/plain".into(), "application/json".into()],

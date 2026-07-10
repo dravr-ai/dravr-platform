@@ -18,6 +18,7 @@
 //! and [`A2AServer::start_task_subscription`], which return the initial task
 //! snapshot plus a live event receiver.
 
+use crate::agent_card::{AgentCard, AgentSkill};
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
     error_info, A2ASpecError, Artifact, GetTaskRequest, ListTasksRequest, ListTasksResponse,
@@ -36,7 +37,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Number, Value};
 use std::cmp::Reverse;
-use std::future::Future;
+use std::future::{ready, Future};
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -67,6 +68,19 @@ pub struct A2AResources {
 pub struct A2AServer {
     /// Optional server resources for tool execution and persistence
     pub resources: Option<A2AResources>,
+}
+
+/// The authenticated caller of a protocol method.
+///
+/// `user_id` is always the acting human user (token subject for user JWTs;
+/// the registering owner for client-credentials tokens) — it drives tenant
+/// resolution and tool execution. `client_id` is set when the caller
+/// authenticated with client credentials; tasks are then keyed to and
+/// scoped by that client.
+#[derive(Clone)]
+struct AuthPrincipal {
+    user_id: Uuid,
+    client_id: Option<String>,
 }
 
 /// Resolved state shared by the blocking, non-blocking, and streaming
@@ -120,56 +134,60 @@ impl A2AServer {
     pub async fn handle_request(&self, request: A2ARequest) -> A2AResponse {
         match request.method.as_str() {
             "SendMessage" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_send_message(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_send_message(req, principal))
                 })
                 .await
             }
             "GetTask" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_get_task(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_get_task(req, principal))
                 })
                 .await
             }
             "ListTasks" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_list_tasks(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_list_tasks(req, principal))
                 })
                 .await
             }
             "CancelTask" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_cancel_task(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_cancel_task(req, principal))
                 })
                 .await
             }
             "CreateTaskPushNotificationConfig" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_create_push_config(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_create_push_config(req, principal))
                 })
                 .await
             }
             "GetTaskPushNotificationConfig" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_get_push_config(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_get_push_config(req, principal))
                 })
                 .await
             }
             "ListTaskPushNotificationConfigs" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_list_push_configs(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_list_push_configs(req, principal))
                 })
                 .await
             }
             "DeleteTaskPushNotificationConfig" => {
-                self.require_auth_then(request, |s, req, user_id| {
-                    Box::pin(s.handle_delete_push_config(req, user_id))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_delete_push_config(req, principal))
                 })
                 .await
             }
-            // No differentiated authenticated card is configured on this server.
+            // The authenticated extended card: the public card enriched with
+            // the live tool registry as skills.
             "GetExtendedAgentCard" => {
-                Self::spec_error(A2ASpecError::ExtendedAgentCardNotConfigured, request.id)
+                self.require_auth_then(request, |s, req, _principal| {
+                    Box::pin(ready(s.handle_extended_card(req)))
+                })
+                .await
             }
             // SSE-only methods: the HTTP layer intercepts these before
             // non-streaming dispatch; a non-SSE caller lands here.
@@ -188,35 +206,41 @@ impl A2AServer {
 
     /// Require authentication before dispatching to a handler
     ///
-    /// Extracts and validates the JWT auth token from the request, then calls the
-    /// handler with the authenticated user ID. Returns an auth error response if
-    /// authentication fails.
+    /// Extracts and validates the JWT auth token from the request, then calls
+    /// the handler with the authenticated principal. Returns an auth error
+    /// response if authentication fails.
     async fn require_auth_then<F>(&self, request: A2ARequest, handler: F) -> A2AResponse
     where
         F: FnOnce(
             &Self,
             A2ARequest,
-            Uuid,
+            AuthPrincipal,
         ) -> Pin<Box<dyn Future<Output = A2AResponse> + Send + '_>>,
     {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id.clone());
         };
-        match Self::authenticate_request(&request, resources) {
-            Ok(user_id) => handler(self, request, user_id).await,
+        match Self::authenticate_request(&request, resources).await {
+            Ok(principal) => handler(self, request, principal).await,
             Err(err_response) => *err_response,
         }
     }
 
-    /// Authenticate the A2A request and extract user information.
+    /// Authenticate the A2A request and resolve the acting principal.
     ///
-    /// Authentication is transport-level per the spec (the card's
-    /// `securitySchemes`); failures carry the `AUTHENTICATION_REQUIRED`
-    /// reason so the HTTP layer can surface a 401 status.
-    fn authenticate_request(
+    /// Two token shapes are accepted, matching the card's `securitySchemes`:
+    /// user JWTs (`sub` = user UUID), and `OAuth2` client-credentials JWTs
+    /// (`sub` = `client:{id}`, minted by `/a2a/auth`). A client token
+    /// acts as the client's registering user — the same semantics as
+    /// `A2AAuthenticator::authenticate_oauth2` — with the client identity
+    /// kept on the principal for task keying and scoping.
+    ///
+    /// Authentication is transport-level per the spec; failures carry the
+    /// `AUTHENTICATION_REQUIRED` reason so the HTTP layer can surface 401.
+    async fn authenticate_request(
         request: &A2ARequest,
         resources: &A2AResources,
-    ) -> Result<Uuid, Box<A2AResponse>> {
+    ) -> Result<AuthPrincipal, Box<A2AResponse>> {
         let request_id = request
             .id
             .clone() // Safe: JSON value ownership for request ID
@@ -230,26 +254,74 @@ impl A2AServer {
             ))
         })?;
 
-        // Validate token and extract user_id
-        match resources
+        // Validate token signature/expiry
+        let claims = resources
             .ctx
             .auth_manager()
             .validate_token(auth_token, resources.ctx.jwks_manager())
-        {
-            Ok(claims) => Uuid::parse_str(&claims.sub).map_or_else(
-                |_| {
-                    Err(Box::new(Self::auth_error(
-                        "Invalid user ID in authentication token",
-                        Some(request_id.clone()),
-                    )))
-                },
-                Ok,
-            ),
-            Err(_) => Err(Box::new(Self::auth_error(
-                "Invalid authentication token",
-                Some(request_id),
-            ))),
+            .map_err(|_| {
+                Box::new(Self::auth_error(
+                    "Invalid authentication token",
+                    Some(request_id.clone()),
+                ))
+            })?;
+
+        // User JWT: subject is the user UUID.
+        if let Ok(user_id) = Uuid::parse_str(&claims.sub) {
+            return Ok(AuthPrincipal {
+                user_id,
+                client_id: None,
+            });
         }
+
+        // Client-credentials JWT: subject is client:{id} (the shape
+        // /a2a/auth mints via generate_client_credentials_token).
+        let Some(client_id) = claims.sub.strip_prefix("client:") else {
+            return Err(Box::new(Self::auth_error(
+                "Invalid principal in authentication token",
+                Some(request_id),
+            )));
+        };
+
+        Self::resolve_client_principal(client_id, resources, request_id).await
+    }
+
+    /// Resolve a client-credentials subject into its acting principal: the
+    /// client must exist and be active; the principal acts as the client's
+    /// registering user with the client identity kept for task scoping.
+    async fn resolve_client_principal(
+        client_id: &str,
+        resources: &A2AResources,
+        request_id: Value,
+    ) -> Result<AuthPrincipal, Box<A2AResponse>> {
+        let client = match resources.ctx.repos().a2a.get_client(client_id).await {
+            Ok(Some(client)) => client,
+            Ok(None) => {
+                return Err(Box::new(Self::auth_error(
+                    "Unknown A2A client in authentication token",
+                    Some(request_id),
+                )))
+            }
+            Err(e) => {
+                error!("Failed to resolve A2A client during authentication: {e}");
+                return Err(Box::new(Self::a2a_error(
+                    -32000,
+                    "Failed to resolve A2A client",
+                    Some(request_id),
+                )));
+            }
+        };
+        if !client.is_active {
+            return Err(Box::new(Self::auth_error(
+                "A2A client is deactivated",
+                Some(request_id),
+            )));
+        }
+
+        Ok(AuthPrincipal {
+            user_id: client.user_id,
+            client_id: Some(client.id),
+        })
     }
 
     /// Get client IDs owned by a user
@@ -267,14 +339,28 @@ impl A2AServer {
             .map_err(|e| format!("Failed to list A2A clients: {e}"))
     }
 
-    /// Verify a `client_id` belongs to the authenticated user
-    async fn verify_client_ownership(
+    /// Verify the principal may access tasks keyed to `client_id`.
+    ///
+    /// Client-credentials principals are confined to their own client; user
+    /// principals may access any client they registered.
+    async fn verify_client_access(
         client_id: &str,
-        user_id: &Uuid,
+        principal: &AuthPrincipal,
         resources: &A2AResources,
         request_id: Option<&Value>,
     ) -> Result<(), A2AResponse> {
-        let owned_ids = Self::get_owned_client_ids(user_id, resources)
+        if let Some(acting_client) = &principal.client_id {
+            if acting_client == client_id {
+                return Ok(());
+            }
+            // Do not reveal whether the task exists for another principal.
+            return Err(Self::spec_error(
+                A2ASpecError::TaskNotFound,
+                request_id.cloned(),
+            ));
+        }
+
+        let owned_ids = Self::get_owned_client_ids(&principal.user_id, resources)
             .await
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
@@ -295,11 +381,11 @@ impl A2AServer {
         Ok(())
     }
 
-    /// Load a task and verify the authenticated user may access it.
+    /// Load a task and verify the principal may access it.
     async fn load_owned_task(
         resources: &A2AResources,
         task_id: &str,
-        user_id: &Uuid,
+        principal: &AuthPrincipal,
         request_id: Option<&Value>,
     ) -> Result<A2ATask, Box<A2AResponse>> {
         let task = match resources.ctx.repos().a2a.get_task(task_id).await {
@@ -320,7 +406,7 @@ impl A2AServer {
             }
         };
 
-        Self::verify_client_ownership(&task.client_id, user_id, resources, request_id)
+        Self::verify_client_access(&task.client_id, principal, resources, request_id)
             .await
             .map_err(Box::new)?;
 
@@ -464,6 +550,46 @@ impl A2AServer {
         }
     }
 
+    /// Handle `GetExtendedAgentCard`: the public card enriched with the
+    /// live tool registry exposed as additional skills. This is the
+    /// authenticated, dynamic variant of the discovery card (the public
+    /// card's skills are the curated static subset).
+    fn handle_extended_card(&self, request: A2ARequest) -> A2AResponse {
+        let Some(resources) = &self.resources else {
+            return Self::server_not_configured_error(request.id);
+        };
+
+        let mut card = AgentCard::with_base_url(resources.ctx.base_url());
+        let public_skill_ids: Vec<String> =
+            card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
+        for schema in resources
+            .tool_runtime
+            .tool_registry()
+            .user_visible_schemas()
+        {
+            if public_skill_ids.contains(&schema.name) {
+                continue;
+            }
+            card.skills.push(AgentSkill {
+                id: schema.name.clone(), // Safe: String ownership for skill id
+                name: schema.name,
+                description: schema.description,
+                tags: vec!["tool".into()],
+                examples: Vec::new(),
+                input_modes: Vec::new(),
+                output_modes: Vec::new(),
+            });
+        }
+
+        match to_value(&card) {
+            Ok(value) => Self::ok(value, request.id),
+            Err(e) => {
+                error!("Failed to serialize A2A extended agent card: {e}");
+                Self::a2a_error(-32603, "Failed to serialize extended card", request.id)
+            }
+        }
+    }
+
     // ============================== SendMessage ==============================
 
     /// Handle A2A 1.0 `SendMessage`.
@@ -482,7 +608,11 @@ impl A2AServer {
     /// call blocks until the task reaches a terminal state and returns the
     /// final task snapshot; with `true` it returns the submitted snapshot
     /// and execution continues in the background.
-    async fn handle_send_message(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_send_message(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -520,17 +650,13 @@ impl A2AServer {
             };
         }
 
-        let prepared = match Self::prepare_send(
-            resources,
-            &user_id,
-            params.message,
-            request.id.as_ref(),
-        )
-        .await
-        {
-            Ok(prepared) => prepared,
-            Err(err) => return *err,
-        };
+        let prepared =
+            match Self::prepare_send(resources, &principal, params.message, request.id.as_ref())
+                .await
+            {
+                Ok(prepared) => prepared,
+                Err(err) => return *err,
+            };
 
         if let Some(config_input) = configuration.push_notification_config {
             if let Err(err) = Self::store_push_config(
@@ -550,7 +676,7 @@ impl A2AServer {
         if configuration.return_immediately {
             // Snapshot first, then execute in the background.
             let snapshot =
-                match Self::load_owned_task(resources, &task_id, &user_id, request.id.as_ref())
+                match Self::load_owned_task(resources, &task_id, &principal, request.id.as_ref())
                     .await
                 {
                     Ok(record) => Self::wire_task(&record, configuration.history_length, true),
@@ -559,6 +685,7 @@ impl A2AServer {
 
             let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
             let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
+            let user_id = principal.user_id;
             let handle = tokio::spawn(async move {
                 Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
             });
@@ -567,9 +694,15 @@ impl A2AServer {
             return Self::send_message_task_response(&snapshot, request.id);
         }
 
-        Self::run_task_message(&resources.ctx, &resources.tool_runtime, user_id, prepared).await;
+        Self::run_task_message(
+            &resources.ctx,
+            &resources.tool_runtime,
+            principal.user_id,
+            prepared,
+        )
+        .await;
 
-        match Self::load_owned_task(resources, &task_id, &user_id, request.id.as_ref()).await {
+        match Self::load_owned_task(resources, &task_id, &principal, request.id.as_ref()).await {
             Ok(record) => {
                 let task = Self::wire_task(&record, configuration.history_length, true);
                 Self::send_message_task_response(&task, request.id)
@@ -578,12 +711,45 @@ impl A2AServer {
         }
     }
 
+    /// The client a new task is keyed to: client-credentials callers key
+    /// tasks to themselves; user JWTs fall back to the user's first
+    /// registered client.
+    async fn resolve_task_client(
+        principal: &AuthPrincipal,
+        resources: &A2AResources,
+        request_id: Option<&Value>,
+    ) -> Result<String, Box<A2AResponse>> {
+        if let Some(acting_client) = &principal.client_id {
+            return Ok(acting_client.clone()); // Safe: String ownership for task record
+        }
+
+        let owned = Self::get_owned_client_ids(&principal.user_id, resources)
+            .await
+            .map_err(|e| {
+                error!("Failed to resolve client ownership: {e}");
+                Box::new(Self::a2a_error(
+                    -32000,
+                    "Failed to resolve client ownership",
+                    request_id.cloned(),
+                ))
+            })?;
+        owned.first().map_or_else(
+            || {
+                Err(Box::new(Self::invalid_params(
+                    "No A2A client is registered for this user",
+                    request_id.cloned(),
+                )))
+            },
+            |client_id| Ok(client_id.clone()), // Safe: String ownership for task record
+        )
+    }
+
     /// Resolve the target task for an incoming message (continuation or
     /// creation), persist the user message into its history, and return the
     /// state shared by the blocking/background/streaming paths.
     async fn prepare_send(
         resources: &A2AResources,
-        user_id: &Uuid,
+        principal: &AuthPrincipal,
         mut message: Message,
         request_id: Option<&Value>,
     ) -> Result<PreparedSend, Box<A2AResponse>> {
@@ -592,7 +758,7 @@ impl A2AServer {
         let (task_id, context_id, mut history) = if let Some(task_id) = message.task_id.clone() {
             // Continuation: the referenced task must exist (client-created
             // task ids are unsupported in A2A 1.0) and belong to the caller.
-            let record = Self::load_owned_task(resources, &task_id, user_id, request_id).await?;
+            let record = Self::load_owned_task(resources, &task_id, principal, request_id).await?;
             if record.status.is_terminal() {
                 return Err(Box::new(Self::spec_error(
                     A2ASpecError::UnsupportedOperation,
@@ -622,22 +788,7 @@ impl A2AServer {
                 .clone() // Safe: String ownership for task record
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-            let owned = Self::get_owned_client_ids(user_id, resources)
-                .await
-                .map_err(|e| {
-                    error!("Failed to resolve client ownership: {e}");
-                    Box::new(Self::a2a_error(
-                        -32000,
-                        "Failed to resolve client ownership",
-                        request_id.cloned(),
-                    ))
-                })?;
-            let Some(client_id) = owned.first() else {
-                return Err(Box::new(Self::invalid_params(
-                    "No A2A client is registered for this user",
-                    request_id.cloned(),
-                )));
-            };
+            let client_id = Self::resolve_task_client(principal, resources, request_id).await?;
 
             let input = to_value(&message).map_err(|e| {
                 error!("Failed to serialize A2A message: {e}");
@@ -650,7 +801,7 @@ impl A2AServer {
 
             let task_id = repos
                 .a2a
-                .create_task(client_id, None, "message", &input, Some(&context_id))
+                .create_task(&client_id, None, "message", &input, Some(&context_id))
                 .await
                 .map_err(|e| {
                     error!("Failed to persist task: {e}");
@@ -1048,7 +1199,7 @@ impl A2AServer {
         let Some(resources) = &self.resources else {
             return Err(Box::new(Self::server_not_configured_error(request.id)));
         };
-        let user_id = Self::authenticate_request(&request, resources)?;
+        let principal = Self::authenticate_request(&request, resources).await?;
 
         let params: SendMessageRequest = match request
             .params
@@ -1081,7 +1232,7 @@ impl A2AServer {
         let configuration = params.configuration.unwrap_or_default();
 
         let prepared =
-            Self::prepare_send(resources, &user_id, params.message, request.id.as_ref()).await?;
+            Self::prepare_send(resources, &principal, params.message, request.id.as_ref()).await?;
 
         if let Some(config_input) = configuration.push_notification_config {
             Self::store_push_config(
@@ -1099,7 +1250,7 @@ impl A2AServer {
         let snapshot = match Self::load_owned_task(
             resources,
             &prepared.task_id,
-            &user_id,
+            &principal,
             request.id.as_ref(),
         )
         .await
@@ -1110,6 +1261,7 @@ impl A2AServer {
 
         let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
         let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
+        let user_id = principal.user_id;
         let handle = tokio::spawn(async move {
             Self::run_task_message(&ctx, &tool_runtime, user_id, prepared).await;
         });
@@ -1133,7 +1285,7 @@ impl A2AServer {
         let Some(resources) = &self.resources else {
             return Err(Box::new(Self::server_not_configured_error(request.id)));
         };
-        let user_id = Self::authenticate_request(&request, resources)?;
+        let principal = Self::authenticate_request(&request, resources).await?;
 
         let params: SubscribeParams = match request
             .params
@@ -1157,7 +1309,7 @@ impl A2AServer {
         };
 
         let record =
-            Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await?;
+            Self::load_owned_task(resources, &params.id, &principal, request.id.as_ref()).await?;
 
         if record.status.is_terminal() {
             return Err(Box::new(Self::spec_error(
@@ -1173,7 +1325,7 @@ impl A2AServer {
 
     // ============================== Task queries =============================
 
-    async fn handle_get_task(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_get_task(&self, request: A2ARequest, principal: AuthPrincipal) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1189,7 +1341,7 @@ impl A2AServer {
             Err(e) => return Self::invalid_params(format!("Invalid params: {e}"), request.id),
         };
 
-        match Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await {
+        match Self::load_owned_task(resources, &params.id, &principal, request.id.as_ref()).await {
             Ok(record) => {
                 let task = Self::wire_task(&record, params.history_length, true);
                 Self::task_response(&task, request.id)
@@ -1254,26 +1406,31 @@ impl A2AServer {
         })
     }
 
-    /// Fetch the caller's task records across every owned client (usually a
-    /// single client), merged and sorted by status timestamp descending.
+    /// Fetch the caller's task records — a client-credentials principal is
+    /// scoped to its own client; a user principal spans every owned client
+    /// (usually one) — merged and sorted by status timestamp descending.
     async fn fetch_owned_task_records(
         resources: &A2AResources,
-        user_id: &Uuid,
+        principal: &AuthPrincipal,
         params: &ListTasksRequest,
         updated_after: Option<chrono::DateTime<chrono::Utc>>,
         fetch_limit: u32,
         request_id: Option<&Value>,
     ) -> Result<Vec<A2ATask>, Box<A2AResponse>> {
-        let owned_client_ids = Self::get_owned_client_ids(user_id, resources)
-            .await
-            .map_err(|e| {
-                error!("Failed to resolve client ownership: {e}");
-                Box::new(Self::a2a_error(
-                    -32000,
-                    "Failed to resolve client ownership",
-                    request_id.cloned(),
-                ))
-            })?;
+        let owned_client_ids = if let Some(acting_client) = &principal.client_id {
+            vec![acting_client.clone()] // Safe: String ownership for scope list
+        } else {
+            Self::get_owned_client_ids(&principal.user_id, resources)
+                .await
+                .map_err(|e| {
+                    error!("Failed to resolve client ownership: {e}");
+                    Box::new(Self::a2a_error(
+                        -32000,
+                        "Failed to resolve client ownership",
+                        request_id.cloned(),
+                    ))
+                })?
+        };
 
         let mut records: Vec<A2ATask> = Vec::new();
         for client_id in &owned_client_ids {
@@ -1304,7 +1461,11 @@ impl A2AServer {
         Ok(records)
     }
 
-    async fn handle_list_tasks(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_list_tasks(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1324,7 +1485,7 @@ impl A2AServer {
         let fetch_limit = offset.saturating_add(page_size).saturating_add(1);
         let records = match Self::fetch_owned_task_records(
             resources,
-            &user_id,
+            &principal,
             &params,
             updated_after,
             fetch_limit,
@@ -1366,7 +1527,11 @@ impl A2AServer {
         }
     }
 
-    async fn handle_cancel_task(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_cancel_task(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1383,7 +1548,8 @@ impl A2AServer {
         };
 
         let record =
-            match Self::load_owned_task(resources, &params.id, &user_id, request.id.as_ref()).await
+            match Self::load_owned_task(resources, &params.id, &principal, request.id.as_ref())
+                .await
             {
                 Ok(record) => record,
                 Err(err) => return *err,
@@ -1409,7 +1575,7 @@ impl A2AServer {
         TASK_EVENTS.close(&record.id);
         Self::notify_webhooks(&resources.ctx, &record.id).await;
 
-        match Self::load_owned_task(resources, &record.id, &user_id, request.id.as_ref()).await {
+        match Self::load_owned_task(resources, &record.id, &principal, request.id.as_ref()).await {
             Ok(updated) => {
                 let task = Self::wire_task(&updated, None, true);
                 Self::task_response(&task, request.id)
@@ -1483,7 +1649,11 @@ impl A2AServer {
         }
     }
 
-    async fn handle_create_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_create_push_config(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1500,7 +1670,7 @@ impl A2AServer {
         };
 
         if let Err(err) =
-            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+            Self::load_owned_task(resources, &params.task_id, &principal, request.id.as_ref()).await
         {
             return *err;
         }
@@ -1524,7 +1694,11 @@ impl A2AServer {
         }
     }
 
-    async fn handle_get_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_get_push_config(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1543,7 +1717,7 @@ impl A2AServer {
         };
 
         if let Err(err) =
-            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+            Self::load_owned_task(resources, &params.task_id, &principal, request.id.as_ref()).await
         {
             return *err;
         }
@@ -1570,7 +1744,11 @@ impl A2AServer {
         }
     }
 
-    async fn handle_list_push_configs(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_list_push_configs(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1587,7 +1765,7 @@ impl A2AServer {
         };
 
         if let Err(err) =
-            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+            Self::load_owned_task(resources, &params.task_id, &principal, request.id.as_ref()).await
         {
             return *err;
         }
@@ -1611,7 +1789,11 @@ impl A2AServer {
         }
     }
 
-    async fn handle_delete_push_config(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
+    async fn handle_delete_push_config(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -1630,7 +1812,7 @@ impl A2AServer {
         };
 
         if let Err(err) =
-            Self::load_owned_task(resources, &params.task_id, &user_id, request.id.as_ref()).await
+            Self::load_owned_task(resources, &params.task_id, &principal, request.id.as_ref()).await
         {
             return *err;
         }

@@ -185,22 +185,16 @@ impl A2AAuthenticator {
             .auth_manager()
             .validate_token(token, self.ctx.jwks_manager())?;
 
-        // Check if this is an A2A OAuth2 token by looking for specific claims
-        // A2A OAuth tokens should have client_id in the subject or a custom claim
-        let client_id = if token_claims.sub.starts_with("a2a_client_") {
-            token_claims
-                .sub
-                .strip_prefix("a2a_client_")
-                .ok_or_else(|| {
-                    AppError::auth_invalid("Failed to strip a2a_client_ prefix from token subject")
-                })?
-                .to_owned()
-        } else {
-            // Try to extract from custom claims if available
-            return Err(AppError::auth_invalid(
-                "Token does not contain valid A2A client identifier",
-            ));
-        };
+        // A2A client-credentials tokens carry the client id in the subject
+        // as client:{id} — the shape /a2a/auth mints via
+        // generate_client_credentials_token.
+        let client_id = token_claims
+            .sub
+            .strip_prefix("client:")
+            .ok_or_else(|| {
+                AppError::auth_invalid("Token does not contain valid A2A client identifier")
+            })?
+            .to_owned();
 
         // Verify the client exists and is active
         let client = self

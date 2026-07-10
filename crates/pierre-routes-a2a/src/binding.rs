@@ -604,16 +604,15 @@ pub(crate) async fn rest_push_delete<C: MiddlewareCtx + A2ACtx>(
     .await
 }
 
-/// `GET /a2a/extendedAgentCard` — no extended card is configured.
-pub(crate) async fn rest_extended_card(headers: HeaderMap, RawQuery(query): RawQuery) -> Response {
+/// `GET /a2a/extendedAgentCard` — the authenticated extended card
+/// (public card enriched with the live tool registry as skills).
+pub(crate) async fn rest_extended_card<C: MiddlewareCtx + A2ACtx>(
+    State(state): State<A2ARoutesState<C>>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
     if let Err(response) = rest_version_guard(&headers, query.as_deref()) {
         return *response;
     }
-    let spec_error = A2ASpecError::ExtendedAgentCardNotConfigured;
-    rest_error_response(
-        StatusCode::BAD_REQUEST,
-        "FAILED_PRECONDITION",
-        &spec_error.to_string(),
-        &error_info(spec_error.reason()),
-    )
+    rest_dispatch(&state, &headers, "GetExtendedAgentCard", Value::Null).await
 }
