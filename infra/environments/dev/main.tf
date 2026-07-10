@@ -434,6 +434,15 @@ module "backend" {
       DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
       DATABASE_NAME = module.database[0].database_name
       DATABASE_USER = module.database[0].database_user
+
+      # Per-pod sqlx pool bounds. The code default is max=10/min=2 (see
+      # PostgresPoolConfig in crates/pierre-core/src/config/database.rs); without
+      # these overrides every warm pod pre-opened 2 slots, so ~11 warm pods alone
+      # exhausted the db-f1-micro's 22 usable connection slots (rev 00679 incident,
+      # 2026-07-10). MIN=0 → idle/booting pods hold zero slots; MAX=6 keeps the
+      # budget invariant max_instances(3) × 6 = 18 ≤ 22 (see terraform.tfvars).
+      POSTGRES_MIN_CONNECTIONS = "0"
+      POSTGRES_MAX_CONNECTIONS = "6"
       } : {
       # Fallback to ephemeral SQLite when Cloud SQL is disabled
       DATABASE_URL = "sqlite:./data/users.db"

@@ -32,17 +32,30 @@ backend_memory = "2Gi"
 # contremaitre push webhook off a cold start — the webhook retries and prompts
 # also sync on container startup.
 backend_min_instances = 0
-backend_max_instances = 15
+# Capped at 3 by the DB connection budget (see the concurrency block below):
+# max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
+# concurrency=8 a single pod already absorbs a full ~13-request dashboard load,
+# so 3 pods is ample at dev scale (was 15, which fed the connection-slot herd).
+backend_max_instances = 3
 
-# Concurrency capped at 1 for the OOM-prone shape of a coaching turn: each turn
-# holds TWO heavyweight children for its full duration — a `copilot --acp` Node
-# subprocess (COPILOT_HEADLESS_MCP_TOOL_CALLING=true) AND a headless Chrome
-# (sciotte scrape on a cold cache). The 2Gi budget only sized Chrome (~250Mi ×4),
-# not the Node process, so 4 concurrent turns (≈4×Chrome + 4×Node + Rust heap)
-# blow past 2Gi and OOM-crash-loop. One turn per pod ≈ 1 Chrome + 1 Node ≈ 700Mi
-# + Rust, comfortably under 2Gi; backend_max_instances=15 spreads load. Raise
-# both back toward 4 once the activity cache + SWR removes the per-turn scrape.
-backend_max_instance_request_concurrency = 1
+# Request concurrency is 8, NOT 1. The old "one turn per pod or it OOMs" premise
+# was stale: a coaching turn does NOT hold two fresh heavyweight children. The
+# `copilot --acp` Node process is a single long-lived SINGLETON shared across all
+# turns (built once at startup, kept warm), and the ACP transport mutex already
+# serializes LLM turns onto it — raising concurrency cannot multiply Node procs.
+# Headless Chrome only spawns on a cold-cache sciotte scrape and is independently
+# capped by backend_sciotte_max_concurrent below, not by request concurrency. So
+# a warm-cache turn holds no fresh child, and concurrency=1 only served to turn a
+# ~13-request dashboard load into a 13-instance cold-start herd that then
+# exhausted the Postgres connection slots (rev 00679, 2026-07-10 incident).
+#
+# The real binding constraint is the DB connection budget, not memory. The
+# db-f1-micro Postgres allows max_connections=25 − 3 superuser-reserved = 22
+# usable; leave ~4 for migrations / the sql-client + drift-check jobs → ~18 for
+# the api service. INVARIANT: max_instances × POSTGRES_MAX_CONNECTIONS ≤ 18.
+# Here 3 × 6 = 18. POSTGRES_MIN_CONNECTIONS=0 (main.tf) so idle/booting pods hold
+# zero slots. Raising either knob requires raising the DB tier first.
+backend_max_instance_request_concurrency = 8
 backend_sciotte_max_concurrent           = 1
 
 # database_tier                = "db-f1-micro"
