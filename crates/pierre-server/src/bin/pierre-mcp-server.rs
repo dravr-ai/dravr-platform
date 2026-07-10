@@ -873,6 +873,17 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         install_backfill_reentry(&resources);
     }
 
+    // Install the AuthService-backed credential refresher on the health-sync
+    // storage now that the composition-root Arc<ServerContext> exists. Routes
+    // scheduled-sync credential reads through the same refresh-and-persist
+    // path live tool calls use, so an expired provider token no longer fails
+    // every sync until a user happens to trigger a live fetch.
+    #[cfg(feature = "health-sync")]
+    {
+        use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
+        install_health_sync_refresher(&resources);
+    }
+
     // Spawn LLM startup health probe — populates resources.llm_health so
     // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
     // forget; failures only surface via the dedicated readiness route

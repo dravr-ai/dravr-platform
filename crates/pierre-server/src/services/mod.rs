@@ -46,6 +46,11 @@ pub mod backfill_notifier;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod outgoing;
 
+/// AuthService-backed credential refresher installed on the health-sync
+/// storage post-Arc (the refresh path needs the composition-root runtime).
+#[cfg(feature = "health-sync")]
+pub mod health_sync_refresher;
+
 /// Endurance Phase 2 training-history compute service — fetches activities + physiology,
 /// runs `pierre_fitness_compute::training_history_compute`, persists rows.
 pub mod training_history_compute;

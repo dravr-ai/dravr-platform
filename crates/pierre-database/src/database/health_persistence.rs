@@ -69,15 +69,21 @@ impl DataSourceRepository for Database {
         let now = Utc::now().to_rfc3339();
         let device_type_str = device_type_to_str(source.device_type);
 
-        sqlx::query(
+        // The conflict target matches idx_data_sources_identity (NULL-coalesced,
+        // so provider-level sources without device metadata dedupe). RETURNING
+        // yields the row's actual id — on conflict that is the EXISTING id, not
+        // the freshly generated one, so foreign keys stamped from this value
+        // always resolve.
+        let row = sqlx::query(
             r"
             INSERT INTO data_sources (id, user_id, tenant_id, provider, device_model, software_version, source, device_type, original_source_name, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, tenant_id, provider, device_model, source) DO UPDATE SET
+            ON CONFLICT(user_id, tenant_id, provider, COALESCE(device_model, ''), COALESCE(source, '')) DO UPDATE SET
                 software_version = excluded.software_version,
                 device_type = excluded.device_type,
                 original_source_name = excluded.original_source_name,
                 updated_at = excluded.updated_at
+            RETURNING id
             ",
         )
         .bind(&id)
@@ -91,11 +97,11 @@ impl DataSourceRepository for Database {
         .bind(&source.original_source_name)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert data source: {e}")))?;
 
-        Ok(id)
+        Ok(row.get("id"))
     }
 
     async fn get_data_source(&self, id: &str) -> AppResult<Option<DataSource>> {
@@ -239,9 +245,10 @@ impl SleepRepository for Database {
         let stages_json = serde_json::to_string(&session.stages)
             .map_err(|e| AppError::database(format!("Failed to serialize sleep stages: {e}")))?;
 
-        // Map StoredSleepSession fields to the DB schema
-        let time_in_bed = session.total_sleep_seconds.map_or(0i64, i64::from);
+        // Map StoredSleepSession fields to the DB schema.
+        // total_sleep_seconds excludes awake time; the in-bed figure is sleep + awake.
         let total_sleep_time = session.total_sleep_seconds.map_or(0i64, i64::from);
+        let time_in_bed = total_sleep_time + session.awake_seconds.map_or(0i64, i64::from);
         let sleep_efficiency = session.sleep_efficiency.unwrap_or(0.0);
         let sleep_score = session.sleep_score.map(f64::from);
         let hrv_during_sleep = session.avg_hrv;

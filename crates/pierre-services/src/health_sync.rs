@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -50,6 +50,42 @@ pub struct PierreSyncStorage {
     /// `resolve_tenant_id` (enforme's contract gives us only `user_id` +
     /// `provider`, so we recover the owning tenant from the token row).
     auth: AuthRepos,
+    /// Bridge to the platform OAuth refresh flow (`AuthService`), injected by
+    /// pierre-server after runtime construction — the refresh path lives above
+    /// this crate in the dependency graph, so it cannot be built here. Until
+    /// injection, credential reads fall back to the stored token row (startup
+    /// window before the first scheduled sync tick, and storage-only tests).
+    refresher: OnceLock<Arc<dyn SyncCredentialRefresher>>,
+}
+
+/// Bridge to the platform's OAuth token-refresh infrastructure.
+///
+/// Implemented in pierre-server on top of `AuthService` (which refreshes
+/// near-expiry tokens, persists the result, and maintains provider-connection
+/// status). `pierre-services` sits below `pierre-tool-runtime` in the crate
+/// graph, so the implementation is injected via
+/// [`PierreSyncStorage::set_credential_refresher`] rather than called directly.
+#[async_trait]
+pub trait SyncCredentialRefresher: Send + Sync {
+    /// Return valid credentials for the user+provider, refreshing through the
+    /// platform OAuth flow when the stored token is expired or near expiry.
+    /// `None` means no usable token exists (absent, or refresh failed).
+    async fn valid_credentials(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        provider: &str,
+    ) -> EnformeResult<Option<ProviderCredentials>>;
+
+    /// Refresh the stored token regardless of its recorded expiry — the
+    /// reactive path after the provider rejected the current token (e.g. a
+    /// 401 despite a DB-valid `expires_at`).
+    async fn force_refresh(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        provider: &str,
+    ) -> EnformeResult<Option<ProviderCredentials>>;
 }
 
 impl PierreSyncStorage {
@@ -63,15 +99,26 @@ impl PierreSyncStorage {
         Self {
             fitness: repos.fitness_repos(),
             auth: repos.auth_repos(),
+            refresher: OnceLock::new(),
         }
+    }
+
+    /// Inject the OAuth refresh bridge once the server runtime exists.
+    ///
+    /// Idempotent: only the first injection wins (subsequent calls are
+    /// ignored, mirroring `OnceLock` semantics).
+    pub fn set_credential_refresher(&self, refresher: Arc<dyn SyncCredentialRefresher>) {
+        let _ = self.refresher.set(refresher);
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter with default configuration.
     ///
+    /// Takes `&Arc<Self>` (not `self`) so the caller keeps a handle to the
+    /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     #[must_use]
-    pub fn into_orchestrator(self) -> Arc<pierre_enforme::SyncOrchestrator> {
-        let storage: Arc<Self> = Arc::new(self);
+    pub fn build_orchestrator(self: &Arc<Self>) -> Arc<pierre_enforme::SyncOrchestrator> {
+        let storage = Arc::clone(self);
         let deps = Arc::new(pierre_enforme::SyncDeps {
             sleep: storage.clone(),
             recovery: storage.clone(),
@@ -366,6 +413,18 @@ impl CredentialStore for PierreSyncStorage {
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
         let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
+
+        // The injected refresher routes through AuthService::get_valid_token,
+        // which transparently refreshes near-expiry tokens and persists the
+        // result — the same path live tool calls use.
+        if let Some(refresher) = self.refresher.get() {
+            return refresher
+                .valid_credentials(user_uuid, &tenant_id.to_string(), provider)
+                .await;
+        }
+
+        // No refresher yet (startup window before injection, storage-only
+        // tests): return the stored token row as-is.
         let token = self
             .auth
             .oauth_tokens
@@ -394,14 +453,27 @@ impl CredentialStore for PierreSyncStorage {
         user_id: &str,
         provider: &str,
     ) -> EnformeResult<ProviderCredentials> {
-        // Token refresh is handled by Pierre's OAuth flow infrastructure.
-        // Here we just return the current credentials and let the caller retry.
+        let expired = || EnformeError::CredentialsExpired {
+            user_id: user_id.to_owned(),
+            provider: provider.to_owned(),
+        };
+
+        if let Some(refresher) = self.refresher.get() {
+            let user_uuid = user_id
+                .parse::<Uuid>()
+                .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
+            let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
+            return refresher
+                .force_refresh(user_uuid, &tenant_id.to_string(), provider)
+                .await?
+                .ok_or_else(expired);
+        }
+
+        // No refresher yet: return the stored credentials and let the caller
+        // retry — without the OAuth bridge there is nothing to refresh with.
         self.get_credentials(user_id, provider)
             .await?
-            .ok_or_else(|| EnformeError::CredentialsExpired {
-                user_id: user_id.to_owned(),
-                provider: provider.to_owned(),
-            })
+            .ok_or_else(expired)
     }
 }
 

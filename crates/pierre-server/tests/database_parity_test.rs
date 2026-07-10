@@ -17,7 +17,7 @@ use pierre_core::models::recipes::{IngredientUnit, Recipe, RecipeIngredient};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     A2AClient, A2AUsage, ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType,
-    StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -810,6 +810,83 @@ async fn seed_data_source(
         .upsert_data_source(&tenant_id, &source)
         .await
         .expect("data source upsert must succeed")
+}
+
+/// Regression: `upsert_data_source` generated a fresh UUID and returned it even
+/// when ON CONFLICT kept the existing row (no RETURNING), and the identity key
+/// treated NULL `device_model`/`source` as distinct so provider-level sources
+/// (no device metadata) never conflicted at all — every sync minted a new row
+/// and health records were stamped with phantom ids that violated the
+/// `data_source_id` foreign keys.
+#[tokio::test]
+async fn test_parity_data_source_upsert_stable_id() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+
+        // Provider-level source: empty id (store generates one), no device metadata.
+        let source = DataSource {
+            id: String::new(),
+            user_id: user_id.to_string(),
+            provider: "whoop".to_owned(),
+            device_model: None,
+            software_version: None,
+            source: None,
+            device_type: DeviceType::Unknown,
+            original_source_name: Some("whoop".to_owned()),
+        };
+
+        let first = repos
+            .data_sources
+            .upsert_data_source(&tenant_id, &source)
+            .await
+            .expect("first upsert must succeed");
+        assert!(!first.is_empty(), "{backend}: upsert must return an id");
+
+        let second = repos
+            .data_sources
+            .upsert_data_source(&tenant_id, &source)
+            .await
+            .expect("second upsert must succeed");
+        assert_eq!(
+            first, second,
+            "{backend}: re-upserting the same provider-level source must return the existing id"
+        );
+
+        // The returned id must satisfy the sleep_sessions.data_source_id FK —
+        // this is the exact write that failed 100% of WHOOP health syncs.
+        let now = chrono::Utc::now();
+        let session = StoredSleepSession {
+            id: format!("sleep-fk-{user_id}"),
+            user_id: user_id.to_string(),
+            data_source_id: first.clone(),
+            is_nap: false,
+            start_datetime: now - chrono::Duration::hours(8),
+            end_datetime: now,
+            total_sleep_seconds: Some(25_200),
+            deep_sleep_seconds: Some(5_000),
+            light_sleep_seconds: Some(12_000),
+            rem_sleep_seconds: Some(8_200),
+            awake_seconds: Some(1_800),
+            sleep_efficiency: Some(93.0),
+            avg_heart_rate: Some(52.0),
+            min_heart_rate: Some(45),
+            avg_hrv: Some(65.0),
+            sleep_score: Some(88),
+            stages: Vec::new(),
+            source_name: "whoop".to_owned(),
+        };
+        repos
+            .sleep
+            .upsert_sleep_session(&tenant_id, &session)
+            .await
+            .expect("sleep upsert with the returned data_source_id must satisfy the FK");
+    }
 }
 
 /// Regression companion to `test_parity_sync_cursor_roundtrip`:

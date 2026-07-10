@@ -97,6 +97,8 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
+#[cfg(feature = "health-sync")]
+use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -230,6 +232,11 @@ pub struct FitnessSlice {
     /// Health data sync orchestrator for wearable provider synchronization.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    /// Storage adapter behind the sync orchestrator, kept so the
+    /// AuthService-backed credential refresher can be injected post-Arc
+    /// (see `services::health_sync_refresher`).
+    #[cfg(feature = "health-sync")]
+    pub sync_storage: Option<Arc<PierreSyncStorage>>,
     /// Abort handle for the background health data sync scheduler task.
     #[cfg(feature = "health-sync")]
     pub sync_scheduler_abort_handle: Option<AbortHandle>,
