@@ -677,12 +677,13 @@ pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
     })
 }
 
-/// Log + alert a sciotte login *system* failure — an `Err(ScraperError)` from
-/// the scraper (browser launch, navigation, login timeout, provider
-/// misconfiguration), as opposed to a `LoginResult::Failed` credential
-/// rejection (that path is a *user* failure, handled in
-/// `login_result_to_response`). `stage` names where in the flow it failed
-/// (`credential_login` / `two_factor` / `otp`).
+/// Log + alert a sciotte login *system* failure and build the user-facing error.
+///
+/// A *system* failure is an `Err(ScraperError)` from the scraper (browser
+/// launch, navigation, login timeout, provider misconfiguration), as opposed
+/// to a `LoginResult::Failed` credential rejection (that path is a *user*
+/// failure, handled in `login_result_to_response`). `stage` names where in the
+/// flow it failed (`credential_login` / `two_factor` / `otp`).
 ///
 /// Splits the failure between two audiences so neither is served the wrong
 /// thing:
@@ -727,10 +728,12 @@ pub fn report_login_system_failure<E: Display>(
     AppError::invalid_input(friendly_login_failure_message(provider))
 }
 
-/// Friendly, provider-aware copy shown to the user when a sciotte login hits a
-/// *system* failure. Deliberately carries no technical detail — the actionable
-/// specifics live in the `error!` log + `#dev-dravr-errors` Slack alert emitted
-/// by `report_login_system_failure`.
+/// Friendly, provider-aware copy shown to the user on a sciotte login *system* failure.
+///
+/// Deliberately carries no technical detail — the actionable specifics live in
+/// the `error!` log + `#dev-dravr-errors` Slack alert emitted by
+/// `report_login_system_failure`.
+#[must_use]
 pub fn friendly_login_failure_message(provider: &str) -> String {
     let display = if provider.contains("garmin") {
         "Garmin"
