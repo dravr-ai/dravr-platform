@@ -50,7 +50,7 @@ fn test_agent_card_structure() {
     // Capabilities: both streaming and push notifications are implemented.
     assert!(card.capabilities.streaming);
     assert!(card.capabilities.push_notifications);
-    assert!(!card.capabilities.extended_agent_card);
+    assert!(card.capabilities.extended_agent_card);
 }
 
 #[test]

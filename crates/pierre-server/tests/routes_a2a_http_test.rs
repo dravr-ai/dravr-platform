@@ -227,8 +227,8 @@ async fn test_a2a_jsonrpc_rejects_unknown_version() {
 async fn test_a2a_jsonrpc_version_negotiated_dispatch() {
     let routes = a2a_routes().await;
 
-    // With A2A-Version: 1.0 the request reaches method dispatch; this server
-    // configures no extended card, so -32007 proves the gate passed.
+    // With A2A-Version: 1.0 the request reaches method dispatch; the
+    // authenticated method's 401 (rather than -32009) proves the gate passed.
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "GetExtendedAgentCard",
@@ -240,13 +240,54 @@ async fn test_a2a_jsonrpc_version_negotiated_dispatch() {
         .send(routes)
         .await;
 
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 401);
     let envelope: serde_json::Value = response.json();
-    assert_eq!(envelope["error"]["code"], -32007);
+    assert_eq!(envelope["error"]["code"], -32000);
     assert_eq!(
         envelope["error"]["data"][0]["reason"],
-        "EXTENDED_AGENT_CARD_NOT_CONFIGURED"
+        "AUTHENTICATION_REQUIRED"
     );
+}
+
+#[tokio::test]
+async fn test_extended_agent_card_lists_live_tools() {
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-extcard@example.com")
+        .await
+        .expect("seed user + tenant + JWT with active_tenant_id");
+    let routes = a2a_router_from(&resources);
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "GetExtendedAgentCard",
+        "id": 8
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    assert!(
+        envelope["error"].is_null(),
+        "authenticated GetExtendedAgentCard must not error: {envelope:?}"
+    );
+    let card = &envelope["result"];
+    assert_eq!(card["capabilities"]["extendedAgentCard"], true);
+    let skills = card["skills"].as_array().expect("skills array");
+    // The extended card is the public card enriched with the live registry:
+    // strictly more skills than the four curated public ones, each tagged.
+    assert!(
+        skills.len() > 4,
+        "extended card must include live registry skills, got {}",
+        skills.len()
+    );
+    assert!(skills.iter().any(|skill| skill["tags"]
+        .as_array()
+        .is_some_and(|tags| tags.iter().any(|tag| tag == "tool"))));
 }
 
 #[tokio::test]
@@ -421,20 +462,16 @@ async fn test_rest_get_task_not_found_is_404() {
 }
 
 #[tokio::test]
-async fn test_rest_extended_agent_card_not_configured() {
+async fn test_rest_extended_agent_card_requires_auth() {
     let routes = a2a_routes().await;
 
     let response = AxumTestRequest::get("/a2a/extendedAgentCard?A2A-Version=1.0")
         .send(routes)
         .await;
 
-    assert_eq!(response.status(), 400);
+    assert_eq!(response.status(), 401);
     let body: serde_json::Value = response.json();
-    assert_eq!(body["error"]["status"], "FAILED_PRECONDITION");
-    assert_eq!(
-        body["error"]["details"][0]["reason"],
-        "EXTENDED_AGENT_CARD_NOT_CONFIGURED"
-    );
+    assert_eq!(body["error"]["status"], "UNAUTHENTICATED");
 }
 
 #[tokio::test]
@@ -447,4 +484,191 @@ async fn test_rest_unknown_task_action_is_404() {
         .await;
 
     assert_eq!(response.status(), 404);
+}
+
+// ============================================================================
+// Client-credentials principals + credential management
+// ============================================================================
+
+/// Register an A2A client for the seeded user and mint a client-credentials
+/// JWT for it (the `client:{id}` subject shape `/a2a/auth` issues).
+async fn register_client_and_mint_token(
+    resources: &Arc<ServerContext>,
+    user_id: uuid::Uuid,
+) -> (String, String) {
+    let registration = pierre_a2a::ClientRegistrationRequest {
+        name: format!("cc-client-{user_id}"),
+        description: "client-credentials test client".into(),
+        capabilities: vec!["fitness-data-analysis".into()],
+        redirect_uris: vec![],
+        contact_email: "cc@example.com".into(),
+    };
+    let credentials = resources
+        .a2a
+        .a2a_client_manager
+        .register_client(registration, user_id)
+        .await
+        .expect("register A2A client");
+
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_client_credentials_token(
+            &resources.auth.jwks_manager,
+            &credentials.client_id,
+            &["read_activities".to_owned()],
+            None,
+        )
+        .expect("mint client-credentials token");
+
+    (credentials.client_id, token)
+}
+
+#[tokio::test]
+async fn test_client_credentials_token_authenticates_protocol_methods() {
+    let resources = create_a2a_test_resources().await;
+    let (user, _jwt) = common::create_test_tenant(&resources, "a2a-cc@example.com")
+        .await
+        .expect("seed user + tenant");
+    let (client_id, token) = register_client_and_mint_token(&resources, user.id).await;
+    let routes = a2a_router_from(&resources);
+
+    // SendMessage (message-only echo) authenticates with the client token.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-cc-1",
+                "role": "ROLE_USER",
+                "parts": [{ "text": "hello from a machine" }]
+            }
+        },
+        "id": 21
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&body)
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    assert!(
+        envelope["error"].is_null(),
+        "client-credentials SendMessage must not error: {envelope:?}"
+    );
+    assert_eq!(
+        envelope["result"]["message"]["parts"][0]["text"],
+        "hello from a machine"
+    );
+
+    // ListTasks under the client token is scoped to the acting client.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "ListTasks",
+        "params": {},
+        "id": 22
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    assert!(
+        envelope["error"].is_null(),
+        "client-credentials ListTasks must not error: {envelope:?}"
+    );
+    assert!(envelope["result"]["tasks"].is_array());
+    let _ = client_id;
+}
+
+#[tokio::test]
+async fn test_client_credentials_tasks_keyed_to_acting_client() {
+    let resources = create_a2a_test_resources().await;
+    let (user, _jwt) = common::create_test_tenant(&resources, "a2a-cc-key@example.com")
+        .await
+        .expect("seed user + tenant");
+    let (client_id, token) = register_client_and_mint_token(&resources, user.id).await;
+    let routes = a2a_router_from(&resources);
+
+    // A tool-intent message creates a task; the unknown tool fails it, but
+    // the task row exists and must be keyed to the acting client.
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-cc-2",
+                "role": "ROLE_USER",
+                "parts": [{ "data": { "tool_name": "definitely_not_a_tool", "parameters": {} } }]
+            }
+        },
+        "id": 23
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    let task = &envelope["result"]["task"];
+    assert_eq!(task["status"]["state"], "TASK_STATE_FAILED");
+
+    // The stored record is keyed to the acting client, not a fallback.
+    let task_id = task["id"].as_str().expect("task id");
+    let record = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+        .a2a
+        .get_task(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(record.client_id, client_id);
+}
+
+#[tokio::test]
+async fn test_a2a_credentials_endpoint_stores_oauth_apps() {
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-creds@example.com")
+        .await
+        .expect("seed user + tenant + JWT");
+    let routes = a2a_router_from(&resources);
+
+    // Unauthenticated requests are rejected.
+    let body = serde_json::json!({
+        "credentials": {
+            "strava": { "clientId": "app-id-1", "clientSecret": "app-secret-1" }
+        }
+    });
+    let response = AxumTestRequest::post("/a2a/credentials")
+        .json(&body)
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 401);
+
+    // Authenticated requests store the per-user OAuth app credentials.
+    let response = AxumTestRequest::post("/a2a/credentials")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&body)
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 200);
+    let stored: serde_json::Value = response.json();
+    assert_eq!(stored["stored"][0], "strava");
+
+    // An empty map is invalid input.
+    let response = AxumTestRequest::post("/a2a/credentials")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&serde_json::json!({ "credentials": {} }))
+        .send(routes)
+        .await;
+    assert_eq!(response.status(), 400);
 }

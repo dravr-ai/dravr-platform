@@ -66,6 +66,7 @@ async fn test_spec_methods_require_auth() {
         "GetTaskPushNotificationConfig",
         "ListTaskPushNotificationConfigs",
         "DeleteTaskPushNotificationConfig",
+        "GetExtendedAgentCard",
     ];
 
     for method in protected_methods {
@@ -120,24 +121,34 @@ async fn test_pre_1_0_methods_are_gone() {
 }
 
 #[tokio::test]
-async fn test_extended_agent_card_not_configured() {
+async fn test_extended_agent_card_requires_auth() {
     let server = A2AServer::new();
 
-    // capabilities.extendedAgentCard is false — the method must return
-    // -32007 ExtendedAgentCardNotConfiguredError with google.rpc.ErrorInfo.
+    // capabilities.extendedAgentCard is true and the method is the
+    // authenticated card variant — unauthenticated calls are rejected.
     let response = server
         .handle_request(request("GetExtendedAgentCard", None))
         .await;
-    let error = response.error.expect("expected -32007");
-    assert_eq!(error.code, -32007);
+    let error = response.error.expect("expected auth/config error");
+    assert_eq!(error.code, SERVER_ERROR_CODE);
+}
 
+#[test]
+fn test_spec_error_carries_error_info() {
+    use pierre_mcp_server::a2a::protocol_types::A2ASpecError;
+    use pierre_mcp_server::a2a::JsonRpcError;
+
+    // Every A2A-specific error must carry a google.rpc.ErrorInfo detail
+    // (spec 5.4): @type, UPPER_SNAKE reason, a2a-protocol.org domain.
+    let error: JsonRpcError = A2ASpecError::TaskNotFound.into();
+    assert_eq!(error.code, -32001);
     let details = error.data.expect("A2A errors must carry error.data");
     let detail = &details.as_array().expect("data is an ErrorInfo array")[0];
     assert_eq!(
         detail["@type"], "type.googleapis.com/google.rpc.ErrorInfo",
         "detail must be a google.rpc.ErrorInfo"
     );
-    assert_eq!(detail["reason"], "EXTENDED_AGENT_CARD_NOT_CONFIGURED");
+    assert_eq!(detail["reason"], "TASK_NOT_FOUND");
     assert_eq!(detail["domain"], "a2a-protocol.org");
 }
 

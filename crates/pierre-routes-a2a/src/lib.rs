@@ -56,10 +56,12 @@ use pierre_a2a::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
+use pierre_core::models::OAuthAppCredentials;
 use pierre_middleware::{extract_auth_from_headers, McpAuthMiddleware};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::task;
@@ -196,6 +198,14 @@ struct CreateA2AClientResponse {
     key_type: String,
 }
 
+/// Request body of `POST /a2a/credentials`: provider name to OAuth
+/// application credentials for the authenticated user.
+#[derive(Debug, Deserialize)]
+struct StoreCredentialsRequest {
+    /// Provider (e.g. "strava") to credentials map
+    credentials: HashMap<String, OAuthAppCredentials>,
+}
+
 /// A2A routes implementation
 pub struct A2ARoutes;
 
@@ -212,6 +222,7 @@ impl A2ARoutes {
     ///
     /// Management surface (frontend API expectations):
     /// - /a2a/status, /a2a/clients[/{id}], /a2a/dashboard/*
+    /// - POST /a2a/credentials - store per-user OAuth app credentials
     pub fn routes<C: MiddlewareCtx + A2ACtx>(state: A2ARoutesState<C>) -> Router {
         Router::new()
             // Public routes (no auth required)
@@ -242,8 +253,15 @@ impl A2ARoutes {
                 "/a2a/tasks/{id}/pushNotificationConfigs/{config_id}",
                 get(binding::rest_push_get::<C>).delete(binding::rest_push_delete::<C>),
             )
-            .route("/a2a/extendedAgentCard", get(binding::rest_extended_card))
+            .route(
+                "/a2a/extendedAgentCard",
+                get(binding::rest_extended_card::<C>),
+            )
             // Client management routes (auth required)
+            .route(
+                "/a2a/credentials",
+                post(Self::handle_store_credentials::<C>),
+            )
             .route(
                 "/a2a/clients",
                 get(Self::handle_list_clients::<C>).post(Self::handle_create_client::<C>),
@@ -292,6 +310,55 @@ impl A2ARoutes {
         // Yield to scheduler for cooperative multitasking
         task::yield_now().await;
         Json(AgentCard::with_base_url(state.ctx.base_url()))
+    }
+
+    /// Store per-user OAuth application credentials supplied by an A2A
+    /// integration (`POST /a2a/credentials`).
+    ///
+    /// This is the management home of the capability the pre-1.0
+    /// `a2a/initialize` handshake carried in its `oauthCredentials` field:
+    /// each entry provisions an OAuth app (client id/secret) for the
+    /// authenticated user with the A2A out-of-band redirect URI.
+    async fn handle_store_credentials<C: MiddlewareCtx + A2ACtx>(
+        State(state): State<A2ARoutesState<C>>,
+        auth: A2AAuth,
+        Json(request): Json<StoreCredentialsRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let user_id = auth.user_id;
+
+        if request.credentials.is_empty() {
+            return Err(AppError::invalid_input(
+                "credentials must contain at least one provider entry",
+            ));
+        }
+
+        let mut stored = Vec::with_capacity(request.credentials.len());
+        for (provider, creds) in request.credentials {
+            info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Storing OAuth credentials for A2A integration"
+            );
+            let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:a2a");
+            A2ACtx::repos(state.ctx.as_ref())
+                .oauth_tokens
+                .store_user_oauth_app(
+                    user_id,
+                    &provider,
+                    &creds.client_id,
+                    &creds.client_secret,
+                    &redirect_uri,
+                )
+                .await?;
+            stored.push(provider);
+        }
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "stored": stored })),
+        )
+            .into_response())
     }
 
     /// List all A2A clients for authenticated user

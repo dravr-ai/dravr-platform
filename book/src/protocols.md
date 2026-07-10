@@ -332,7 +332,7 @@ A2A 1.0 agent card: `supportedInterfaces` (preference-ordered),
 | `GetTask` / `ListTasks` / `CancelTask` | Task queries and cancellation (`ListTasks` is cursor-paginated) |
 | `SubscribeToTask` | Reattach an SSE stream to a live task (snapshot first) |
 | `CreateTaskPushNotificationConfig` + get/list/delete | Webhook registrations, POSTed on task state changes |
-| `GetExtendedAgentCard` | Not configured — returns `-32007` |
+| `GetExtendedAgentCard` | Authenticated card enriched with the live tool registry as skills |
 
 Tool invocation travels as a `data` part carrying
 `{"tool_name": ..., "parameters": {...}}`; the tool output lands on the
@@ -340,9 +340,12 @@ task as an artifact `data` part.
 
 ### Authentication
 
-Transport-level per the card's `securitySchemes`: a Pierre JWT bearer
-(`Authorization: Bearer <jwt>`) or an OAuth2 client-credentials token from
-`/oauth/token`. Unauthenticated protocol calls receive HTTP 401.
+Transport-level per the card's `securitySchemes`: a Pierre user JWT bearer
+(`Authorization: Bearer <jwt>`), or an OAuth2 client-credentials token
+minted by `/a2a/auth` (subject `client:{id}`). A client-credentials caller
+acts as the client's registering user and its tasks are keyed to and scoped
+by that client; user-JWT tasks fall back to the user's first registered
+client. Unauthenticated protocol calls receive HTTP 401.
 
 ### Errors
 
@@ -356,6 +359,10 @@ others → 400).
 
 - `GET /a2a/status`, `/a2a/clients` CRUD, `/a2a/dashboard/*` — client
   registration and observability used by the web console.
+- `POST /a2a/credentials` — store per-user OAuth application credentials
+  (`{"credentials": {"strava": {"clientId": ..., "clientSecret": ...}}}`),
+  the management home of what the pre-1.0 `a2a/initialize` handshake
+  carried in `oauthCredentials`.
 
 Implementation: `crates/pierre-a2a/`, `crates/pierre-routes-a2a/`
 
