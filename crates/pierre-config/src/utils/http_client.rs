@@ -16,8 +16,8 @@ use std::time::Duration;
 /// Global HTTP client configuration
 static CLIENT_CONFIG: OnceLock<HttpClientConfig> = OnceLock::new();
 
-/// Global shared HTTP client with retry middleware
-static SHARED_CLIENT_WITH_RETRY: OnceLock<ClientWithMiddleware> = OnceLock::new();
+/// Global shared HTTP client with middleware support
+static SHARED_CLIENT_WITH_MIDDLEWARE: OnceLock<ClientWithMiddleware> = OnceLock::new();
 
 /// Get client configuration with fallback to defaults
 ///
@@ -50,9 +50,10 @@ pub fn initialize_http_clients(config: HttpClientConfig) {
     );
 }
 
-// NOTE: Retry middleware removed to eliminate reqwest-retry dependency
-// and reduce duplicate dependencies. Tower-based retry can be added if needed.
-// For now, clients are created without retry middleware for simplicity.
+// Clients carry no retry middleware: the reqwest-retry dependency is intentionally
+// omitted to keep the workspace dependency graph free of duplicates. The
+// middleware-capable client builders below wrap the base client without attaching
+// any retry layer.
 
 /// Get or create the shared HTTP client with configured timeout settings
 ///
@@ -73,10 +74,10 @@ pub fn shared_client() -> &'static SharedHttpClient {
 ///
 /// # Returns
 /// A reference to the shared `ClientWithMiddleware`
-pub fn shared_client_with_retry() -> &'static ClientWithMiddleware {
+pub fn shared_client_with_middleware() -> &'static ClientWithMiddleware {
     // The core shared client is already a `ClientWithMiddleware`; reuse it
     // directly rather than re-wrapping.
-    SHARED_CLIENT_WITH_RETRY.get_or_init(|| shared_client().clone())
+    SHARED_CLIENT_WITH_MIDDLEWARE.get_or_init(|| shared_client().clone())
 }
 
 /// Create a new HTTP client with custom timeout settings
@@ -154,7 +155,7 @@ pub fn oauth_client() -> Client {
 /// # Panics
 /// Panics if HTTP client configuration was not initialized at server startup
 #[must_use]
-pub fn oauth_client_with_retry() -> ClientWithMiddleware {
+pub fn oauth_client_with_middleware() -> ClientWithMiddleware {
     let config = get_config();
 
     let base_client = create_client_with_timeout(
@@ -162,7 +163,7 @@ pub fn oauth_client_with_retry() -> ClientWithMiddleware {
         config.oauth_client_connect_timeout_secs,
     );
 
-    // NOTE: Retry middleware removed - add tower-based retry if needed
+    // Wrap the base client in a middleware-capable builder with no layers attached.
     MiddlewareClientBuilder::new(base_client).build()
 }
 
@@ -198,7 +199,7 @@ pub fn api_client() -> Client {
 /// # Panics
 /// Panics if HTTP client configuration was not initialized at server startup
 #[must_use]
-pub fn api_client_with_retry() -> ClientWithMiddleware {
+pub fn api_client_with_middleware() -> ClientWithMiddleware {
     let config = get_config();
 
     let base_client = create_client_with_timeout(
@@ -206,7 +207,7 @@ pub fn api_client_with_retry() -> ClientWithMiddleware {
         config.api_client_connect_timeout_secs,
     );
 
-    // NOTE: Retry middleware removed - add tower-based retry if needed
+    // Wrap the base client in a middleware-capable builder with no layers attached.
     MiddlewareClientBuilder::new(base_client).build()
 }
 

@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
+import type { OAuthGrant } from '@pierre/shared-types';
 import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
@@ -52,6 +53,11 @@ const PROVIDERS = [
 ];
 
 const MIN_PASSWORD_LENGTH = 8;
+
+// Query key for the caller's connected OAuth apps (external MCP clients they
+// approved on the consent screen). Kept local rather than in the shared
+// QUERY_KEYS catalogue since this surface is web-only.
+const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
 /** Format large numbers compactly (e.g. 145000 -> "145.0K", 2000000 -> "2.0M") */
 function formatCompactNumber(value: number): string {
@@ -240,6 +246,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
+  // Connected OAuth apps (external MCP clients) revoke-confirmation target
+  const [appToRevoke, setAppToRevoke] = useState<OAuthGrant | null>(null);
+
   // Change Password state
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -285,6 +294,19 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const { data: tokensResponse, isLoading: tokensLoading } = useQuery({
     queryKey: QUERY_KEYS.mcpTokens.list(),
     queryFn: () => userApi.getMcpTokens(),
+    enabled: isAuthenticated,
+  });
+
+  // Fetch connected OAuth apps (external MCP clients the user approved on the
+  // consent screen, e.g. Claude Desktop). Revoking one forces that client to
+  // re-consent on its next authorization.
+  const {
+    data: connectedApps,
+    isLoading: isLoadingConnectedApps,
+    error: connectedAppsError,
+  } = useQuery({
+    queryKey: CONNECTED_APPS_QUERY_KEY,
+    queryFn: () => oauthApi.listConnectedApps(),
     enabled: isAuthenticated,
   });
 
@@ -359,6 +381,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.mcpTokens.list() });
       setTokenToRevoke(null);
+    },
+  });
+
+  // Revoke a connected OAuth app (external MCP client)
+  const revokeConnectedAppMutation = useMutation({
+    mutationFn: (id: string) => oauthApi.revokeConnectedApp(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONNECTED_APPS_QUERY_KEY });
+      setAppToRevoke(null);
     },
   });
 
@@ -1452,6 +1483,61 @@ Authorization: Bearer <your-token-here>`}
               </div>
             </Card>
 
+            {/* Connected Apps — external OAuth clients (e.g. Claude Desktop) the
+                user approved on the consent screen. Distinct from the A2A
+                "Connected Apps" card in the API Tokens tab, which lists
+                self-registered agent-to-agent clients. */}
+            <Card variant="dark">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-on-surface">Connected MCP apps</h2>
+                <p className="text-sm text-on-surface-variant mt-1">
+                  External applications you authorized to access Dravr via OAuth
+                </p>
+              </div>
+
+              {isLoadingConnectedApps ? (
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner w-6 h-6"></div>
+                </div>
+              ) : connectedAppsError ? (
+                <div className="p-3 rounded-lg text-sm bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30">
+                  {connectedAppsError instanceof Error
+                    ? connectedAppsError.message
+                    : 'Failed to load connected apps'}
+                </div>
+              ) : connectedApps && connectedApps.length > 0 ? (
+                <div className="space-y-3">
+                  {connectedApps.map((app) => (
+                    <div
+                      key={app.id}
+                      className="flex items-start justify-between gap-3 p-4 bg-surface-container-low border ghost-border rounded-lg"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-on-surface break-all">{app.client_id}</p>
+                        <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
+                        <p className="text-xs text-outline mt-1">
+                          Connected {format(new Date(app.granted_at), 'MMM d, yyyy')}
+                        </p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setAppToRevoke(app)}
+                        disabled={revokeConnectedAppMutation.isPending}
+                        className="flex-shrink-0 text-red-400 hover:bg-red-500/20"
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-on-surface-variant">
+                  <p>No connected apps yet</p>
+                </div>
+              )}
+            </Card>
+
             <Card variant="dark" className="border-red-500/30">
               <h2 className="text-lg font-semibold text-red-400 mb-4">Danger Zone</h2>
               <div className="space-y-4">
@@ -1569,6 +1655,18 @@ Authorization: Bearer <your-token-here>`}
         cancelLabel="Cancel"
         variant="danger"
         isLoading={revokeTokenMutation.isPending}
+      />
+
+      {/* Revoke Connected App Confirmation */}
+      <ConfirmDialog
+        isOpen={appToRevoke !== null}
+        onClose={() => setAppToRevoke(null)}
+        onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
+        title="Revoke Access"
+        message={`Revoke access for "${appToRevoke?.client_id}"? It will need to be re-authorized on its next connection.`}
+        confirmLabel="Revoke"
+        variant="danger"
+        isLoading={revokeConnectedAppMutation.isPending}
       />
 
       {/* Disconnect Fitness Provider Confirmation */}

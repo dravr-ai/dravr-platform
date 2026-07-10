@@ -76,6 +76,8 @@ pub mod admin;
 
 /// Onboarding state — self-read endpoint that tells the frontend whether
 /// the user still needs to connect a fitness provider.
+pub mod oauth_grants;
+
 pub mod onboarding;
 
 /// API key management routes

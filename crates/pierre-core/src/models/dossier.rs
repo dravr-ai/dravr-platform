@@ -53,9 +53,9 @@ pub struct DossierFact {
 /// - `user_physiological_profiles.hr_zones_json` /
 ///   `power_zones_json` → typed [`HrZoneSet`] / [`PowerZoneSet`]
 /// - `user_profiles` JSON column → optional nutrition snapshot
-///   (currently free-form; will become typed once the nutrition Phase ships)
-/// - `user_profiles` JSON column → optional equipment snapshot (same shape
-///   as nutrition for now)
+///   (free-form JSON)
+/// - `user_profiles` JSON column → optional equipment snapshot
+///   (free-form JSON, same shape as the nutrition snapshot)
 ///
 /// Per Endurance's Open Decision #1 the dossier is **not** persisted as
 /// its own row. Composition lives in

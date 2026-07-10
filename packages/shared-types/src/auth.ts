@@ -170,6 +170,23 @@ export interface OAuthProvider {
   color: string;
 }
 
+/**
+ * A connected MCP OAuth app — an external MCP client (e.g. Claude Desktop) the
+ * user approved on the OAuth consent screen. Surfaced in the "Connected apps"
+ * settings section; revoking one forces that client to re-consent on its next
+ * authorization. Mirrors the server's `GrantView` in `routes/oauth_grants.rs`.
+ */
+export interface OAuthGrant {
+  /** Grant id — pass to the revoke endpoint. */
+  id: string;
+  /** OAuth client the user approved (shown as the app name). */
+  client_id: string;
+  /** Scope the grant covers (space-delimited). */
+  scope: string;
+  /** When the grant was made (RFC 3339). */
+  granted_at: string;
+}
+
 // ========== MCP TOKEN TYPES ==========
 
 /** An MCP token for API access */

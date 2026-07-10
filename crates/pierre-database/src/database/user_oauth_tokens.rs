@@ -233,6 +233,48 @@ impl Database {
         Ok(tokens)
     }
 
+    /// Resolve the `(user_id, tenant_id)` owning a provider-side account id.
+    ///
+    /// Looks up the single active token whose `provider_user_id` matches (e.g. a
+    /// Strava athlete id from a webhook `owner_id`). Returns `None` when no token
+    /// carries that id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails or the stored `user_id` is not
+    /// a valid UUID.
+    pub async fn find_user_by_provider_user_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> AppResult<Option<(Uuid, String)>> {
+        let row = sqlx::query(
+            r"
+            SELECT user_id, tenant_id
+            FROM user_oauth_tokens
+            WHERE provider = $1 AND provider_user_id = $2
+            LIMIT 1
+            ",
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to look up user by provider_user_id: {e}"))
+        })?;
+
+        match row {
+            Some(row) => {
+                let user_id_str: String = row.get("user_id");
+                let user_id = Uuid::parse_str(&user_id_str)?;
+                let tenant_id: String = row.get("tenant_id");
+                Ok(Some((user_id, tenant_id)))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Count distinct users occupying a shared-app OAuth seat for `provider`.
     ///
     /// A "seat" is one athlete connected through the platform's shared OAuth
@@ -488,6 +530,13 @@ impl OAuthTokenRepository for Database {
         provider: &str,
     ) -> AppResult<Vec<UserOAuthToken>> {
         Self::get_tenant_provider_tokens(self, tenant_id, provider).await
+    }
+    async fn find_user_by_provider_user_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> AppResult<Option<(Uuid, String)>> {
+        Self::find_user_by_provider_user_id(self, provider, provider_user_id).await
     }
     async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
         Self::count_shared_app_seat_usage(self, provider).await

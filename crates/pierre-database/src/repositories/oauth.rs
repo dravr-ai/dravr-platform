@@ -11,7 +11,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     AuthorizationCode, ConnectionType, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientState, ProviderConnection, UserOAuthApp, UserOAuthToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, UserOAuthApp,
+    UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -39,6 +40,18 @@ pub trait OAuthTokenRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Vec<UserOAuthToken>>;
+    /// Resolve the single user who owns a provider-side account id.
+    ///
+    /// Maps a provider's own user identifier (e.g. a Strava athlete id delivered
+    /// in a webhook `owner_id`) back to the `(user_id, tenant_id)` of the matching
+    /// stored token. Returns `None` when no token carries that `provider_user_id`,
+    /// which callers must treat as "unknown owner" — never as a signal to fan out
+    /// to every connected user.
+    async fn find_user_by_provider_user_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> AppResult<Option<(Uuid, String)>>;
     /// Count distinct users occupying a shared-app OAuth seat for `provider`.
     ///
     /// A "seat" is one athlete connected through the platform's shared OAuth
@@ -163,6 +176,46 @@ pub trait OAuth2ServerRepository: Send + Sync {
         client_id: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuth2State>>;
+    /// Persist a user's consent to an MCP OAuth client.
+    ///
+    /// Inserts a new active grant with `granted_at = now` and `revoked_at = NULL`.
+    /// The caller supplies `grant.id` (a uuid string). If an active grant for the
+    /// same `(user_id, tenant_id, client_id, scope)` already exists, the insert is
+    /// a no-op (the active partial-unique index makes re-consent idempotent).
+    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<()>;
+    /// Find the active grant for a `(user, tenant, client, scope)` tuple.
+    ///
+    /// Returns the un-revoked grant matching all four fields, or `None` when no
+    /// active grant exists — the authorize path treats `None` as "show the
+    /// consent screen".
+    async fn find_active_client_grant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> AppResult<Option<OAuthClientGrant>>;
+    /// List a user's active (un-revoked) client grants within a tenant.
+    ///
+    /// Ordered by `granted_at` descending (most recent first). Backs the user's
+    /// "connected apps" view.
+    async fn list_client_grants(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Vec<OAuthClientGrant>>;
+    /// Revoke a client grant, verifying ownership via `user_id` + `tenant_id`.
+    ///
+    /// Soft-deletes by setting `revoked_at = now` only when the grant is owned by
+    /// the caller and still active. Returns `Ok(true)` when a row changed,
+    /// `Ok(false)` when nothing matched (unknown id, wrong owner, or already
+    /// revoked).
+    async fn revoke_client_grant(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<bool>;
 }
 
 /// OAuth client-side state management repository

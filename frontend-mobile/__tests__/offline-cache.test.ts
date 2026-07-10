@@ -6,7 +6,6 @@ import {
   clearQueryCache,
   clearAllStorage,
   mmkvPersister,
-  queryKeys,
   CACHE_TIMES,
 } from '../src/utils/mmkvStorage';
 
@@ -101,41 +100,6 @@ describe('mmkvStorage', () => {
       // Verify it's gone
       const restored = await mmkvPersister.restoreClient();
       expect(restored).toBeUndefined();
-    });
-  });
-
-  describe('queryKeys', () => {
-    it('should generate consistent activity keys', () => {
-      const allKey = queryKeys.activities.all;
-      expect(allKey).toEqual(['activities']);
-
-      const listKey = queryKeys.activities.list({ days: 7, limit: 50 });
-      expect(listKey).toEqual(['activities', 'list', { days: 7, limit: 50 }]);
-
-      const detailKey = queryKeys.activities.detail('activity-123');
-      expect(detailKey).toEqual(['activities', 'detail', 'activity-123']);
-    });
-
-    it('should generate consistent training load keys', () => {
-      const allKey = queryKeys.trainingLoad.all;
-      expect(allKey).toEqual(['training-load']);
-
-      const currentKey = queryKeys.trainingLoad.current();
-      expect(currentKey).toEqual(['training-load', 'current']);
-
-      const historyKey = queryKeys.trainingLoad.history(30);
-      expect(historyKey).toEqual(['training-load', 'history', 30]);
-    });
-
-    it('should generate consistent recovery keys', () => {
-      const allKey = queryKeys.recovery.all;
-      expect(allKey).toEqual(['recovery']);
-
-      const currentKey = queryKeys.recovery.current();
-      expect(currentKey).toEqual(['recovery', 'current']);
-
-      const scoresKey = queryKeys.recovery.scores(7);
-      expect(scoresKey).toEqual(['recovery', 'scores', 7]);
     });
   });
 

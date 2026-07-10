@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::OAuthClientState;
-use pierre_core::models::{AuthorizationCode, DecryptedToken, EncryptedToken};
+use pierre_core::models::{AuthorizationCode, DecryptedToken, EncryptedToken, OAuthClientGrant};
 use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
 use sqlx::Row;
 use uuid::Uuid;
@@ -240,6 +240,119 @@ impl OAuth2ServerRepository for Database {
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuth2State>> {
         Self::consume_oauth2_state_impl(self, state_value, client_id, now).await
+    }
+
+    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<()> {
+        // Active partial-unique index makes re-consent a no-op via INSERT OR IGNORE.
+        sqlx::query(
+            r"
+            INSERT OR IGNORE INTO oauth_client_grants
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), NULL)
+            ",
+        )
+        .bind(&grant.id)
+        .bind(&grant.user_id)
+        .bind(&grant.tenant_id)
+        .bind(&grant.client_id)
+        .bind(&grant.scope)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store OAuth client grant: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn find_active_client_grant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> AppResult<Option<OAuthClientGrant>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = ?1 AND tenant_id = ?2 AND client_id = ?3 AND scope = ?4
+              AND revoked_at IS NULL
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(client_id)
+        .bind(scope)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query OAuth client grant: {e}")))?;
+
+        Ok(row.map(|row| OAuthClientGrant {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            tenant_id: row.get("tenant_id"),
+            client_id: row.get("client_id"),
+            scope: row.get("scope"),
+            granted_at: row.get("granted_at"),
+            revoked_at: row.get("revoked_at"),
+        }))
+    }
+
+    async fn list_client_grants(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Vec<OAuthClientGrant>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = ?1 AND tenant_id = ?2 AND revoked_at IS NULL
+            ORDER BY granted_at DESC
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list OAuth client grants: {e}")))?;
+
+        Ok(rows
+            .iter()
+            .map(|row| OAuthClientGrant {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                tenant_id: row.get("tenant_id"),
+                client_id: row.get("client_id"),
+                scope: row.get("scope"),
+                granted_at: row.get("granted_at"),
+                revoked_at: row.get("revoked_at"),
+            })
+            .collect())
+    }
+
+    async fn revoke_client_grant(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<bool> {
+        // user_id + tenant_id in the WHERE clause is the ownership check.
+        let result = sqlx::query(
+            r"
+            UPDATE oauth_client_grants
+            SET revoked_at = datetime('now')
+            WHERE id = ?1 AND user_id = ?2 AND tenant_id = ?3 AND revoked_at IS NULL
+            ",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to revoke OAuth client grant: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 

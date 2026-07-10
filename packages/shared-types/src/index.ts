@@ -101,6 +101,7 @@ export type {
   OAuthApp,
   OAuthAppCredentials,
   OAuthProvider,
+  OAuthGrant,
   McpToken,
   UserManagementResponse,
   ApproveUserRequest,
