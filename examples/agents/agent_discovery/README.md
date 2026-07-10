@@ -1,26 +1,27 @@
-# Agent Discovery Example
+# Agent Discovery Example (A2A 1.0)
 
-Demonstrates A2A protocol's **agent card discovery** and **capability negotiation** mechanisms.
+Demonstrates A2A 1.0 **agent card discovery**, **interface negotiation**, and
+**auth selection** — how one agent reads a peer's card before collaborating.
 
 ## What This Example Demonstrates
 
-### A2A Agent Discovery Workflow:
-1. **Fetch Agent Card** - Retrieve agent capabilities via `/a2a/agent-card` endpoint
-2. **Parse Capabilities** - Analyze available tools, authentication methods, and features
-3. **Capability Matching** - Check if agent supports required capabilities
-4. **Tool Discovery** - Find relevant tools for specific tasks
-5. **Authentication Negotiation** - Determine best auth method (OAuth2, API Key, etc.)
-6. **Suitability Assessment** - Decide if agent fits the use case
+### A2A 1.0 Discovery Workflow:
+1. **Fetch Agent Card** — retrieve the card from `/.well-known/agent-card.json` (RFC 8615)
+2. **Analyze Card** — read `supportedInterfaces`, the `capabilities` object, and `skills`
+3. **Skill Matching** — check whether the agent offers the skills you need
+4. **Skill Discovery** — find relevant skills by id/description/tag
+5. **Transport Negotiation** — pick the preferred `supportedInterface` that serves your protocol version
+6. **Auth Selection** — choose a scheme from `securitySchemes`
+7. **Suitability Assessment** — decide whether the agent fits the use case
 
 ## Why Agent Discovery Matters
 
-In A2A protocol, agents **must discover each other's capabilities** before collaboration:
+In A2A, agents **discover each other's capabilities** before collaboration:
 
-- **Avoid Assumptions**: Don't assume what an agent can do
-- **Dynamic Discovery**: Agents advertise capabilities that may change over time
-- **Informed Decisions**: Choose the right agent for the task
-- **Auth Negotiation**: Select appropriate authentication method
-- **Version Compatibility**: Check protocol and tool versions
+- **Avoid Assumptions** — don't assume what an agent can do; read its card
+- **Transport Negotiation** — the card lists interfaces preference-ordered; pick the first you support
+- **Version Compatibility** — each interface declares its `protocolVersion`; every request carries `A2A-Version`
+- **Auth Negotiation** — select a `securityScheme` appropriate to the use case
 
 ## Quick Start
 
@@ -37,98 +38,101 @@ cargo run
 ## Example Output
 
 ```
-🚀 A2A Agent Discovery Example
+🚀 A2A 1.0 Agent Discovery Example
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📡 Fetching agent card from: http://localhost:8081
-✅ Successfully fetched agent card for: Pierre Fitness AI
+📡 Fetching agent card from: http://localhost:8081/.well-known/agent-card.json
+✅ Successfully fetched agent card for: Dravr AI
 
 📊 Agent Capability Analysis:
-   Agent: Pierre Fitness AI v1.0.0
+   Agent: Dravr AI v1.0.0
    Description: AI-powered fitness data analysis and insights platform...
 
-🔧 Available Capabilities (6):
-   • fitness-data-analysis
-   • activity-intelligence
-   • goal-management
-   • performance-prediction
-   • training-analytics
-   • provider-integration
+🔌 Transport Interfaces (2):
+   • JSONRPC (A2A 1.0) at http://localhost:8081/a2a/jsonrpc [★ preferred]
+   • HTTP+JSON (A2A 1.0) at http://localhost:8081/a2a [alternate]
 
-🛠️  Available Tools (4):
+⚙️  Protocol Capabilities:
+   • streaming (SSE):        true
+   • push notifications:     true
+   • extended agent card:    true
+
+🛠️  Available Skills (4):
+   • get_activities (fitness, activities, data) - Retrieve user fitness activities from connected providers
+   • analyze_activity (fitness, analysis, intelligence) - AI-powered analysis of a specific fitness activity
+   • get_athlete (fitness, profile) - Retrieve athlete profile information
+   • set_goal (fitness, goals) - Set a fitness goal for the user
+
+🔐 Security Schemes:
+   • bearerAuth
+   • oauth2ClientCredentials
+
+🔍 Skill Check:
+   ✅ Offers skill: get_activities
+   ✅ Offers skill: analyze_activity
+   ✅ Offers skill: set_goal
+
+🔎 Finding fitness-related skills:
    • get_activities - Retrieve user fitness activities from connected providers
    • analyze_activity - AI-powered analysis of a specific fitness activity
-   • get_athlete - Retrieve athlete profile information
-   • set_goal - Set a fitness goal for the user
+   ...
 
-🔐 Authentication Methods:
-   • api-key
-   • oauth2
+🔌 Transport Negotiation:
+   ✅ Will use JSONRPC at http://localhost:8081/a2a/jsonrpc (send `A2A-Version: 1.0` on every request)
 
-   OAuth2 Configuration:
-      Authorization URL: https://pierre.ai/oauth/authorize
-      Token URL: https://pierre.ai/oauth/token
-      Scopes: fitness:read, analytics:read, goals:read, goals:write
-
-🔍 Capability Check:
-   ✅ Has capability: fitness-data-analysis
-   ✅ Has capability: activity-intelligence
-   ✅ Has capability: performance-prediction
-
-🔎 Finding fitness-related tools:
-   • get_activities - Retrieve user fitness activities from connected providers
-   • analyze_activity - AI-powered analysis of a specific fitness activity
-
-🔐 Authentication Method Recommendation:
-💡 Recommendation: Use OAuth2 for secure user-delegated access
+🔐 Authentication Scheme Recommendation:
+💡 Recommendation: authenticate with 'bearerAuth' (bearer/oauth2)
 
 ✅ Agent Suitability Assessment:
    ✅ This agent is suitable for fitness data analysis tasks
-   ✅ Supports 2 tools for fitness analysis
+   ✅ Offers 4 fitness-related skills
    ✅ Recommended for integration
 ```
 
 ## Key Concepts Demonstrated
 
-### 1. Agent Card Fetching
+### 1. Card fetching (RFC 8615 well-known path)
 ```rust
+let url = format!("{}/.well-known/agent-card.json", self.server_url);
 let agent_card = self.fetch_agent_card().await?;
 ```
-The agent card is a JSON document describing the agent's capabilities, similar to OpenAPI/Swagger for REST APIs.
+Discovery is public and NOT version-gated — it is how a client learns which
+protocol versions and interfaces the peer supports.
 
-### 2. Capability Checking
+### 2. Skill checking
 ```rust
-fn has_capability(&self, card: &AgentCard, required_capability: &str) -> bool {
-    card.capabilities.iter().any(|cap| cap.contains(required_capability))
+fn has_skill(card: &AgentCard, skill_id: &str) -> bool {
+    card.skills.iter().any(|skill| skill.id == skill_id)
 }
 ```
-Before using an agent, check if it supports the required capabilities.
+Before delegating, check whether the peer offers the skills you need.
 
-### 3. Tool Discovery
+### 3. Transport negotiation
 ```rust
-let fitness_tools = self.find_tools(&agent_card, "activit");
+// supportedInterfaces is preference-ordered; pick the first that serves our version.
+let interface = card.supported_interfaces
+    .iter()
+    .find(|i| i.protocol_version == "1.0");
 ```
-Find relevant tools by name or description matching.
+Interfaces are functionally equivalent; the client picks the first binding it
+supports and sends `A2A-Version` on every request.
 
-### 4. Authentication Selection
+### 4. Auth selection
 ```rust
-fn recommend_auth_method(&self, card: &AgentCard) -> String {
-    // Choose OAuth2 for user delegation, API Key for service-to-service
-}
+// securitySchemes are proto-oneof wrapped: httpAuthSecurityScheme / oauth2SecurityScheme / ...
+fn recommend_auth_scheme(card: &AgentCard) -> String { /* prefer bearer/oauth2 */ }
 ```
-Select the appropriate authentication method based on use case.
 
 ## Real-World Use Cases
 
-1. **Multi-Agent Systems**: Before delegating a task to another agent, check if it has the required capabilities
-2. **Dynamic Agent Selection**: Choose from multiple available agents based on their advertised capabilities
-3. **Version Compatibility**: Ensure agent supports the required protocol version and tools
-4. **Fallback Strategies**: If preferred agent is unavailable, select alternative based on capability match
+1. **Multi-Agent Systems** — before delegating, check the peer's skills
+2. **Dynamic Agent Selection** — choose among agents by their advertised skills
+3. **Transport Fallback** — if the preferred binding isn't supported, fall back to an alternate `supportedInterface`
+4. **Version Compatibility** — reject a peer that serves no interface at your protocol version
 
 ## Integration with Other Examples
 
-- **fitness_analyzer**: Uses this discovery pattern before connecting to Pierre
-- **task_manager**: Discovers task management capabilities before creating long-running tasks
-- **multi_agent**: Multiple agents discover each other's capabilities for collaboration
+- **fitness_analyzer** — uses this discovery pattern before connecting to Pierre
+- **task_manager** — discovers task capabilities before submitting long-running tasks
 
 ## Configuration
 
@@ -136,18 +140,17 @@ Select the appropriate authentication method based on use case.
 |---------------------|---------|-------------|
 | `PIERRE_SERVER_URL` | `http://localhost:8081` | Pierre server base URL |
 
-## A2A Specification Compliance
+## A2A 1.0 Specification Compliance
 
-This example demonstrates the following A2A specification requirements:
+This example demonstrates:
 
-- ✅ Agent Card Format (name, version, capabilities, tools, authentication)
-- ✅ Capability Discovery (fetching and parsing agent cards)
-- ✅ Authentication Negotiation (OAuth2, API Key selection)
-- ✅ Tool Schema Discovery (input/output schemas)
-- ✅ Metadata Parsing (rate limits, supported providers, contact info)
+- ✅ Agent Card discovery at `/.well-known/agent-card.json`
+- ✅ Card format (name, version, `supportedInterfaces`, `capabilities`, `skills`, `securitySchemes`)
+- ✅ Transport negotiation (preference-ordered interfaces + `protocolVersion`)
+- ✅ Auth selection from proto-oneof `securitySchemes`
 
 ## Learn More
 
-- [A2A Protocol Specification](https://github.com/google/A2A)
+- [A2A Protocol Specification](https://a2a-protocol.org/v1.0.0/specification)
 - [Pierre A2A Documentation](../../../book/src/protocols.md)
-- [Agent Card Design](../../../src/a2a/agent_card.rs)
+- [Agent Card Design](../../../crates/pierre-a2a/src/agent_card.rs)

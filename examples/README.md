@@ -48,20 +48,20 @@ The **Agent-to-Agent (A2A) protocol** is an open standard for AI agent communica
 ### Available A2A Examples
 
 #### 1. **Agent Discovery** (`agents/agent_discovery/`)
-**What it demonstrates**: Agent card discovery and capability negotiation
+**What it demonstrates**: A2A 1.0 agent card discovery, interface + auth negotiation
 
 Learn how agents discover each other's capabilities before collaboration:
-- Fetch agent cards to see available tools and features
-- Parse and validate agent capabilities
-- Negotiate authentication methods (OAuth2, API Key)
-- Make informed decisions about which agent to use
+- Fetch the agent card from `/.well-known/agent-card.json` (RFC 8615)
+- Read `supportedInterfaces`, the `capabilities` object, and `skills`
+- Negotiate a transport interface (preferred binding at your `protocolVersion`)
+- Select a `securityScheme` and decide whether the agent fits the task
 
 ```bash
 cd agents/agent_discovery
 cargo run
 ```
 
-**Key Concepts**: Agent cards, capability matching, authentication selection
+**Key Concepts**: Agent cards, skill matching, transport negotiation, auth selection
 
 ---
 
@@ -269,9 +269,9 @@ examples/
 │ (Client)    │                    │ (Remote)    │
 └──────┬──────┘                    └──────┬──────┘
        │                                  │
-       │ 1. GET /a2a/agent-card          │
+       │ 1. GET /.well-known/agent-card.json │
        ├─────────────────────────────────>│
-       │ 2. Agent Card (capabilities)    │
+       │ 2. Agent Card (interfaces+skills)│
        │<─────────────────────────────────┤
        │                                  │
        │ 3. POST /a2a/auth               │

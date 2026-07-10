@@ -1,79 +1,88 @@
-// ABOUTME: Demonstrates A2A agent card discovery and capability negotiation
-// ABOUTME: Shows how agents discover each other's capabilities before collaboration
+// ABOUTME: Demonstrates A2A 1.0 agent card discovery, interface + auth negotiation
+// ABOUTME: Shows how agents read a peer's card before collaborating (RFC 8615 well-known path)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Agent Discovery Example
+//! # Agent Discovery Example (A2A 1.0)
 //!
-//! This example demonstrates the A2A protocol's agent card discovery mechanism,
-//! showing how agents:
-//! 1. Fetch agent cards to discover capabilities
-//! 2. Parse and validate agent capabilities
-//! 3. Negotiate authentication methods
-//! 4. Make informed decisions about which agent to use
+//! Demonstrates the A2A 1.0 discovery mechanism, showing how an agent:
+//! 1. Fetches a peer's agent card from `/.well-known/agent-card.json`
+//! 2. Analyzes its declared skills and protocol capabilities
+//! 3. Negotiates a transport interface (preferred `supportedInterface`)
+//! 4. Picks an authentication scheme from `securitySchemes`
+//! 5. Makes an informed decision about whether to collaborate
 
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// Agent Card structure per A2A specification
+/// A2A protocol version this discovering agent implements (Major.Minor).
+const A2A_VERSION: &str = "1.0";
+
+/// A2A 1.0 Agent Card (the fields this demo reads).
 #[derive(Debug, Deserialize, Serialize)]
 struct AgentCard {
     /// Agent name
     name: String,
     /// Human-readable description
     description: String,
-    /// Agent version
+    /// Agent implementation version
     version: String,
-    /// High-level capabilities
-    capabilities: Vec<String>,
-    /// Authentication information
-    authentication: AuthenticationInfo,
-    /// Available tools
-    tools: Vec<ToolDefinition>,
-    /// Optional metadata
-    #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Value>,
+    /// Transport interfaces, ordered by preference (first = preferred)
+    #[serde(rename = "supportedInterfaces")]
+    supported_interfaces: Vec<AgentInterface>,
+    /// Protocol feature capabilities
+    capabilities: AgentCapabilities,
+    /// Skills the agent offers
+    skills: Vec<AgentSkill>,
+    /// Named security schemes, keyed by scheme name (proto-oneof wrapped)
+    #[serde(rename = "securitySchemes", default)]
+    security_schemes: BTreeMap<String, serde_json::Value>,
 }
 
-/// Authentication information from agent card
+/// A transport interface (A2A 1.0 `AgentInterface`).
 #[derive(Debug, Deserialize, Serialize)]
-struct AuthenticationInfo {
-    /// Supported authentication schemes
-    schemes: Vec<String>,
-    /// `OAuth2` configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    oauth2: Option<OAuth2Info>,
-    /// API key configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    api_key: Option<ApiKeyInfo>,
+struct AgentInterface {
+    /// Base URL of the interface
+    url: String,
+    /// Protocol binding — `JSONRPC`, `GRPC`, or `HTTP+JSON`
+    #[serde(rename = "protocolBinding")]
+    protocol_binding: String,
+    /// A2A protocol version served here (Major.Minor)
+    #[serde(rename = "protocolVersion")]
+    protocol_version: String,
 }
 
+/// Protocol capabilities (A2A 1.0 `AgentCapabilities`).
 #[derive(Debug, Deserialize, Serialize)]
-struct OAuth2Info {
-    authorization_url: String,
-    token_url: String,
-    scopes: Vec<String>,
+struct AgentCapabilities {
+    /// Whether streaming (SSE) is supported
+    #[serde(default)]
+    streaming: bool,
+    /// Whether push notification webhooks are supported
+    #[serde(rename = "pushNotifications", default)]
+    push_notifications: bool,
+    /// Whether an authenticated extended card is available
+    #[serde(rename = "extendedAgentCard", default)]
+    extended_agent_card: bool,
 }
 
+/// A skill offered by the agent (A2A 1.0 `AgentSkill`).
 #[derive(Debug, Deserialize, Serialize)]
-struct ApiKeyInfo {
-    header_name: String,
-    prefix: Option<String>,
-    registration_url: String,
-}
-
-/// Tool definition from agent card
-#[derive(Debug, Deserialize, Serialize)]
-struct ToolDefinition {
+struct AgentSkill {
+    /// Unique skill identifier
+    id: String,
+    /// Human-readable name
     name: String,
+    /// What the skill does
     description: String,
-    input_schema: Value,
-    output_schema: Value,
+    /// Descriptive tags
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 /// Agent Discovery Client
@@ -97,11 +106,13 @@ impl AgentDiscovery {
         }
     }
 
-    /// Fetch agent card from server
+    /// Fetch the peer's agent card from the RFC 8615 well-known path.
+    ///
+    /// Discovery is public and NOT version-gated — it is how a client learns
+    /// which protocol versions and interfaces the peer supports.
     async fn fetch_agent_card(&self) -> Result<AgentCard> {
-        info!("📡 Fetching agent card from: {}", self.server_url);
-
-        let url = format!("{}/a2a/agent-card", self.server_url);
+        let url = format!("{}/.well-known/agent-card.json", self.server_url);
+        info!("📡 Fetching agent card from: {url}");
 
         let response = self
             .http_client
@@ -123,110 +134,154 @@ impl AgentDiscovery {
         Ok(agent_card)
     }
 
-    /// Analyze agent capabilities
+    /// Analyze the peer's declared skills and protocol capabilities.
     fn analyze_capabilities(card: &AgentCard) {
         info!("\n📊 Agent Capability Analysis:");
         info!("   Agent: {} v{}", card.name, card.version);
         info!("   Description: {}", card.description);
 
-        info!("\n🔧 Available Capabilities ({}):", card.capabilities.len());
-        for capability in &card.capabilities {
-            info!("   • {}", capability);
+        info!(
+            "\n🔌 Transport Interfaces ({}):",
+            card.supported_interfaces.len()
+        );
+        for (idx, interface) in card.supported_interfaces.iter().enumerate() {
+            let marker = if idx == 0 { "★ preferred" } else { "alternate" };
+            info!(
+                "   • {} (A2A {}) at {} [{marker}]",
+                interface.protocol_binding, interface.protocol_version, interface.url
+            );
         }
 
-        info!("\n🛠️  Available Tools ({}):", card.tools.len());
-        for tool in &card.tools {
-            info!("   • {} - {}", tool.name, tool.description);
+        info!("\n⚙️  Protocol Capabilities:");
+        info!("   • streaming (SSE):        {}", card.capabilities.streaming);
+        info!(
+            "   • push notifications:     {}",
+            card.capabilities.push_notifications
+        );
+        info!(
+            "   • extended agent card:    {}",
+            card.capabilities.extended_agent_card
+        );
+
+        info!("\n🛠️  Available Skills ({}):", card.skills.len());
+        for skill in &card.skills {
+            info!(
+                "   • {} ({}) - {}",
+                skill.id,
+                skill.tags.join(", "),
+                skill.description
+            );
         }
 
-        info!("\n🔐 Authentication Methods:");
-        for scheme in &card.authentication.schemes {
-            info!("   • {}", scheme);
-        }
-
-        if let Some(oauth2) = &card.authentication.oauth2 {
-            info!("\n   OAuth2 Configuration:");
-            info!("      Authorization URL: {}", oauth2.authorization_url);
-            info!("      Token URL: {}", oauth2.token_url);
-            info!("      Scopes: {}", oauth2.scopes.join(", "));
+        info!("\n🔐 Security Schemes:");
+        for name in card.security_schemes.keys() {
+            info!("   • {name}");
         }
     }
 
-    /// Check if agent has required capability
-    fn has_capability(card: &AgentCard, required_capability: &str) -> bool {
-        card.capabilities
-            .iter()
-            .any(|cap| cap.contains(required_capability))
+    /// Check whether the agent offers a skill with the given id.
+    fn has_skill(card: &AgentCard, skill_id: &str) -> bool {
+        card.skills.iter().any(|skill| skill.id == skill_id)
     }
 
-    /// Find tools matching a pattern
-    fn find_tools<'a>(card: &'a AgentCard, pattern: &str) -> Vec<&'a ToolDefinition> {
-        card.tools
+    /// Find skills matching a name/description/tag substring.
+    fn find_skills<'a>(card: &'a AgentCard, pattern: &str) -> Vec<&'a AgentSkill> {
+        let pattern = pattern.to_lowercase();
+        card.skills
             .iter()
-            .filter(|tool| {
-                tool.name.contains(pattern) || tool.description.to_lowercase().contains(pattern)
+            .filter(|skill| {
+                skill.id.to_lowercase().contains(&pattern)
+                    || skill.description.to_lowercase().contains(&pattern)
+                    || skill.tags.iter().any(|tag| tag.to_lowercase().contains(&pattern))
             })
             .collect()
     }
 
-    /// Recommend best authentication method
-    fn recommend_auth_method(card: &AgentCard) -> String {
-        if card.authentication.schemes.contains(&"oauth2".to_string()) {
-            info!("💡 Recommendation: Use OAuth2 for secure user-delegated access");
-            "oauth2".to_string()
-        } else if card.authentication.schemes.contains(&"api-key".to_string()) {
-            info!("💡 Recommendation: Use API Key for service-to-service communication");
-            "api-key".to_string()
-        } else {
-            warn!("⚠️  No standard authentication method found");
-            "unknown".to_string()
+    /// Negotiate a transport interface: pick the peer's preferred binding
+    /// that also serves the protocol version this agent speaks.
+    fn negotiate_interface(card: &AgentCard) -> Option<&AgentInterface> {
+        card.supported_interfaces
+            .iter()
+            .find(|interface| interface.protocol_version == A2A_VERSION)
+    }
+
+    /// Recommend a security scheme from those the card declares. The 1.0 card
+    /// wraps each scheme in a proto-oneof (`httpAuthSecurityScheme`,
+    /// `oauth2SecurityScheme`, `apiKeySecurityScheme`); a bearer/oauth2
+    /// scheme is preferred for delegated access.
+    fn recommend_auth_scheme(card: &AgentCard) -> String {
+        let pick = card.security_schemes.iter().find(|(_, scheme)| {
+            scheme.get("httpAuthSecurityScheme").is_some()
+                || scheme.get("oauth2SecurityScheme").is_some()
+        });
+
+        match pick {
+            Some((name, _)) => {
+                info!("💡 Recommendation: authenticate with '{name}' (bearer/oauth2)");
+                name.clone()
+            }
+            None => match card.security_schemes.keys().next() {
+                Some(name) => {
+                    info!("💡 Recommendation: authenticate with '{name}'");
+                    name.clone()
+                }
+                None => {
+                    warn!("⚠️  Card declares no security schemes");
+                    "none".to_owned()
+                }
+            },
         }
     }
 
-    /// Demonstrate capability negotiation
+    /// Demonstrate the full discovery + negotiation flow.
     async fn demonstrate_capability_negotiation(&self) -> Result<()> {
-        info!("\n🤝 Starting A2A Capability Negotiation Demo\n");
+        info!("\n🤝 Starting A2A 1.0 Discovery & Negotiation Demo\n");
 
-        // Step 1: Fetch agent card
+        // Step 1: Fetch the peer's card.
         let agent_card = self.fetch_agent_card().await?;
 
-        // Step 2: Analyze capabilities
+        // Step 2: Analyze what it offers.
         Self::analyze_capabilities(&agent_card);
 
-        // Step 3: Check for specific capabilities
-        info!("\n🔍 Capability Check:");
-        let required_capabilities = vec![
-            "fitness-data-analysis",
-            "activity-intelligence",
-            "performance-prediction",
-        ];
-
-        for capability in required_capabilities {
-            let has_it = Self::has_capability(&agent_card, capability);
-            if has_it {
-                info!("   ✅ Has capability: {}", capability);
+        // Step 3: Check for specific skills we need.
+        info!("\n🔍 Skill Check:");
+        let required_skills = ["get_activities", "analyze_activity", "set_goal"];
+        for skill_id in required_skills {
+            if Self::has_skill(&agent_card, skill_id) {
+                info!("   ✅ Offers skill: {skill_id}");
             } else {
-                info!("   ❌ Missing capability: {}", capability);
+                info!("   ❌ Missing skill: {skill_id}");
             }
         }
 
-        // Step 4: Find relevant tools
-        info!("\n🔎 Finding fitness-related tools:");
-        let fitness_tools = Self::find_tools(&agent_card, "activit");
-        for tool in &fitness_tools {
-            info!("   • {} - {}", tool.name, tool.description);
+        // Step 4: Find fitness-related skills.
+        info!("\n🔎 Finding fitness-related skills:");
+        let fitness_skills = Self::find_skills(&agent_card, "fitness");
+        for skill in &fitness_skills {
+            info!("   • {} - {}", skill.id, skill.description);
         }
 
-        // Step 5: Recommend authentication
-        info!("\n🔐 Authentication Method Recommendation:");
-        let _auth_method = Self::recommend_auth_method(&agent_card);
+        // Step 5: Negotiate transport.
+        info!("\n🔌 Transport Negotiation:");
+        let Some(interface) = Self::negotiate_interface(&agent_card) else {
+            anyhow::bail!(
+                "No interface serves A2A {A2A_VERSION}; this agent cannot collaborate with the peer"
+            );
+        };
+        info!(
+            "   ✅ Will use {} at {} (send `A2A-Version: {A2A_VERSION}` on every request)",
+            interface.protocol_binding, interface.url
+        );
 
-        // Step 6: Demonstrate decision making
+        // Step 6: Recommend authentication.
+        info!("\n🔐 Authentication Scheme Recommendation:");
+        let _auth_scheme = Self::recommend_auth_scheme(&agent_card);
+
+        // Step 7: Suitability decision.
         info!("\n✅ Agent Suitability Assessment:");
-        let is_suitable = Self::has_capability(&agent_card, "fitness");
-        if is_suitable {
+        if Self::has_skill(&agent_card, "get_activities") {
             info!("   ✅ This agent is suitable for fitness data analysis tasks");
-            info!("   ✅ Supports {} tools for fitness analysis", fitness_tools.len());
+            info!("   ✅ Offers {} fitness-related skills", fitness_skills.len());
             info!("   ✅ Recommended for integration");
         } else {
             info!("   ❌ This agent may not be suitable for fitness tasks");
@@ -243,7 +298,7 @@ async fn main() -> Result<()> {
         .with_env_filter("agent_discovery_example=info")
         .init();
 
-    info!("🚀 A2A Agent Discovery Example");
+    info!("🚀 A2A 1.0 Agent Discovery Example");
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Get server URL from environment or use default
