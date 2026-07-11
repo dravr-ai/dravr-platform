@@ -64,6 +64,9 @@ pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
+/// Key: reply withheld at the response boundary — the canary scan proved it
+/// exposed system-prompt content, or the narration scrub emptied it.
+pub const KEY_REPLY_WITHHELD: &str = "messaging.reply_withheld";
 /// Key: text-guardrails rejected an over-long response.
 pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
 /// Key: text-guardrails rejected a blocked-topic response.
@@ -425,6 +428,8 @@ pub const FR_GUARDIAN_DENIED: &str = "Cette action a été bloquée par sécurit
 /// French default for [`KEY_EMPTY_REPLY`].
 pub const FR_EMPTY_REPLY: &str =
     "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?";
+/// French default for [`KEY_REPLY_WITHHELD`].
+pub const FR_REPLY_WITHHELD: &str = "Cette réponse-là n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Repose ta question et on repart sur ton entraînement.";
 /// French default for [`KEY_GUARDRAIL_TOO_LONG`].
 pub const FR_GUARDRAIL_TOO_LONG: &str = "J'ai une réponse plus longue prête, mais elle dépasse la limite de longueur configurée. Veux-tu que je te la résume plus brièvement?";
 /// French default for [`KEY_GUARDRAIL_BLOCKED_TOPIC`].
@@ -605,6 +610,8 @@ pub const EN_GUARDIAN_DENIED: &str = "That action was blocked for safety. Try re
 /// English default for [`KEY_EMPTY_REPLY`].
 pub const EN_EMPTY_REPLY: &str =
     "Hmm, I couldn't put a reply together. Can you rephrase your question?";
+/// English default for [`KEY_REPLY_WITHHELD`].
+pub const EN_REPLY_WITHHELD: &str = "That reply didn't go through — it mixed in technical details that don't belong here. Ask me again and we'll get back to your training.";
 /// English default for [`KEY_GUARDRAIL_TOO_LONG`].
 pub const EN_GUARDRAIL_TOO_LONG: &str = "I have a longer response prepared but it exceeds the configured length cap. Want me to break it into a shorter summary?";
 /// English default for [`KEY_GUARDRAIL_BLOCKED_TOPIC`].
@@ -773,6 +780,7 @@ pub(crate) const ES_ERROR_GENERIC: &str = "Dravr no está disponible temporalmen
 pub(crate) const ES_GUARDIAN_DENIED: &str = "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior.";
 pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
+pub(crate) const ES_REPLY_WITHHELD: &str = "Esa respuesta no salió — mezclaba detalles técnicos que no tienen lugar aquí. Pregúntame de nuevo y volvemos a tu entrenamiento.";
 pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?";
 pub(crate) const ES_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?";
 pub(crate) const ES_VERIFICATION_WARN_SUFFIX: &str =
@@ -934,6 +942,7 @@ pub(crate) const DE_ERROR_GENERIC: &str = "Dravr ist vorübergehend nicht verfü
 pub(crate) const DE_GUARDIAN_DENIED: &str = "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut.";
 pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
+pub(crate) const DE_REPLY_WITHHELD: &str = "Diese Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Frag mich erneut und wir machen mit deinem Training weiter.";
 pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?";
 pub(crate) const DE_GUARDRAIL_BLOCKED_TOPIC: &str = "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?";
 pub(crate) const DE_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Ein paar Aussagen, die ich nicht formell belegen konnte — korrigier mich, wenn etwas davon nicht stimmt:";
@@ -1096,6 +1105,7 @@ pub(crate) const PT_ERROR_GENERIC: &str = "O Dravr está temporariamente indispo
 pub(crate) const PT_GUARDIAN_DENIED: &str = "Essa ação foi bloqueada por segurança. Reformula o teu pedido ou tenta de novo sem o contexto anterior.";
 pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
+pub(crate) const PT_REPLY_WITHHELD: &str = "Essa resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Pergunta de novo e voltamos ao teu treino.";
 pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?";
 pub(crate) const PT_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?";
 pub(crate) const PT_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Algumas afirmações que não consegui sustentar formalmente — corrige-me se alguma estiver errada:";
@@ -1258,6 +1268,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ERROR_GENERIC, "fr", FR_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "fr", FR_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "fr", FR_EMPTY_REPLY),
+    (KEY_REPLY_WITHHELD, "fr", FR_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "fr", FR_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "fr", FR_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "fr", FR_VERIFICATION_WARN_SUFFIX),
@@ -1409,6 +1420,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "en", EN_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
+    (KEY_REPLY_WITHHELD, "en", EN_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "en", EN_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "en", EN_VERIFICATION_WARN_SUFFIX),
@@ -1531,6 +1543,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "es", ES_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
+    (KEY_REPLY_WITHHELD, "es", ES_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "es", ES_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "es", ES_VERIFICATION_WARN_SUFFIX),
@@ -1653,6 +1666,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "de", DE_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
+    (KEY_REPLY_WITHHELD, "de", DE_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "de", DE_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "de", DE_VERIFICATION_WARN_SUFFIX),
@@ -1775,6 +1789,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "pt", PT_GUARDIAN_DENIED),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
+    (KEY_REPLY_WITHHELD, "pt", PT_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "pt", PT_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "pt", PT_VERIFICATION_WARN_SUFFIX),

@@ -11,9 +11,10 @@
 //! policy for how the chat dispatch paths invoke those functions:
 //!
 //! - [`harden_system_prompt`] takes a raw system prompt, generates a
-//!   per-turn canary token, injects a hidden "do not repeat this"
-//!   instruction, fingerprints the *post-injection* prompt, and
-//!   returns a [`PromptGuard`] the caller holds for the whole turn.
+//!   per-turn canary token, appends it as an inert comment marker (no
+//!   instruction — the model gets nothing to obey or narrate about),
+//!   fingerprints the *post-injection* prompt, and returns a
+//!   [`PromptGuard`] the caller holds for the whole turn.
 //! - [`scan_assistant_reply`] runs both the shingle detector and the
 //!   canary detector over the assistant reply and upgrades the log
 //!   severity for canary hits because those are *conclusive*
@@ -23,7 +24,7 @@
 
 use pierre_core::models::TenantId;
 use pierre_core::prompt_fingerprint::{
-    detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_instruction,
+    detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_marker,
     scan_response_for_leaks, LeakVerdict, PromptFingerprint, DEFAULT_LEAK_THRESHOLD,
 };
 use tracing::{error, info, warn};
@@ -34,7 +35,7 @@ use tracing::{error, info, warn};
 #[derive(Debug, Clone)]
 pub struct PromptGuard {
     /// The augmented prompt that should be sent to the LLM. This is
-    /// the base prompt plus a hidden canary instruction block.
+    /// the base prompt plus the inert canary comment marker.
     pub hardened_prompt: String,
     /// The canary token embedded in the prompt. If this string
     /// appears verbatim in the response, the coach was jailbroken.
@@ -64,11 +65,12 @@ impl ReplyLeakReport {
 
 /// Build a hardened system prompt for this dispatch turn.
 ///
-/// Generates a per-turn canary token, injects a hidden instruction
-/// block that tells the model the canary must never appear in the
-/// response, and fingerprints the resulting prompt. The caller sends
+/// Generates a per-turn canary token, appends it as an inert comment
+/// marker, and fingerprints the resulting prompt. The caller sends
 /// `PromptGuard::hardened_prompt` to the LLM and keeps the guard for
-/// [`scan_assistant_reply`] after the reply comes back.
+/// [`scan_assistant_reply`] after the reply comes back; a canary hit
+/// there is enforced at the response boundary (reply withheld), never
+/// by instructing the model.
 pub fn harden_system_prompt(
     tenant_id: TenantId,
     coach_id: Option<&str>,
@@ -80,7 +82,7 @@ pub fn harden_system_prompt(
     // braces.
     let salt = format!("{tenant_id}:{}", coach_id.unwrap_or("default-coach"));
     let canary = generate_canary(&salt);
-    let hardened_prompt = inject_canary_instruction(base_prompt, &canary);
+    let hardened_prompt = inject_canary_marker(base_prompt, &canary);
     let fingerprint = fingerprint_prompt(&hardened_prompt);
 
     info!(
@@ -123,8 +125,8 @@ pub fn scan_assistant_reply(
             coach_id = %coach_id.unwrap_or("<none>"),
             sha256 = %guard.fingerprint.sha256_hex,
             reply_len = reply_body.len(),
-            "canary_leak_confirmed: assistant reply contains the hidden canary token — \
-             prompt was exfiltrated verbatim, redact the reply and rotate the coach"
+            "canary_leak_confirmed: assistant reply contains the canary token — \
+             prompt was exfiltrated verbatim; reply is withheld at the response boundary"
         );
     } else if let LeakVerdict::Leaked { overlap, threshold } = &shingle_verdict {
         warn!(
