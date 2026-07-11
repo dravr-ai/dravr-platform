@@ -48,6 +48,9 @@ pub mod safety;
 /// Phase C system-prompt fingerprinting for prompt exfiltration defense
 pub mod prompt_fingerprint;
 
+/// Reply-side internal-narration scrub (hidden-block/raw-XML meta-commentary)
+pub mod narration;
+
 /// Admin authentication and authorization types
 pub mod admin;
 

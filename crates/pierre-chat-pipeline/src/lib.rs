@@ -343,6 +343,36 @@ fn spawn_turn_advice_capture(
     );
 }
 
+/// Fire the Tier 2 extraction (stage 21) and playbook advice capture (stage 21b)
+/// for a completed turn — unless the reply was withheld and replaced with a
+/// canned string. A replaced reply carries nothing to learn, and the withheld
+/// original must never reach the fact store or playbooks: a leaked narration
+/// minted as a fact re-enters every future prompt bundle (reinforcement loop
+/// observed 2026-07-10). Owning the `leak_replaced` gate here keeps `run_turn`
+/// itself branch-free over this concern.
+fn spawn_turn_background_learning(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    conv: &ConversationRecord,
+    assistant_reply: &str,
+    assistant_message_id: &str,
+    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+    leak_replaced: bool,
+) {
+    if leak_replaced {
+        return;
+    }
+    spawn_turn_extraction(
+        ctx,
+        input,
+        conv,
+        assistant_reply,
+        assistant_message_id,
+        onboarding,
+    );
+    spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
+}
+
 /// Parameters for [`dispatch_stage`].
 ///
 /// Bundled into a struct to stay under the workspace
@@ -436,6 +466,7 @@ async fn run_recovery_and_post_process(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            leak_replaced: false,
         };
     }
 
@@ -461,6 +492,7 @@ async fn run_recovery_and_post_process(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            leak_replaced: false,
         };
     }
 
@@ -910,6 +942,7 @@ async fn run_turn(
     .await;
     result.content = post_processed.content;
     let structured_content = post_processed.structured_content;
+    let leak_replaced = post_processed.leak_replaced;
 
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -959,21 +992,18 @@ async fn run_turn(
     )
     .await;
 
-    // Stage 21: Tier 2 background memory extraction (onboarding turns stamp the
-    // probed pillar + source=onboarding; normal turns use conversation defaults).
-    spawn_turn_extraction(
+    // Stages 21/21b: Tier 2 background memory extraction + playbook advice
+    // capture, gated inside the helper so a withheld/replaced reply is never
+    // learned from (see `spawn_turn_background_learning`).
+    spawn_turn_background_learning(
         ctx,
         &input,
         &conv,
         &result.content,
         &assistant_message.id,
         onboarding_turn.as_ref(),
+        leak_replaced,
     );
-
-    // Stage 21b: background advice capture — record any concrete recommendation
-    // the coach made so the outcome evaluator can later reinforce the matching
-    // playbook (P3 of coaching playbook memory).
-    spawn_turn_advice_capture(ctx, &input, &conv, &result.content, &assistant_message.id);
 
     let dispatch_result = DispatchResult {
         content: result.content,

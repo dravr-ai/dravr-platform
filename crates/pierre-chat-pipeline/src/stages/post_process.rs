@@ -12,7 +12,8 @@ use crate::hooks::PipelineHooks;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
-use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
+use pierre_core::narration::scrub_internal_narration;
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
@@ -42,6 +43,12 @@ pub(crate) struct PostProcessedReply {
     /// from a builder-coach reply. `Some` only when the coach declares an
     /// `output_schema` and the reply validates against it.
     pub structured_content: Option<String>,
+    /// `true` when the LLM reply was withheld and replaced with a canned
+    /// localized string (canary hit, or the narration scrub emptied it).
+    /// Downstream consumers of the reply text — Tier 2 fact extraction and
+    /// playbook advice capture — must skip the turn: a canned string holds
+    /// nothing to learn, and the withheld original must never be ingested.
+    pub leak_replaced: bool,
 }
 
 /// Borrowed inputs to [`post_process_assistant_reply`], bundled to stay within
@@ -80,13 +87,30 @@ pub(crate) async fn post_process_assistant_reply(
         prompt_guard,
         is_messaging,
     } = inputs;
-    // Stage 15: Scan for verbatim system-prompt leaks / canary hits.
-    prompt_leak::scan_assistant_reply(
+    // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
+    // hit is conclusive exfiltration — withhold the reply and return a canned
+    // localized string instead. Shingle-only hits stay WARN (logged inside the
+    // scan): the localized refusal templates live in the system prompt, so a
+    // legitimate refusal reproduces prompt shingles by construction and
+    // blocking on them would eat every refusal.
+    let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
+    let leak_report = prompt_leak::scan_assistant_reply(
         prompt_guard,
         &raw_content,
         input.conversation_tenant_id,
         conv.coach_id.as_deref(),
     );
+    if leak_report.canary_hit {
+        return PostProcessedReply {
+            content: ctx
+                .messaging_strings_registry
+                .get(KEY_REPLY_WITHHELD, locale),
+            #[cfg(feature = "tools-verification")]
+            pending_verdicts: Vec::new(),
+            structured_content: None,
+            leak_replaced: true,
+        };
+    }
 
     // Stage 15.5: Structured-output extraction. Builder coaches emit a
     // schema-validated JSON plan, not prose — extract and validate it from the
@@ -109,9 +133,43 @@ pub(crate) async fn post_process_assistant_reply(
                 #[cfg(feature = "tools-verification")]
                 pending_verdicts: Vec::new(),
                 structured_content: Some(extraction.structured_content),
+                leak_replaced: false,
             };
         }
     }
+
+    // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
+    // model narrates about its hidden scaffolding («Je continue d'ignorer le
+    // bloc caché — pas de XML brut»; live leak 2026-07-10) instead of
+    // coaching. Runs on the prose path only — a schema-validated plan above
+    // is card JSON, not prose. A reply that was pure narration is withheld
+    // and replaced like a canary hit; a mixed reply continues with the
+    // narration removed, so persist/extraction/outbound all see clean text.
+    let scrub = scrub_internal_narration(&raw_content);
+    if scrub.fired() {
+        tracing::warn!(
+            tenant_id = %input.conversation_tenant_id,
+            sentences_removed = scrub.removed,
+            emptied = scrub.cleaned.is_empty(),
+            "internal narration scrubbed from assistant reply"
+        );
+    }
+    if scrub.fired() && scrub.cleaned.is_empty() {
+        return PostProcessedReply {
+            content: ctx.messaging_strings_registry.get(KEY_EMPTY_REPLY, locale),
+            #[cfg(feature = "tools-verification")]
+            pending_verdicts: Vec::new(),
+            structured_content: None,
+            leak_replaced: true,
+        };
+    }
+    // An untouched reply passes through byte-identical; only a fired scrub
+    // swaps in the cleaned text.
+    let raw_content = if scrub.fired() {
+        scrub.cleaned
+    } else {
+        raw_content
+    };
 
     // Stage 16: Tier 6 text guardrails.
     let locale_opt = input.locale.as_deref();
@@ -185,5 +243,6 @@ pub(crate) async fn post_process_assistant_reply(
         #[cfg(feature = "tools-verification")]
         pending_verdicts,
         structured_content: None,
+        leak_replaced: false,
     }
 }
