@@ -221,7 +221,7 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.7.12", features = ["vision"], optional = true }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.7.14", features = ["vision"], optional = true }
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.5", features = ["copilot-headless"], optional = true }
 # Assets crate: structured-output directive + workout schema consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "0a49fcb64576a05e9e118939ba0de28151d8d1d1" }
