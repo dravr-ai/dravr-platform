@@ -65,7 +65,7 @@ use axum::middleware;
 use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
-use pierre_database::backends::UsageRepository;
+use pierre_database::backends::{OAuthTokenRepository, UsageRepository};
 use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
@@ -149,9 +149,10 @@ impl ProviderToolRouter {
             ctx.tenant_context,
             provider_name,
             &ctx.resources.fitness.provider_registry,
-            &ctx.resources.coach.database,
+            &ctx.resources.common.repos.oauth_tokens,
             request_id,
         )
+        .await
     }
 
     /// Route provider-specific tool requests to appropriate handlers
@@ -678,12 +679,13 @@ impl ProviderToolRouter {
         )
     }
 
-    /// Handle tenant-aware provider disconnection
-    fn handle_tenant_disconnect_provider(
+    /// Handle tenant-aware provider disconnection by deleting the user's stored
+    /// OAuth token for the provider within their tenant scope.
+    async fn handle_tenant_disconnect_provider(
         tenant_context: &TenantContext,
         provider_name: &str,
         _provider_registry: &Arc<ProviderRegistry>,
-        _database: &Arc<Database>,
+        oauth_tokens: &Arc<dyn OAuthTokenRepository>,
         request_id: Value,
     ) -> McpResponse {
         info!(
@@ -691,7 +693,30 @@ impl ProviderToolRouter {
             tenant_context.tenant_name, provider_name, tenant_context.user_id
         );
 
-        // In a real implementation, this would revoke tenant-specific OAuth tokens
+        if let Err(e) = oauth_tokens
+            .delete_token(
+                tenant_context.user_id,
+                tenant_context.tenant_id,
+                provider_name,
+            )
+            .await
+        {
+            error!(
+                "Failed to delete {} OAuth token for user {}: {}",
+                provider_name, tenant_context.user_id, e
+            );
+            return McpResponse {
+                jsonrpc: JSONRPC_VERSION.to_owned(),
+                result: None,
+                error: Some(McpError {
+                    code: ERROR_INTERNAL_ERROR,
+                    message: format!("Failed to disconnect from {provider_name}"),
+                    data: None,
+                }),
+                id: Some(request_id),
+            };
+        }
+
         McpResponse {
             jsonrpc: JSONRPC_VERSION.to_owned(),
             result: Some(serde_json::json!({

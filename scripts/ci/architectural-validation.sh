@@ -763,6 +763,44 @@ else
 fi
 
 # ============================================================================
+# FUNCTIONAL STUB / CONFESSION COMMENT DETECTION
+# ============================================================================
+# A stub that compiles (returns empty/default/fabricated data) is invisible to
+# clippy and to keyword-only greps, but it almost always confesses itself in a
+# comment. These phrasings are admissions of an unfinished implementation, not
+# descriptions, so they are flagged even inside comments — unlike the .build
+# placeholder check, which excludes comment lines and for exactly that reason
+# missed the entire 2026-07 stub audit (in-memory OAuth store, fabricated JWT
+# expiry, "return empty stats for now", broadcast webhook, etc.). A genuine,
+# documented limitation must be worded factually ("Terra exposes no
+# personal-records endpoint"), never "for now". See .claude/CLAUDE.md
+# "implementing a new function, handler, trait method, ...".
+
+echo ""
+echo -e "${BLUE}==== Functional Stub / Confession Comment Detection ====${NC}"
+
+CONFESSION_PATTERNS='not yet implemented|in a real implementation|would be [a-z. ]*in production|would be database-backed|implement(ed)? later|for now, (return|store|trigger|set a default|we.?ll skip)|return empty[a-z. ]*for now'
+CONFESSION_HITS=$(rg -i "$CONFESSION_PATTERNS" \
+    crates frontend/src frontend-mobile/src packages \
+    -g '*.rs' -g '*.ts' -g '*.tsx' \
+    -g '!*/tests/*' -g '!*/benches/*' -g '!*/examples/*' \
+    -g '!*_test.rs' -g '!*.test.ts' -g '!*.test.tsx' -g '!*.spec.ts' -g '!*.spec.tsx' \
+    -g '!*/target/*' -g '!*/node_modules/*' -g '!*/dist/*' \
+    -n 2>/dev/null || true)
+CONFESSION_COUNT=$(printf '%s' "$CONFESSION_HITS" | grep -c . 2>/dev/null || true)
+
+if [ "${CONFESSION_COUNT:-0}" -gt 0 ]; then
+    echo -e "${RED}❌ FUNCTIONAL STUB: $CONFESSION_COUNT confession comment(s) admitting an unfinished implementation${NC}"
+    echo -e "${RED}Implement the real behavior, or word a genuine limitation factually (not \"for now\").${NC}"
+    echo ""
+    echo "Violations:"
+    printf '%s\n' "$CONFESSION_HITS" | head -20
+    fail_validation "Functional stub / confession comment detected - implement the real thing or STOP (see CLAUDE.md)"
+else
+    pass_validation "No functional-stub confession comments found"
+fi
+
+# ============================================================================
 # LOG REDACTION ENFORCEMENT (CLAUDE.md "Logging Hygiene")
 # ============================================================================
 # Catches the exact regressions that triggered the 2026-04-16 Cloud Run DB-URL

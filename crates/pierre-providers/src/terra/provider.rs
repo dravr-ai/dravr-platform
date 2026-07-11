@@ -311,8 +311,8 @@ impl FitnessProvider for TerraProvider {
     }
 
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // Terra doesn't provide personal records directly
-        // Return empty vec for now - could calculate from activities if needed
+        // Terra's aggregator API exposes no personal-records endpoint, so there
+        // are none to return for this provider.
         Ok(Vec::new())
     }
 
