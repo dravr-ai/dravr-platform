@@ -153,6 +153,17 @@ Default to idiomatic Rust; the project-enforced specifics:
 - **Never rewrite an existing implementation from scratch to fix a bug/error — STOP and get explicit permission first.**
 </important>
 
+<important if="you are implementing a new function, handler, trait method, provider capability, or API endpoint">
+
+A stub that compiles is worse than an honest error — it passes `.is_ok()` tests and hides for months (the 2026-07 audit found ~11: in-memory OAuth store, fabricated JWT expiry, all-zero WHOOP stats, a "disconnect" that revoked nothing, a webhook that broadcast to everyone). Do not ship one:
+
+- **Never return empty/default/fabricated data as a placeholder.** `Ok(vec![])`, `Ok(None)`, an all-zero struct, `""` arguments, a hardcoded id, or `_`-prefixed params that silently ignore the input you were handed — each is a stub *unless it is the genuinely correct result of a real, documented limitation*, and then the comment says so factually.
+- **Confession comments are banned and CI-gated** (`scripts/ci/architectural-validation.sh` "Functional Stub / Confession Comment Detection"): "for now", "not yet implemented", "in a real implementation", "would be … in production", "return empty … for now", "implement later", "trigger … for all". If you're about to write one, you're stubbing — implement the real thing or STOP and surface the gap.
+- **Every advertised capability needs a real backing impl in the *same* change** — a new MCP tool, agent-card flag, API endpoint, or trait method must do real work in every backend. No advertised-but-empty surfaces.
+- **Test for content, not success.** New functionality needs a test asserting a concrete non-trivial result (`assert_eq!(x.len(), N)`, real field values) that a returns-empty stub would fail — not just `assert!(res.is_ok())`. Weakening an assertion to accommodate a stub is itself a violation.
+- If you genuinely cannot finish it now, STOP and tell the user. Never leave a silent placeholder behind.
+</important>
+
 <important if="you are writing or running tests, or tempted to skip/ignore one">
 
 - Tests must cover the functionality. Cover error/log output too if errors are expected.
