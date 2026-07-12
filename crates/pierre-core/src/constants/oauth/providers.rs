@@ -106,6 +106,15 @@ pub fn is_supported(provider: &str) -> bool {
     all().contains(&provider)
 }
 
+/// Token type recorded in `user_oauth_tokens.token_type` for sciotte
+/// browser-session credentials.
+///
+/// OAuth exchanges record the provider's own token type (`"Bearer"` in
+/// practice). A session row's `access_token` holds the serialized browser
+/// session JSON the sciotte scraper restores — it is unusable as a Bearer
+/// token, and a Bearer token is unusable as a session.
+pub const TOKEN_TYPE_SESSION: &str = "session";
+
 /// Strava default scopes (comma-separated as per Strava API requirements)
 pub const STRAVA_DEFAULT_SCOPES: &str = "activity:read_all";
 

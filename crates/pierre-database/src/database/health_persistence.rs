@@ -964,7 +964,7 @@ impl SyncCursorRepository for Database {
     ) -> AppResult<Vec<ConnectedUserRow>> {
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT user_id, tenant_id
+            SELECT DISTINCT user_id, tenant_id, token_type
             FROM user_oauth_tokens
             WHERE provider = ?
             ",
@@ -982,6 +982,9 @@ impl SyncCursorRepository for Database {
                     })?,
                     tenant_id: r.try_get("tenant_id").map_err(|e| {
                         AppError::database(format!("decode tenant_id as TenantId: {e}"))
+                    })?,
+                    token_type: r.try_get("token_type").map_err(|e| {
+                        AppError::database(format!("decode token_type as String: {e}"))
                     })?,
                 })
             })

@@ -20,6 +20,7 @@ use dravr_sciotte::error::LoginResult;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
+use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::sciotte_limiter::{
     global_limiter, set_global_limiter, LimiterError, SciotteLimiter, ScrapePermit,
@@ -223,7 +224,7 @@ async fn store_sciotte_session(
         provider: provider_name.to_owned(),
         access_token: session_json.clone(),
         refresh_token: None,
-        token_type: "session".to_owned(),
+        token_type: TOKEN_TYPE_SESSION.to_owned(),
         expires_at: session.expires_at,
         scope: None,
         provider_user_id: None,
@@ -944,7 +945,7 @@ pub async fn handle_sciotte_connect(
         provider: "sciotte".to_owned(),
         access_token: request.session_id,
         refresh_token: None,
-        token_type: "session".to_owned(),
+        token_type: TOKEN_TYPE_SESSION.to_owned(),
         expires_at: None,
         scope: None,
         provider_user_id: None,
