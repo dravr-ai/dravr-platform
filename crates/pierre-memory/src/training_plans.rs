@@ -31,6 +31,7 @@
 //! semantics) and never a playbook (not evidence-scored).
 
 use chrono::{DateTime, NaiveDate, Utc};
+use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.
@@ -152,6 +153,44 @@ pub enum BlockPhase {
     Taper,
 }
 
+/// Deserialize a whole-valued JSON number (int or float) into `u8`.
+///
+/// LLM callers routinely emit `3.0` where a schema says number; strict serde
+/// rejects floats for integer types, and that rejection killed seven
+/// consecutive live `save_training_plan` calls on 2026-07-12. Whole floats
+/// are accepted; fractional values are rejected with a message the model can
+/// act on.
+fn whole_u8<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+    let n = f64::deserialize(deserializer)?;
+    // In-range whole doubles convert exactly; the guard runs first.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    if n.fract() == 0.0 && (0.0..=f64::from(u8::MAX)).contains(&n) {
+        Ok(n as u8)
+    } else {
+        Err(D::Error::custom(format!(
+            "expected a whole number of weeks between 0 and 255, got {n}"
+        )))
+    }
+}
+
+/// Deserialize an optional whole-valued JSON number into `Option<u32>`.
+/// Same LLM-robustness rationale as [`whole_u8`].
+fn whole_u32_opt<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let Some(n) = Option::<f64>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    if n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n) {
+        Ok(Some(n as u32))
+    } else {
+        Err(D::Error::custom(format!(
+            "expected a whole number of minutes, got {n}"
+        )))
+    }
+}
+
 /// One block of the outline (mesocycle): a phase with a start date, a length
 /// in weeks, and the coach's intent for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -162,6 +201,7 @@ pub struct PlanBlock {
     /// not enforced — athletes' weeks start where their lives allow).
     pub start: String,
     /// Block length in weeks.
+    #[serde(deserialize_with = "whole_u8")]
     pub weeks: u8,
     /// The coach's intent, in coach voice ("rebuild volume, one moderate
     /// day/week").
@@ -181,7 +221,11 @@ pub struct PlannedDay {
     /// What to do, in coach voice ("2h endurance, low HR on climbs").
     pub workout: String,
     /// Planned duration in minutes; `None` for rest days.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
     pub duration_min: Option<u32>,
     /// Intensity relative to the athlete's thresholds ("Z2", "3x8min @
     /// 88-93% FTP"). Empty for rest days. Stored relative — never absolute

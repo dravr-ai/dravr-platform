@@ -92,6 +92,16 @@ fn number_prop(description: &str) -> PropertySchema {
     }
 }
 
+/// Integer schema property with a description. Whole-valued floats are
+/// still accepted at deserialization (LLM callers emit 60.0 for integers).
+fn integer_prop(description: &str) -> PropertySchema {
+    PropertySchema {
+        property_type: "integer".to_owned(),
+        description: Some(description.to_owned()),
+        ..Default::default()
+    }
+}
+
 /// Object schema property with nested fields.
 fn object_prop(
     description: &str,
@@ -156,7 +166,7 @@ fn block_schema() -> PropertySchema {
         "start".to_owned(),
         string_prop("Block start date, YYYY-MM-DD."),
     );
-    p.insert("weeks".to_owned(), number_prop("Block length in weeks."));
+    p.insert("weeks".to_owned(), integer_prop("Block length in weeks."));
     p.insert(
         "intent".to_owned(),
         string_prop("What this block is for, in coach voice."),
@@ -191,7 +201,7 @@ fn day_schema() -> PropertySchema {
     );
     p.insert(
         "duration_min".to_owned(),
-        number_prop("Planned duration in minutes; omit for rest days."),
+        integer_prop("Planned duration in minutes; omit for rest days."),
     );
     p.insert(
         "intensity".to_owned(),

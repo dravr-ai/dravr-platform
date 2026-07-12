@@ -1,0 +1,739 @@
+{
+ "name": "Raph et Phil aui font du AI",
+ "type": "private_group",
+ "id": 5275051009,
+ "messages": [
+  {
+   "id": 742,
+   "type": "service",
+   "date": "2026-06-23T08:55:46",
+   "date_unixtime": "1782219346",
+   "actor": "Phil Tremblay",
+   "actor_id": "user8730759343",
+   "action": "create_group",
+   "title": "Raph et Phil aui font du AI",
+   "members": [
+    "Phil Tremblay",
+    "Raph Couturier",
+    "dravr fitness"
+   ],
+   "text": "",
+   "text_entities": []
+  },
+  {
+   "id": 743,
+   "type": "message",
+   "date": "2026-06-23T08:56:08",
+   "date_unixtime": "1782219368",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/status"
+    }
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/status"
+    }
+   ]
+  },
+  {
+   "id": 746,
+   "type": "message",
+   "date": "2026-06-23T08:57:06",
+   "date_unixtime": "1782219426",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": "Je dois relink mon strava?",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Je dois relink mon strava?"
+    }
+   ]
+  },
+  {
+   "id": 748,
+   "type": "message",
+   "date": "2026-06-23T08:57:39",
+   "date_unixtime": "1782219459",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Non , all good, faut juste que je crée un groupe sur dravr",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Non , all good, faut juste que je crée un groupe sur dravr"
+    }
+   ]
+  },
+  {
+   "id": 749,
+   "type": "message",
+   "date": "2026-06-23T08:57:39",
+   "date_unixtime": "1782219459",
+   "edited": "2026-06-23T08:57:49",
+   "edited_unixtime": "1782219469",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Parfait 👍\n\nCrée-le quand tu veux, et dès que c’est prêt on pourra repartir là-dessus ici.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Parfait 👍\n\nCrée-le quand tu veux, et dès que c’est prêt on pourra repartir là-dessus ici."
+    }
+   ]
+  },
+  {
+   "id": 754,
+   "type": "message",
+   "date": "2026-06-23T09:18:56",
+   "date_unixtime": "1782220736",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/help"
+    }
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/help"
+    }
+   ]
+  },
+  {
+   "id": 756,
+   "type": "message",
+   "date": "2026-06-23T09:19:32",
+   "date_unixtime": "1782220772",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent"
+    }
+   ]
+  },
+  {
+   "id": 758,
+   "type": "message",
+   "date": "2026-06-23T09:19:50",
+   "date_unixtime": "1782220790",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes"
+    }
+   ]
+  },
+  {
+   "id": 761,
+   "type": "message",
+   "date": "2026-06-23T09:20:38",
+   "date_unixtime": "1782220838",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " status"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " status"
+    }
+   ]
+  },
+  {
+   "id": 764,
+   "type": "message",
+   "date": "2026-06-23T09:21:36",
+   "date_unixtime": "1782220896",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Ok c’est qui qui a fait le plus de vélo cette année?",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Ok c’est qui qui a fait le plus de vélo cette année?"
+    }
+   ]
+  },
+  {
+   "id": 765,
+   "type": "message",
+   "date": "2026-06-23T09:21:37",
+   "date_unixtime": "1782220897",
+   "edited": "2026-06-23T09:22:03",
+   "edited_unixtime": "1782220923",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Pour l’instant, c’est Philippe.\n\nIl est seul dans le groupe, donc il n’y a pas encore de comparaison possible sur l’année. Dès que l’autre personne écrit ici et active le partage du groupe, je pourrai te dire qui a fait le plus de vélo cette année.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Pour l’instant, c’est Philippe.\n\nIl est seul dans le groupe, donc il n’y a pas encore de comparaison possible sur l’année. Dès que l’autre personne écrit ici et active le partage du groupe, je pourrai te dire qui a fait le plus de vélo cette année."
+    }
+   ]
+  },
+  {
+   "id": 766,
+   "type": "message",
+   "date": "2026-06-23T09:22:33",
+   "date_unixtime": "1782220953",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    "Hmm non, ",
+    {
+     "type": "mention_name",
+     "text": "Raph",
+     "user_id": 8819586679
+    },
+    " est la"
+   ],
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Hmm non, "
+    },
+    {
+     "type": "mention_name",
+     "text": "Raph",
+     "user_id": 8819586679
+    },
+    {
+     "type": "plain",
+     "text": " est la"
+    }
+   ]
+  },
+  {
+   "id": 767,
+   "type": "message",
+   "date": "2026-06-23T09:22:34",
+   "date_unixtime": "1782220954",
+   "edited": "2026-06-23T09:23:13",
+   "edited_unixtime": "1782220993",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": [
+    "Je vois seulement les données de Philippe dans ce groupe pour l’instant, donc je ne peux comparer que lui. Sur l’année, côté vélo, celui que je vois est Philippe.\n\nSi Raph est bien dans le groupe, il faut juste 2 choses pour que je puisse le comparer ici :\n1. qu’il envoie un message dans ce même chat\n2. qu’il tape ",
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes ici\n\nDès que c’est fait, je pourrai te dire qui a le plus roulé cette année."
+   ],
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Je vois seulement les données de Philippe dans ce groupe pour l’instant, donc je ne peux comparer que lui. Sur l’année, côté vélo, celui que je vois est Philippe.\n\nSi Raph est bien dans le groupe, il faut juste 2 choses pour que je puisse le comparer ici :\n1. qu’il envoie un message dans ce même chat\n2. qu’il tape "
+    },
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes ici\n\nDès que c’est fait, je pourrai te dire qui a le plus roulé cette année."
+    }
+   ]
+  },
+  {
+   "id": 771,
+   "type": "message",
+   "date": "2026-06-23T10:15:13",
+   "date_unixtime": "1782224113",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Et maintenant?",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Et maintenant?"
+    }
+   ]
+  },
+  {
+   "id": 772,
+   "type": "message",
+   "date": "2026-06-23T10:15:14",
+   "date_unixtime": "1782224114",
+   "edited": "2026-06-23T10:15:20",
+   "edited_unixtime": "1782224120",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": [
+    "Pour l’instant, je n’ai toujours que Philippe dans les données du groupe.\n\nLa prochaine étape, c’est simple :\nRaph envoie un message dans ce chat\npuis il tape ",
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes\n\nDès que c’est fait, je pourrai comparer qui a le plus roulé cette année."
+   ],
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Pour l’instant, je n’ai toujours que Philippe dans les données du groupe.\n\nLa prochaine étape, c’est simple :\nRaph envoie un message dans ce chat\npuis il tape "
+    },
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes\n\nDès que c’est fait, je pourrai comparer qui a le plus roulé cette année."
+    }
+   ]
+  },
+  {
+   "id": 776,
+   "type": "message",
+   "date": "2026-06-23T11:25:12",
+   "date_unixtime": "1782228312",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes"
+    }
+   ]
+  },
+  {
+   "id": 779,
+   "type": "message",
+   "date": "2026-06-23T11:49:07",
+   "date_unixtime": "1782229747",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Ok et maintenant",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Ok et maintenant"
+    }
+   ]
+  },
+  {
+   "id": 780,
+   "type": "message",
+   "date": "2026-06-23T11:49:47",
+   "date_unixtime": "1782229787",
+   "edited": "2026-06-23T11:50:26",
+   "edited_unixtime": "1782229826",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Pas encore pour l’année complète.\n\nJ’ai bien l’historique vélo de Philippe cette année, mais pour Raph ici je n’ai qu’un snapshot de groupe: 0 activité, 0,0 km cette semaine. Ça ne suffit pas pour trancher “sur l’année”.\n\nDonc la seule chose solide que je peux dire maintenant, c’est que Philippe a du volume vélo cette année, et que je n’ai pas encore le cumul annuel de Raph dans cette conversation.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Pas encore pour l’année complète.\n\nJ’ai bien l’historique vélo de Philippe cette année, mais pour Raph ici je n’ai qu’un snapshot de groupe: 0 activité, 0,0 km cette semaine. Ça ne suffit pas pour trancher “sur l’année”.\n\nDonc la seule chose solide que je peux dire maintenant, c’est que Philippe a du volume vélo cette année, et que je n’ai pas encore le cumul annuel de Raph dans cette conversation."
+    }
+   ]
+  },
+  {
+   "id": 781,
+   "type": "message",
+   "date": "2026-06-23T12:34:33",
+   "date_unixtime": "1782232473",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": "Parfait — version “diesel montagne” jusqu’au 4 juillet:\n\n23 juin: repos, ou 45 min à 180-210 W.\n24 juin: 1 h 45 à 200-240 W, avec 3 x 8 min à 295-315 W en montée.\n25 juin: 1 h facile à 180-220 W.\n26 juin: 2 h 45 à 3 h à 190-240 W, avec 2 x 20 min à 280-300 W.\n27 juin: 45-60 min très souple à 170-200 W.\n28 juin: 4 h à 4 h 30 à 190-235 W, avec 2 x 15 min à 280-300 W. Mange comme en course.\n29 juin: repos, ou 45 min à 180-210 W.\n30 juin: 1 h 15 avec 4 x 3 min à 330-350 W.\n1 juillet: 1 h facile à 180-220 W.\n2 juillet: 45 min avec 3 x 1 min à 360-390 W.\n3 juillet: 30-40 min très facile.\n4 juillet: départ sage, plutôt 245-270 W dans la première moitié.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Parfait — version “diesel montagne” jusqu’au 4 juillet:\n\n23 juin: repos, ou 45 min à 180-210 W.\n24 juin: 1 h 45 à 200-240 W, avec 3 x 8 min à 295-315 W en montée.\n25 juin: 1 h facile à 180-220 W.\n26 juin: 2 h 45 à 3 h à 190-240 W, avec 2 x 20 min à 280-300 W.\n27 juin: 45-60 min très souple à 170-200 W.\n28 juin: 4 h à 4 h 30 à 190-235 W, avec 2 x 15 min à 280-300 W. Mange comme en course.\n29 juin: repos, ou 45 min à 180-210 W.\n30 juin: 1 h 15 avec 4 x 3 min à 330-350 W.\n1 juillet: 1 h facile à 180-220 W.\n2 juillet: 45 min avec 3 x 1 min à 360-390 W.\n3 juillet: 30-40 min très facile.\n4 juillet: départ sage, plutôt 245-270 W dans la première moitié."
+    }
+   ]
+  },
+  {
+   "id": 782,
+   "type": "message",
+   "date": "2026-06-23T12:34:58",
+   "date_unixtime": "1782232498",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": "Coach phil tu en penses quoi? Je gagne a coup sur?",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Coach phil tu en penses quoi? Je gagne a coup sur?"
+    }
+   ]
+  },
+  {
+   "id": 783,
+   "type": "message",
+   "date": "2026-06-23T12:35:07",
+   "date_unixtime": "1782232507",
+   "edited": "2026-06-23T12:35:16",
+   "edited_unixtime": "1782232516",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness."
+    }
+   ]
+  },
+  {
+   "id": 784,
+   "type": "message",
+   "date": "2026-06-23T12:35:16",
+   "date_unixtime": "1782232516",
+   "edited": "2026-06-23T12:35:32",
+   "edited_unixtime": "1782232532",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Raph, non, pas “à coup sûr” — mais sur le papier tu pars avec un gros avantage.\n\nCette semaine, tu es à 317,0 km et 12,0 h, contre 270,7 km et 10,4 h pour Philippe, et ta forme de fond est nettement plus haute. Par contre, ta fatigue est aussi bien plus élevée en ce moment, donc la vraie question c’est surtout comment tu récupères d’ici le 4.\n\nLe plan “diesel montagne” me plaît justement parce qu’il te garde solide sans te cramer davantage. Si tu arrives au départ avec de bonnes jambes, en partant sage comme prévu, oui, tu as une très bonne chance. Mais en course longue, rien n’est garanti: pacing, chaleur, bouffe et jambes du jour peuvent tout changer.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Raph, non, pas “à coup sûr” — mais sur le papier tu pars avec un gros avantage.\n\nCette semaine, tu es à 317,0 km et 12,0 h, contre 270,7 km et 10,4 h pour Philippe, et ta forme de fond est nettement plus haute. Par contre, ta fatigue est aussi bien plus élevée en ce moment, donc la vraie question c’est surtout comment tu récupères d’ici le 4.\n\nLe plan “diesel montagne” me plaît justement parce qu’il te garde solide sans te cramer davantage. Si tu arrives au départ avec de bonnes jambes, en partant sage comme prévu, oui, tu as une très bonne chance. Mais en course longue, rien n’est garanti: pacing, chaleur, bouffe et jambes du jour peuvent tout changer."
+    }
+   ]
+  },
+  {
+   "id": 785,
+   "type": "message",
+   "date": "2026-06-23T12:35:31",
+   "date_unixtime": "1782232531",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": "Phil va le savoir lui",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Phil va le savoir lui"
+    }
+   ]
+  },
+  {
+   "id": 786,
+   "type": "message",
+   "date": "2026-06-23T12:35:32",
+   "date_unixtime": "1782232532",
+   "edited": "2026-06-23T12:35:46",
+   "edited_unixtime": "1782232546",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Haha, je ne vais pas lui vendre le punch d’avance 😄\n\nLe mieux, c’est de garder ça simple: récupère bien, arrive avec de bonnes jambes, et laisse la course parler le 4 juillet.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Haha, je ne vais pas lui vendre le punch d’avance 😄\n\nLe mieux, c’est de garder ça simple: récupère bien, arrive avec de bonnes jambes, et laisse la course parler le 4 juillet."
+    }
+   ]
+  },
+  {
+   "id": 787,
+   "type": "message",
+   "date": "2026-06-23T13:04:18",
+   "date_unixtime": "1782234258",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Je pense que le plan de Raph n’est pas assez intense basé sur ces courses precedentes, ses watts devraient être plus hautes",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Je pense que le plan de Raph n’est pas assez intense basé sur ces courses precedentes, ses watts devraient être plus hautes"
+    }
+   ]
+  },
+  {
+   "id": 788,
+   "type": "message",
+   "date": "2026-06-23T13:04:53",
+   "date_unixtime": "1782234293",
+   "edited": "2026-06-23T13:05:06",
+   "edited_unixtime": "1782234306",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Pour Raph, je ne vois pas d’historique exploitable ici: 0 activité, 0,0 h, 0,0 km cette semaine, et aucune course récente listée.\n\nDonc oui, c’est possible que le plan soit trop doux, mais je ne peux pas justifier une hausse des watts sur cette base-là. Monter l’intensité sans ses courses récentes, son seuil actuel et sa tolérance à la charge serait trop au hasard.\n\nSi Raph envoie ses dernières courses ici, je pourrai te dire si le plan est sous-calibré et de combien monter les cibles.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Pour Raph, je ne vois pas d’historique exploitable ici: 0 activité, 0,0 h, 0,0 km cette semaine, et aucune course récente listée.\n\nDonc oui, c’est possible que le plan soit trop doux, mais je ne peux pas justifier une hausse des watts sur cette base-là. Monter l’intensité sans ses courses récentes, son seuil actuel et sa tolérance à la charge serait trop au hasard.\n\nSi Raph envoie ses dernières courses ici, je pourrai te dire si le plan est sous-calibré et de combien monter les cibles."
+    }
+   ]
+  },
+  {
+   "id": 789,
+   "type": "message",
+   "date": "2026-06-23T13:05:27",
+   "date_unixtime": "1782234327",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": "Tu ne prux pas connecter a mon strava?",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Tu ne prux pas connecter a mon strava?"
+    }
+   ]
+  },
+  {
+   "id": 790,
+   "type": "message",
+   "date": "2026-06-23T13:05:28",
+   "date_unixtime": "1782234328",
+   "edited": "2026-06-23T13:05:36",
+   "edited_unixtime": "1782234336",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Si — ton Strava est déjà connecté.\n\nJe vois que la connexion est active et qu’il n’y a rien à refaire de ce côté-là. Si tu veux, le vrai sujet maintenant, c’est plutôt de vérifier si tes dernières activités sont bien remontées.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Si — ton Strava est déjà connecté.\n\nJe vois que la connexion est active et qu’il n’y a rien à refaire de ce côté-là. Si tu veux, le vrai sujet maintenant, c’est plutôt de vérifier si tes dernières activités sont bien remontées."
+    }
+   ]
+  },
+  {
+   "id": 791,
+   "type": "message",
+   "date": "2026-06-23T13:05:51",
+   "date_unixtime": "1782234351",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Oui fait ça",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Oui fait ça"
+    }
+   ]
+  },
+  {
+   "id": 792,
+   "type": "message",
+   "date": "2026-06-23T13:05:51",
+   "date_unixtime": "1782234351",
+   "edited": "2026-06-23T13:06:15",
+   "edited_unixtime": "1782234375",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": [
+    "Je ne peux pas le recalibrer sérieusement pour Raph avec ce que j’ai ici.\n\nDans ce groupe, Raph apparaît à 0 activité, 0,0 h et 0,0 km cette semaine, sans courses récentes listées. Je n’ai donc aucune base solide pour dire que ses watts doivent monter, ni de combien.\n\nMême côté profil, je n’ai pas de seuil vélo ni de zones utilisables à partir des données visibles ici. Donc hausser l’intensité maintenant serait au hasard.\n\nDès que Raph envoie un message ici et active le partage du groupe avec ",
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes, je pourrai reprendre ses sorties récentes et te dire si le plan est trop doux, et de combien ajuster les cibles."
+   ],
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Je ne peux pas le recalibrer sérieusement pour Raph avec ce que j’ai ici.\n\nDans ce groupe, Raph apparaît à 0 activité, 0,0 h et 0,0 km cette semaine, sans courses récentes listées. Je n’ai donc aucune base solide pour dire que ses watts doivent monter, ni de combien.\n\nMême côté profil, je n’ai pas de seuil vélo ni de zones utilisables à partir des données visibles ici. Donc hausser l’intensité maintenant serait au hasard.\n\nDès que Raph envoie un message ici et active le partage du groupe avec "
+    },
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes, je pourrai reprendre ses sorties récentes et te dire si le plan est trop doux, et de combien ajuster les cibles."
+    }
+   ]
+  },
+  {
+   "id": 793,
+   "type": "message",
+   "date": "2026-06-23T13:06:49",
+   "date_unixtime": "1782234409",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "Il la fait déjà",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Il la fait déjà"
+    }
+   ]
+  },
+  {
+   "id": 794,
+   "type": "message",
+   "date": "2026-06-23T13:06:50",
+   "date_unixtime": "1782234410",
+   "edited": "2026-06-23T13:07:11",
+   "edited_unixtime": "1782234431",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Tu as raison, Raph est bien dans le groupe maintenant.\n\nCe que j’ai pour lui ici, c’est: 0 activité, 0,0 h active, 0,0 km cette semaine, et aucune activité récente listée.\n\nDonc je peux le comparer au niveau du snapshot de groupe, mais pas recalibrer ses watts à partir de courses précédentes tant que ses sorties récentes n’apparaissent pas ici. Sur la base visible, je n’ai rien de solide pour monter ses cibles.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Tu as raison, Raph est bien dans le groupe maintenant.\n\nCe que j’ai pour lui ici, c’est: 0 activité, 0,0 h active, 0,0 km cette semaine, et aucune activité récente listée.\n\nDonc je peux le comparer au niveau du snapshot de groupe, mais pas recalibrer ses watts à partir de courses précédentes tant que ses sorties récentes n’apparaissent pas ici. Sur la base visible, je n’ai rien de solide pour monter ses cibles."
+    }
+   ]
+  },
+  {
+   "id": 795,
+   "type": "message",
+   "date": "2026-06-23T13:06:53",
+   "date_unixtime": "1782234413",
+   "from": "Raph Couturier",
+   "from_id": "user8819586679",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " consent yes"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " consent yes"
+    }
+   ]
+  },
+  {
+   "id": 796,
+   "type": "message",
+   "date": "2026-06-23T13:10:08",
+   "date_unixtime": "1782234608",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    " status"
+   ],
+   "text_entities": [
+    {
+     "type": "bot_command",
+     "text": "/group"
+    },
+    {
+     "type": "plain",
+     "text": " status"
+    }
+   ]
+  },
+  {
+   "id": 798,
+   "type": "message",
+   "date": "2026-06-23T13:10:56",
+   "date_unixtime": "1782234656",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "ok et maintenant, va chercehr ses dernieres activités, surtout son Gravelooza le 6 juin",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "ok et maintenant, va chercehr ses dernieres activités, surtout son Gravelooza le 6 juin"
+    }
+   ]
+  },
+  {
+   "id": 799,
+   "type": "message",
+   "date": "2026-06-23T13:10:56",
+   "date_unixtime": "1782234656",
+   "edited": "2026-06-23T13:11:36",
+   "edited_unixtime": "1782234696",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "J’ai bien un Gravelooza le 6 juin, mais il est rattaché au compte de Philippe ici, pas à Raph avec certitude.\n\nLa sortie retrouvée fait 84,75 km en 3 h 12 min 48 s, avec 1 539 m de dénivelé positif, 228 W de puissance moyenne, 764 W max, et une fréquence cardiaque moyenne/max de 157/188. C’est un gros effort, clairement plus exigeant que ses sorties récentes plus faciles.\n\nDonc si c’est bien la course de Raph, oui, ça va dans le sens d’un plan un peu plus intense. Par contre je ne vais pas te donner une hausse de watts chiffrée tant que ses activités n’apparaissent pas à son nom ici.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "J’ai bien un Gravelooza le 6 juin, mais il est rattaché au compte de Philippe ici, pas à Raph avec certitude.\n\nLa sortie retrouvée fait 84,75 km en 3 h 12 min 48 s, avec 1 539 m de dénivelé positif, 228 W de puissance moyenne, 764 W max, et une fréquence cardiaque moyenne/max de 157/188. C’est un gros effort, clairement plus exigeant que ses sorties récentes plus faciles.\n\nDonc si c’est bien la course de Raph, oui, ça va dans le sens d’un plan un peu plus intense. Par contre je ne vais pas te donner une hausse de watts chiffrée tant que ses activités n’apparaissent pas à son nom ici."
+    }
+   ]
+  },
+  {
+   "id": 800,
+   "type": "message",
+   "date": "2026-06-23T13:16:21",
+   "date_unixtime": "1782234981",
+   "from": "Phil Tremblay",
+   "from_id": "user8730759343",
+   "text": "non va chercher celui de raph",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "non va chercher celui de raph"
+    }
+   ]
+  },
+  {
+   "id": 801,
+   "type": "message",
+   "date": "2026-06-23T13:16:22",
+   "date_unixtime": "1782234982",
+   "edited": "2026-06-23T13:17:00",
+   "edited_unixtime": "1782235020",
+   "from": "dravr fitness",
+   "from_id": "user8670677360",
+   "text": "Je n’ai toujours pas d’activité détaillée de Raph ici.\n\nDans ce groupe, ce que j’ai pour Raph en ce moment, c’est seulement : 0 activité, 0,0 h active, 0,0 km cette semaine, sans sortie récente listée.\n\nLe Gravelooza du 6 juin que j’ai retrouvé est celui de Philippe, pas celui de Raph : 84,75 km, 3 h 12 min 48 s, +1 539 m, 228 W moyens.\n\nDonc je ne peux pas recalibrer les watts de Raph à partir de cette course tant que ses vraies sorties n’apparaissent pas ici.",
+   "text_entities": [
+    {
+     "type": "plain",
+     "text": "Je n’ai toujours pas d’activité détaillée de Raph ici.\n\nDans ce groupe, ce que j’ai pour Raph en ce moment, c’est seulement : 0 activité, 0,0 h active, 0,0 km cette semaine, sans sortie récente listée.\n\nLe Gravelooza du 6 juin que j’ai retrouvé est celui de Philippe, pas celui de Raph : 84,75 km, 3 h 12 min 48 s, +1 539 m, 228 W moyens.\n\nDonc je ne peux pas recalibrer les watts de Raph à partir de cette course tant que ses vraies sorties n’apparaissent pas ici."
+    }
+   ]
+  }
+ ]
+}
