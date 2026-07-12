@@ -215,6 +215,51 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
 }
 
 #[tokio::test]
+async fn float_shaped_numbers_from_the_llm_are_accepted() -> Result<()> {
+    // Live QA 2026-07-12 (conv 79ca0840): seven save_training_plan calls
+    // failed in 22-67ms — validation-layer rejections. The schema declares
+    // duration_min/weeks/target_hours as "number", and LLMs routinely emit
+    // 60.0 for a number; serde rejects floats for u32/u8. The tool must
+    // accept whole-valued floats wherever the schema says "number".
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut payload = full_plan_payload();
+    payload["outline"]["blocks"][0]["weeks"] = json!(3.0);
+    payload["weeks"][0]["days"][1]["duration_min"] = json!(60.0);
+    payload["weeks"][1]["days"][1]["duration_min"] = json!(150.0);
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        save.success,
+        "float-shaped numbers must save: {:?}",
+        save.error
+    );
+    let result = save.result.expect("save result");
+    assert_eq!(result["weeks_saved"], 2);
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    assert_eq!(fetched["plan"]["blocks"][0]["weeks"], 3);
+    assert_eq!(fetched["weeks"][0]["days"][1]["duration_min"], 60);
+    Ok(())
+}
+
+#[tokio::test]
 async fn invalid_week_date_rejects_whole_save_with_no_partial_writes() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
