@@ -948,7 +948,7 @@ impl SyncCursorRepository for PostgresDatabase {
         // no-String-round-trip design without the type mismatch.
         let rows = sqlx::query(
             r"
-            SELECT DISTINCT user_id, tenant_id::uuid AS tenant_id
+            SELECT DISTINCT user_id, tenant_id::uuid AS tenant_id, token_type
             FROM user_oauth_tokens
             WHERE provider = $1
             ",
@@ -966,6 +966,9 @@ impl SyncCursorRepository for PostgresDatabase {
                     })?,
                     tenant_id: r.try_get("tenant_id").map_err(|e| {
                         AppError::database(format!("decode tenant_id as TenantId: {e}"))
+                    })?,
+                    token_type: r.try_get("token_type").map_err(|e| {
+                        AppError::database(format!("decode token_type as String: {e}"))
                     })?,
                 })
             })

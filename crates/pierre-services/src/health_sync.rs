@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
+use pierre_core::constants::oauth_providers;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
@@ -494,8 +495,22 @@ impl UserConnectionStore for PierreSyncStorage {
         // dravr-enforme's ConnectedUser.user_id is `String` (leaf-dep API).
         // ConnectedUserRow.user_id is the UserId newtype, so we render to the
         // canonical hyphenated form via Display at the boundary.
+        //
+        // enforme's Strava provider is the sciotte TSB scraper: it restores
+        // the stored access token as a browser session, which only exists on
+        // rows the sciotte connect flow wrote (`token_type = "session"`).
+        // OAuth-connected Strava rows hold an opaque Bearer token the scraper
+        // can never use — a sync for them is a guaranteed no-op that stamps
+        // `last_sync` and logs a misleading "Scheduled sync completed", so
+        // they are excluded from the sync roster here (their activities are
+        // fetched on demand via `get_activities`; freshness comes from the
+        // activity cache).
         Ok(rows
             .into_iter()
+            .filter(|r| {
+                provider != oauth_providers::STRAVA
+                    || r.token_type == oauth_providers::TOKEN_TYPE_SESSION
+            })
             .map(|r| ConnectedUser {
                 user_id: r.user_id.to_string(),
                 provider: provider.to_owned(),

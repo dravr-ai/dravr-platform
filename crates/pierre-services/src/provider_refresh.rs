@@ -20,6 +20,8 @@ use pierre_core::models::{
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_database::AuthRepos;
 #[cfg(feature = "health-sync")]
+use pierre_providers::registry::global_registry;
+#[cfg(feature = "health-sync")]
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
@@ -243,8 +245,22 @@ impl RefreshService {
     /// Whether a provider is scraped on demand (per chat request) rather than
     /// synced in the background by the orchestrator. On-demand providers source
     /// their freshness from the activity cache and have no sync to trigger.
+    ///
+    /// Activity-only providers count as on-demand even when registered with
+    /// the orchestrator: enforme background-syncs sleep/recovery/health/
+    /// continuous data only, so a provider serving nothing but activities to
+    /// chat gets no activity refresh from that sync. Reading the
+    /// `oauth_tokens.last_sync` those (empty) cycles keep stamping reported
+    /// Strava as perpetually Fresh, which suppressed the coach-hint directive
+    /// to re-fetch via `get_activities` — the model then answered activity
+    /// questions from stale conversation history (live failure 2026-07-11:
+    /// OAuth-connected Strava user could not get activity data on messaging
+    /// channels).
     #[cfg(feature = "health-sync")]
     fn is_on_demand_provider(&self, provider: &str) -> bool {
+        if is_activity_only_provider(provider) {
+            return true;
+        }
         self.sync_orchestrator
             .as_ref()
             .is_none_or(|o| !o.provider_names().contains(&provider))
@@ -679,6 +695,24 @@ pub struct RefreshResult {
     pub message: String,
     /// Number of records synced (0 if failed or async).
     pub records_synced: u32,
+}
+
+/// Whether the registry describes `provider` as serving activities and
+/// nothing else (no sleep/recovery/health/continuous capabilities).
+///
+/// The health orchestrator has no activity data type, so background sync can
+/// never refresh what an activity-only provider serves to chat; its honest
+/// freshness source is the activity cache's last successful fetch.
+#[cfg(feature = "health-sync")]
+fn is_activity_only_provider(provider: &str) -> bool {
+    global_registry().get_descriptor(provider).is_some_and(|d| {
+        let caps = d.capabilities();
+        caps.supports_activities()
+            && !caps.supports_sleep()
+            && !caps.supports_recovery()
+            && !caps.supports_health()
+            && !caps.supports_continuous_data()
+    })
 }
 
 /// Format a chrono Duration as a human-readable age string.
