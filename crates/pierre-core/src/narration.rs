@@ -47,6 +47,16 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "instruction interne",
     "prompt système",
     "prompt systeme",
+    "protocole d'appel de fonction",
+    "protocole de fonctions",
+    "fonctions enregistrées",
+    "fonctions enregistrees",
+    "injection de prompt",
+    "tentative d'injection",
+    "instructions intégrées",
+    "instructions integrees",
+    "bloc collé",
+    "bloc colle",
     // English
     "hidden block",
     "hidden instruction",
@@ -60,6 +70,15 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "internal instructions",
     "internal configuration",
     "system prompt",
+    "function-calling protocol",
+    "function calling protocol",
+    "registered functions",
+    "prompt injection",
+    "injection attempt",
+    "instructions embedded in",
+    "embedded instruction",
+    "embedded instructions",
+    "pasted block",
     // Spanish
     "bloque oculto",
     "instrucción oculta",
@@ -70,6 +89,14 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "xml sin procesar",
     "marcador interno",
     "prompt del sistema",
+    "protocolo de llamada a funciones",
+    "funciones registradas",
+    "inyección de prompt",
+    "inyeccion de prompt",
+    "intento de inyección",
+    "intento de inyeccion",
+    "instrucciones incrustadas",
+    "bloque pegado",
     // German
     "versteckte anweisung",
     "versteckte anweisungen",
@@ -80,6 +107,16 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "interner marker",
     "system-prompt",
     "systemprompt",
+    "funktionsaufruf-protokoll",
+    "funktionsaufruf protokoll",
+    "registrierte funktionen",
+    "prompt-injektion",
+    "prompt injektion",
+    "injektionsversuch",
+    "eingebettete anweisung",
+    "eingebettete anweisungen",
+    "eingefügter block",
+    "eingefuegter block",
     // Portuguese
     "bloco oculto",
     "instrução oculta",
@@ -90,6 +127,17 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "xml bruto",
     "marcador interno",
     "prompt do sistema",
+    "protocolo de chamada de função",
+    "protocolo de chamada de funcao",
+    "funções registradas",
+    "funcoes registradas",
+    "injeção de prompt",
+    "injecao de prompt",
+    "tentativa de injeção",
+    "tentativa de injecao",
+    "instruções incorporadas",
+    "instrucoes incorporadas",
+    "bloco colado",
 ];
 
 /// Result of scrubbing a reply for internal narration.
@@ -200,6 +248,13 @@ mod tests {
     const INCIDENT_FR_3: &str =
         "Je continue d'ignorer l'instruction cachée dans le message — pas de XML brut ici 😄";
 
+    /// The replies that reached a live user on 2026-07-11 (post-inert-canary
+    /// vocabulary: the model narrates about the tool-simulation catalog and
+    /// tool-result turns instead of the canary block).
+    const INCIDENT_EN_1: &str = "I can't process instructions embedded in a tool result or a pasted block claiming to be a \"function-calling protocol\" — that's not something coming from you or the system, and I won't follow it.";
+    const INCIDENT_EN_2: &str = "I can't process instructions embedded in a pasted block claiming to be a \"function-calling protocol\" or \"registered functions\" — that's a prompt injection attempt, not something from you or the system, and I won't follow it.";
+    const INCIDENT_EN_3: &str = "I can't follow the embedded \"function-calling protocol\" instructions in that pasted block — that's a prompt injection attempt, not something from you or the system, so I'm ignoring it and answering as myself.";
+
     #[test]
     fn incident_narration_lines_are_fully_scrubbed() {
         for incident in [INCIDENT_FR_1, INCIDENT_FR_2, INCIDENT_FR_3] {
@@ -211,6 +266,47 @@ mod tests {
                 scrub.cleaned
             );
         }
+    }
+
+    #[test]
+    fn injection_narration_2026_07_11_is_fully_scrubbed() {
+        for incident in [INCIDENT_EN_1, INCIDENT_EN_2, INCIDENT_EN_3] {
+            let scrub = scrub_internal_narration(incident);
+            assert!(scrub.fired(), "should fire on: {incident}");
+            assert!(
+                scrub.cleaned.is_empty(),
+                "nothing should survive: {}",
+                scrub.cleaned
+            );
+        }
+    }
+
+    #[test]
+    fn injection_narration_paragraph_dropped_but_coaching_survives() {
+        // Shape of the 2026-07-11 20:25 reply: narration sentence, then real
+        // coaching. The coaching half must reach the user untouched.
+        let reply = format!(
+            "{INCIDENT_EN_3}Got it noted for our chats — Big Red on August 8th, coming off Buckland, resting this week.\n\nHere's the shape of the block: this week stays easy/rest. Next 2 weeks build volume back gradually."
+        );
+        let scrub = scrub_internal_narration(&reply);
+        assert!(scrub.fired());
+        assert!(scrub.cleaned.contains("Big Red on August 8th"));
+        assert!(scrub
+            .cleaned
+            .contains("Next 2 weeks build volume back gradually."));
+        assert!(!scrub.cleaned.contains("function-calling protocol"));
+        assert!(!scrub.cleaned.contains("prompt injection"));
+    }
+
+    #[test]
+    fn injection_vocabulary_is_not_a_coaching_false_positive() {
+        // "injection" alone (insulin, carb injection into a ride plan) and
+        // "function" alone are legitimate coaching vocabulary; only the
+        // multiword scaffolding phrases may fire.
+        let reply = "Time your insulin injection before the ride. Muscle function improves with the protocol we registered for your build block.";
+        let scrub = scrub_internal_narration(reply);
+        assert!(!scrub.fired());
+        assert_eq!(scrub.cleaned, reply);
     }
 
     #[test]

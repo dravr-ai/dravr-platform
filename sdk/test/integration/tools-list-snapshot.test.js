@@ -274,8 +274,10 @@ describe('Tools List Snapshot Tests', () => {
         await client.connect(transport);
         const toolsResult = await client.listTools();
 
-        // Guard against accidental duplication or runaway tool generation
-        const MAX_REASONABLE_TOOLS = 100;
+        // Guard against accidental duplication or runaway tool generation.
+        // Deliberate additions raise the ceiling: 2026-07-12 training-plan
+        // pair get/save_training_plan brought the registry to 102.
+        const MAX_REASONABLE_TOOLS = 110;
 
         expect(toolsResult.tools.length).toBeLessThanOrEqual(MAX_REASONABLE_TOOLS);
 

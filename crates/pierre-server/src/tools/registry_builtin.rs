@@ -116,6 +116,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     // Memory tools (Tier 3 coach-authored memory)
     #[cfg(feature = "tools-memory")]
     register_memory_tools(registry);
+    #[cfg(feature = "tools-memory")]
+    register_training_plan_tools(registry);
 
     // Coaching playbook GDPR/transparency tools (list / forget)
     #[cfg(feature = "tools-memory")]
@@ -144,6 +146,25 @@ fn register_memory_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered memory tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the training-plan persistence tools (get/save).
+///
+/// Both are chat-callable (category `memory`): the coach reads the stored
+/// plan before answering plan questions and persists agreed plans in the
+/// same turn it states them.
+#[cfg(feature = "tools-memory")]
+fn register_training_plan_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::training_plans::create_training_plan_tools;
+
+    for tool in create_training_plan_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered training-plan tools (registry now has {} tools)",
         registry.len()
     );
 }

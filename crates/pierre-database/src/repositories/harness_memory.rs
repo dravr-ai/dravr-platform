@@ -152,7 +152,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
     /// Supersede prior onboarding-captured facts by setting their `valid_until`
     /// to now, so they render stale and demote. Optionally scoped to one pillar.
     ///
-    /// Backs `/context` re-runs (re-screen): this is supersession, not deletion
+    /// Backs `/pillars` re-runs (re-screen): this is supersession, not deletion
     /// (GDPR erase stays on [`delete_user_fact`](Self::delete_user_fact)).
     /// Returns the number of facts superseded. Tenant-scoped.
     async fn expire_onboarding_facts(

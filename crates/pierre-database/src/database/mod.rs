@@ -82,6 +82,8 @@ pub mod tokens;
 pub mod tool_selection;
 /// Endurance daily `training_history` rollup repository (`SQLite`)
 pub mod training_history;
+/// `SQLite` training-plan persistence.
+pub mod training_plans;
 /// Usage counters for rate limiting and quota enforcement
 pub mod usage_counters;
 /// User MCP token management for AI client authentication

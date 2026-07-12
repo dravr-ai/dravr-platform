@@ -1,8 +1,8 @@
 ---
-name: context
-command: /context
+name: pillars
+command: /pillars
 aliases: ["/onboarding"]
-description: Build or refresh your pillar context (North Star + the six health pillars)
+description: Walk the six health pillars to build or refresh your profile (North Star + pillars; `full` or a pillar name re-screens)
 domain: account
 required_role: any
 requires_group: false

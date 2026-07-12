@@ -1,4 +1,4 @@
-// ABOUTME: Integration test for expire_onboarding_facts — /context re-run supersession primitive
+// ABOUTME: Integration test for expire_onboarding_facts — /pillars re-run supersession primitive
 // ABOUTME: Verifies onboarding facts are superseded by valid_until (optionally per-pillar), conversation facts untouched
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
