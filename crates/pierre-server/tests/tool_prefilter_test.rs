@@ -85,6 +85,23 @@ async fn peer_fetch_tool_survives_prefilter_via_pin() {
 }
 
 #[tokio::test]
+async fn plan_request_turn_keeps_training_plan_tools() {
+    let registry = registry();
+    let outcome = enabled_prefilter()
+        .select(
+            &registry,
+            "fais-moi un plan d'entraînement jusqu'au 8 août",
+            Some("training"),
+        )
+        .await;
+
+    // "plan" maps to the memory category: the persistence pair must be
+    // offered on exactly the turns where the coach commits to a plan.
+    assert!(contains(&outcome.keep, "save_training_plan"));
+    assert!(contains(&outcome.keep, "get_training_plan"));
+}
+
+#[tokio::test]
 async fn analysis_turn_keeps_data_analytics_drops_recipes() {
     let registry = registry();
     let outcome = enabled_prefilter()

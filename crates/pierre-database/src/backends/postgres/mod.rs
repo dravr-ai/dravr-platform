@@ -64,6 +64,8 @@ pub mod subscriptions;
 pub mod tenant;
 /// Endurance daily `training_history` rollup repository (Postgres)
 pub mod training_history;
+/// `PostgreSQL` training-plan persistence.
+pub mod training_plans;
 /// Usage tracking repository implementations
 pub mod usage;
 /// User and profile repository implementations

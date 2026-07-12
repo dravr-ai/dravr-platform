@@ -156,7 +156,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
 }
 
 /// A pillar covered only by a stale fact does not count — onboarding re-opens
-/// that topic. Mirrors the 12-month PAR-Q / `/context full` re-screen behavior.
+/// that topic. Mirrors the 12-month PAR-Q / `/pillars full` re-screen behavior.
 #[tokio::test]
 async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     let db = open_in_memory_db().await?;

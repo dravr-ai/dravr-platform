@@ -143,6 +143,8 @@ pub mod onboarding_gate;
 pub mod outcome_evaluator;
 /// Render a user's proven coaching playbooks into a system-prompt block
 pub mod playbook_render;
+/// Training-plan prompt-block renderer.
+pub mod training_plan_render;
 
 /// Startup hook that loads `cat_llm_pricing` rows from
 /// `admin_config_overrides` into the process-wide pricing registry.

@@ -54,6 +54,8 @@ pub mod social;
 pub mod tenants;
 /// Repository traits for tool selection telemetry persistence.
 pub mod tool_selection;
+/// Coach-authored training plans (outline + weekly microcycles).
+pub mod training_plans;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
 /// Repository trait for durable per-user onboarding step completion state.
@@ -90,6 +92,7 @@ pub use short_links::*;
 pub use social::*;
 pub use tenants::*;
 pub use tool_selection::*;
+pub use training_plans::*;
 pub use usage::*;
 pub use user_onboarding::*;
 pub use users::*;

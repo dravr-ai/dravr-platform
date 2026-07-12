@@ -28,7 +28,7 @@ use tracing::error;
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
 use super::followups::inject_pending_followups;
-use super::memory::{inject_okf_bundle, inject_playbooks};
+use super::memory::{inject_okf_bundle, inject_playbooks, inject_training_plan};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
@@ -421,6 +421,28 @@ pub(crate) async fn assemble_prompt_and_messages(
         input.conversation_tenant_id,
         &input.user_id,
         conv.coach_id.as_deref(),
+        base_prompt,
+    )
+    .await;
+
+    // Stage 7f.2: Render the athlete's persisted training plan (outline +
+    // current/next week). Scoped to the TOOL tenant — the tenant
+    // `save_training_plan` writes under. `today` is the athlete's civil date
+    // so week selection and the race countdown match their calendar, not the
+    // server's UTC clock.
+    let athlete_today = user_timezone
+        .as_deref()
+        .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
+        .map_or_else(
+            || chrono::Utc::now().date_naive(),
+            |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
+        );
+    let base_prompt = inject_training_plan(
+        ctx.repos.training_plans.as_ref(),
+        &input.tool_tenant_id.to_string(),
+        &input.user_id,
+        conv.coach_id.as_deref(),
+        athlete_today,
         base_prompt,
     )
     .await;

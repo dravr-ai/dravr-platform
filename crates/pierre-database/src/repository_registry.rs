@@ -20,10 +20,10 @@ use crate::repositories::{
     RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
     SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
     StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    WeatherCacheRepository, WorkoutTemplateRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -77,6 +77,8 @@ pub struct RepositoryRegistry {
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
     pub playbooks: Arc<dyn PlaybookRepository>,
+    /// Coach-authored training plans: outline (macrocycle) + weekly microcycles
+    pub training_plans: Arc<dyn TrainingPlanRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
@@ -184,6 +186,7 @@ impl RepositoryRegistry {
             security: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
+            training_plans: db.clone(),
             short_links: db.clone(),
             user_onboarding: db.clone(),
             social: Some(db.clone()),
@@ -246,6 +249,7 @@ impl RepositoryRegistry {
             security: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
+            training_plans: db.clone(),
             short_links: db.clone(),
             user_onboarding: db.clone(),
             social: Some(db.clone()),

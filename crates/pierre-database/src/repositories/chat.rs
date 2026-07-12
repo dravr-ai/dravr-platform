@@ -155,7 +155,7 @@ pub trait ChatRepository: Send + Sync {
 
     /// Set (or clear) the guided pillar-onboarding state JSON on a conversation.
     ///
-    /// `/context` writes the active state to enter onboarding mode; the flow
+    /// `/pillars` writes the active state to enter onboarding mode; the flow
     /// clears it (`None`) once all pillars are covered. Tenant-scoped; returns
     /// `false` if the conversation does not exist.
     async fn set_conversation_onboarding_state(

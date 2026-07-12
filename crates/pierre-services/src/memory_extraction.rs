@@ -46,7 +46,8 @@ static EXTRACTION_PERMITS: LazyLock<Arc<Semaphore>> =
     LazyLock::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS)));
 
 /// Raw fact shape returned by the extraction LLM. Mirrors the JSON schema in
-/// `memory_extraction.md`.
+/// `memory_extraction.md` plus the platform-appended provenance field (see
+/// [`PROVENANCE_ADDENDUM`]).
 #[derive(Debug, Deserialize)]
 struct RawFact {
     kind: String,
@@ -54,7 +55,28 @@ struct RawFact {
     predicate: String,
     object: String,
     confidence: f32,
+    /// Who asserted the fact: `"user"` or `"coach"`. Absent on responses
+    /// from a stale prompt; the schedule gate treats absent as not-user.
+    #[serde(default)]
+    stated_by: Option<String>,
 }
+
+/// Platform-appended provenance instruction for the extraction prompt.
+///
+/// The base `memory_extraction.md` prompt (dravr-contremaitre) already says
+/// "only record facts the user stated" — and a live coach prescription was
+/// minted as a `schedule` fact anyway (fact 1b6199d8, 2026-07-10: "do long
+/// ride on Sunday (4h-4h30 with 2x20min at 280-300W)"). Prompt-only
+/// enforcement failed, so the platform appends a machine-checkable
+/// provenance field and [`is_coach_prescription`] enforces it structurally:
+/// coach prescriptions now live in `training_plans` (saved explicitly via
+/// `save_training_plan`), never in `user_facts`.
+const PROVENANCE_ADDENDUM: &str = r#"
+
+## Provenance (required)
+
+Each fact object MUST also carry a "stated_by" field: "user" when the USER stated or confirmed the fact in their own words, "coach" when it originates in the coach's reply (a prescription, suggestion, or plan detail). Training prescriptions the coach makes — what to do on which day, session targets, weekly structure — are stated_by "coach" and are stored elsewhere; still label them honestly.
+"#;
 
 /// Parameters for a single extraction pass.
 pub struct ExtractionRequest<'a> {
@@ -150,7 +172,50 @@ impl ExtractionOutcome {
     }
 }
 
-/// Persist each fact above the confidence floor, dropping the rest.
+/// `true` when the fact is a coach prescription masquerading as an athlete
+/// schedule constraint and must not become a `user_fact`.
+///
+/// Applies only to background conversation extraction: the guided
+/// onboarding walk (`FactSource::Onboarding`) records the user's own
+/// answers, and coach tools (`FactSource::Coach`) write deliberately.
+/// `schedule` is the proven failure kind (plan days minted as availability);
+/// a fact without an explicit `stated_by: "user"` is treated as coach-stated
+/// because the base-rate cost of a stored prescription (stale plan beliefs
+/// replayed for weeks) far exceeds the cost of missing one constraint the
+/// user can restate.
+fn is_coach_prescription(kind: FactKind, stated_by: Option<&str>, source: FactSource) -> bool {
+    source == FactSource::Conversation && kind == FactKind::Schedule && stated_by != Some("user")
+}
+
+/// Gate one raw fact: confidence floor + coach-prescription filter. Returns
+/// the resolved `(kind, confidence)` for facts that should persist, `None`
+/// (with the reason logged) for facts to drop.
+fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f32)> {
+    let clamped_confidence = fact.confidence.clamp(0.0, 1.0);
+    if clamped_confidence < MIN_CONFIDENCE {
+        debug!(
+            confidence = clamped_confidence,
+            threshold = MIN_CONFIDENCE,
+            kind = fact.kind.as_str(),
+            "skipping low-confidence fact"
+        );
+        return None;
+    }
+    let kind = req
+        .force_kind
+        .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
+    if is_coach_prescription(kind, fact.stated_by.as_deref(), req.source) {
+        info!(
+            kind = kind.as_str(),
+            stated_by = fact.stated_by.as_deref().unwrap_or("<absent>"),
+            "dropping coach-prescription schedule fact — plans persist via save_training_plan"
+        );
+        return None;
+    }
+    Some((kind, clamped_confidence))
+}
+
+/// Persist each fact that survives [`gate_fact`], dropping the rest.
 async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
     req: &ExtractionRequest<'_>,
@@ -158,20 +223,9 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
 ) -> Vec<UserFact> {
     let mut out = Vec::with_capacity(facts.len());
     for fact in facts {
-        let clamped_confidence = fact.confidence.clamp(0.0, 1.0);
-        if clamped_confidence < MIN_CONFIDENCE {
-            debug!(
-                confidence = clamped_confidence,
-                threshold = MIN_CONFIDENCE,
-                kind = fact.kind.as_str(),
-                "skipping low-confidence fact"
-            );
+        let Some((kind, clamped_confidence)) = gate_fact(&fact, req) else {
             continue;
-        }
-
-        let kind = req
-            .force_kind
-            .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
+        };
         let params = UpsertUserFactParams {
             tenant_id: req.tenant_id,
             user_id: req.user_id,
@@ -208,13 +262,14 @@ async fn run_llm_extraction(
     let user_payload = format!(
         "User turn:\n{user_message}\n\nCoach reply:\n{assistant_reply}\n\nReturn the JSON array only."
     );
+    let system_prompt = format!("{system_prompt}{PROVENANCE_ADDENDUM}");
 
     // The extraction prompt instructs the LLM to return a bare JSON array,
     // so we invoke the provider directly and parse the response with our
     // lenient `parse_raw_facts` helper instead of going through
     // `judge::ask_for_json` (which deserializes a top-level JSON object).
     let request_messages = vec![
-        ChatMessage::system(system_prompt),
+        ChatMessage::system(&system_prompt),
         ChatMessage::user(&user_payload),
     ];
     let request = ChatRequest::new(request_messages).with_temperature(0.1);
@@ -359,4 +414,69 @@ pub fn spawn_extract_for_turn(
         }
         drop(extraction_permit);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_coach_prescription, parse_raw_facts, PROVENANCE_ADDENDUM};
+    use pierre_memory::{FactKind, FactSource};
+
+    #[test]
+    fn schedule_gate_drops_coach_prescriptions_from_conversation() {
+        // The 1b6199d8 shape: a schedule fact the extractor did not attribute
+        // to the user. Absent stated_by is treated as coach-stated.
+        assert!(is_coach_prescription(
+            FactKind::Schedule,
+            None,
+            FactSource::Conversation
+        ));
+        assert!(is_coach_prescription(
+            FactKind::Schedule,
+            Some("coach"),
+            FactSource::Conversation
+        ));
+        // User-stated availability constraints still persist.
+        assert!(!is_coach_prescription(
+            FactKind::Schedule,
+            Some("user"),
+            FactSource::Conversation
+        ));
+        // Other kinds are not gated (goal write-back is the save tool's job,
+        // but user-stated goals from chat remain extractable).
+        assert!(!is_coach_prescription(
+            FactKind::Goal,
+            Some("coach"),
+            FactSource::Conversation
+        ));
+        // The guided onboarding walk records the user's own answers even
+        // when the extractor forgets the provenance field.
+        assert!(!is_coach_prescription(
+            FactKind::Schedule,
+            None,
+            FactSource::Onboarding
+        ));
+    }
+
+    #[test]
+    fn parser_accepts_stated_by_and_tolerates_its_absence() {
+        let with = r#"[{"kind":"schedule","subject":"you","predicate":"can train on","object":"Tuesday and Thursday evenings","confidence":0.9,"stated_by":"user"}]"#;
+        let facts = parse_raw_facts(with);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].stated_by.as_deref(), Some("user"));
+        assert_eq!(facts[0].object, "Tuesday and Thursday evenings");
+
+        let without = r#"[{"kind":"goal","subject":"you","predicate":"are racing","object":"Big Red on 2026-08-08","confidence":0.95}]"#;
+        let facts = parse_raw_facts(without);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].stated_by, None);
+    }
+
+    #[test]
+    fn provenance_addendum_defines_the_field_it_enforces() {
+        // The gate keys on stated_by == "user"; the appended prompt must
+        // actually instruct the extractor to emit that field and value.
+        assert!(PROVENANCE_ADDENDUM.contains("\"stated_by\""));
+        assert!(PROVENANCE_ADDENDUM.contains("\"user\""));
+        assert!(PROVENANCE_ADDENDUM.contains("\"coach\""));
+    }
 }

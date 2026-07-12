@@ -32,7 +32,7 @@ pub mod dispatch;
 pub mod group;
 /// Help command listing available commands
 pub mod help;
-/// Guided pillar-onboarding command (`/context`)
+/// Guided pillar-onboarding command (`/pillars`)
 pub mod onboarding;
 /// Markdown command definition loader for messaging slash commands
 pub mod parser;

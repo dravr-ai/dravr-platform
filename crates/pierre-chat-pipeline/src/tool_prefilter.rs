@@ -214,6 +214,15 @@ static KEYWORD_RULES: LazyLock<CategoryKeywordRules> = LazyLock::new(|| {
                 "rappelle",
                 "follow up",
                 "followup",
+                // Training-plan persistence lives in this category
+                // (get/save_training_plan): a plan request must surface the
+                // save tool or the coach re-derives the plan from memory.
+                "plan",
+                "programme",
+                "program",
+                "taper",
+                "week",
+                "semaine",
             ],
         )
 });

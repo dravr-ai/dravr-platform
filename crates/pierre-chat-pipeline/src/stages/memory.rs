@@ -24,11 +24,12 @@ use uuid::Uuid;
 
 use pierre_core::models::{SportType, TenantId};
 use pierre_database::repositories::{
-    ActivityCacheRepository, DossierRepository, PlaybookRepository,
+    ActivityCacheRepository, DossierRepository, PlaybookRepository, TrainingPlanRepository,
 };
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
+use pierre_services::training_plan_render::render_training_plan_block;
 
 /// Append the per-user OKF context bundle to the system prompt.
 ///
@@ -50,6 +51,50 @@ pub async fn inject_okf_bundle(
             tracing::warn!(error = %e, "okf bundle compose failed; continuing without pillar context");
             base_prompt
         }
+    }
+}
+
+/// Append the athlete's active training plan to the system prompt.
+///
+/// Renders the persisted plan (goal race, blocks, current + next week) as a
+/// trusted unfenced section so "what's my plan" is answered from storage,
+/// not conversation memory. Best-effort like the OKF bundle and playbooks:
+/// errors and "no active plan" both pass through silently. `tenant_id` is
+/// the stringified TOOL tenant — the tenant `save_training_plan` writes
+/// under. `today` is the current civil date in the athlete's timezone so
+/// week selection and the race countdown match the athlete's calendar.
+pub async fn inject_training_plan(
+    plan_repo: &dyn TrainingPlanRepository,
+    tenant_id: &str,
+    user_id: &str,
+    coach_slug: Option<&str>,
+    today: chrono::NaiveDate,
+    base_prompt: String,
+) -> String {
+    let plan = match plan_repo
+        .get_active_plan(tenant_id, user_id, coach_slug)
+        .await
+    {
+        Ok(Some(plan)) => plan,
+        Ok(None) => return base_prompt,
+        Err(e) => {
+            tracing::warn!(error = %e, "training plan read failed; continuing without plan");
+            return base_prompt;
+        }
+    };
+    let weeks = match plan_repo
+        .list_plan_weeks(tenant_id, user_id, &plan.id, false)
+        .await
+    {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::warn!(error = %e, "plan weeks read failed; continuing without plan");
+            return base_prompt;
+        }
+    };
+    match render_training_plan_block(&plan, &weeks, today) {
+        Some(block) => format!("{base_prompt}{block}"),
+        None => base_prompt,
     }
 }
 

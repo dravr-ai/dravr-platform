@@ -232,9 +232,11 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-06-23: get_group_member_activities tool added (91→92, total 97→98).
     // 2026-06-30: coaching-playbook GDPR tools list_coaching_playbooks +
     // forget_playbook added (92→94, total 98→100).
+    // 2026-07-12: training-plan persistence tools get_training_plan +
+    // save_training_plan added (94→96, total 100→102).
     assert_eq!(
-        fitness_tools, 94,
-        "Expected exactly 94 non-configuration tools"
+        fitness_tools, 96,
+        "Expected exactly 96 non-configuration tools"
     );
-    assert_eq!(tools.len(), 100, "Expected total of 100 tools"); // 94 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 102, "Expected total of 102 tools"); // 96 non-configuration + 6 configuration
 }

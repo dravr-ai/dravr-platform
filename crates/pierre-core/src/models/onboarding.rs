@@ -36,7 +36,7 @@ impl OnboardingState {
 
     /// Start a fresh walk stamped now, serialized to the JSON stored in
     /// `chat_conversations.onboarding_state`. Convenience for callers (e.g. the
-    /// `/context` handler) that lack a `chrono`/`serde_json` dependency.
+    /// `/pillars` handler) that lack a `chrono`/`serde_json` dependency.
     #[must_use]
     pub fn start_now_column() -> String {
         serde_json::to_string(&Self::start(chrono::Utc::now().to_rfc3339()))

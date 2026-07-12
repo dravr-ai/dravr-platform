@@ -338,7 +338,7 @@ async fn slash_command_is_not_persisted_to_history() {
 }
 
 #[tokio::test]
-async fn context_command_activates_onboarding_mode_no_llm_call() {
+async fn pillars_command_activates_onboarding_mode_no_llm_call() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "context-cmd@test.com").await;
 
@@ -347,7 +347,7 @@ async fn context_command_activates_onboarding_mode_no_llm_call() {
 
     let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
         .header("authorization", &auth)
-        .json(&json!({"content": "/context"}))
+        .json(&json!({"content": "/pillars"}))
         .send(router)
         .await;
 
@@ -358,7 +358,7 @@ async fn context_command_activates_onboarding_mode_no_llm_call() {
     // streaming UI. The greeting opens the guided walk on the North Star.
     assert!(
         body.is_command_response,
-        "/context must dispatch as a command"
+        "/pillars must dispatch as a command"
     );
     assert!(
         body.assistant_message.content.contains("North Star"),
@@ -378,6 +378,6 @@ async fn context_command_activates_onboarding_mode_no_llm_call() {
         .expect("conversation exists");
     assert!(
         OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some(),
-        "/context must activate onboarding_state on the conversation"
+        "/pillars must activate onboarding_state on the conversation"
     );
 }

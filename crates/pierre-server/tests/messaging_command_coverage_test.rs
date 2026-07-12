@@ -378,6 +378,34 @@ mod coverage {
         );
     }
 
+    /// The pillar-onboarding command is `/pillars` (renamed from `/context`
+    /// 2026-07-12). The definition file drives the `/help` listing, so this
+    /// pins both the command surface and what `/help` shows users.
+    #[tokio::test]
+    async fn pillars_command_is_defined_and_context_is_gone() {
+        let definitions = load_command_definitions(&commands_dir());
+        let pillars = definitions
+            .iter()
+            .find(|d| d.command == "/pillars")
+            .expect("/pillars must be a defined command");
+        assert_eq!(pillars.name, "pillars");
+        assert!(
+            pillars.description.to_lowercase().contains("pillars"),
+            "the /help line should describe the pillar walk, got: {}",
+            pillars.description
+        );
+        assert!(
+            pillars.aliases.contains(&"/onboarding".to_owned()),
+            "the /onboarding alias must survive the rename"
+        );
+        assert!(
+            !definitions
+                .iter()
+                .any(|d| d.command == "/context" || d.aliases.iter().any(|a| a == "/context")),
+            "/context was renamed to /pillars — no definition or alias may reintroduce it"
+        );
+    }
+
     /// Secondary invariant: every command alias is also matched and dispatched.
     ///
     /// Loops over all defined aliases (not just primary command strings) and

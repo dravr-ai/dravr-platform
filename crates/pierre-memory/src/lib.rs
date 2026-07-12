@@ -47,6 +47,8 @@ pub mod playbooks;
 pub mod scope;
 /// Long-lived coaching sessions that span conversations and channels.
 pub mod sessions;
+/// Coach-authored training plans: outline (macrocycle) + weekly microcycles.
+pub mod training_plans;
 
 pub use claims::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
 pub use compaction::CompactionBlock;
@@ -60,3 +62,7 @@ pub use playbooks::{
 };
 pub use scope::MemoryScope;
 pub use sessions::{CoachSession, SessionStatus};
+pub use training_plans::{
+    parse_plan_date, BlockPhase, GoalRace, PlanBlock, PlanStatus, PlanWeek, PlannedDay,
+    RacePriority, TrainingPlan, WeekStatus, MAX_DAYS_PER_WEEK,
+};

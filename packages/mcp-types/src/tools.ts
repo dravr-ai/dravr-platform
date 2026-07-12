@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 100
+// Tool count: 102
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -905,6 +905,19 @@ export interface GetTrainingHistoryParams {
 
 
 /**
+ * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth.
+ */
+export interface GetTrainingPlanParams {
+
+  /** Coach persona slug asking; falls back to the athlete's coach-agnostic plan. */
+  coach_id?: string;
+
+  /** Include superseded week versions (the adjustment audit trail). */
+  include_history?: boolean;
+}
+
+
+/**
  * Get your current training configuration settings
  */
 export interface GetUserConfigurationParams {}
@@ -1216,6 +1229,112 @@ export interface SaveRecipeParams {
 
   /** Tags for organization */
   tags?: string[];
+}
+
+
+/**
+ * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable.
+ */
+export interface SaveTrainingPlanParams {
+
+  /** Coach persona slug saving the plan. */
+  coach_id?: string;
+
+  /** Originating conversation ID for provenance. */
+  conversation_id?: string;
+
+  /** Existing pillar Goal fact this plan serves, when known. */
+  goal_fact_id?: string;
+
+  /** The plan outline (goal race + blocks + strategy). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan. */
+  outline?: {
+
+  /** Ordered training blocks from now to the goal race. */
+  blocks: {
+
+  /** What this block is for, in coach voice. */
+  intent: string;
+
+  /** One of: rest | base | build | peak | taper. */
+  phase: string;
+
+  /** Block start date, YYYY-MM-DD. */
+  start: string;
+
+  /** Optional target weekly volume in hours. */
+  target_hours?: number;
+
+  /** Block length in weeks. */
+  weeks: number;
+}[];
+
+  /** The goal (A) race this plan builds toward. */
+  goal_race: {
+
+  /** Race date, YYYY-MM-DD. */
+  date: string;
+
+  /** Discipline: gravel, xco, road, trail run, … */
+  discipline: string;
+
+  /** Race name as the athlete calls it. */
+  name: string;
+
+  /** A = goal race, B = tune-up, C = training race. */
+  priority: string;
+};
+
+  /** Other races on the calendar (B/C priorities). */
+  races?: {
+
+  /** Race date, YYYY-MM-DD. */
+  date: string;
+
+  /** Discipline: gravel, xco, road, trail run, … */
+  discipline: string;
+
+  /** Race name as the athlete calls it. */
+  name: string;
+
+  /** A = goal race, B = tune-up, C = training race. */
+  priority: string;
+}[];
+
+  /** The coach's strategy in prose — what the athlete sees as the long-term direction. */
+  strategy: string;
+};
+
+  /** Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes. */
+  weeks?: {
+
+  /** Why this week is being re-saved; omit on first save. */
+  adjustment_reason?: string;
+
+  /** The day rows, in date order (max 7). */
+  days: {
+
+  /** Day date, YYYY-MM-DD. */
+  date: string;
+
+  /** Planned duration in minutes; omit for rest days. */
+  duration_min?: number;
+
+  /** Intensity RELATIVE to thresholds ('Z2', '3x8min @ 88-93% FTP'). Never absolute watts. */
+  intensity?: string;
+
+  /** Sport (mtb, gravel, run, …) or 'rest'. */
+  sport: string;
+
+  /** What to do, in coach voice. */
+  workout: string;
+}[];
+
+  /** The week's intent in one line. */
+  focus?: string;
+
+  /** Date of the week's first day, YYYY-MM-DD. */
+  week_start: string;
+}[];
 }
 
 
@@ -1563,7 +1682,7 @@ export interface McpErrorResponse {
 /**
  * Union type of all available tool names
  */
-export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
+export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
 
 /**
  * Map of tool names to their parameter types
@@ -1631,6 +1750,7 @@ export interface ToolParamsMap {
   "get_stats": GetStatsParams;
   "get_stretching_exercise": GetStretchingExerciseParams;
   "get_training_history": GetTrainingHistoryParams;
+  "get_training_plan": GetTrainingPlanParams;
   "get_user_configuration": GetUserConfigurationParams;
   "get_weather_forecast": GetWeatherForecastParams;
   "get_yoga_pose": GetYogaPoseParams;
@@ -1651,6 +1771,7 @@ export interface ToolParamsMap {
   "refresh_provider_data": RefreshProviderDataParams;
   "remember_fact": RememberFactParams;
   "save_recipe": SaveRecipeParams;
+  "save_training_plan": SaveTrainingPlanParams;
   "search_coaches": SearchCoachesParams;
   "search_food": SearchFoodParams;
   "search_recipes": SearchRecipesParams;
