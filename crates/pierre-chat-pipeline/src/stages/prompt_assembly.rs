@@ -430,6 +430,9 @@ pub(crate) async fn assemble_prompt_and_messages(
     // `save_training_plan` writes under. `today` is the athlete's civil date
     // so week selection and the race countdown match their calendar, not the
     // server's UTC clock.
+    //
+    // Suppressed while the guided pillar walk is active (see
+    // `inject_training_plan` for the rationale and live incident).
     let athlete_today = user_timezone
         .as_deref()
         .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
@@ -443,6 +446,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         &input.user_id,
         conv.coach_id.as_deref(),
         athlete_today,
+        onboarding.is_some(),
         base_prompt,
     )
     .await;

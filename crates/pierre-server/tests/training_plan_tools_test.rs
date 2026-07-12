@@ -276,6 +276,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
         &user_id.to_string(),
         Some("endurance-coach"),
         today,
+        false,
         "BASE PROMPT".to_owned(),
     )
     .await;
@@ -296,9 +297,26 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
         &other_user.to_string(),
         Some("endurance-coach"),
         today,
+        false,
         "BASE PROMPT".to_owned(),
     )
     .await;
     assert_eq!(untouched, "BASE PROMPT");
+
+    // Mid pillar-walk the section is suppressed even WITH a saved plan: the
+    // onboarding directive says "do not deliver a full coaching plan yet",
+    // and a trailing plan block overriding it is exactly how the 2026-07-12
+    // QA walk lost its remaining pillars.
+    let during_walk = inject_training_plan(
+        executor.resources.repos().training_plans.as_ref(),
+        &tenant_id,
+        &user_id.to_string(),
+        Some("endurance-coach"),
+        today,
+        true,
+        "BASE PROMPT".to_owned(),
+    )
+    .await;
+    assert_eq!(during_walk, "BASE PROMPT");
     Ok(())
 }

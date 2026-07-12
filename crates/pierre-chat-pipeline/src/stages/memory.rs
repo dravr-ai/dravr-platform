@@ -63,14 +63,25 @@ pub async fn inject_okf_bundle(
 /// the stringified TOOL tenant — the tenant `save_training_plan` writes
 /// under. `today` is the current civil date in the athlete's timezone so
 /// week selection and the race countdown match the athlete's calendar.
+///
+/// `onboarding_active` suppresses the section entirely: the guided pillar
+/// walk's directive says "do not deliver a full coaching plan yet", and a
+/// trailing plan block overrides it — observed live 2026-07-12 (a plan saved
+/// mid-walk pivoted the coach to plan talk every turn and the remaining
+/// pillars were never probed). The block returns once coverage completes and
+/// onboarding mode clears.
 pub async fn inject_training_plan(
     plan_repo: &dyn TrainingPlanRepository,
     tenant_id: &str,
     user_id: &str,
     coach_slug: Option<&str>,
     today: chrono::NaiveDate,
+    onboarding_active: bool,
     base_prompt: String,
 ) -> String {
+    if onboarding_active {
+        return base_prompt;
+    }
     let plan = match plan_repo
         .get_active_plan(tenant_id, user_id, coach_slug)
         .await
