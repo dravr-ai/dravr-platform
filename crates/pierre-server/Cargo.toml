@@ -222,7 +222,7 @@ pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", op
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.7.14", features = ["vision"], optional = true }
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.5", features = ["copilot-headless"], optional = true }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.6", features = ["copilot-headless"], optional = true }
 # Assets crate: structured-output directive + workout schema consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "0a49fcb64576a05e9e118939ba0de28151d8d1d1" }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.0", features = ["notifications"] }
@@ -320,7 +320,7 @@ cron = "0.15.0"
 [dev-dependencies]
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.5" }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.6" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
