@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -57,6 +57,75 @@ struct PendingLogin {
 
 static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingLogin>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+// Users whose Sciotte credential login is *actively executing* — Chrome
+// launched and `credential_login` running — but not yet parked for OTP/2FA.
+//
+// `PENDING_OTP_SCRAPERS` dedups a user's login only once it *parks* between
+// requests; this set closes the gap during the active phase. A single slow
+// login (vision-mode grind, or a number-match poll) can hold the pod's
+// one-slot Chrome budget for the full `DRAVR_SCIOTTE_LOGIN_TIMEOUT` while the
+// client re-POSTs `/login` on a retry timer. Without this dedup each retry
+// acquired the saturated limiter, waited the full `PIERRE_SCIOTTE_ACQUIRE_TIMEOUT`,
+// and shed a 503 — turning one stuck login into a self-inflicted 503 storm. A
+// plain sync set (not the async `Mutex` the parked map uses) so the RAII guard
+// can release it from `Drop`.
+static ACTIVE_LOGINS: LazyLock<StdMutex<HashSet<Uuid>>> =
+    LazyLock::new(|| StdMutex::new(HashSet::new()));
+
+/// RAII marker that a user has a credential login actively running.
+///
+/// Registered before the Chrome permit is acquired and released the moment the
+/// active call returns — success, failure, or a park that hands dedup off to
+/// [`PENDING_OTP_SCRAPERS`]. A poisoned lock is recovered in place: the set is a
+/// pure dedup guard, so a lost entry only costs one redundant permit
+/// acquisition, never correctness.
+#[doc(hidden)]
+pub struct ActiveLoginGuard {
+    user_id: Uuid,
+}
+
+impl ActiveLoginGuard {
+    /// Register `user_id` as actively logging in.
+    ///
+    /// Returns `None` when a login is already in flight for that user, so the
+    /// caller can reject the duplicate before it competes for the Chrome budget.
+    fn try_begin(user_id: Uuid) -> Option<Self> {
+        let mut active = ACTIVE_LOGINS.lock().unwrap_or_else(PoisonError::into_inner);
+        if active.insert(user_id) {
+            // Drop the lock *before* building the guard: the guard's `Drop`
+            // re-locks `ACTIVE_LOGINS` to remove the entry, which would
+            // self-deadlock this non-reentrant mutex if the lock were still
+            // held. Building it only on the fresh-insert branch also means a
+            // rejected duplicate never constructs a guard whose drop would
+            // clear the in-flight login's own marker.
+            drop(active);
+            Some(Self { user_id })
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for ActiveLoginGuard {
+    fn drop(&mut self) {
+        ACTIVE_LOGINS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.user_id);
+    }
+}
+
+/// Attempt to register an active credential login for `user_id`.
+///
+/// Returns `Some(guard)` when this is the only in-flight login for the user, or
+/// `None` when one is already running. Re-exported (doc-hidden) so the dedup
+/// invariant can be exercised without launching Chrome.
+#[doc(hidden)]
+#[must_use]
+pub fn try_begin_active_login(user_id: Uuid) -> Option<ActiveLoginGuard> {
+    ActiveLoginGuard::try_begin(user_id)
+}
 
 /// Initialise the Sciotte backpressure limiter.
 ///
@@ -783,6 +852,18 @@ pub async fn handle_sciotte_login(
         return Ok(response);
     }
 
+    // Per-user dedup for the *active* login phase. The parked-flow check above
+    // only guards OTP/2FA continuations; this rejects a concurrent login from
+    // the same user before it competes for the single Chrome slot. Held (RAII)
+    // until the active call returns, so a client retrying `/login` while its own
+    // slow login runs gets an immediate 409 instead of piling up permit
+    // acquisitions that each wait `acquire_timeout` and shed a 503. On a park
+    // the guard drops after `PENDING_OTP_SCRAPERS` is populated, so dedup is
+    // continuous across the handoff.
+    let Some(active_login) = ActiveLoginGuard::try_begin(user_id) else {
+        return Ok(login_already_in_progress_response(user_id));
+    };
+
     // Acquire a permit before launching Chrome. Under overload the limiter
     // fast-rejects with 503 + Retry-After so the pod doesn't accumulate an
     // unbounded backlog of pending Chrome processes.
@@ -817,7 +898,7 @@ pub async fn handle_sciotte_login(
         }
     };
 
-    Box::pin(login_result_to_response(
+    let response = Box::pin(login_result_to_response(
         result,
         &resources,
         cached,
@@ -830,7 +911,13 @@ pub async fn handle_sciotte_login(
             link_context,
         },
     ))
-    .await
+    .await;
+
+    // Release the active-login marker only after `login_result_to_response` has
+    // returned — on a park that call populates `PENDING_OTP_SCRAPERS` first, so
+    // dedup coverage never gaps between the two sets.
+    drop(active_login);
+    response
 }
 
 /// Select a 2FA method for a pending login

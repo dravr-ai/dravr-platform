@@ -70,7 +70,7 @@ use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
-use pierre_middleware::{request_id_middleware, setup_cors};
+use pierre_middleware::{request_id_middleware, response_failure_log_middleware, setup_cors};
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 #[cfg(feature = "oauth")]
@@ -1059,8 +1059,16 @@ impl ProviderToolRouter {
                         DefaultOnResponse::new()
                             .level(Level::INFO)
                             .latency_unit(LatencyUnit::Millis),
-                    ),
+                    )
+                    // Silence tower-http's default failure logger: its event
+                    // knows only latency + status, so the forwarded ops alert
+                    // never named the failing endpoint. `response_failure_log`
+                    // (applied just outside this layer) is the single failure
+                    // logger, carrying method + path and routing designed
+                    // backpressure (Retry-After 503) to WARN instead of ERROR.
+                    .on_failure(()),
             )
+            .layer(middleware::from_fn(response_failure_log_middleware))
             .layer(middleware::from_fn(request_id_middleware))
             .layer(setup_cors(&resources.common.config.cors.allowed_origins))
             .layer(Self::create_security_headers_layer(

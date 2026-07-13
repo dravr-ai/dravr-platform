@@ -33,6 +33,8 @@ pub mod rate_limiting;
 pub mod redaction;
 /// Request ID generation and propagation
 pub mod request_id;
+/// Single HTTP failure logger — endpoint-aware, backpressure-aware
+pub mod response_failure_log;
 /// HTTP request metrics + inbound W3C trace-context extraction (OTLP telemetry)
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
@@ -106,6 +108,8 @@ pub use redaction::RedactionFeatures;
 pub use request_id::request_id_middleware;
 /// Request ID extractor
 pub use request_id::RequestId;
+/// Endpoint-aware, backpressure-aware HTTP failure logging middleware
+pub use response_failure_log::response_failure_log_middleware;
 #[cfg(feature = "telemetry")]
 pub use telemetry::telemetry_middleware;
 
