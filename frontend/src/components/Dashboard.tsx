@@ -217,24 +217,29 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     track({ name: 'page_view', props: { path: `/${route}` } });
   }, [route]);
 
-  // React to back/forward and external hash edits: parse `tab[/subview]` and
-  // restore both the tab and its sub-view. An emptied hash resets to the role
-  // default rather than stranding the previous view.
+  // Parse a `tab[/subview]` route and restore both the active tab and its
+  // sub-view. An emptied route resets to the role default rather than
+  // stranding the previous view. Shared by the hashchange listener
+  // (back/forward, external hash edits) and in-app navigators — e.g. the
+  // notifications panel, which deep-links a coach "Reply" to
+  // `chat/<conversationId>` so the reply opens that thread.
+  const applyRoute = useCallback((raw: string) => {
+    const slash = raw.indexOf('/');
+    const tab = (slash === -1 ? raw : raw.slice(0, slash)) || (isAdminUser ? 'users' : 'chat');
+    const sub = slash === -1 ? '' : raw.slice(slash + 1);
+    setActiveTab(tab);
+    setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);
+    setInsightsView(tab === 'insights' && sub === 'friends' ? 'friends' : 'feed');
+    setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
+  }, [isAdminUser]);
+
+  // React to back/forward and external hash edits.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const onHashChange = () => {
-      const raw = window.location.hash.replace(/^#/, '');
-      const slash = raw.indexOf('/');
-      const tab = (slash === -1 ? raw : raw.slice(0, slash)) || (isAdminUser ? 'users' : 'chat');
-      const sub = slash === -1 ? '' : raw.slice(slash + 1);
-      setActiveTab(tab);
-      setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);
-      setInsightsView(tab === 'insights' && sub === 'friends' ? 'friends' : 'feed');
-      setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
-    };
+    const onHashChange = () => applyRoute(window.location.hash.replace(/^#/, ''));
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, [isAdminUser]);
+  }, [applyRoute]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -889,7 +894,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <NotificationsPanel onNavigate={setActiveTab} />
+            <NotificationsPanel onNavigate={applyRoute} />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (

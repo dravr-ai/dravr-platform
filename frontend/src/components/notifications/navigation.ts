@@ -42,3 +42,37 @@ export function mapScreenToTab(screen: string | undefined | null): string | null
       return null;
   }
 }
+
+/**
+ * Resolve the full Dashboard route (a `tab` or `tab/subview` string) that a
+ * notification should open when clicked, given its `data` payload and the
+ * optional id of the pressed action button.
+ *
+ * Coach-message notifications carry the originating conversation id on
+ * `data.id` (`dravr-commere` `trigger_coach_message`:
+ * `{ screen: "coach", action: "chat", id: <conversation_id> }`). Reading
+ * only the `screen` field routed the "Reply" button to the bare `chat`
+ * tab, which strands the athlete on the empty "Ready to analyze your
+ * fitness" coach picker instead of the thread they were replying to (web
+ * QA 2026-07-13). Emitting `chat/<conversation_id>` lets the Dashboard's
+ * hash router select that conversation directly.
+ *
+ * Returns `null` when the payload has no useful web target (the click
+ * still marks the notification read but does not navigate).
+ */
+export function resolveNotificationRoute(
+  data: Record<string, unknown> | undefined,
+  actionId?: string,
+): string | null {
+  const screen = typeof data?.screen === 'string' ? data.screen : undefined;
+  const tab = mapScreenToTab(screen) ?? (actionId ? mapScreenToTab(actionId) : null);
+  if (!tab) return null;
+  // Coach messages deep-link to their specific conversation thread.
+  if (tab === 'chat') {
+    const conversationId = typeof data?.id === 'string' ? data.id : undefined;
+    if (conversationId) {
+      return `chat/${encodeURIComponent(conversationId)}`;
+    }
+  }
+  return tab;
+}
