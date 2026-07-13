@@ -93,6 +93,12 @@ pub use sciotte::init_sciotte_limiter;
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
 pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
+// Re-exported for the active-login dedup regression test
+// (`sciotte_active_login_dedup_test`): the login handler needs real Chrome to
+// exercise, so the per-user dedup guard is the testable seam. Doc-hidden.
+#[cfg(feature = "provider-sciotte")]
+#[doc(hidden)]
+pub use sciotte::{try_begin_active_login, ActiveLoginGuard};
 
 // Re-export the cross-cutting auth DTOs so existing
 // `crate::routes::auth::*` paths in pierre-server tests + callers continue

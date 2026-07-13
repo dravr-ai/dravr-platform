@@ -62,7 +62,15 @@ backend_max_instances = 3
 # zero slots. Raising max_instances or the pool requires a bigger DB tier first;
 # raising concurrency is free (pool-bounded).
 backend_max_instance_request_concurrency = 80
-backend_sciotte_max_concurrent           = 1
+# 2 (was 1): one in-flight login legitimately holds a Chrome slot for the full
+# DRAVR_SCIOTTE_LOGIN_TIMEOUT (240s, sized for number-match 2FA phone-tap), so at
+# a single slot one user's 2FA wait shed a 503 on every other sciotte op on the
+# pod (rev 00687, 2026-07-11). Two slots ≈ 500Mi of the 2Gi budget (~4-Chrome
+# headroom, see backend_memory), halving in-pod starvation. Chrome count is
+# capped here independently of the 80 HTTP-request concurrency above (see the
+# block comment) — the "must match request concurrency" note in variables.tf
+# predates the one-user-one-pod model and no longer holds (80 != 1).
+backend_sciotte_max_concurrent = 2
 
 # database_tier                = "db-f1-micro"
 # database_deletion_protection = false
