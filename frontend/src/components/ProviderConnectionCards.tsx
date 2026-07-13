@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
@@ -106,6 +106,13 @@ interface ProviderConnectionCardsProps {
   isSkipPending?: boolean;
   /** Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens. */
   onOAuthLaunched?: (provider: string) => void;
+  /**
+   * Bumped by the onboarding parent when its delegated Strava OAuth *launch*
+   * fails (authorize-URL fetch throws) so this component — which owns the
+   * Sciotte modal — opens the credential-login fallback. Post-consent OAuth
+   * failures are caught separately via the `pierre_oauth_result` listener.
+   */
+  oauthLaunchFailedNonce?: number;
 }
 
 export default function ProviderConnectionCards({
@@ -115,6 +122,7 @@ export default function ProviderConnectionCards({
   onSkip,
   isSkipPending,
   onOAuthLaunched,
+  oauthLaunchFailedNonce,
 }: ProviderConnectionCardsProps) {
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
@@ -126,6 +134,58 @@ export default function ProviderConnectionCards({
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: 5000,
   });
+
+  // OAuth-first with a Sciotte fallback: the `sciotte` card launches real Strava
+  // OAuth while shared-app seats remain. If that OAuth attempt fails — the
+  // athlete cap was actually exceeded in a seat-count race, or the provider
+  // rejected the grant — we don't strand the user. The OAuth callback tab writes
+  // `pierre_oauth_result` (firing a `storage` event here in the opener); on a
+  // failed Strava result we open the Sciotte credential login for the same data.
+  // Only *failed* Strava results are consumed — successful results are left
+  // untouched for App/useOAuthHandler's success handlers.
+  useEffect(() => {
+    const consumeFailedStrava = () => {
+      let stored: string | null;
+      try {
+        stored = localStorage.getItem('pierre_oauth_result');
+      } catch {
+        return;
+      }
+      if (!stored) return;
+      try {
+        const result = JSON.parse(stored);
+        const fresh = result?.timestamp && Date.now() - result.timestamp < 30_000;
+        if (fresh && result.provider === 'strava' && result.success === false) {
+          localStorage.removeItem('pierre_oauth_result');
+          setSciotteModalTarget('strava');
+        }
+      } catch {
+        // Ignore parse errors — leave the entry for other consumers.
+      }
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'pierre_oauth_result' && e.newValue) consumeFailedStrava();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', consumeFailedStrava);
+    document.addEventListener('visibilitychange', consumeFailedStrava);
+    consumeFailedStrava();
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', consumeFailedStrava);
+      document.removeEventListener('visibilitychange', consumeFailedStrava);
+    };
+  }, []);
+
+  // Onboarding delegates the Strava OAuth *launch* to the parent
+  // (OnboardingConnectProvider). If the parent's authorize-URL fetch throws, it
+  // bumps `oauthLaunchFailedNonce` so we open the Sciotte fallback here, where
+  // the modal lives.
+  useEffect(() => {
+    if (oauthLaunchFailedNonce && oauthLaunchFailedNonce > 0) {
+      setSciotteModalTarget('strava');
+    }
+  }, [oauthLaunchFailedNonce]);
 
   // Launch the OAuth authorization flow for a provider. Prefers the parent's
   // callback (onboarding shows an "awaiting consent" overlay); otherwise opens
@@ -151,6 +211,11 @@ export default function ProviderConnectionCards({
         popup.close();
       }
       console.error('Failed to get OAuth authorization URL:', error);
+      // Couldn't start OAuth (network/config error). For the Strava card, fall
+      // back to the Sciotte credential login instead of leaving the card stuck.
+      if (providerName === 'strava') {
+        setSciotteModalTarget('strava');
+      }
     }
   };
 

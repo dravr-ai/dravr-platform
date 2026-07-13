@@ -90,6 +90,10 @@ vi.mock('../../hooks/useAuth', () => ({
   }),
 }));
 
+// OAuth spies shared with the Data Providers tests below.
+const getAuthorizeUrlForProvider = vi.fn().mockResolvedValue('https://www.strava.com/oauth/authorize?x=1');
+const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
+
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
   userApi: {
@@ -101,6 +105,12 @@ vi.mock('../../services/api', () => ({
       message: 'Profile updated',
       user: { id: 'user-1', email: 'test@pierre.dev', display_name: 'Test User' },
     }),
+  },
+  oauthApi: {
+    getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args),
+    getAuthorizeUrlForProvider: (...args: unknown[]) => getAuthorizeUrlForProvider(...args),
+    disconnectProvider: vi.fn().mockResolvedValue(undefined),
+    disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
   },
   pierreApi: {
     adapter: {
@@ -118,6 +128,13 @@ vi.mock('../../services/api', () => ({
       revokeMcpToken: vi.fn(),
     },
   },
+}));
+
+// Render the Sciotte modal as a testid carrying its target so a fallback that
+// opens it (target="strava") is observable.
+vi.mock('../SciotteLoginModal', () => ({
+  default: ({ isOpen, target }: { isOpen: boolean; target: string }) =>
+    isOpen ? <div data-testid="sciotte-modal">{target}</div> : null,
 }));
 
 function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
@@ -408,6 +425,57 @@ describe('UserSettings Component', () => {
         expect(screen.getByText('Custom API Credentials')).toBeInTheDocument();
       });
     });
+  });
+
+  describe('Data Providers — Strava OAuth-first with Sciotte fallback', () => {
+    const stravaCard = (recommended_backend: 'oauth' | 'mirror') => ({
+      provider: 'sciotte',
+      display_name: 'Strava',
+      requires_oauth: false,
+      connected: false,
+      capabilities: ['activities'],
+      recommended_backend,
+      seats_left: recommended_backend === 'oauth' ? 3 : 0,
+    });
+
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    });
+
+    it('launches Strava OAuth (not Sciotte) while seats remain', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const connect = await screen.findByRole('button', { name: 'Connect' });
+      await user.click(connect);
+
+      await waitFor(() => expect(getAuthorizeUrlForProvider).toHaveBeenCalledWith('strava'));
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('opens the Sciotte modal directly once the pool is exhausted', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const connect = await screen.findByRole('button', { name: 'Connect' });
+      await user.click(connect);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+    });
+
+    // The failure-fallback path (a failed `pierre_oauth_result` reopening the
+    // Sciotte modal) is exercised deterministically by the ProviderConnectionCards
+    // and mobile ConnectionsScreen/OnboardingConnectScreen suites; UserSettings
+    // routes it through the same handleConnectProvider poll, which cannot be
+    // isolated reliably here because that poll's interval outlives unmount.
   });
 
   describe('API Tokens Tab', () => {
