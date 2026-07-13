@@ -135,13 +135,22 @@ export function OnboardingConnectScreen() {
           if (success) {
             await finalizeConnection(providerName);
           } else if (error) {
-            setConnectError(`Failed to connect ${providerName}: ${error}`);
+            // Strava OAuth came back with an error (e.g. the shared-app athlete
+            // cap was actually exceeded in a seat-count race, or the provider
+            // rejected the grant). Don't strand the user — fall back to the
+            // Sciotte credential login, which serves the same Strava data.
+            if (providerId === 'strava') {
+              setSciotteTarget('strava');
+            } else {
+              setConnectError(`Failed to connect ${providerName}: ${error}`);
+            }
           } else {
             // No explicit success/error — refetch to see if the row landed.
             await finalizeConnection(providerName);
           }
         }
-        // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
+        // type === 'cancel' / 'dismiss' — user backed out of the auth sheet;
+        // that's a deliberate choice, so we do NOT push the Sciotte fallback.
       } catch (err) {
         setAwaitingOAuthFor(null);
         const message = err instanceof Error ? err.message : 'Failed to connect';
@@ -150,6 +159,13 @@ export function OnboardingConnectScreen() {
           // No BYO app registered yet — open the in-place setup modal so the
           // first-run user never needs to navigate to Settings.
           setShowWhoopSetup(true);
+          return;
+        }
+        // Couldn't even start the Strava OAuth flow (init/network error). Fall
+        // back to the Sciotte credential login rather than leaving the user
+        // stuck on an error toast.
+        if (providerId === 'strava') {
+          setSciotteTarget('strava');
           return;
         }
         setConnectError(message);

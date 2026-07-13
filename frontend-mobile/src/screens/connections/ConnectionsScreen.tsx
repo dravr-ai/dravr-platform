@@ -125,7 +125,15 @@ export function ConnectionsScreen() {
           setJustConnected(providerName);
         } else if (error) {
           console.error('OAuth error from server:', error);
-          Alert.alert('Connection Failed', `Failed to connect: ${error}`);
+          // Strava OAuth failed (the shared-app athlete cap was actually
+          // exceeded in a seat-count race, or the provider rejected the grant).
+          // Fall back to the Sciotte credential login — same Strava data —
+          // instead of leaving the user on an alert.
+          if (providerId === 'strava') {
+            setSciotteTarget('strava');
+          } else {
+            Alert.alert('Connection Failed', `Failed to connect: ${error}`);
+          }
         } else {
           // No explicit success/error in the callback — refresh status to
           // see whether the row landed anyway, and surface the spinner if so.
@@ -137,6 +145,15 @@ export function ConnectionsScreen() {
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect';
+      // Couldn't start the OAuth flow at all. For Strava this also covers the
+      // platform Strava app being unconfigured — fall back to the Sciotte
+      // credential login rather than bouncing to the BYO-credentials sheet or
+      // an error alert.
+      if (providerId === 'strava') {
+        console.error('Failed to start Strava OAuth flow; falling back to Sciotte:', err);
+        setSciotteTarget('strava');
+        return;
+      }
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
         || errorMessage.toLowerCase().includes('client credentials not configured')
         || errorMessage.toLowerCase().includes('configuration');
@@ -242,7 +259,17 @@ export function ConnectionsScreen() {
               style={{ backgroundColor: config.color }}
               onPress={() => {
                 if (isSciotte) {
-                  setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                  // The `sciotte` card is the user-facing "Strava" card. OAuth is
+                  // the default while shared-app seats remain (server recommends
+                  // `oauth`); once the athlete cap is reached it recommends
+                  // `mirror` and we go straight to the Sciotte credential login.
+                  // If the OAuth attempt itself fails, handleConnect falls back
+                  // to Sciotte. Garmin (`sciotte_garmin`) is always credentials.
+                  if (provider.provider === 'sciotte' && provider.recommended_backend === 'oauth') {
+                    handleConnect('strava', provider.display_name);
+                  } else {
+                    setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                  }
                 } else if (isIntervals) {
                   setIntervalsModalVisible(true);
                 } else if (provider.provider === 'whoop') {

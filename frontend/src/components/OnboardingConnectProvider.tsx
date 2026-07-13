@@ -57,6 +57,10 @@ export default function OnboardingConnectProvider({
   // gate), we open the setup modal in-place and continue with OAuth as soon as
   // they save.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // Bumped when a delegated Strava OAuth *launch* fails (authorize-URL fetch
+  // throws). ProviderConnectionCards owns the Sciotte modal, so we signal it to
+  // open the credential-login fallback rather than showing a dead-end error.
+  const [oauthLaunchFailedNonce, setOauthLaunchFailedNonce] = useState(0);
 
   const launchOAuth = async (provider: string) => {
     // Mobile Safari requires window.open to fire inside the synchronous
@@ -90,6 +94,13 @@ export default function OnboardingConnectProvider({
         // No BYO app registered yet — open the in-place setup modal so the
         // first-run user never needs to navigate to Settings.
         setShowWhoopSetup(true);
+        return;
+      }
+      if (provider === 'strava') {
+        // OAuth couldn’t even start — signal ProviderConnectionCards (which owns
+        // the Sciotte modal) to open the credential-login fallback instead of a
+        // dead-end error.
+        setOauthLaunchFailedNonce((n) => n + 1);
         return;
       }
       setConnectError(`Couldn’t start the ${provider} connect flow. Please try again.`);
@@ -210,6 +221,7 @@ export default function OnboardingConnectProvider({
                 connectingProvider={connectingProvider}
                 onProviderConnected={() => setJustConnected(true)}
                 onOAuthLaunched={(provider) => setAwaitingOAuthFor(provider)}
+                oauthLaunchFailedNonce={oauthLaunchFailedNonce}
               />
             </div>
 
