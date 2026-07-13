@@ -11,6 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
+import { resolveNotificationTarget } from '../../components/notifications/navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -184,8 +185,12 @@ export function NotificationCenterScreen() {
   }, [markAsRead]);
 
   const handleDetailNavigate = useCallback((item: NotificationItem) => {
-    if (item.data?.route && typeof item.data.route === 'string') {
-      router.push(item.data.route as never);
+    // Resolve `data.screen` (coach messages carry the conversation id on
+    // `data.id`) to a grouped expo-router target. The legacy `data.route`
+    // key this once read was never wired server-side.
+    const target = resolveNotificationTarget(item.data);
+    if (target) {
+      router.push(target as never);
     }
   }, [router]);
 
@@ -193,11 +198,11 @@ export function NotificationCenterScreen() {
     if (!item.read_at) {
       markAsRead(item.id);
     }
-    // Route to the screen specified in data with the action context
-    const data = item.data as Record<string, string> | undefined;
-    const screen = data?.screen;
-    if (screen) {
-      router.push({ pathname: `/${screen}` as never, params: { action: actionId, id: data?.id } });
+    // Route to the screen specified in data with the action context. Coach
+    // "Reply" resolves to the chat tab with the conversation preselected.
+    const target = resolveNotificationTarget(item.data, actionId);
+    if (target) {
+      router.push(target as never);
     }
   }, [markAsRead, router]);
 

@@ -18,6 +18,7 @@ import {
   formatNotificationTime,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
+import { resolveNotificationTarget } from './navigation';
 
 interface NotificationDetailModalProps {
   visible: boolean;
@@ -46,8 +47,11 @@ export function NotificationDetailModal({
   if (!notification) return null;
 
   const meta = NOTIFICATION_CATEGORY_META[notification.category];
-  const route = notification.data?.route;
-  const hasRoute = typeof route === 'string' && route.length > 0;
+  // Show the generic "View Details" deep-link only when the payload resolves
+  // to a screen AND there's no more specific action button (a coach "Reply"
+  // already routes to the thread, so a second button would be redundant).
+  const hasActions = !!notification.actions && notification.actions.length > 0;
+  const showNavigate = !hasActions && resolveNotificationTarget(notification.data) !== null;
 
   return (
     <Modal
@@ -137,7 +141,7 @@ export function NotificationDetailModal({
               ) : null}
 
               {/* Deep-link navigation button */}
-              {hasRoute && (
+              {showNavigate && (
                 <TouchableOpacity
                   className="flex-row items-center justify-center mt-4 py-3 rounded-lg"
                   style={{ backgroundColor: colors.pierre.violet }}
