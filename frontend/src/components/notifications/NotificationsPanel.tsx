@@ -30,7 +30,7 @@ import {
   formatCollapsedCount,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
-import { mapScreenToTab } from './navigation';
+import { resolveNotificationRoute } from './navigation';
 
 /** Map Lucide icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -70,12 +70,13 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       // the server side, so reading it left every Recovery / activity
       // notification stranded with no destination (web QA 2026-05-09).
       // Resolve via the shared mapper so the panel and any future
-      // surface (slash-command card, push-tap handler) agree.
+      // surface (slash-command card, push-tap handler) agree. Coach
+      // messages carry the conversation id on `data.id` and resolve to
+      // `chat/<id>` so the click opens the thread, not the empty picker.
       const data = item.data as Record<string, unknown> | undefined;
-      const screen = typeof data?.screen === 'string' ? data.screen : undefined;
-      const tab = mapScreenToTab(screen);
-      if (tab && onNavigate) {
-        onNavigate(tab);
+      const route = resolveNotificationRoute(data);
+      if (route && onNavigate) {
+        onNavigate(route);
       }
     },
     [markAsRead, onNavigate],
@@ -87,10 +88,9 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
         markAsRead(item.id);
       }
       const data = item.data as Record<string, unknown> | undefined;
-      const screen = typeof data?.screen === 'string' ? data.screen : undefined;
-      const tab = mapScreenToTab(screen) ?? mapScreenToTab(action.id);
-      if (tab && onNavigate) {
-        onNavigate(tab);
+      const route = resolveNotificationRoute(data, action.id);
+      if (route && onNavigate) {
+        onNavigate(route);
       }
     },
     [markAsRead, onNavigate],
