@@ -22,9 +22,16 @@
 //! Saint-Alexis-des-Monts, where the coach admitted "je n'ai pas encore
 //! chargé les détails exacts de cette sortie").
 //!
-//! Applicability gating still follows the original web-chat rule — prefetch
-//! only runs on the first message of a coach-attached conversation. Extending
-//! that to later turns (e.g. based on user-input heuristics) is a follow-up.
+//! First-turn dispatch runs the full startup prefetch
+//! ([`inject_startup_context`]: activity data + the coach's startup query).
+//! Later turns are grounded on demand by [`maybe_refresh_activity_context`]:
+//! when the coach declares activity `data_requirements` and the latest user
+//! message asks for something that must be grounded in real training
+//! ([`needs_activity_grounding`] — a plan, analysis, comparison, or
+//! recommendation), the coach's activity window is re-fetched and injected as
+//! fresh system context. That later-turn refresh runs AFTER Tier-1 compaction,
+//! so the freshly injected block is never summarized away and cannot desync
+//! the `source_ids`/`llm_messages` vectors compaction consumes.
 
 use std::sync::Arc;
 
@@ -49,14 +56,29 @@ fn extract_prefetch_content(response: &UniversalResponse) -> String {
     }
 }
 
-/// Decide whether the turn should run the activity prefetch.
+/// Parse a coach's `data_requirements` JSON frontmatter into the structured
+/// [`DataRequirements`]. A malformed block logs at WARN and degrades to `None`
+/// (the turn proceeds without deterministic prefetch) rather than failing.
+fn parse_data_requirements(coach_ctx: &CoachRuntimeContext) -> Option<DataRequirements> {
+    let json = coach_ctx.data_requirements.as_ref()?;
+    match serde_json::from_str::<DataRequirements>(json) {
+        Ok(dr) => Some(dr),
+        Err(e) => {
+            warn!("Failed to parse data_requirements JSON: {e}");
+            None
+        }
+    }
+}
+
+/// Decide whether the turn should run the first-turn startup prefetch.
 ///
 /// Returns `Some((query, data_requirements))` when:
 /// - This is the first message in the conversation (`history_len == 1`)
 /// - The conversation has a resolved coach context
 /// - The coach has a `startup_query` or `data_requirements` configured
 ///
-/// Returns `None` otherwise.
+/// Returns `None` otherwise. Later turns are handled by
+/// [`maybe_refresh_activity_context`], not this gate.
 #[must_use]
 pub fn get_startup_context_if_applicable(
     history_len: usize,
@@ -69,18 +91,10 @@ pub fn get_startup_context_if_applicable(
     let ctx = coach_ctx?;
 
     let query = ctx.startup_query.clone();
-    let data_reqs = ctx.data_requirements.as_ref().and_then(|json| {
-        match serde_json::from_str::<DataRequirements>(json) {
-            Ok(dr) => {
-                info!("Found data_requirements for coach context assembly");
-                Some(dr)
-            }
-            Err(e) => {
-                warn!("Failed to parse data_requirements JSON: {e}");
-                None
-            }
-        }
-    });
+    let data_reqs = parse_data_requirements(ctx);
+    if data_reqs.is_some() {
+        info!("Found data_requirements for coach context assembly");
+    }
 
     if query.is_none() && data_reqs.is_none() {
         return None;
@@ -205,16 +219,23 @@ pub async fn inject_startup_context(
     };
 
     if let Some(data_reqs) = &data_reqs {
-        // Full context assembly: pre-fetch activity data deterministically
+        // Full context assembly: pre-fetch activity data deterministically.
+        // An empty window is not injected — the "pre-loaded for your analysis"
+        // banner over zero activities would tell the model it has data it does
+        // not (the startup query below still lets it fetch on its own).
         if let Some(activity_context) =
             prefetch_activity_context(executor, user_id, tenant_id, data_reqs).await
         {
-            let context_msg = format!(
-                "The following activity data has been pre-loaded for your analysis:\n\n\
-                 {activity_context}"
-            );
-            log_inject("activity context", &context_msg);
-            llm_messages.insert(1, ChatMessage::system(&context_msg));
+            if prefetch_window_is_empty(&activity_context) {
+                info!("startup grounding: activity window empty, skipping pre-load injection");
+            } else {
+                let context_msg = format!(
+                    "The following activity data has been pre-loaded for your analysis:\n\n\
+                     {activity_context}"
+                );
+                log_inject("activity context", &context_msg);
+                llm_messages.insert(1, ChatMessage::system(&context_msg));
+            }
         }
 
         // Inject the startup query as the analysis instruction (after data context)
@@ -228,6 +249,189 @@ pub async fn inject_startup_context(
         log_inject("startup query (no data_requirements)", query);
         llm_messages.insert(1, ChatMessage::user(query));
     }
+}
+
+/// Lowercase substrings that mark the latest user message as a turn whose
+/// answer must be grounded in the athlete's real recent activities — a plan,
+/// a review/analysis, a comparison, or a data-driven recommendation. These
+/// are exactly the asks that read as generic when the model answers from the
+/// coach persona alone instead of the activity list. Bilingual (fr/en) because
+/// the coaching surface is fr-first; matching is case-insensitive containment,
+/// so stems (`analys`, `recommand`, `entraîne`) cover their inflections.
+///
+/// Kept deliberately separate from the tool-prefilter's `KEYWORD_RULES`: that
+/// map decides which *tools* to expose, a different concern that must not
+/// silently change activity-grounding behavior when its keywords are tuned.
+const GROUNDING_INTENT_TERMS: &[&str] = &[
+    // Planning / prescription — needs the real training history to be specific.
+    "plan",
+    "programme",
+    "program",
+    "séance",
+    "seance",
+    "workout",
+    "entraîne",
+    "entraine",
+    "semaine",
+    "week",
+    "taper",
+    "périodis",
+    "periodis",
+    // Analysis / review / comparison — must cite real activities.
+    "analys",
+    "compare",
+    "comparer",
+    "comparaison",
+    "progress",
+    "progrès",
+    "progres",
+    "tendance",
+    "trend",
+    "charge",
+    "training load",
+    "forme",
+    "performance",
+    // Recommendation / guidance grounded in the athlete's data.
+    "recommand",
+    "recommend",
+    "conseil",
+    "suggèr",
+    "sugger",
+    "suggest",
+    "que dois-je",
+    "que faire",
+    "what should i",
+    "how am i",
+    "comment je m",
+    "dois-je",
+];
+
+/// True when the latest user message needs grounding in real activities.
+///
+/// A plan, analysis, comparison, or recommendation must be answered from the
+/// athlete's real recent activities, not the coach persona alone. Errs toward
+/// `true`: a false positive costs one wasted activity fetch, while a false
+/// negative reproduces the ungrounded-generic-plan failure this stage prevents.
+#[must_use]
+pub fn needs_activity_grounding(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    GROUNDING_INTENT_TERMS
+        .iter()
+        .any(|&term| lower.contains(term))
+}
+
+/// Whether a later turn should re-ground the model in fresh activity data.
+///
+/// True only when all hold: it is past the first turn (turn 1 is already
+/// grounded by [`inject_startup_context`]); a coach is bound; the coach
+/// declares an activity `data_requirements` window; and the latest user
+/// message [`needs_activity_grounding`]. A nutrition/mobility coach with no
+/// activity window is left untouched. Pure, so the full gate is unit-testable
+/// without an executor.
+#[must_use]
+pub fn should_refresh_activity_context(
+    history_len: usize,
+    coach_ctx: Option<&CoachRuntimeContext>,
+    latest_user_message: &str,
+) -> bool {
+    if history_len <= 1 {
+        return false;
+    }
+    let Some(coach) = coach_ctx else {
+        return false;
+    };
+    let Some(data_reqs) = parse_data_requirements(coach) else {
+        return false;
+    };
+    if data_reqs.activities.is_none() {
+        return false;
+    }
+    needs_activity_grounding(latest_user_message)
+}
+
+/// Positively confirm that a `get_activities` prefetch returned an empty
+/// window, so the later-turn refresh never injects a "freshly loaded" banner
+/// over zero activities (which would tell the model it has data it does not).
+///
+/// The `get_activities` envelope always carries a `count` field; we treat the
+/// window as empty only when we can parse that field and it is `0`. When the
+/// content cannot be parsed we assume non-empty rather than risk dropping real
+/// grounding data on a serialization hiccup.
+fn prefetch_window_is_empty(content: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .and_then(|value| value.get("count").and_then(serde_json::Value::as_u64))
+        .is_some_and(|count| count == 0)
+}
+
+/// Insert the fresh-activity system message just before the latest user message.
+///
+/// That slot is the most salient for a smaller model. Returns whether a message
+/// was injected: an empty window skips injection so the model is never told it
+/// has data it does not. Pure (no I/O), so the injection contract is
+/// unit-testable without an executor.
+pub fn inject_activity_refresh(
+    llm_messages: &mut Vec<ChatMessage>,
+    activity_context: &str,
+) -> bool {
+    if prefetch_window_is_empty(activity_context) {
+        info!("later-turn grounding: activity window empty, skipping injection");
+        return false;
+    }
+    let context_msg = format!(
+        "The athlete's question needs to be grounded in their real training. \
+         The following activity data was freshly loaded for this turn — base \
+         your analysis and any plan on these specific activities, cite them by \
+         name and date, infer the sport mix from them rather than asking, and \
+         do not answer from memory:\n\n\
+         {activity_context}"
+    );
+    log_inject("activity refresh", &context_msg);
+    let insert_pos = llm_messages.len().saturating_sub(1);
+    llm_messages.insert(insert_pos, ChatMessage::system(&context_msg));
+    true
+}
+
+/// Later-turn activity refresh — the belt-and-suspenders for a smaller model.
+///
+/// [`inject_startup_context`] deterministically grounds a coach conversation in
+/// real activities, but only on its first message. On every later turn the
+/// model had to *choose* to call `get_activities` itself; when it skipped that
+/// call, a "fais-moi un plan" / "analyse ma charge" request was answered from
+/// the persona prompt alone, producing the generic, ungrounded plans this stage
+/// fixes. When [`should_refresh_activity_context`] holds, this stage re-fetches
+/// the coach's activity window and injects it via [`inject_activity_refresh`].
+///
+/// Must run AFTER [`super::compaction::apply_tier1_compaction`]: the injected
+/// block is then safe from summarization, and the insertion cannot desync the
+/// `source_ids`/`llm_messages` parallel vectors that compaction consumes.
+pub async fn maybe_refresh_activity_context(
+    executor: &Arc<UniversalExecutor>,
+    llm_messages: &mut Vec<ChatMessage>,
+    history: &[MessageRecord],
+    coach_ctx: Option<&CoachRuntimeContext>,
+    user_id: &str,
+    tenant_id: TenantId,
+    latest_user_message: &str,
+) {
+    if !should_refresh_activity_context(history.len(), coach_ctx, latest_user_message) {
+        return;
+    }
+
+    // The gate above guaranteed a coach with a parseable activity window; this
+    // re-extracts it for the fetch parameters (a deterministic re-parse, not a
+    // second decision — the gate remains the single decision authority).
+    let Some(data_reqs) = coach_ctx.and_then(parse_data_requirements) else {
+        return;
+    };
+
+    let Some(activity_context) =
+        prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await
+    else {
+        return;
+    };
+
+    inject_activity_refresh(llm_messages, &activity_context);
 }
 
 /// Emit `info!` (length) + `trace!` (full body) for a prefetch injection.

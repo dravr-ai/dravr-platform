@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::compaction::apply_tier1_compaction;
-use super::prefetch::inject_startup_context;
+use super::prefetch::{inject_startup_context, maybe_refresh_activity_context};
 
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
 ///
@@ -129,6 +129,22 @@ pub(crate) async fn dispatch_llm_with_tools(
         &input.conversation_id,
         source_ids,
         llm_messages,
+    )
+    .await;
+
+    // Stage 12b: Later-turn activity grounding. On any turn past the first,
+    // a plan/analysis/recommendation ask must be answered from the athlete's
+    // real activities, not the coach persona alone. Runs AFTER compaction so
+    // the freshly injected block is never summarized away and cannot desync
+    // the `source_ids`/`llm_messages` vectors compaction consumed above.
+    maybe_refresh_activity_context(
+        &executor,
+        llm_messages,
+        history,
+        coach_ctx,
+        &input.user_id,
+        input.tool_tenant_id,
+        &input.content,
     )
     .await;
 
