@@ -134,6 +134,110 @@ enum Command {
         #[command(subcommand)]
         action: commands::harness::HarnessCommand,
     },
+
+    /// Authenticated remote session (gcloud-style login to a pierre-server)
+    Auth {
+        #[command(subcommand)]
+        action: AuthCommand,
+    },
+
+    /// Manage the Strava shared-app OAuth pool on a remote server
+    StravaPool {
+        #[command(subcommand)]
+        action: StravaPoolCommand,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Log in to a remote pierre-server via the device flow, caching the token
+    Login {
+        /// Base URL of the pierre-server (e.g. `https://api.dev.dravr.ai`)
+        #[arg(long)]
+        server: String,
+    },
+
+    /// Remove cached credentials
+    Logout,
+
+    /// Show the current cached login
+    Status,
+
+    /// Approve a pending device login (super-admin)
+    Approve {
+        /// The user code shown by the operator's `auth login`
+        user_code: String,
+
+        /// Server override (defaults to the cached login's server)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Super-admin token authorizing the approval (defaults to cached login)
+        #[arg(long)]
+        token: Option<String>,
+    },
+
+    /// Deny a pending device login (super-admin)
+    Deny {
+        /// The user code shown by the operator's `auth login`
+        user_code: String,
+
+        /// Server override (defaults to the cached login's server)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Super-admin token authorizing the denial (defaults to cached login)
+        #[arg(long)]
+        token: Option<String>,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Subcommand)]
+enum StravaPoolCommand {
+    /// Add or update a Strava OAuth pool app (grows athlete-seat capacity)
+    Add {
+        /// Strava app `client_id` (public)
+        #[arg(long)]
+        client_id: String,
+
+        /// Strava app `client_secret` (sent over TLS, encrypted server-side)
+        #[arg(long)]
+        client_secret: String,
+
+        /// Athlete seat cap for this app
+        #[arg(long)]
+        seat_cap: u32,
+
+        /// Optional human-readable label
+        #[arg(long)]
+        label: Option<String>,
+    },
+
+    /// List pool apps and aggregate seat usage
+    List,
+
+    /// Enable a pool app
+    Enable {
+        /// The pool app's `client_id`
+        #[arg(long)]
+        client_id: String,
+    },
+
+    /// Disable a pool app (skipped for new connections)
+    Disable {
+        /// The pool app's `client_id`
+        #[arg(long)]
+        client_id: String,
+    },
+
+    /// Delete a pool app
+    Delete {
+        /// The pool app's `client_id`
+        #[arg(long)]
+        client_id: String,
+    },
 }
 
 #[non_exhaustive]
@@ -248,6 +352,43 @@ enum TokenCommand {
     },
 }
 
+async fn dispatch_auth(action: AuthCommand) -> Result<()> {
+    match action {
+        AuthCommand::Login { server } => commands::auth::login(server).await,
+        AuthCommand::Logout => commands::auth::logout(),
+        AuthCommand::Status => commands::auth::status(),
+        AuthCommand::Approve {
+            user_code,
+            server,
+            token,
+        } => commands::auth::resolve(user_code, server, token, false).await,
+        AuthCommand::Deny {
+            user_code,
+            server,
+            token,
+        } => commands::auth::resolve(user_code, server, token, true).await,
+    }
+}
+
+async fn dispatch_strava_pool(action: StravaPoolCommand) -> Result<()> {
+    match action {
+        StravaPoolCommand::Add {
+            client_id,
+            client_secret,
+            seat_cap,
+            label,
+        } => commands::strava_pool::add(client_id, client_secret, seat_cap, label).await,
+        StravaPoolCommand::List => commands::strava_pool::list().await,
+        StravaPoolCommand::Enable { client_id } => {
+            commands::strava_pool::set_enabled(client_id, true).await
+        }
+        StravaPoolCommand::Disable { client_id } => {
+            commands::strava_pool::set_enabled(client_id, false).await
+        }
+        StravaPoolCommand::Delete { client_id } => commands::strava_pool::delete(client_id).await,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -281,6 +422,16 @@ async fn main() -> Result<()> {
     // initialize with the source KEK), so they dispatch before the standard init.
     if let Command::Key { action } = cli.command {
         return commands::key::dispatch(action, &database_url).await;
+    }
+
+    // Auth + StravaPool are gcloud-style *remote* commands: they talk to a
+    // pierre-server over HTTP with the cached device-login token and never touch
+    // the local database, so they dispatch before the KeyManager/DB bootstrap.
+    if let Command::Auth { action } = cli.command {
+        return dispatch_auth(action).await;
+    }
+    if let Command::StravaPool { action } = cli.command {
+        return dispatch_strava_pool(action).await;
     }
 
     // Initialize two-tier key management system
@@ -318,6 +469,10 @@ async fn main() -> Result<()> {
             unreachable!("CheckDrift is handled in the early return above")
         }
         Command::Key { .. } => unreachable!("Key is handled in the early return above"),
+        Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
+        Command::StravaPool { .. } => {
+            unreachable!("StravaPool is handled in the early return above")
+        }
         Command::User { action } => match action {
             UserCommand::Create {
                 email,

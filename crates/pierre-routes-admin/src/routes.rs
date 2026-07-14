@@ -28,8 +28,8 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
-    coach_notes, feature_flags, harness_config, memory_worker, myth_busting, settings, setup,
-    strava_pool, tokens, users,
+    coach_notes, device_auth, feature_flags, harness_config, memory_worker, myth_busting, settings,
+    setup, strava_pool, tokens, users,
 };
 
 /// Admin routes implementation (Axum).
@@ -68,6 +68,14 @@ impl AdminRoutes {
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
 
+        // Device-grant authorization + token endpoints are public: the CLI is
+        // not yet authenticated when it calls them (the raw device_code is the
+        // bearer secret). Only /admin/device/approve is behind the admin token.
+        let device_public_routes = Self::device_public_routes(context.clone());
+        let device_approve_routes = Self::device_approve_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
         let settings_routes = Self::settings_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
@@ -80,6 +88,8 @@ impl AdminRoutes {
             .merge(admin_token_routes)
             .merge(user_routes)
             .merge(strava_pool_routes)
+            .merge(device_public_routes)
+            .merge(device_approve_routes)
             .merge(settings_routes)
             .merge(setup_routes)
     }
@@ -408,6 +418,31 @@ impl AdminRoutes {
                 "/admin/strava-pool/apps/{client_id}",
                 patch(strava_pool::handle_set_strava_pool_app_enabled)
                     .delete(strava_pool::handle_delete_strava_pool_app),
+            )
+            .with_state(context)
+    }
+
+    /// Public device-grant endpoints (RFC 8628): the CLI starts a login and
+    /// polls for the token. No auth layer — the raw `device_code` is the secret.
+    fn device_public_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/device/authorization",
+                post(device_auth::handle_device_authorization),
+            )
+            .route(
+                "/admin/device/token",
+                post(device_auth::handle_device_token),
+            )
+            .with_state(context)
+    }
+
+    /// Super-admin device-grant approval endpoint (behind `admin_auth_middleware`).
+    fn device_approve_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/device/approve",
+                post(device_auth::handle_device_approve),
             )
             .with_state(context)
     }

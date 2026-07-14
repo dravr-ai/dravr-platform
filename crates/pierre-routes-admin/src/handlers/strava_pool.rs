@@ -36,7 +36,7 @@ use crate::context::AdminApiContext;
 
 /// Managing platform OAuth-app secrets is a super-admin-only operation. Returns
 /// the FORBIDDEN response when the caller isn't super-admin, else `None`.
-fn deny_if_not_super_admin(admin_token: &ValidatedAdminToken) -> Option<Response> {
+pub(crate) fn deny_if_not_super_admin(admin_token: &ValidatedAdminToken) -> Option<Response> {
     if admin_token.is_super_admin {
         return None;
     }
@@ -44,8 +44,7 @@ fn deny_if_not_super_admin(admin_token: &ValidatedAdminToken) -> Option<Response
         json_response(
             AdminResponse {
                 success: false,
-                message: "Permission denied: super-admin required to manage the Strava OAuth pool"
-                    .to_owned(),
+                message: "Permission denied: super-admin privileges required".to_owned(),
                 data: None,
             },
             StatusCode::FORBIDDEN,

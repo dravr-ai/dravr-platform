@@ -34,6 +34,29 @@ pub struct OAuth2Client {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
+/// A pending RFC 8628 Device Authorization for `pierre-cli auth login`.
+///
+/// Created when the CLI calls `/admin/device/authorization`, flipped to
+/// `approved`/`denied` by a super-admin at the verification page, and consumed
+/// (deleted) when the CLI's token poll mints the admin token. Timestamps are
+/// Unix epoch seconds to match the `device_authorization` table; the raw
+/// `device_code` is never stored, only its SHA-256 hash.
+#[derive(Debug, Clone)]
+pub struct DeviceAuthorization {
+    /// SHA-256 hex of the raw `device_code` (the raw code is never persisted).
+    pub device_code_hash: String,
+    /// Short human-typeable code the operator enters at the approval page.
+    pub user_code: String,
+    /// Lifecycle status: `pending`, `approved`, or `denied`.
+    pub status: String,
+    /// Email of the super-admin who approved, set once `status = approved`.
+    pub approved_by: Option<String>,
+    /// Creation time, Unix epoch seconds.
+    pub created_at: i64,
+    /// Expiry, Unix epoch seconds; the flow must complete before this.
+    pub expires_at: i64,
+}
+
 /// OAuth 2.0 Authorization Code
 #[derive(Debug, Clone)]
 pub struct OAuth2AuthCode {

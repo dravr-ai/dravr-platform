@@ -157,7 +157,9 @@ pub use dravr_cageux::models::social::{
 
 // OAuth 2.0 server persistence models
 mod oauth2_server;
-pub use oauth2_server::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
+pub use oauth2_server::{
+    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
+};
 
 // User MCP token types for AI client authentication
 mod user_mcp_token;

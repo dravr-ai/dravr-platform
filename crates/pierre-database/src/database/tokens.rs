@@ -13,7 +13,10 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::OAuthClientState;
 use pierre_core::models::{AuthorizationCode, DecryptedToken, EncryptedToken, OAuthClientGrant};
-use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
+use pierre_core::models::{
+    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
+};
+use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -353,6 +356,115 @@ impl OAuth2ServerRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to revoke OAuth client grant: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO device_authorization
+                (device_code_hash, user_code, status, approved_by, created_at, expires_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+        )
+        .bind(&da.device_code_hash)
+        .bind(&da.user_code)
+        .bind(&da.status)
+        .bind(&da.approved_by)
+        .bind(da.created_at)
+        .bind(da.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store device authorization: {e}")))?;
+        Ok(())
+    }
+
+    async fn get_device_authorization_by_code_hash(
+        &self,
+        device_code_hash: &str,
+    ) -> AppResult<Option<DeviceAuthorization>> {
+        let row = sqlx::query(
+            "SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at \
+             FROM device_authorization WHERE device_code_hash = ?1",
+        )
+        .bind(device_code_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load device authorization: {e}")))?;
+        Ok(row.as_ref().map(row_to_device_authorization))
+    }
+
+    async fn get_device_authorization_by_user_code(
+        &self,
+        user_code: &str,
+    ) -> AppResult<Option<DeviceAuthorization>> {
+        let row = sqlx::query(
+            "SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at \
+             FROM device_authorization WHERE user_code = ?1",
+        )
+        .bind(user_code)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to load device authorization by user_code: {e}"
+            ))
+        })?;
+        Ok(row.as_ref().map(row_to_device_authorization))
+    }
+
+    async fn approve_device_authorization(
+        &self,
+        user_code: &str,
+        approved_by: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE device_authorization
+            SET status = 'approved', approved_by = ?2
+            WHERE user_code = ?1 AND status = 'pending'
+            ",
+        )
+        .bind(user_code)
+        .bind(approved_by)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to approve device authorization: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn deny_device_authorization(&self, user_code: &str) -> AppResult<bool> {
+        let result = sqlx::query(
+            "UPDATE device_authorization SET status = 'denied' \
+             WHERE user_code = ?1 AND status = 'pending'",
+        )
+        .bind(user_code)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to deny device authorization: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_device_authorization(&self, device_code_hash: &str) -> AppResult<bool> {
+        let result = sqlx::query("DELETE FROM device_authorization WHERE device_code_hash = ?1")
+            .bind(device_code_hash)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to delete device authorization: {e}"))
+            })?;
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+/// Map a `device_authorization` `SQLite` row to a [`DeviceAuthorization`].
+fn row_to_device_authorization(row: &SqliteRow) -> DeviceAuthorization {
+    DeviceAuthorization {
+        device_code_hash: row.get("device_code_hash"),
+        user_code: row.get("user_code"),
+        status: row.get("status"),
+        approved_by: row.get("approved_by"),
+        created_at: row.get("created_at"),
+        expires_at: row.get("expires_at"),
     }
 }
 

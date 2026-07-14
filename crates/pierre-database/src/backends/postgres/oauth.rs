@@ -21,7 +21,9 @@ use pierre_core::models::{
     AuthorizationCode, ConnectionStatus, ConnectionType, OAuthClientGrant, ProviderConnection,
     StravaPoolApp, UserOAuthApp, UserOAuthToken,
 };
-use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
+use pierre_core::models::{
+    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
+};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use tracing::warn;
@@ -1309,9 +1311,128 @@ impl OAuth2ServerRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO device_authorization
+                (device_code_hash, user_code, status, approved_by, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ",
+        )
+        .bind(&da.device_code_hash)
+        .bind(&da.user_code)
+        .bind(&da.status)
+        .bind(&da.approved_by)
+        .bind(da.created_at)
+        .bind(da.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store device authorization: {e}")))?;
+        Ok(())
+    }
+
+    async fn get_device_authorization_by_code_hash(
+        &self,
+        device_code_hash: &str,
+    ) -> AppResult<Option<DeviceAuthorization>> {
+        let row = sqlx::query(
+            "SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at \
+             FROM device_authorization WHERE device_code_hash = $1",
+        )
+        .bind(device_code_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load device authorization: {e}")))?;
+        row.as_ref().map(row_to_device_authorization).transpose()
+    }
+
+    async fn get_device_authorization_by_user_code(
+        &self,
+        user_code: &str,
+    ) -> AppResult<Option<DeviceAuthorization>> {
+        let row = sqlx::query(
+            "SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at \
+             FROM device_authorization WHERE user_code = $1",
+        )
+        .bind(user_code)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to load device authorization by user_code: {e}"
+            ))
+        })?;
+        row.as_ref().map(row_to_device_authorization).transpose()
+    }
+
+    async fn approve_device_authorization(
+        &self,
+        user_code: &str,
+        approved_by: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE device_authorization
+            SET status = 'approved', approved_by = $2
+            WHERE user_code = $1 AND status = 'pending'
+            ",
+        )
+        .bind(user_code)
+        .bind(approved_by)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to approve device authorization: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn deny_device_authorization(&self, user_code: &str) -> AppResult<bool> {
+        let result = sqlx::query(
+            "UPDATE device_authorization SET status = 'denied' \
+             WHERE user_code = $1 AND status = 'pending'",
+        )
+        .bind(user_code)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to deny device authorization: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn delete_device_authorization(&self, device_code_hash: &str) -> AppResult<bool> {
+        let result = sqlx::query("DELETE FROM device_authorization WHERE device_code_hash = $1")
+            .bind(device_code_hash)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to delete device authorization: {e}"))
+            })?;
+        Ok(result.rows_affected() > 0)
+    }
+
     // ================================
     // OAuth Client State (CSRF + PKCE)
     // ================================
+}
+
+/// Map a `device_authorization` `PostgreSQL` row to a [`DeviceAuthorization`].
+fn row_to_device_authorization(row: &PgRow) -> AppResult<DeviceAuthorization> {
+    Ok(DeviceAuthorization {
+        device_code_hash: row.try_get("device_code_hash").map_err(|e| {
+            AppError::database(format!("Failed to parse device_code_hash column: {e}"))
+        })?,
+        user_code: row
+            .try_get("user_code")
+            .map_err(|e| AppError::database(format!("Failed to parse user_code column: {e}")))?,
+        status: row
+            .try_get("status")
+            .map_err(|e| AppError::database(format!("Failed to parse status column: {e}")))?,
+        approved_by: row.try_get("approved_by").ok(),
+        created_at: row
+            .try_get("created_at")
+            .map_err(|e| AppError::database(format!("Failed to parse created_at column: {e}")))?,
+        expires_at: row
+            .try_get("expires_at")
+            .map_err(|e| AppError::database(format!("Failed to parse expires_at column: {e}")))?,
+    })
 }
 
 #[async_trait]

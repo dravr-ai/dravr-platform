@@ -10,9 +10,9 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    AuthorizationCode, ConnectionType, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, StravaPoolApp,
-    UserOAuthApp, UserOAuthToken,
+    AuthorizationCode, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection,
+    StravaPoolApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -251,6 +251,37 @@ pub trait OAuth2ServerRepository: Send + Sync {
         user_id: &str,
         tenant_id: &str,
     ) -> AppResult<bool>;
+
+    /// Store a new pending device authorization (RFC 8628).
+    async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()>;
+    /// Look up a device authorization by the SHA-256 hash of its `device_code`.
+    async fn get_device_authorization_by_code_hash(
+        &self,
+        device_code_hash: &str,
+    ) -> AppResult<Option<DeviceAuthorization>>;
+    /// Look up a device authorization by its `user_code` (operator-entered code).
+    async fn get_device_authorization_by_user_code(
+        &self,
+        user_code: &str,
+    ) -> AppResult<Option<DeviceAuthorization>>;
+    /// Mark a pending device authorization approved by a super-admin.
+    ///
+    /// Returns `true` when a still-pending row was updated; `false` when nothing
+    /// matched (unknown `user_code`, or already approved/denied).
+    async fn approve_device_authorization(
+        &self,
+        user_code: &str,
+        approved_by: &str,
+    ) -> AppResult<bool>;
+    /// Mark a pending device authorization denied. Returns `true` if a pending
+    /// row was updated.
+    async fn deny_device_authorization(&self, user_code: &str) -> AppResult<bool>;
+    /// Delete a device authorization by `device_code` hash (single-use consume).
+    ///
+    /// Returns `true` if a row was deleted — the token endpoint mints the admin
+    /// token only when this returns `true`, so a duplicate poll can never mint
+    /// twice.
+    async fn delete_device_authorization(&self, device_code_hash: &str) -> AppResult<bool>;
 }
 
 /// OAuth client-side state management repository
