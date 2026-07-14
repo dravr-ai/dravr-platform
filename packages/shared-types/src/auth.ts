@@ -127,6 +127,13 @@ export interface ExtendedProviderStatus {
   display_name: string;
   requires_oauth: boolean;
   connected: boolean;
+  /**
+   * A connected provider whose session is no longer usable and needs the user
+   * to reconnect (a dead sciotte scrape session or a non-recoverable OAuth
+   * refresh). Only meaningful when `connected` is true — render "Reconnect
+   * needed" instead of a healthy "Connected".
+   */
+  needs_reauth: boolean;
   capabilities: string[];
   /**
    * For a user-facing provider with more than one auth backend (Strava can be

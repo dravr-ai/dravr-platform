@@ -337,6 +337,16 @@ pub async fn compute_providers_status(
         .await
         .unwrap_or_default();
 
+    // A connection whose lifecycle status is NeedsReauth/Revoked still has a row
+    // (so it reads as "connected") but its session no longer works — a dead
+    // sciotte scrape or a non-recoverable OAuth refresh. Track those separately so
+    // the screen can show "Reconnect needed" rather than a healthy "Connected".
+    let reauth_providers: HashSet<String> = connections
+        .iter()
+        .filter(|c| c.status.requires_reauth())
+        .map(|c| c.provider.clone())
+        .collect();
+
     let connected_providers: HashSet<String> =
         connections.into_iter().map(|c| c.provider).collect();
 
@@ -368,6 +378,10 @@ pub async fn compute_providers_status(
 
             // Determine connection status from the provider_connections table
             let connected = connected_providers.contains(provider_name);
+            // A connected provider whose session died (dead scrape / failed OAuth
+            // refresh) is flagged so the UI prompts a reconnect instead of showing
+            // a healthy "Connected". Only meaningful while `connected` is true.
+            let needs_reauth = connected && reauth_providers.contains(provider_name);
 
             // Always show all providers regardless of connection status.
             // Non-OAuth providers (like synthetic) appear with connected=false
@@ -407,6 +421,7 @@ pub async fn compute_providers_status(
                 display_name: descriptor.display_name().to_owned(),
                 requires_oauth,
                 connected,
+                needs_reauth,
                 capabilities,
                 recommended_backend,
                 seats_left,

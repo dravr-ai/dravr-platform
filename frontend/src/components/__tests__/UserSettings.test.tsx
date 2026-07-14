@@ -433,6 +433,7 @@ describe('UserSettings Component', () => {
       display_name: 'Strava',
       requires_oauth: false,
       connected: false,
+      needs_reauth: false,
       capabilities: ['activities'],
       recommended_backend,
       seats_left: recommended_backend === 'oauth' ? 3 : 0,
@@ -469,6 +470,22 @@ describe('UserSettings Component', () => {
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
       expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+    });
+
+    it('renders a connected-but-dead session as "Reconnect needed", not "Connected"', async () => {
+      // A connected provider whose scrape session died (needs_reauth) must show
+      // the warning badge + a "Reconnect" affordance instead of a healthy pill.
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...stravaCard('mirror'), connected: true, needs_reauth: true }],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByText('Reconnect needed')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+      // The healthy "Connected" badge must NOT be shown for a dead session.
+      expect(screen.queryByText('Connected')).not.toBeInTheDocument();
     });
 
     // The failure-fallback path (a failed `pierre_oauth_result` reopening the

@@ -640,13 +640,39 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
 
             let tenant_id = TenantId::from(ctx.require_tenant()?);
 
-            match ctx
+            // Resolve the user-facing name ("garmin") to the backend that actually
+            // holds the session ("sciotte_garmin"). Deleting the raw name would
+            // miss the mirror row entirely — "disconnect garmin" would delete a
+            // non-existent `garmin` token and leave the live sciotte_garmin
+            // session + connection untouched.
+            let backend = backend_resolver::resolve_backend(
+                &ctx.resources.repos().auth_repos(),
+                user_uuid,
+                Some(tenant_id),
+                provider,
+            )
+            .await;
+
+            // Delete the token and the connection row in lockstep. They are
+            // separate sources of truth (oauth_tokens → resolve_backend + scrape
+            // session; provider_connections → the "connected" badge + coaching
+            // fetch enumeration); an orphaned connection row shows "Connected" for
+            // a dead session and routes later fetches to a backend with no token.
+            let token_res = ctx
                 .resources
                 .repos()
                 .oauth_tokens
-                .delete_token(user_uuid, tenant_id, provider)
-                .await
-            {
+                .delete_token(user_uuid, tenant_id, &backend)
+                .await;
+            let conn_res = ctx
+                .resources
+                .repos()
+                .provider_connections
+                .remove_connection(user_uuid, tenant_id, &backend)
+                .await;
+
+            match token_res.and(conn_res) {
+                // Report the user-facing name — the mirror backend is internal.
                 Ok(()) => Ok(ToolResult::ok(json!({
                     "provider": provider,
                     "status": "disconnected",

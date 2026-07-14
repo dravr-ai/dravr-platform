@@ -33,7 +33,7 @@ use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_tool_runtime::implementations::connection::{
-    ConnectProviderTool, GetConnectionStatusTool,
+    ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
 };
 use pierre_tool_runtime::implementations::data::GetAthleteTool;
 use pierre_tool_runtime::protocol::auth::AuthService;
@@ -243,6 +243,31 @@ async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
     )
     .await;
     assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
+}
+
+#[tokio::test]
+async fn resolve_backend_garmin_stays_on_mirror_when_no_token() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // No sciotte_garmin token row at all (e.g. after an orphaned-row disconnect).
+    // Garmin must STILL resolve to its mirror — never fall through to the raw
+    // `garmin` OAuth backend, which is uncredentialed and fails the turn with
+    // "No Garmin OAuth credentials". A missing session then surfaces as a
+    // reconnect-Garmin auth error downstream, not an OAuth-credentials error.
+    let resolved = backend_resolver::resolve_backend(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        Some(tenant_id),
+        oauth_providers::GARMIN,
+    )
+    .await;
+    assert_eq!(
+        resolved,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin with no mirror token must stay on the mirror, not fall through to OAuth garmin"
+    );
 }
 
 #[tokio::test]
@@ -862,5 +887,163 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
         signalled,
         Some(json!(oauth_providers::WHOOP)),
         "create_authenticated_provider must tag the auth-required provider for the recovery stage"
+    );
+}
+
+// ============================================================================
+// Provider-connection consistency: symmetric disconnect + orphan reconciliation
+// ============================================================================
+
+/// A disconnect must clear BOTH sources of truth — the `user_oauth_tokens` row
+/// (drives `resolve_backend` + the scrape session) and the `provider_connections`
+/// row (drives the "connected" badge + coaching fetch enumeration). Leaving an
+/// orphaned connection row is exactly what made a disconnected Garmin keep
+/// showing "Connected" and routed the next fetch to the uncredentialed OAuth
+/// backend. The chat tool disconnects by the user-facing name "garmin", so it
+/// must resolve to the `sciotte_garmin` backend before deleting.
+#[tokio::test]
+async fn disconnect_provider_tool_removes_both_token_and_connection_for_garmin() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // Connect Garmin via the mirror: a token row + a connection row, exactly as
+    // handle_sciotte_login writes them.
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            oauth_providers::SCIOTTE_GARMIN,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let tool = DisconnectProviderTool;
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    let result = tool
+        .execute(&state, &ctx, json!({ "provider": "garmin" }))
+        .await;
+    assert!(
+        !result.is_error,
+        "disconnect must succeed: {:?}",
+        result.structured_content
+    );
+
+    let token = resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, oauth_providers::SCIOTTE_GARMIN)
+        .await
+        .unwrap();
+    assert!(
+        token.is_none(),
+        "the mirror token row must be deleted on disconnect"
+    );
+
+    let conns = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    assert!(
+        !conns
+            .iter()
+            .any(|c| c.provider == oauth_providers::SCIOTTE_GARMIN),
+        "the mirror connection row must be removed, not left orphaned"
+    );
+}
+
+/// The one-time reconciliation (migration 20260714000001) removes connection
+/// rows with no backing token — but only for backends where a token is expected
+/// ('oauth'/'manual'). Synthetic connections are tokenless by design and must be
+/// spared, and a token-backed connection must never be touched. This exercises
+/// the exact DELETE the migration runs (sqlite variant).
+#[tokio::test]
+async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let pc = &resources.common.repos.provider_connections;
+
+    // (a) Orphaned mirror connection: 'manual' type, NO token → must be deleted.
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+        &ConnectionType::Manual,
+        None,
+    )
+    .await
+    .unwrap();
+    // (b) Synthetic connection: tokenless by design → must be SPARED.
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        "synthetic",
+        &ConnectionType::Synthetic,
+        None,
+    )
+    .await
+    .unwrap();
+    // (c) Valid OAuth connection with a backing token → must be SPARED.
+    seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::STRAVA,
+        &ConnectionType::OAuth,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Run the reconciliation exactly as migration 20260714000001 does.
+    let pool = resources
+        .coach
+        .database
+        .sqlite_pool()
+        .expect("sqlite test pool");
+    sqlx::query(
+        "DELETE FROM provider_connections \
+         WHERE connection_type IN ('oauth', 'manual') \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM user_oauth_tokens t \
+             WHERE CAST(t.user_id AS TEXT) = CAST(provider_connections.user_id AS TEXT) \
+               AND CAST(t.tenant_id AS TEXT) = CAST(provider_connections.tenant_id AS TEXT) \
+               AND t.provider = provider_connections.provider )",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let conns = pc.get_for_user(user_id, Some(tenant_id)).await.unwrap();
+    let names: Vec<&str> = conns.iter().map(|c| c.provider.as_str()).collect();
+    assert!(
+        !names.contains(&oauth_providers::SCIOTTE_GARMIN),
+        "orphaned mirror connection (no token) must be deleted: {names:?}"
+    );
+    assert!(
+        names.contains(&"synthetic"),
+        "synthetic connection is tokenless-by-design and must be spared: {names:?}"
+    );
+    assert!(
+        names.contains(&oauth_providers::STRAVA),
+        "token-backed oauth connection must be spared: {names:?}"
     );
 }

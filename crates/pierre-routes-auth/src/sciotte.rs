@@ -1071,6 +1071,18 @@ pub async fn handle_sciotte_disconnect(
         .delete_token(user_id, tenant, "sciotte")
         .await?;
 
+    // Remove the connection row in lockstep with the token. The two tables are
+    // separate sources of truth (provider_connections drives the "connected"
+    // badge + coaching fetch enumeration; oauth_tokens drives resolve_backend +
+    // the scrape session); leaving an orphaned connection row makes the UI show
+    // "Connected" for a session that no longer exists and routes later fetches
+    // to a dead backend.
+    resources
+        .repos
+        .provider_connections
+        .remove_connection(user_id, tenant, "sciotte")
+        .await?;
+
     info!(user_id = %user_id, "Sciotte session disconnected");
 
     Ok(StatusCode::NO_CONTENT.into_response())

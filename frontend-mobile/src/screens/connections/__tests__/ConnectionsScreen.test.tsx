@@ -56,6 +56,7 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
     display_name: 'Strava',
     requires_oauth: false,
     connected: false,
+    needs_reauth: false,
     capabilities: ['activities'],
     recommended_backend,
     seats_left: recommended_backend === 'oauth' ? 3 : 0,

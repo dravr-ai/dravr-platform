@@ -99,7 +99,7 @@ async fn has_token_row(
 ///
 /// Rules:
 /// - `strava` → `sciotte` when a sciotte token row exists for the user
-/// - `garmin` → `sciotte_garmin` when a `sciotte_garmin` token row exists
+/// - `garmin` → `sciotte_garmin` always (the mirror is Garmin's only backend)
 /// - any other name (including a mirror backend name passed through
 ///   directly) is returned unchanged
 ///
@@ -108,8 +108,14 @@ async fn has_token_row(
 /// that case, which the caller is expected to translate into a
 /// mirror-re-login prompt — never a fallback to OAuth.
 ///
-/// Exception: a Strava request whose user holds an OAuth token resolves to the
-/// OAuth backend instead of the sciotte mirror (Strava → OAuth-API migration).
+/// Exceptions:
+/// - A Strava request whose user holds an OAuth token resolves to the OAuth
+///   backend instead of the sciotte mirror (Strava → OAuth-API migration).
+/// - A Garmin request always resolves to `sciotte_garmin`, even with no mirror
+///   token: Garmin's OAuth API is partner-gated/uncredentialed, so returning the
+///   raw `garmin` OAuth backend would hit "No Garmin OAuth credentials" and fail
+///   the turn. Staying on the mirror makes a missing session surface as a clean
+///   reconnect-Garmin auth error instead.
 pub async fn resolve_backend(
     repos: &AuthRepos,
     user_id: Uuid,
@@ -132,10 +138,18 @@ pub async fn resolve_backend(
         return requested.to_owned();
     }
     if has_token_row(repos, user_id, tid, mirror).await {
-        mirror.to_owned()
-    } else {
-        requested.to_owned()
+        return mirror.to_owned();
     }
+    // No mirror token. Garmin's mirror is its ONLY backend — the raw `garmin`
+    // OAuth API is uncredentialed, so a fallthrough to it fails the turn with
+    // "No Garmin OAuth credentials". Stay on `sciotte_garmin` so the scrape
+    // surfaces a reconnect-Garmin auth error. Strava keeps returning the OAuth
+    // name (a real, connectable backend) so a not-yet-connected user is routed
+    // into the OAuth connect flow rather than a dead scraper.
+    if requested == oauth_providers::GARMIN {
+        return mirror.to_owned();
+    }
+    requested.to_owned()
 }
 
 /// Connection status for a user-facing provider after mirror coalescing.

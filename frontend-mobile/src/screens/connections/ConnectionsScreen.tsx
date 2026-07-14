@@ -214,6 +214,10 @@ export function ConnectionsScreen() {
   const renderProvider = (provider: ExtendedProviderStatus) => {
     const config = getProviderConfig(provider.provider);
     const isConnected = provider.connected;
+    // A connected-but-dead session (dead sciotte scrape / failed OAuth refresh):
+    // show "Reconnect needed" and route the action to the connect flow instead of
+    // a healthy-looking "Connected" pill with only a disconnect affordance.
+    const needsReauth = provider.connected && provider.needs_reauth;
     const isConnecting = connectingProvider === provider.provider;
     const requiresOAuth = provider.requires_oauth;
     const isSciotte = provider.provider.startsWith('sciotte');
@@ -234,11 +238,17 @@ export function ConnectionsScreen() {
           {/* Provider info */}
           <View className="flex-1 mr-3">
             <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
-            <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{config.description}</Text>
+            {needsReauth ? (
+              <Text className="text-xs text-warning font-semibold mt-0.5" numberOfLines={1}>
+                Reconnect needed
+              </Text>
+            ) : (
+              <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{config.description}</Text>
+            )}
           </View>
 
           {/* Action button — right-aligned pill */}
-          {isConnected ? (
+          {isConnected && !needsReauth ? (
             <View className="flex-row items-center">
               <View className="flex-row items-center bg-success/15 px-3 py-1.5 rounded-full mr-1">
                 <Text className="text-xs text-success font-semibold">Connected</Text>
@@ -288,7 +298,9 @@ export function ConnectionsScreen() {
               {isConnecting ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-sm font-semibold text-on-surface">Connect</Text>
+                <Text className="text-sm font-semibold text-on-surface">
+                  {needsReauth ? 'Reconnect' : 'Connect'}
+                </Text>
               )}
             </TouchableOpacity>
           ) : null}
