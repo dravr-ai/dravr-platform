@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use pierre_runtime_context::MiddlewareCtx;
@@ -29,7 +29,7 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
     coach_notes, feature_flags, harness_config, memory_worker, myth_busting, settings, setup,
-    tokens, users,
+    strava_pool, tokens, users,
 };
 
 /// Admin routes implementation (Axum).
@@ -64,6 +64,10 @@ impl AdminRoutes {
             admin_auth_middleware,
         ));
 
+        let strava_pool_routes = Self::strava_pool_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
         let settings_routes = Self::settings_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
@@ -75,6 +79,7 @@ impl AdminRoutes {
             .merge(api_key_routes)
             .merge(admin_token_routes)
             .merge(user_routes)
+            .merge(strava_pool_routes)
             .merge(settings_routes)
             .merge(setup_routes)
     }
@@ -386,6 +391,23 @@ impl AdminRoutes {
             .route(
                 "/admin/tokens/{token_id}/rotate",
                 post(tokens::handle_rotate_admin_token),
+            )
+            .with_state(context)
+    }
+
+    /// Super-admin CRUD for the Strava shared-app OAuth credential pool
+    /// (`strava_oauth_app_pool`). The server KMS-encrypts `client_secret`.
+    fn strava_pool_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/strava-pool/apps",
+                post(strava_pool::handle_upsert_strava_pool_app)
+                    .get(strava_pool::handle_list_strava_pool_apps),
+            )
+            .route(
+                "/admin/strava-pool/apps/{client_id}",
+                patch(strava_pool::handle_set_strava_pool_app_enabled)
+                    .delete(strava_pool::handle_delete_strava_pool_app),
             )
             .with_state(context)
     }
