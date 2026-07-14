@@ -10,10 +10,25 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_core::models::{UserOAuthApp, UserOAuthToken};
+use pierre_core::models::{StravaPoolApp, UserOAuthApp, UserOAuthToken};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
+
+/// Build a [`StravaPoolApp`] from a `strava_oauth_app_pool` row (`SQLite` stores
+/// `enabled` as 0/1 and timestamps as epoch integers).
+fn row_to_strava_pool_app(row: &SqliteRow) -> StravaPoolApp {
+    let seat_cap: i64 = row.get("seat_cap");
+    let enabled: i64 = row.get("enabled");
+    StravaPoolApp {
+        client_id: row.get("client_id"),
+        seat_cap: u32::try_from(seat_cap).unwrap_or(0),
+        enabled: enabled != 0,
+        label: row.get("label"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
 
 /// OAuth token data for database operations
 pub struct OAuthTokenData<'a> {
@@ -38,6 +53,9 @@ pub struct OAuthTokenData<'a> {
     /// Provider-side user identifier (e.g. Intervals.icu `athlete_id`), stored
     /// plaintext. `None` for pure OAuth bearer providers.
     pub provider_user_id: Option<&'a str>,
+    /// Shared-app pool `client_id` that issued this Strava token (so refresh
+    /// resolves the matching secret). `None` = the env-default app.
+    pub oauth_app_client_id: Option<&'a str>,
 }
 
 impl Database {
@@ -72,8 +90,9 @@ impl Database {
             r"
             INSERT INTO user_oauth_tokens (
                 id, user_id, tenant_id, provider, access_token, refresh_token,
-                token_type, expires_at, scope, created_at, updated_at, provider_user_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                token_type, expires_at, scope, created_at, updated_at, provider_user_id,
+                oauth_app_client_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, tenant_id, provider)
             DO UPDATE SET
                 id = EXCLUDED.id,
@@ -83,6 +102,7 @@ impl Database {
                 expires_at = EXCLUDED.expires_at,
                 scope = EXCLUDED.scope,
                 provider_user_id = EXCLUDED.provider_user_id,
+                oauth_app_client_id = EXCLUDED.oauth_app_client_id,
                 updated_at = EXCLUDED.updated_at
             ",
         )
@@ -98,6 +118,7 @@ impl Database {
         .bind(Utc::now())
         .bind(Utc::now())
         .bind(token_data.provider_user_id)
+        .bind(token_data.oauth_app_client_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert user OAuth token: {e}")))?;
@@ -123,7 +144,7 @@ impl Database {
         let row = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
             FROM user_oauth_tokens
             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
             ",
@@ -163,7 +184,7 @@ impl Database {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
                 FROM user_oauth_tokens
                 WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY created_at DESC
@@ -178,7 +199,7 @@ impl Database {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
                 FROM user_oauth_tokens
                 WHERE user_id = $1
                 ORDER BY created_at DESC
@@ -214,7 +235,7 @@ impl Database {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
             FROM user_oauth_tokens
             WHERE tenant_id = $1 AND provider = $2
             ORDER BY created_at DESC
@@ -453,6 +474,7 @@ impl Database {
             expires_at: row.get("expires_at"),
             scope: row.get::<Option<String>, _>("scope"),
             provider_user_id: row.get::<Option<String>, _>("provider_user_id"),
+            oauth_app_client_id: row.get::<Option<String>, _>("oauth_app_client_id"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -505,6 +527,7 @@ impl OAuthTokenRepository for Database {
             expires_at: token.expires_at,
             scope: token.scope.as_deref().unwrap_or(""),
             provider_user_id: token.provider_user_id.as_deref(),
+            oauth_app_client_id: token.oauth_app_client_id.as_deref(),
         };
 
         Self::upsert_user_oauth_token(self, &token_data).await
@@ -541,6 +564,122 @@ impl OAuthTokenRepository for Database {
     async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
         Self::count_shared_app_seat_usage(self, provider).await
     }
+
+    async fn list_strava_pool_apps(&self, only_enabled: bool) -> AppResult<Vec<StravaPoolApp>> {
+        let sql = if only_enabled {
+            "SELECT client_id, seat_cap, enabled, label, created_at, updated_at \
+             FROM strava_oauth_app_pool WHERE enabled = 1 ORDER BY created_at"
+        } else {
+            "SELECT client_id, seat_cap, enabled, label, created_at, updated_at \
+             FROM strava_oauth_app_pool ORDER BY created_at"
+        };
+        let rows = sqlx::query(sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to list Strava pool apps: {e}")))?;
+        Ok(rows.iter().map(row_to_strava_pool_app).collect())
+    }
+
+    async fn get_strava_pool_app_secret(&self, client_id: &str) -> AppResult<Option<String>> {
+        let row = sqlx::query(
+            "SELECT client_secret_encrypted FROM strava_oauth_app_pool WHERE client_id = ?1",
+        )
+        .bind(client_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load Strava pool app secret: {e}")))?;
+        match row {
+            Some(row) => {
+                let enc: String = row.get("client_secret_encrypted");
+                let aad = format!("strava_oauth_app_pool|{client_id}");
+                Ok(Some(self.decrypt_data_with_aad(&enc, &aad)?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn count_strava_seat_usage_by_app(&self) -> AppResult<Vec<(Option<String>, u32)>> {
+        let rows = sqlx::query(
+            r"
+            SELECT t.oauth_app_client_id AS app, COUNT(DISTINCT t.user_id) AS n
+            FROM user_oauth_tokens t
+            WHERE t.provider = 'strava'
+              AND NOT EXISTS (
+                  SELECT 1 FROM user_oauth_app_credentials a
+                  WHERE a.user_id = t.user_id AND a.provider = 'strava'
+              )
+            GROUP BY t.oauth_app_client_id
+            ",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to count Strava seat usage by app: {e}"))
+        })?;
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let app: Option<String> = row.get("app");
+                let n: i64 = row.get("n");
+                (app, u32::try_from(n).unwrap_or(u32::MAX))
+            })
+            .collect())
+    }
+
+    async fn upsert_strava_pool_app(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        seat_cap: u32,
+        label: Option<&str>,
+    ) -> AppResult<()> {
+        let aad = format!("strava_oauth_app_pool|{client_id}");
+        let enc = self.encrypt_data_with_aad(client_secret, &aad)?;
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            r"
+            INSERT INTO strava_oauth_app_pool (client_id, client_secret_encrypted, seat_cap, enabled, label, created_at, updated_at)
+            VALUES (?1, ?2, ?3, 1, ?4, ?5, ?5)
+            ON CONFLICT (client_id) DO UPDATE SET
+                client_secret_encrypted = excluded.client_secret_encrypted,
+                seat_cap = excluded.seat_cap,
+                label = excluded.label,
+                updated_at = excluded.updated_at
+            ",
+        )
+        .bind(client_id)
+        .bind(&enc)
+        .bind(i64::from(seat_cap))
+        .bind(label)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert Strava pool app: {e}")))?;
+        Ok(())
+    }
+
+    async fn set_strava_pool_app_enabled(&self, client_id: &str, enabled: bool) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE strava_oauth_app_pool SET enabled = ?1, updated_at = ?2 WHERE client_id = ?3",
+        )
+        .bind(i64::from(enabled))
+        .bind(Utc::now().timestamp())
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update Strava pool app: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete_strava_pool_app(&self, client_id: &str) -> AppResult<()> {
+        sqlx::query("DELETE FROM strava_oauth_app_pool WHERE client_id = ?1")
+            .bind(client_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to delete Strava pool app: {e}")))?;
+        Ok(())
+    }
+
     async fn delete_token(
         &self,
         user_id: Uuid,

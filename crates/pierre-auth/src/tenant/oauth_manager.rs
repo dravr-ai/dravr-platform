@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::oauth::OAuthConfig;
+use crate::strava_pool::resolve_strava_credentials;
 use chrono::Utc;
 use pierre_core::constants::rate_limits::{
     FITBIT_DEFAULT_DAILY_RATE_LIMIT, GARMIN_DEFAULT_DAILY_RATE_LIMIT,
@@ -113,7 +114,26 @@ impl TenantOAuthManager {
             return Ok(credentials);
         }
 
-        // Priority 3: Fallback to server-level OAuth configuration
+        // Priority 3 (Strava only): resolve the shared-app *pool* member that
+        // issued this user's token, so refresh uses that app's client_secret.
+        // Falls back to the env-default app when the user has no token yet
+        // (mid-authorize) or the token predates the pool (NULL attribution).
+        if provider.eq_ignore_ascii_case("strava") {
+            let attribution = match user_id {
+                Some(uid) => oauth_tokens
+                    .get_token(uid, tenant_id, "strava")
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|t| t.oauth_app_client_id),
+                None => None,
+            };
+            let (client_id, client_secret) =
+                resolve_strava_credentials(oauth_tokens, attribution.as_deref()).await?;
+            return Ok(self.strava_credentials(tenant_id, client_id, client_secret));
+        }
+
+        // Priority 4: Fallback to server-level OAuth configuration
         if let Some(credentials) = self.try_server_level_credentials(tenant_id, provider) {
             return Ok(credentials);
         }
@@ -218,34 +238,52 @@ impl TenantOAuthManager {
         }
     }
 
-    /// Try to load Strava credentials from `ServerConfig`
+    /// Build Strava [`TenantOAuthCredentials`] for a resolved `client_id`/secret.
+    ///
+    /// Reuses the configured redirect URI and scopes. Shared by the env-config
+    /// path and the shared-app pool resolution so both produce identical
+    /// redirect/scope/rate-limit settings.
+    fn strava_credentials(
+        &self,
+        tenant_id: TenantId,
+        client_id: String,
+        client_secret: String,
+    ) -> TenantOAuthCredentials {
+        let strava_config = &self.oauth_config.strava;
+        let redirect_uri = strava_config
+            .redirect_uri
+            .clone()
+            .unwrap_or_else(|| Self::default_redirect_uri("strava"));
+        TenantOAuthCredentials {
+            tenant_id,
+            provider: "strava".to_owned(),
+            client_id,
+            client_secret,
+            redirect_uri,
+            scopes: if strava_config.scopes.is_empty() {
+                "activity:read_all".split(',').map(str::to_owned).collect()
+            } else {
+                strava_config.scopes.clone()
+            },
+            rate_limit_per_day: STRAVA_DEFAULT_DAILY_RATE_LIMIT,
+        }
+    }
+
+    /// Try to load Strava credentials from `ServerConfig` (env-default app).
     fn try_strava_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
         let strava_config = &self.oauth_config.strava;
-
         if let (Some(client_id), Some(client_secret)) =
             (&strava_config.client_id, &strava_config.client_secret)
         {
-            let redirect_uri = strava_config
-                .redirect_uri
-                .clone()
-                .unwrap_or_else(|| Self::default_redirect_uri("strava"));
             info!(
                 "Using server-level Strava OAuth credentials for tenant {} (client_id={})",
                 tenant_id, client_id
             );
-            return Some(TenantOAuthCredentials {
+            return Some(self.strava_credentials(
                 tenant_id,
-                provider: "strava".to_owned(),
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                redirect_uri,
-                scopes: if strava_config.scopes.is_empty() {
-                    "activity:read_all".split(',').map(str::to_owned).collect()
-                } else {
-                    strava_config.scopes.clone()
-                },
-                rate_limit_per_day: STRAVA_DEFAULT_DAILY_RATE_LIMIT,
-            });
+                client_id.clone(),
+                client_secret.clone(),
+            ));
         }
         warn!(
             "No Strava OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",

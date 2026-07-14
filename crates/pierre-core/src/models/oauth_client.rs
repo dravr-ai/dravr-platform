@@ -27,6 +27,12 @@ pub struct OAuthClientState {
     pub scope: Option<String>,
     /// PKCE code verifier (stored server-side, needed for token exchange)
     pub pkce_code_verifier: Option<String>,
+    /// For a Strava authorization served by the shared-app OAuth pool, the
+    /// `client_id` of the app chosen at authorize time — pinned here so the
+    /// code exchange uses the same app's `client_id`/`client_secret` that built
+    /// the authorize URL (a mismatch makes the provider reject the code).
+    /// `None` means the env-default `STRAVA_CLIENT_ID` app.
+    pub oauth_app_client_id: Option<String>,
     /// When this state was created
     pub created_at: DateTime<Utc>,
     /// When this state expires (typically 10 minutes)

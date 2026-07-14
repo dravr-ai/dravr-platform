@@ -46,6 +46,7 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
         expires_at: Some(now + chrono::Duration::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };
@@ -111,6 +112,7 @@ async fn intervals_icu_token_roundtrips_provider_user_id() {
         expires_at: None,
         scope: None,
         provider_user_id: Some("i123456".to_owned()),
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

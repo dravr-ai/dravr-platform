@@ -11,8 +11,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     AuthorizationCode, ConnectionType, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, UserOAuthApp,
-    UserOAuthToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, StravaPoolApp,
+    UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -60,6 +60,41 @@ pub trait OAuthTokenRepository: Send + Sync {
     /// cross-tenant: the shared app's athlete cap is a single global limit
     /// enforced upstream (Strava) across every tenant that uses it.
     async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32>;
+
+    /// List Strava shared-app pool apps — the extra DB-configured apps beside
+    /// the env `STRAVA_CLIENT_ID` app. Secrets are never included. When
+    /// `only_enabled` is true, disabled apps are omitted (the connect-selection
+    /// path); otherwise all rows are returned (admin listing).
+    async fn list_strava_pool_apps(&self, only_enabled: bool) -> AppResult<Vec<StravaPoolApp>>;
+
+    /// Decrypt and return a pool app's `client_secret`, or `None` when the
+    /// `client_id` is not in the pool. Used at token exchange and refresh to use
+    /// the same app that minted the token.
+    async fn get_strava_pool_app_secret(&self, client_id: &str) -> AppResult<Option<String>>;
+
+    /// Distinct-user seat usage grouped by the issuing Strava app, excluding
+    /// BYO-app users. Each entry is `(oauth_app_client_id, distinct_user_count)`;
+    /// the `None` key is the env-default app (NULL attribution + legacy tokens).
+    async fn count_strava_seat_usage_by_app(&self) -> AppResult<Vec<(Option<String>, u32)>>;
+
+    /// Insert or update a pool app, encrypting `client_secret` at rest with the
+    /// same AES-256-GCM envelope used for user tokens.
+    async fn upsert_strava_pool_app(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        seat_cap: u32,
+        label: Option<&str>,
+    ) -> AppResult<()>;
+
+    /// Enable or disable a pool app; disabled apps are skipped for new connects.
+    async fn set_strava_pool_app_enabled(&self, client_id: &str, enabled: bool) -> AppResult<()>;
+
+    /// Remove a pool app. Tokens it already issued keep their attribution and
+    /// their refresh will fail once the secret is gone — only delete an app
+    /// whose athletes have migrated or disconnected.
+    async fn delete_strava_pool_app(&self, client_id: &str) -> AppResult<()>;
+
     /// Delete user OAuth token for a tenant-provider combination
     async fn delete_token(
         &self,

@@ -207,6 +207,12 @@ pub struct UserOAuthToken {
     /// as the HTTP Basic username). `None` for pure OAuth bearer providers.
     /// Stored in plaintext — it is not a secret and is queryable.
     pub provider_user_id: Option<String>,
+    /// For a Strava token minted through the shared-app OAuth pool, the
+    /// `client_id` of the pool app that issued it — so token refresh uses that
+    /// app's `client_secret`. `None` means the env-default `STRAVA_CLIENT_ID`
+    /// app (or a pre-pool legacy token), which refreshes with the env secret.
+    /// Not a secret: `client_id` is public (it appears in the authorize URL).
+    pub oauth_app_client_id: Option<String>,
     /// When this token was first stored
     pub created_at: DateTime<Utc>,
     /// When this token was last updated
@@ -237,6 +243,7 @@ impl UserOAuthToken {
             expires_at,
             scope,
             provider_user_id: None,
+            oauth_app_client_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -249,6 +256,15 @@ impl UserOAuthToken {
     #[must_use]
     pub fn with_provider_user_id(mut self, provider_user_id: impl Into<String>) -> Self {
         self.provider_user_id = Some(provider_user_id.into());
+        self
+    }
+
+    /// Attach the shared-app pool `client_id` that issued this Strava token, so
+    /// refresh resolves the matching `client_secret`. Builder-style: the
+    /// env-default app leaves it `None`.
+    #[must_use]
+    pub fn with_oauth_app_client_id(mut self, client_id: Option<String>) -> Self {
+        self.oauth_app_client_id = client_id;
         self
     }
 
@@ -576,4 +592,29 @@ pub struct OAuthNotification {
     pub created_at: DateTime<Utc>,
     /// When the notification was read (if read)
     pub read_at: Option<DateTime<Utc>>,
+}
+
+/// A platform-owned Strava OAuth app in the shared-app pool, stored beside the
+/// env `STRAVA_CLIENT_ID` app to grow the total athlete-seat capacity.
+///
+/// The `client_secret` is intentionally absent — it is stored encrypted and is
+/// only ever fetched (decrypted) at token exchange/refresh via the repository's
+/// `get_strava_pool_app_secret`, never handed around in this struct. `client_id`
+/// is public (it appears in the authorize URL). Timestamps are Unix epoch
+/// seconds, matching the storage column so reads/writes are identical across
+/// backends.
+#[derive(Debug, Clone)]
+pub struct StravaPoolApp {
+    /// Strava application client id (public; primary key in the pool table).
+    pub client_id: String,
+    /// Strava-approved athlete cap for this app.
+    pub seat_cap: u32,
+    /// Whether this app is eligible for new connections.
+    pub enabled: bool,
+    /// Optional operator label (e.g. "dravr-app-2").
+    pub label: Option<String>,
+    /// Row creation time, Unix epoch seconds.
+    pub created_at: i64,
+    /// Row last-update time, Unix epoch seconds.
+    pub updated_at: i64,
 }

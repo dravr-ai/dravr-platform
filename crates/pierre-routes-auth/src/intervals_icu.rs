@@ -115,6 +115,7 @@ pub async fn handle_intervals_icu_link(
         scope: None,
         // The athlete id is the HTTP Basic username — not secret, stored plaintext.
         provider_user_id: Some(athlete_id),
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

@@ -126,7 +126,7 @@ pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 pub use oauth::{
     connection_needs_reauth, AuthRequest, AuthResponse, ConnectionStatus, ConnectionType,
     DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderConnection,
-    UserOAuthApp, UserOAuthToken, UserSession,
+    StravaPoolApp, UserOAuthApp, UserOAuthToken, UserSession,
 };
 
 // OAuth client state for provider authorization flows

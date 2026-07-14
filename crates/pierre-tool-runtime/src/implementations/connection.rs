@@ -167,6 +167,7 @@ pub async fn mint_oauth_authorize_url(
         redirect_uri: oauth_callback_uri,
         scope: None,
         pkce_code_verifier: None,
+        oauth_app_client_id: None,
         created_at: now,
         expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
         used: false,
