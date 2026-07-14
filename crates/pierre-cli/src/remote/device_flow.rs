@@ -54,20 +54,33 @@ pub async fn run_device_login(server: &str) -> AppResult<DeviceLogin> {
         .and_then(Value::as_u64)
         .unwrap_or(DEFAULT_INTERVAL_SECS)
         .max(1);
+    let verification_uri_complete = auth
+        .get("verification_uri_complete")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let verification_uri = auth
         .get("verification_uri")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let browser_url = if verification_uri_complete.is_empty() {
+        verification_uri.to_owned()
+    } else {
+        verification_uri_complete.to_owned()
+    };
 
     println!();
-    println!("  Device login started. Approval required from a super-admin:");
+    println!("  To finish signing in, open this URL in your browser and approve as a super-admin:");
     println!();
-    println!("      pierre-cli auth approve {user_code} --server {server}");
-    println!();
-    if !verification_uri.is_empty() {
-        println!("  (or POST {verification_uri} /approve with a super-admin token)");
+    if browser_url.is_empty() {
+        println!("      <server BASE_URL not set — approve headless instead>");
+    } else {
+        println!("      {browser_url}");
     }
+    println!();
     println!("  User code: {user_code}");
+    println!(
+        "  (headless/CI: pierre-cli auth approve {user_code} --token <super-admin-token> --server {server})"
+    );
     println!("  Waiting for approval...");
 
     poll_for_token(&client, &device_code, interval).await

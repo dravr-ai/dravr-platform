@@ -28,8 +28,8 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
-    coach_notes, device_auth, feature_flags, harness_config, memory_worker, myth_busting, settings,
-    setup, strava_pool, tokens, users,
+    coach_notes, device_auth, device_web, feature_flags, harness_config, memory_worker,
+    myth_busting, settings, setup, strava_pool, tokens, users,
 };
 
 /// Admin routes implementation (Axum).
@@ -433,6 +433,14 @@ impl AdminRoutes {
             .route(
                 "/admin/device/token",
                 post(device_auth::handle_device_token),
+            )
+            // Browser approval surface (gcloud-style): GET renders the sign-in-and-approve
+            // page; approve-web verifies super-admin credentials and approves (credential-
+            // gated, so CSRF-exempt — see pierre_middleware::csrf::CSRF_EXEMPT_PATHS).
+            .route("/admin/device", get(device_web::handle_device_page))
+            .route(
+                "/admin/device/approve-web",
+                post(device_web::handle_device_approve_web),
             )
             .with_state(context)
     }

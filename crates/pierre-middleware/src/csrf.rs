@@ -31,6 +31,9 @@ const CSRF_EXEMPT_PATHS: &[&str] = &[
     "/api/auth/register",
     "/api/auth/firebase",
     "/api/auth/refresh",
+    // Browser device-approval: credential-gated (email/password in the body), so a
+    // cross-site attacker cannot forge it — no ambient session is trusted here.
+    "/admin/device/approve-web",
 ];
 
 /// Validate the CSRF token on a state-changing HTTP request.
