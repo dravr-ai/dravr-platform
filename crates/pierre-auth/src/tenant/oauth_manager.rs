@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::oauth::OAuthConfig;
-use crate::strava_pool::resolve_strava_credentials;
 use chrono::Utc;
 use pierre_core::constants::rate_limits::{
     FITBIT_DEFAULT_DAILY_RATE_LIMIT, GARMIN_DEFAULT_DAILY_RATE_LIMIT,
@@ -114,12 +113,14 @@ impl TenantOAuthManager {
             return Ok(credentials);
         }
 
-        // Priority 3 (Strava only): resolve the shared-app *pool* member that
-        // issued this user's token, so refresh uses that app's client_secret.
-        // Falls back to the env-default app when the user has no token yet
-        // (mid-authorize) or the token predates the pool (NULL attribution).
+        // Priority 3 (Strava only): if this user's token was issued by a
+        // shared-app *pool* member, resolve that app's client_secret so refresh
+        // uses the issuing app. Tokens on the env-default app carry no pool
+        // attribution and fall through to the server-level config below, so the
+        // configured `oauth_config.strava` credentials stay authoritative for
+        // the common path (pool membership never shadows server-level config).
         if provider.eq_ignore_ascii_case("strava") {
-            let attribution = match user_id {
+            let pool_attribution = match user_id {
                 Some(uid) => oauth_tokens
                     .get_token(uid, tenant_id, "strava")
                     .await
@@ -128,9 +129,14 @@ impl TenantOAuthManager {
                     .and_then(|t| t.oauth_app_client_id),
                 None => None,
             };
-            let (client_id, client_secret) =
-                resolve_strava_credentials(oauth_tokens, attribution.as_deref()).await?;
-            return Ok(self.strava_credentials(tenant_id, client_id, client_secret));
+            if let Some(pool_client_id) = pool_attribution {
+                if let Some(client_secret) = oauth_tokens
+                    .get_strava_pool_app_secret(&pool_client_id)
+                    .await?
+                {
+                    return Ok(self.strava_credentials(tenant_id, pool_client_id, client_secret));
+                }
+            }
         }
 
         // Priority 4: Fallback to server-level OAuth configuration
