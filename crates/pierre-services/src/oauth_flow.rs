@@ -24,6 +24,7 @@ use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
 };
+use pierre_auth::strava_pool;
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
@@ -171,6 +172,29 @@ pub fn decode_and_validate_redirect_url(
         })
 }
 
+/// Append the `provider`/`success`/`error` result params to a post-OAuth URL.
+///
+/// Chooses `&` when `base` already carries a query string and `?` otherwise.
+/// Mobile deep links (`pierre://oauth-callback`) and the SPA (`/oauth-callback`)
+/// have no query so they get `?`; the channel-initiated hosted connect flow
+/// returns to `/providers/connect?token=…`, which already has one and must get
+/// `&` — otherwise a second `?` would corrupt the URL and the picker would drop
+/// its connect token.
+#[must_use]
+pub fn oauth_return_url(base: &str, provider: &str, success: bool, error: Option<&str>) -> String {
+    let sep = if base.contains('?') { '&' } else { '?' };
+    error.map_or_else(
+        || format!("{base}{sep}provider={}&success={success}", encode(provider)),
+        |err| {
+            format!(
+                "{base}{sep}provider={}&success={success}&error={}",
+                encode(provider),
+                encode(err)
+            )
+        },
+    )
+}
+
 // ---------------------------------------------------------------------------
 // OAuthService — core business logic for OAuth flows
 // ---------------------------------------------------------------------------
@@ -192,6 +216,8 @@ struct ParsedOAuthState {
     pkce_code_verifier: Option<String>,
     /// Tenant ID from the OAuth state, used for tenant-specific credential lookup
     tenant_id: Option<uuid::Uuid>,
+    /// Strava shared-app pool member pinned at authorize (`None` = env-default).
+    oauth_app_client_id: Option<String>,
 }
 
 impl OAuthService {
@@ -244,6 +270,10 @@ impl OAuthService {
         // not expired, not reused, and matches the expected provider)
         let parsed_state = self.consume_and_validate_state(state, provider).await?;
         let user_id = parsed_state.user_id;
+        // The shared-app pool member pinned at authorize (Strava). Used to
+        // resolve the same client_id/secret at exchange and recorded on the
+        // token so refresh uses that app's secret. `None` = env-default app.
+        let oauth_app_client_id = parsed_state.oauth_app_client_id;
         let mobile_redirect_url = parsed_state.mobile_redirect_url;
         let flow_label = if mobile_redirect_url.is_some() {
             " (mobile flow)"
@@ -271,6 +301,7 @@ impl OAuthService {
                 user_id,
                 parsed_state.pkce_code_verifier.as_deref(),
                 parsed_state.tenant_id,
+                oauth_app_client_id.as_deref(),
             )
             .await?;
 
@@ -278,7 +309,14 @@ impl OAuthService {
 
         // Persist token and dispatch all post-connection side effects
         let expires_at = self
-            .finalize_oauth_connection(user_id, tenant_id, provider, &user.email, &token)
+            .finalize_oauth_connection(
+                user_id,
+                tenant_id,
+                provider,
+                &user.email,
+                &token,
+                oauth_app_client_id.as_deref(),
+            )
             .await?;
 
         // notify: provider successfully linked. Fires after token persist +
@@ -309,9 +347,10 @@ impl OAuthService {
         provider: &str,
         user_email: &str,
         token: &OAuth2Token,
+        oauth_app_client_id: Option<&str>,
     ) -> AppResult<chrono::DateTime<chrono::Utc>> {
         let expires_at = self
-            .store_oauth_token(user_id, tenant_id, provider, token)
+            .store_oauth_token(user_id, tenant_id, provider, token, oauth_app_client_id)
             .await?;
         self.send_oauth_notifications(user_id, provider, &expires_at)
             .await?;
@@ -390,6 +429,7 @@ impl OAuthService {
             mobile_redirect_url,
             pkce_code_verifier,
             tenant_id,
+            oauth_app_client_id: client_state.oauth_app_client_id,
         })
     }
 
@@ -471,9 +511,10 @@ impl OAuthService {
         user_id: uuid::Uuid,
         pkce_code_verifier: Option<&str>,
         tenant_id: Option<uuid::Uuid>,
+        oauth_app_client_id: Option<&str>,
     ) -> AppResult<OAuth2Token> {
         let oauth_config = self
-            .create_oauth_config_with_user(provider, user_id, tenant_id)
+            .create_oauth_config_with_user(provider, user_id, tenant_id, oauth_app_client_id)
             .await?;
         let oauth_client = OAuth2Client::new(oauth_config)?;
 
@@ -583,6 +624,7 @@ impl OAuthService {
         provider: &str,
         user_id: uuid::Uuid,
         tenant_id: Option<uuid::Uuid>,
+        oauth_app_client_id: Option<&str>,
     ) -> AppResult<OAuth2Config> {
         // Priority 1: Try user-specific credentials (per-user OAuth app)
         if let Ok(Some(user_app)) = self
@@ -631,8 +673,8 @@ impl OAuthService {
             });
         }
 
-        // Priority 2+3: Tenant-specific, then server-level
-        self.create_oauth_config_with_tenant(provider, tenant_id)
+        // Priority 2+3: Tenant-specific, then server-level (Strava pool aware)
+        self.create_oauth_config_with_tenant(provider, tenant_id, oauth_app_client_id)
             .await
     }
 
@@ -648,6 +690,7 @@ impl OAuthService {
         &self,
         provider: &str,
         tenant_id: Option<uuid::Uuid>,
+        oauth_app_client_id: Option<&str>,
     ) -> AppResult<OAuth2Config> {
         // Try tenant-specific credentials first
         if let Some(tid) = tenant_id {
@@ -704,6 +747,51 @@ impl OAuthService {
             }
         }
 
+        // Strava server-level: resolve the shared-app pool member pinned on the
+        // state (or the env-default app) so the code exchange uses the same
+        // client_id/secret that built the authorize URL. This replaces the plain
+        // env path for Strava; other providers still use it below.
+        if provider.eq_ignore_ascii_case("strava") {
+            let (client_id, client_secret) = strava_pool::resolve_strava_credentials(
+                self.data.repos().oauth_tokens.as_ref(),
+                oauth_app_client_id,
+            )
+            .await?;
+            let descriptor = self
+                .data
+                .provider_registry()
+                .get_descriptor(provider)
+                .ok_or_else(|| {
+                    AppError::invalid_input(format!("Unsupported provider: {provider}"))
+                })?;
+            let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
+                AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
+            })?;
+            let params = descriptor.oauth_params().ok_or_else(|| {
+                AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
+            })?;
+            let scopes = descriptor
+                .default_scopes()
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
+                .join(params.scope_separator);
+            let redirect_uri = get_oauth_config(provider).redirect_uri.unwrap_or_else(|| {
+                let base_url = env::var("BASE_URL")
+                    .unwrap_or_else(|_| format!("http://localhost:{}", self.config.http_port));
+                format!("{base_url}/api/oauth/callback/{provider}")
+            });
+            return Ok(OAuth2Config {
+                client_id,
+                client_secret,
+                auth_url: endpoints.auth_url.to_owned(),
+                token_url: endpoints.token_url.to_owned(),
+                redirect_uri,
+                scopes: vec![scopes],
+                use_pkce: params.use_pkce,
+            });
+        }
+
         // Fall back to environment-based configuration
         self.create_oauth_config(provider)
     }
@@ -715,6 +803,7 @@ impl OAuthService {
         tenant_id: String,
         provider: &str,
         token: &OAuth2Token,
+        oauth_app_client_id: Option<&str>,
     ) -> AppResult<chrono::DateTime<chrono::Utc>> {
         let expires_at = token
             .expires_at
@@ -734,6 +823,9 @@ impl OAuthService {
             // at token exchange. Persisting it lets provider push events (e.g.
             // Strava webhooks) be routed to the single owning user.
             provider_user_id: token.provider_user_id.clone(),
+            // Which shared-app pool member issued this token (pinned at authorize)
+            // so refresh resolves the matching secret. `None` = env-default app.
+            oauth_app_client_id: oauth_app_client_id.map(str::to_owned),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -1009,6 +1101,29 @@ impl OAuthService {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<OAuthAuthorizationResponse> {
+        self.get_auth_url_with_return(user_id, tenant_id, provider, None)
+            .await
+    }
+
+    /// Like [`Self::get_auth_url`] but embeds an optional post-OAuth return URL.
+    ///
+    /// The URL goes in the third (base64) state segment — the same channel the
+    /// mobile deep-link flow uses. The session-less callback decodes it and
+    /// redirects success/failure there instead of the SPA. The channel-initiated
+    /// hosted connect flow passes its picker URL so a failed Strava OAuth bounces
+    /// the user back to the picker (which opens the Sciotte credential fallback)
+    /// rather than stranding them on the SPA error page. The URL is validated
+    /// against the redirect allowlist by the callback before it is honored.
+    ///
+    /// # Errors
+    /// Returns error if provider is unsupported or OAuth credentials not configured
+    pub async fn get_auth_url_with_return(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        return_redirect: Option<&str>,
+    ) -> AppResult<OAuthAuthorizationResponse> {
         // Get provider descriptor from registry
         let descriptor = self
             .data
@@ -1037,7 +1152,21 @@ impl OAuthService {
                 AppError::database(format!("Failed to get tenant OAuth credentials: {e}"))
             })?;
 
-        let state = format!("{}:{}", user_id, uuid::Uuid::new_v4());
+        // Embed the optional return URL as the third state segment (base64), so
+        // the callback bounces success/failure there. base64 URL_SAFE_NO_PAD
+        // never emits ':' so the segment split stays unambiguous.
+        let state = return_redirect.map_or_else(
+            || format!("{}:{}", user_id, uuid::Uuid::new_v4()),
+            |url| {
+                use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+                format!(
+                    "{}:{}:{}",
+                    user_id,
+                    uuid::Uuid::new_v4(),
+                    URL_SAFE_NO_PAD.encode(url.as_bytes())
+                )
+            },
+        );
         // Use BASE_URL environment variable if set, otherwise fall back to localhost.
         // This allows dynamic OAuth callbacks when using tunnels for local development.
         let base_url = env::var("BASE_URL")
@@ -1055,11 +1184,20 @@ impl OAuthService {
         let encoded_state = encode(&state);
         let encoded_redirect_uri = encode(&redirect_uri);
 
-        // Determine client_id and scopes (tenant-specific or environment)
-        let (client_id, scope) = if let Some(creds) = tenant_creds {
-            // Multi-tenant: use tenant-specific credentials
+        // Determine client_id, scopes, and (for Strava) the shared-app pool
+        // attribution to pin on the state so the exchange uses the same app.
+        let (client_id, scope, oauth_app_attribution) = if let Some(creds) = tenant_creds {
+            // Multi-tenant: use tenant-specific credentials (no pool involved).
             let scope = creds.scopes.join(params.scope_separator);
-            (creds.client_id, scope)
+            (creds.client_id, scope, None)
+        } else if provider.eq_ignore_ascii_case("strava") {
+            // Server-level Strava: fill the env-default app first, then a pool
+            // app with a free seat, and pin the choice on the state so the
+            // token exchange uses the same client_id/secret.
+            let selected =
+                strava_pool::select_strava_app(self.data.repos().oauth_tokens.as_ref()).await?;
+            let scope = descriptor.default_scopes().join(params.scope_separator);
+            (selected.client_id, scope, selected.attribution)
         } else {
             // Single-tenant: use environment configuration
             let env_config = get_oauth_config(provider);
@@ -1069,7 +1207,7 @@ impl OAuthService {
                 ))
             })?;
             let scope = descriptor.default_scopes().join(params.scope_separator);
-            (client_id, scope)
+            (client_id, scope, None)
         };
 
         let encoded_scope = encode(&scope);
@@ -1112,6 +1250,7 @@ impl OAuthService {
             redirect_uri,
             scope: Some(scope),
             pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
+            oauth_app_client_id: oauth_app_attribution,
             created_at: now,
             expires_at: now + chrono::Duration::minutes(10),
             used: false,

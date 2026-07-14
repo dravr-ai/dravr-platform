@@ -569,6 +569,7 @@ impl PostgresDatabase {
             })?,
             scope: row.try_get("scope").ok(),
             provider_user_id: row.try_get("provider_user_id").ok(),
+            oauth_app_client_id: row.try_get("oauth_app_client_id").ok(),
             created_at: row.try_get("created_at").map_err(|e| {
                 AppError::database(format!("Failed to parse created_at column: {e}"))
             })?,

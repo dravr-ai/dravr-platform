@@ -540,6 +540,54 @@
                 showPhase('picker');
             }
 
+            // Open the Sciotte credential form (same setup as picking a Sciotte
+            // card) — used both by the picker and as the OAuth-failure fallback.
+            function openSciotteFallback(target, label, noticeOverride) {
+                sciotteTarget = target;
+                sciotteLabel = label;
+                document.getElementById('cred-title').textContent = label + ' Account';
+                document.getElementById('cred-notice').textContent =
+                    'Credentials go directly to ' + label + ' — Dravr never stores your password.';
+                showPhase('credentials');
+                const emailEl = document.getElementById('email');
+                if (emailEl) emailEl.focus();
+                if (noticeOverride) showError(noticeOverride);
+            }
+
+            // Handle the return from a full-page OAuth attempt. The session-less
+            // callback bounces us back here with ?provider&success[&error]. On
+            // success we go to the shared success page; on failure we open the
+            // Sciotte credential fallback for Strava so a channel user is never
+            // stranded on the SPA error page. Returns true when it took over the
+            // initial view (so the default picker render is skipped).
+            function handleOAuthReturn() {
+                const params = new URLSearchParams(window.location.search);
+                if (!params.has('success')) return false;
+                const provider = params.get('provider') || '';
+                const ok = params.get('success') === 'true';
+                // Strip the OAuth result params so a reload doesn't re-trigger
+                // this; keep the connect token so a Sciotte submit stays authed.
+                const clean = new URL(window.location.href);
+                ['provider', 'success', 'error'].forEach((k) => clean.searchParams.delete(k));
+                window.history.replaceState({}, document.title, clean.pathname + clean.search);
+
+                if (ok) {
+                    const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
+                        + '&target=' + encodeURIComponent(provider);
+                    window.location.assign('/providers/connect/success?' + qs);
+                    return true;
+                }
+                // Strava is the only OAuth card with a credential-login fallback.
+                if (provider === 'strava' || provider === 'sciotte') {
+                    openSciotteFallback('strava', 'Strava',
+                        'Strava sign-in didn’t complete — you can connect with your Strava email and password instead.');
+                    return true;
+                }
+                showPhase('picker');
+                showError('That sign-in didn’t complete. Please go back and try again.');
+                return true;
+            }
+
             document.getElementById('login-form').addEventListener('submit', submitLogin);
             document.getElementById('otp-form').addEventListener('submit', submitOtp);
             document.getElementById('retry-btn').addEventListener('click', backToPicker);
@@ -547,7 +595,9 @@
             document.getElementById('tf-back').addEventListener('click', backToPicker);
 
             renderPicker();
-            showPhase('picker');
+            if (!handleOAuthReturn()) {
+                showPhase('picker');
+            }
         })();
     </script>
 </body>

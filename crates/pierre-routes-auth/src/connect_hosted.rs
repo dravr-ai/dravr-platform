@@ -31,6 +31,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
+use urlencoding::encode;
 
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -248,8 +249,21 @@ pub async fn handle_connect_oauth_init(
         resources.oauth_notification_sender.clone(),
     );
 
+    // On return from the provider's consent screen, bounce back to THIS hosted
+    // picker (carrying the same connect token) rather than the SPA: on success
+    // the picker shows its success page, and on failure it opens the Sciotte
+    // credential fallback for the same provider — so a channel user is never
+    // stranded on the SPA's "Connection Failed" page. The callback validates
+    // this URL against the redirect allowlist (same origin as base_url) before
+    // honoring it.
+    let return_url = format!(
+        "{}/providers/connect?token={}",
+        resources.config.base_url.trim_end_matches('/'),
+        encode(token)
+    );
+
     match oauth_service
-        .get_auth_url(user_id, tenant_id, &provider)
+        .get_auth_url_with_return(user_id, tenant_id, &provider, Some(&return_url))
         .await
     {
         Ok(auth_response) => {

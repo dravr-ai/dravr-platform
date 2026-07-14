@@ -59,6 +59,9 @@ pub mod rate_limiting;
 /// Security headers, secure cookies, CSRF protection
 pub mod security;
 
+/// Strava shared-app OAuth pool selection + credential resolution.
+pub mod strava_pool;
+
 /// Multi-tenant data isolation and OAuth/LLM management
 pub mod tenant;
 

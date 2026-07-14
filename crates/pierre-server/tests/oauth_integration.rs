@@ -11,6 +11,7 @@
 
 mod common;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -350,6 +351,35 @@ async fn test_oauth_authorization_url_generation() {
         .contains("scope=activity%3Aread_all"));
     assert!(strava_auth.state.contains(&user_id.to_string()));
     assert_eq!(strava_auth.expires_in_minutes, 10);
+    // The plain call must NOT embed a return segment: `{user_id}:{uuid}`.
+    assert_eq!(
+        strava_auth.state.split(':').count(),
+        2,
+        "plain get_auth_url state must have exactly two segments"
+    );
+
+    // get_auth_url_with_return embeds the post-OAuth return URL as the third
+    // (base64) state segment so the session-less callback bounces success/
+    // failure there — the channel-initiated hosted connect flow relies on this
+    // to send a failed Strava OAuth back to the picker's Sciotte fallback.
+    let return_url = "http://localhost:8081/providers/connect?token=abc.def";
+    let with_return = oauth_routes
+        .get_auth_url_with_return(user_id, tenant_id, "strava", Some(return_url))
+        .await
+        .unwrap();
+    let segments: Vec<&str> = with_return.state.split(':').collect();
+    assert_eq!(
+        segments.len(),
+        3,
+        "state must carry the embedded return segment"
+    );
+    let decoded = String::from_utf8(
+        URL_SAFE_NO_PAD
+            .decode(segments[2])
+            .expect("third state segment is base64"),
+    )
+    .expect("decoded return URL is utf-8");
+    assert_eq!(decoded, return_url, "embedded return URL round-trips");
 
     // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
     // Garmin data now flows through Sciotte's headless login (`sciotte_garmin`).

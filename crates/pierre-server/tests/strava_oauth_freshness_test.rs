@@ -80,6 +80,7 @@ async fn seed_strava_token(
         expires_at: Some(now + chrono::Duration::hours(6)),
         scope: Some("activity:read_all".to_owned()),
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

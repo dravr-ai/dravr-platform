@@ -2000,8 +2000,8 @@ impl Database {
     pub async fn store_oauth_client_state_impl(&self, state: &OAuthClientState) -> AppResult<()> {
         sqlx::query(
             r"
-            INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used, oauth_app_client_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ",
         )
         .bind(&state.state)
@@ -2014,6 +2014,7 @@ impl Database {
         .bind(state.created_at)
         .bind(state.expires_at)
         .bind(state.used)
+        .bind(&state.oauth_app_client_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store OAuth client state: {e}")))?;
@@ -2040,7 +2041,7 @@ impl Database {
               AND provider = ?2
               AND used = 0
               AND expires_at > ?3
-            RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used
+            RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used, oauth_app_client_id
             ",
         )
         .bind(state_value)
@@ -2073,6 +2074,7 @@ impl Database {
                 pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
                     AppError::database(format!("Failed to get pkce_code_verifier: {e}"))
                 })?,
+                oauth_app_client_id: row.try_get("oauth_app_client_id").ok(),
                 created_at: row
                     .try_get("created_at")
                     .map_err(|e| AppError::database(format!("Failed to get created_at: {e}")))?,

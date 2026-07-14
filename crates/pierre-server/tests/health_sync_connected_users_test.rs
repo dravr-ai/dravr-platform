@@ -53,6 +53,7 @@ async fn list_connected_provider_users_handles_varchar_tenant_id() {
         expires_at: None,
         scope: None,
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

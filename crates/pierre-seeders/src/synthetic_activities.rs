@@ -654,6 +654,7 @@ async fn register_provider_connection(
         expires_at: Some(now + Duration::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

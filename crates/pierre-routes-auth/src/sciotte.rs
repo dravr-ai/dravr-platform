@@ -297,6 +297,7 @@ async fn store_sciotte_session(
         expires_at: session.expires_at,
         scope: None,
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };
@@ -1036,6 +1037,7 @@ pub async fn handle_sciotte_connect(
         expires_at: None,
         scope: None,
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };

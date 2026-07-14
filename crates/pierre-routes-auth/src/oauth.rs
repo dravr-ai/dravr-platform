@@ -15,7 +15,6 @@ use axum::{
 };
 use serde_json::json;
 use tracing::{debug, error, field, field::Empty, info, warn, Span};
-use urlencoding::encode;
 
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
@@ -30,8 +29,8 @@ use pierre_services::oauth_flow::{
 };
 use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
 
-use pierre_auth::config::oauth::strava_oauth_seat_cap;
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
+use pierre_auth::strava_pool;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use uuid::Uuid;
 
@@ -76,21 +75,18 @@ pub async fn handle_oauth_callback(
             &resources.config.security.allowed_mobile_redirect_origins,
         );
         if let Some(mobile_url) = mobile_redirect_url {
-            let redirect_url = format!(
-                "{}?provider={}&success=false&error={}",
+            let redirect_url = oauth_flow_service::oauth_return_url(
                 mobile_url.trim_end_matches('/'),
-                encode(&provider),
-                encode(error_msg)
+                &provider,
+                false,
+                Some(error_msg),
             );
             return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response());
         }
         if let Some(url) = frontend_url {
-            let redirect_url = format!(
-                "{}/oauth-callback?provider={}&success=false&error={}",
-                url.trim_end_matches('/'),
-                encode(&provider),
-                encode(error_msg)
-            );
+            let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
+            let redirect_url =
+                oauth_flow_service::oauth_return_url(&base, &provider, false, Some(error_msg));
             return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response());
         }
         return Err(AppError::auth_invalid("OAuth authorization was cancelled"));
@@ -140,12 +136,15 @@ pub async fn handle_oauth_callback(
             // Priority: mobile redirect URL > frontend URL > render template
             // Mobile apps pass redirect URL through OAuth state for deep linking
             if let Some(mobile_url) = &response.mobile_redirect_url {
-                let redirect_url = format!(
-                    "{}?provider={}&success=true",
+                let redirect_url = oauth_flow_service::oauth_return_url(
                     mobile_url.trim_end_matches('/'),
-                    encode(&provider)
+                    &provider,
+                    true,
+                    None,
                 );
-                info!("Redirecting OAuth success to mobile app: {}", redirect_url);
+                // Don't log the full URL — a hosted-connect return carries the
+                // connect link-token in its query string.
+                info!(provider = %provider, "Redirecting OAuth success to embedded return URL");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
                 );
@@ -153,12 +152,10 @@ pub async fn handle_oauth_callback(
 
             // If frontend URL is configured, redirect to frontend with success params
             if let Some(url) = frontend_url {
-                let redirect_url = format!(
-                    "{}/oauth-callback?provider={}&success=true",
-                    url.trim_end_matches('/'),
-                    encode(&provider)
-                );
-                info!("Redirecting OAuth success to frontend: {}", redirect_url);
+                let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
+                let redirect_url =
+                    oauth_flow_service::oauth_return_url(&base, &provider, true, None);
+                info!(provider = %provider, "Redirecting OAuth success to frontend");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
                 );
@@ -186,13 +183,15 @@ pub async fn handle_oauth_callback(
 
             // Priority: mobile redirect URL > frontend URL > render template
             if let Some(mobile_url) = mobile_redirect_url {
-                let redirect_url = format!(
-                    "{}?provider={}&success=false&error={}",
+                let redirect_url = oauth_flow_service::oauth_return_url(
                     mobile_url.trim_end_matches('/'),
-                    encode(&provider),
-                    encode(error_msg)
+                    &provider,
+                    false,
+                    Some(error_msg),
                 );
-                info!("Redirecting OAuth error to mobile app: {}", redirect_url);
+                // Don't log the full URL — a hosted-connect return carries the
+                // connect link-token in its query string.
+                info!(provider = %provider, "Redirecting OAuth error to embedded return URL");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
                 );
@@ -200,13 +199,10 @@ pub async fn handle_oauth_callback(
 
             // If frontend URL is configured, redirect to frontend with error params
             if let Some(url) = frontend_url {
-                let redirect_url = format!(
-                    "{}/oauth-callback?provider={}&success=false&error={}",
-                    url.trim_end_matches('/'),
-                    encode(&provider),
-                    encode(error_msg)
-                );
-                info!("Redirecting OAuth error to frontend: {}", redirect_url);
+                let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
+                let redirect_url =
+                    oauth_flow_service::oauth_return_url(&base, &provider, false, Some(error_msg));
+                info!(provider = %provider, "Redirecting OAuth error to frontend");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
                 );
@@ -344,20 +340,16 @@ pub async fn compute_providers_status(
     let connected_providers: HashSet<String> =
         connections.into_iter().map(|c| c.provider).collect();
 
-    // Seat availability for the shared Dravr Strava OAuth app. Strava enforces a
-    // per-application athlete cap that is not exposed via any API response header,
-    // so onboarding a NEW Strava connection prefers shared-app OAuth while seats
-    // remain and falls back to the Sciotte mirror once the cap is reached. A count
-    // failure is treated as "no seats left" so we degrade to the always-available
-    // mirror rather than pushing the user into an OAuth flow Strava would reject.
-    let strava_seat_cap = strava_oauth_seat_cap();
-    let strava_seats_used = resources
-        .repos
-        .oauth_tokens
-        .count_shared_app_seat_usage(oauth_providers::STRAVA)
+    // Seat availability across the shared-app OAuth POOL: the env-default
+    // STRAVA_CLIENT_ID app plus any enabled DB pool apps. Strava enforces a
+    // per-application athlete cap not exposed via any API header, so onboarding a
+    // NEW Strava connection prefers OAuth while ANY pool seat remains and falls
+    // back to the Sciotte mirror once every app is full. A summary failure is
+    // treated as "no seats left" so we degrade to the always-available mirror
+    // rather than pushing the user into an OAuth flow Strava would reject.
+    let strava_seats_left = strava_pool::strava_seat_summary(resources.repos.oauth_tokens.as_ref())
         .await
-        .unwrap_or(strava_seat_cap);
-    let strava_seats_left = strava_seat_cap.saturating_sub(strava_seats_used);
+        .map_or(0, |s| s.left());
 
     // Build provider status list
     let mut provider_statuses = Vec::new();
@@ -664,6 +656,7 @@ pub async fn handle_mobile_oauth_init(
         redirect_uri: oauth_redirect_uri,
         scope: None,
         pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
+        oauth_app_client_id: None,
         created_at: now,
         expires_at: now + chrono::Duration::minutes(10),
         used: false,

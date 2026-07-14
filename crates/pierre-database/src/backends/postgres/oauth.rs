@@ -19,7 +19,7 @@ use pierre_core::models::OAuthClientState;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     AuthorizationCode, ConnectionStatus, ConnectionType, OAuthClientGrant, ProviderConnection,
-    UserOAuthApp, UserOAuthToken,
+    StravaPoolApp, UserOAuthApp, UserOAuthToken,
 };
 use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
 use sqlx::postgres::PgRow;
@@ -134,8 +134,9 @@ impl OAuthTokenRepository for PostgresDatabase {
             r"
             INSERT INTO user_oauth_tokens (
                 id, user_id, tenant_id, provider, access_token, refresh_token,
-                token_type, expires_at, scope, created_at, updated_at, provider_user_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                token_type, expires_at, scope, created_at, updated_at, provider_user_id,
+                oauth_app_client_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, tenant_id, provider)
             DO UPDATE SET
                 id = EXCLUDED.id,
@@ -145,6 +146,7 @@ impl OAuthTokenRepository for PostgresDatabase {
                 expires_at = EXCLUDED.expires_at,
                 scope = EXCLUDED.scope,
                 provider_user_id = EXCLUDED.provider_user_id,
+                oauth_app_client_id = EXCLUDED.oauth_app_client_id,
                 updated_at = EXCLUDED.updated_at
             ",
         )
@@ -160,6 +162,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         .bind(token.created_at)
         .bind(token.updated_at)
         .bind(token.provider_user_id.as_deref())
+        .bind(token.oauth_app_client_id.as_deref())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -176,7 +179,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         let row = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
             FROM user_oauth_tokens
             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
             ",
@@ -203,7 +206,7 @@ impl OAuthTokenRepository for PostgresDatabase {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
                 FROM user_oauth_tokens
                 WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY created_at DESC
@@ -218,7 +221,7 @@ impl OAuthTokenRepository for PostgresDatabase {
             sqlx::query(
                 r"
                 SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                       token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
                 FROM user_oauth_tokens
                 WHERE user_id = $1
                 ORDER BY created_at DESC
@@ -245,7 +248,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, provider_user_id, created_at, updated_at
+                   token_type, expires_at, scope, provider_user_id, created_at, updated_at, oauth_app_client_id
             FROM user_oauth_tokens
             WHERE tenant_id = $1 AND provider = $2
             ORDER BY created_at DESC
@@ -319,6 +322,147 @@ impl OAuthTokenRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to count shared-app OAuth seats: {e}")))?;
 
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    async fn list_strava_pool_apps(&self, only_enabled: bool) -> AppResult<Vec<StravaPoolApp>> {
+        let sql = if only_enabled {
+            "SELECT client_id, seat_cap, enabled, label, created_at, updated_at \
+             FROM strava_oauth_app_pool WHERE enabled = TRUE ORDER BY created_at"
+        } else {
+            "SELECT client_id, seat_cap, enabled, label, created_at, updated_at \
+             FROM strava_oauth_app_pool ORDER BY created_at"
+        };
+        let rows = sqlx::query(sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to list Strava pool apps: {e}")))?;
+        rows.iter()
+            .map(|row| {
+                let seat_cap: i32 = row.try_get("seat_cap").map_err(|e| {
+                    AppError::database(format!("Failed to parse seat_cap column: {e}"))
+                })?;
+                Ok(StravaPoolApp {
+                    client_id: row.try_get("client_id").map_err(|e| {
+                        AppError::database(format!("Failed to parse client_id column: {e}"))
+                    })?,
+                    seat_cap: u32::try_from(seat_cap).unwrap_or(0),
+                    enabled: row.try_get("enabled").map_err(|e| {
+                        AppError::database(format!("Failed to parse enabled column: {e}"))
+                    })?,
+                    label: row.try_get("label").ok(),
+                    created_at: row.try_get("created_at").map_err(|e| {
+                        AppError::database(format!("Failed to parse created_at column: {e}"))
+                    })?,
+                    updated_at: row.try_get("updated_at").map_err(|e| {
+                        AppError::database(format!("Failed to parse updated_at column: {e}"))
+                    })?,
+                })
+            })
+            .collect()
+    }
+
+    async fn get_strava_pool_app_secret(&self, client_id: &str) -> AppResult<Option<String>> {
+        let row = sqlx::query(
+            "SELECT client_secret_encrypted FROM strava_oauth_app_pool WHERE client_id = $1",
+        )
+        .bind(client_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load Strava pool app secret: {e}")))?;
+        match row {
+            Some(row) => {
+                let enc: String = row.try_get("client_secret_encrypted").map_err(|e| {
+                    AppError::database(format!("Failed to parse client_secret column: {e}"))
+                })?;
+                let aad = format!("strava_oauth_app_pool|{client_id}");
+                Ok(Some(self.decrypt_data_with_aad(&enc, &aad)?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn count_strava_seat_usage_by_app(&self) -> AppResult<Vec<(Option<String>, u32)>> {
+        let rows = sqlx::query(
+            r"
+            SELECT t.oauth_app_client_id AS app, COUNT(DISTINCT t.user_id) AS n
+            FROM user_oauth_tokens t
+            WHERE t.provider = 'strava'
+              AND NOT EXISTS (
+                  SELECT 1 FROM user_oauth_app_credentials a
+                  WHERE a.user_id = t.user_id AND a.provider = 'strava'
+              )
+            GROUP BY t.oauth_app_client_id
+            ",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to count Strava seat usage by app: {e}"))
+        })?;
+        rows.iter()
+            .map(|row| {
+                let app: Option<String> = row.try_get("app").ok();
+                let n: i64 = row.try_get("n").map_err(|e| {
+                    AppError::database(format!("Failed to parse count column: {e}"))
+                })?;
+                Ok((app, u32::try_from(n).unwrap_or(u32::MAX)))
+            })
+            .collect()
+    }
+
+    async fn upsert_strava_pool_app(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        seat_cap: u32,
+        label: Option<&str>,
+    ) -> AppResult<()> {
+        let aad = format!("strava_oauth_app_pool|{client_id}");
+        let enc = self.encrypt_data_with_aad(client_secret, &aad)?;
+        let now = chrono::Utc::now().timestamp();
+        let seat_cap = i32::try_from(seat_cap).unwrap_or(i32::MAX);
+        sqlx::query(
+            r"
+            INSERT INTO strava_oauth_app_pool (client_id, client_secret_encrypted, seat_cap, enabled, label, created_at, updated_at)
+            VALUES ($1, $2, $3, TRUE, $4, $5, $5)
+            ON CONFLICT (client_id) DO UPDATE SET
+                client_secret_encrypted = EXCLUDED.client_secret_encrypted,
+                seat_cap = EXCLUDED.seat_cap,
+                label = EXCLUDED.label,
+                updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(client_id)
+        .bind(&enc)
+        .bind(seat_cap)
+        .bind(label)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert Strava pool app: {e}")))?;
+        Ok(())
+    }
+
+    async fn set_strava_pool_app_enabled(&self, client_id: &str, enabled: bool) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE strava_oauth_app_pool SET enabled = $1, updated_at = $2 WHERE client_id = $3",
+        )
+        .bind(enabled)
+        .bind(chrono::Utc::now().timestamp())
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update Strava pool app: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete_strava_pool_app(&self, client_id: &str) -> AppResult<()> {
+        sqlx::query("DELETE FROM strava_oauth_app_pool WHERE client_id = $1")
+            .bind(client_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to delete Strava pool app: {e}")))?;
+        Ok(())
     }
 
     async fn delete_token(
@@ -1174,8 +1318,8 @@ impl OAuth2ServerRepository for PostgresDatabase {
 impl OAuthClientStateRepository for PostgresDatabase {
     async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
         sqlx::query(
-            "INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            "INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used, oauth_app_client_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(&state.state)
         .bind(&state.provider)
@@ -1187,6 +1331,7 @@ impl OAuthClientStateRepository for PostgresDatabase {
         .bind(state.created_at)
         .bind(state.expires_at)
         .bind(state.used)
+        .bind(&state.oauth_app_client_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store OAuth client state: {e}")))?;
@@ -1207,7 +1352,7 @@ impl OAuthClientStateRepository for PostgresDatabase {
                AND provider = $2
                AND used = false
                AND expires_at > $3
-             RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used",
+             RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used, oauth_app_client_id",
         )
         .bind(state_value)
         .bind(provider)
@@ -1243,6 +1388,7 @@ impl OAuthClientStateRepository for PostgresDatabase {
                 pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
                     AppError::database(format!("Failed to parse pkce_code_verifier column: {e}"))
                 })?,
+                oauth_app_client_id: row.try_get("oauth_app_client_id").ok(),
                 created_at: row.try_get::<DateTime<Utc>, _>("created_at").map_err(|e| {
                     AppError::database(format!("Failed to parse created_at column: {e}"))
                 })?,

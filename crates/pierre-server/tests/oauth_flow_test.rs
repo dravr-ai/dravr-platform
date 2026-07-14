@@ -143,3 +143,36 @@ fn test_extract_state_without_redirect() {
     let result = oauth_flow::extract_mobile_redirect_from_state(state, "https://api.dravr.ai", &[]);
     assert_eq!(result, None);
 }
+
+#[test]
+fn test_oauth_return_url_appends_query_when_none() {
+    // Mobile deep link / SPA return: no existing query, so the result params
+    // are joined with `?`.
+    let url = oauth_flow::oauth_return_url("pierre://oauth-callback", "strava", true, None);
+    assert_eq!(url, "pierre://oauth-callback?provider=strava&success=true");
+}
+
+#[test]
+fn test_oauth_return_url_uses_amp_when_query_present() {
+    // The hosted connect return already carries `?token=...`, so a second `?`
+    // would corrupt the URL and drop the connect token. It must use `&`.
+    let url = oauth_flow::oauth_return_url(
+        "https://api.dravr.ai/providers/connect?token=abc.def",
+        "strava",
+        false,
+        Some("cap_exceeded"),
+    );
+    assert_eq!(
+        url,
+        "https://api.dravr.ai/providers/connect?token=abc.def&provider=strava&success=false&error=cap_exceeded"
+    );
+    assert!(
+        url.contains("token=abc.def"),
+        "connect token must survive the redirect"
+    );
+    assert_eq!(
+        url.matches('?').count(),
+        1,
+        "must not introduce a second '?'"
+    );
+}

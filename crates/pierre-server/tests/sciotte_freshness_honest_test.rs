@@ -69,6 +69,7 @@ async fn seed_sciotte_token(
         expires_at: None,
         scope: None,
         provider_user_id: None,
+        oauth_app_client_id: None,
         created_at: now,
         updated_at: now,
     };
