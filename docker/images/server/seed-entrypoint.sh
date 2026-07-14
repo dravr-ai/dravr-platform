@@ -57,4 +57,19 @@ if [ "$DOMAIN" = "coaches" ]; then
 fi
 
 echo "Running: pierre-cli ${VERB} ${DOMAIN}"
-exec /app/pierre-cli "$VERB" "$DOMAIN" "$@"
+/app/pierre-cli "$VERB" "$DOMAIN" "$@"
+
+# The operator account must be super_admin: cookie_admin_middleware derives console
+# permissions from the user's role, so the seeded operator needs the full role for
+# console access (contremaitre config, store moderation, impersonation, device-login
+# approval). `seed bootstrap` creates it as a plain `admin`, so promote it here —
+# mirroring bin/setup-db-with-seeds-and-oauth-and-start-servers.sh locally. Idempotent
+# via --force; only runs on the bootstrap seed, which carries ADMIN_EMAIL/ADMIN_PASSWORD.
+if [ "$VERB" = "seed" ] && [ "$DOMAIN" = "bootstrap" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
+    echo "Promoting operator ${ADMIN_EMAIL} to super_admin"
+    /app/pierre-cli user create \
+        --email "$ADMIN_EMAIL" \
+        --password "$ADMIN_PASSWORD" \
+        --super-admin \
+        --force
+fi
