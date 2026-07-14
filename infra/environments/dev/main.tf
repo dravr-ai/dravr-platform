@@ -704,10 +704,15 @@ module "frontend" {
   container_image       = var.frontend_image
   service_account_email = module.service_accounts.app_service_account_email
 
-  container_port    = 8080
-  cpu               = "1"
-  memory            = "1Gi"
-  cpu_idle          = true
+  container_port = 8080
+  cpu            = "1"
+  memory         = "1Gi"
+  # Instance-based billing: this nginx service is the always-up reverse-proxy
+  # front door — every API, OAuth callback, and Firebase /__/ request flows
+  # through it — so allocated-CPU's lower per-second rate beats per-request
+  # (cpu_idle=true) billing. GCP Active Assist measured ~$14/mo cheaper here.
+  # NOT the ACP-runner idle-floor case: min_instances=0 keeps this at $0 when idle.
+  cpu_idle          = false
   startup_cpu_boost = false
   min_instances     = var.frontend_min_instances
   max_instances     = var.frontend_max_instances
