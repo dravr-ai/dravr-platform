@@ -20,6 +20,8 @@ pub mod coach_followups;
 pub mod coach_grading;
 pub mod coach_notes;
 pub mod contremaitre_admin;
+/// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
+pub mod device_auth;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;
 pub mod feature_flags;
