@@ -42,6 +42,7 @@ const STRAVA_CARD = {
   display_name: 'Strava',
   requires_oauth: false,
   connected: false,
+  needs_reauth: false,
   capabilities: ['activities'],
   recommended_backend: 'oauth' as const,
   seats_left: 3,

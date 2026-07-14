@@ -336,6 +336,12 @@ pub struct ProviderStatus {
     pub requires_oauth: bool,
     /// Whether the user is connected to this provider
     pub connected: bool,
+    /// Whether a connected provider's session is no longer usable and the user
+    /// must reconnect (`ConnectionStatus::NeedsReauth`/`Revoked`). Meaningful only
+    /// when `connected` is true — a dead scrape session or a non-recoverable OAuth
+    /// refresh failure. Lets the connection screen show "Reconnect needed" instead
+    /// of a healthy-looking "Connected" for a session that no longer works.
+    pub needs_reauth: bool,
     /// Provider capabilities (e.g., `["activities", "sleep"]`)
     pub capabilities: Vec<String>,
     /// For a user-facing provider with more than one auth backend (Strava can be

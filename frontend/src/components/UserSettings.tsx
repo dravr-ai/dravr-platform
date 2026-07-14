@@ -798,7 +798,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-on-surface">{provider.display_name}</p>
                               {provider.connected && (
-                                <Badge variant="success">Connected</Badge>
+                                provider.needs_reauth ? (
+                                  <Badge variant="warning">Reconnect needed</Badge>
+                                ) : (
+                                  <Badge variant="success">Connected</Badge>
+                                )
                               )}
                             </div>
                             <p className="text-sm text-on-surface-variant truncate">{display.description}</p>
@@ -809,7 +813,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             )}
                           </div>
                           <div className="flex-shrink-0">
-                            {provider.connected ? (
+                            {/* A connected-but-dead session (needs_reauth) falls through to the
+                                connect flow below, relabelled "Reconnect", so the user can revive
+                                it rather than being stuck looking at a healthy-seeming row. */}
+                            {provider.connected && !provider.needs_reauth ? (
                               (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
                                 <Button
                                   variant="secondary"
@@ -826,7 +833,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 size="sm"
                                 onClick={() => setIntervalsModalOpen(true)}
                               >
-                                Connect
+                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
                               </Button>
                             ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
                               <Button
@@ -847,7 +854,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   }
                                 }}
                               >
-                                Connect
+                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
                               </Button>
                             ) : provider.requires_oauth ? (
                               <Button
@@ -858,7 +865,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 }}
                                 loading={isConnecting}
                               >
-                                Connect
+                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
                               </Button>
                             ) : (
                               <Badge variant="secondary">Manual</Badge>
