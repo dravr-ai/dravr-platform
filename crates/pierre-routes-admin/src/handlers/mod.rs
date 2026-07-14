@@ -22,6 +22,8 @@ pub mod coach_notes;
 pub mod contremaitre_admin;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;
+/// Browser approval page for the device flow (gcloud-style super-admin login).
+pub mod device_web;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;
 pub mod feature_flags;
