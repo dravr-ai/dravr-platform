@@ -669,7 +669,12 @@ impl SeederRepository for Database {
             None
         };
 
-        let role = if user.is_admin { "admin" } else { "user" };
+        // The only user any seeder marks is_admin is the bootstrap operator, and the
+        // operator must be super_admin: cookie_admin_middleware derives console
+        // permissions from the role column, and super_admin is the tier that unlocks
+        // config/user/impersonation/device-login approval. This mirrors the local
+        // setup script, which creates the operator with `user create --super-admin`.
+        let role = if user.is_admin { "super_admin" } else { "user" };
 
         sqlx::query(
             "INSERT INTO users \
