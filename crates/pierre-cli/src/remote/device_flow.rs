@@ -149,9 +149,11 @@ async fn poll_for_token(
     }
 }
 
-/// Pick the intro line shown above the approval URL, reflecting whether a URL is
-/// available at all and whether the browser was launched for it. Kept pure so the
-/// prompt's presentation contract is unit-testable without spawning a browser.
+/// Pick the intro line shown above the approval URL.
+///
+/// The wording reflects whether a URL is available at all and whether the browser
+/// was launched for it. Kept pure so the prompt's presentation contract is
+/// unit-testable without spawning a browser.
 #[must_use]
 pub fn approval_intro(browser_url_empty: bool, launched: bool) -> &'static str {
     if browser_url_empty {
