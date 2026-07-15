@@ -38,10 +38,14 @@ pub struct DeviceLogin {
 
 /// Run the full device-login flow against `server`, blocking until it resolves.
 ///
+/// When `open_browser` is set (the default), the approval URL is launched in the
+/// operator's default browser (gcloud-style); the URL is always printed too, so a
+/// failed launch or `open_browser == false` degrades to copy-paste.
+///
 /// # Errors
 /// Returns an error if the server is unreachable, the login is denied, or the
 /// device code expires before approval.
-pub async fn run_device_login(server: &str) -> AppResult<DeviceLogin> {
+pub async fn run_device_login(server: &str, open_browser: bool) -> AppResult<DeviceLogin> {
     let client = RemoteClient::new(server, None)?;
 
     let auth = client
@@ -68,8 +72,13 @@ pub async fn run_device_login(server: &str) -> AppResult<DeviceLogin> {
         verification_uri_complete.to_owned()
     };
 
+    // Try to launch the browser first so the intro line can honestly say whether it
+    // opened. `open::that` returns as soon as the OS opener is spawned (it does not
+    // wait for the browser to close), and any failure falls back to the printed URL.
+    let launched = open_browser && !browser_url.is_empty() && open::that(&browser_url).is_ok();
+
     println!();
-    println!("  To finish signing in, open this URL in your browser and approve as a super-admin:");
+    println!("{}", approval_intro(browser_url.is_empty(), launched));
     println!();
     if browser_url.is_empty() {
         println!("      <server BASE_URL not set — approve headless instead>");
@@ -137,6 +146,20 @@ async fn poll_for_token(
                 ));
             }
         }
+    }
+}
+
+/// Pick the intro line shown above the approval URL, reflecting whether a URL is
+/// available at all and whether the browser was launched for it. Kept pure so the
+/// prompt's presentation contract is unit-testable without spawning a browser.
+#[must_use]
+pub fn approval_intro(browser_url_empty: bool, launched: bool) -> &'static str {
+    if browser_url_empty {
+        "  To finish signing in, approve this login headless (server BASE_URL not set):"
+    } else if launched {
+        "  Opening your browser to approve this login as a super-admin:"
+    } else {
+        "  To finish signing in, open this URL in your browser and approve as a super-admin:"
     }
 }
 

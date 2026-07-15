@@ -19,10 +19,13 @@ use pierre_cli::remote::{CachedCredentials, RemoteClient};
 
 /// `pierre-cli auth login --server <url>` — device-flow login, caching the token.
 ///
+/// Opens the approval URL in the default browser (gcloud-style) unless
+/// `no_browser` is set, in which case it only prints the URL.
+///
 /// # Errors
 /// Returns an error if the flow fails (unreachable server, denied, or expired).
-pub async fn login(server: String) -> AppResult<()> {
-    let result = run_device_login(&server).await?;
+pub async fn login(server: String, no_browser: bool) -> AppResult<()> {
+    let result = run_device_login(&server, !no_browser).await?;
     let creds = CachedCredentials {
         server: server.clone(),
         access_token: result.access_token,
