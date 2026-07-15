@@ -156,6 +156,10 @@ enum AuthCommand {
         /// Base URL of the pierre-server (e.g. `https://api.dev.dravr.ai`)
         #[arg(long)]
         server: String,
+
+        /// Print the approval URL instead of auto-opening it (for headless/SSH/CI)
+        #[arg(long)]
+        no_browser: bool,
     },
 
     /// Remove cached credentials
@@ -354,7 +358,9 @@ enum TokenCommand {
 
 async fn dispatch_auth(action: AuthCommand) -> Result<()> {
     match action {
-        AuthCommand::Login { server } => commands::auth::login(server).await,
+        AuthCommand::Login { server, no_browser } => {
+            commands::auth::login(server, no_browser).await
+        }
         AuthCommand::Logout => commands::auth::logout(),
         AuthCommand::Status => commands::auth::status(),
         AuthCommand::Approve {
