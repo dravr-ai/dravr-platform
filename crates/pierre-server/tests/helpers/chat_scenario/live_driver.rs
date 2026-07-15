@@ -127,6 +127,9 @@ pub struct LiveScenarioDriver {
     /// Conversation history threaded through every LLM call so multi-turn
     /// references ("mes activités d'hier") see prior context.
     history: Vec<ChatMessage>,
+    /// Frozen `{{CURRENT_DATE}}` anchor from the scenario, `%Y-%m-%d %H:%M`
+    /// (UTC). `None` anchors to wall-clock now.
+    current_date: Option<String>,
 }
 
 impl LiveScenarioDriver {
@@ -176,6 +179,7 @@ impl LiveScenarioDriver {
             seeded: BTreeMap::new(),
             pending_sync: BTreeMap::new(),
             history: Vec::new(),
+            current_date: None,
         })
     }
 
@@ -192,8 +196,10 @@ impl LiveScenarioDriver {
         // Seed the system prompt + user turn into the running history so
         // subsequent turns inherit context.
         if self.history.is_empty() {
-            self.history
-                .push(ChatMessage::system(build_system_prompt(locale)));
+            self.history.push(ChatMessage::system(build_system_prompt(
+                locale,
+                self.current_date.as_deref(),
+            )));
         }
         self.history.push(ChatMessage::user(user_message));
 
@@ -508,6 +514,10 @@ impl ScenarioDriver for LiveScenarioDriver {
         self.seeded.insert(provider.to_owned(), activities.to_vec());
     }
 
+    fn set_current_date(&mut self, current_date: Option<&str>) {
+        self.current_date = current_date.map(ToOwned::to_owned);
+    }
+
     fn enqueue_post_sync_activities(&mut self, provider: &str, activities: &[ScenarioActivity]) {
         self.pending_sync
             .insert(provider.to_owned(), activities.to_vec());
@@ -558,15 +568,23 @@ impl ScenarioDriver for LiveScenarioDriver {
 /// `tool_name_not_surfaced` scenarios assert against. Also keep the
 /// freshness/no-fabrication contract from `pierre_system.md` and let the
 /// function-calling envelope do the invocation work.
-fn build_system_prompt(locale: &str) -> String {
+fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     // Resolve `{{CURRENT_DATE}}` to a real date BEFORE stripping the rest.
     // Production fills it via `prompt_assembly::format_current_date` (the
     // user's local wall clock); without the anchor the model has no notion
     // of "today" and labels the freshest activity in history as today —
     // exactly the drift `today_anchor_no_stale_date_drift` pins. The eval
-    // carries no per-user tz, so anchor to UTC now; the calendar date is
+    // carries no per-user tz, so anchor to UTC; the calendar date is
     // what the scenario turns on, not the zone.
-    let current_date = format!("{} (UTC)", Utc::now().format("%Y-%m-%d %H:%M"));
+    //
+    // A scenario that seeds absolute dates pins this anchor
+    // (`ChatScenario::current_date`) so fixture and prompt share one clock.
+    // Wall-clock now is the default, and is correct only where no turn uses
+    // relative-time language.
+    let current_date = frozen_date.map_or_else(
+        || format!("{} (UTC)", Utc::now().format("%Y-%m-%d %H:%M")),
+        |frozen| format!("{frozen} (UTC)"),
+    );
     let dated_base = PIERRE_SYSTEM_PROMPT.replace("{{CURRENT_DATE}}", &current_date);
     // Strip the remaining `{{...}}` template placeholders. Production
     // replaces those via `prompt_assembly::expand_placeholders` with

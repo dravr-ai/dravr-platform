@@ -129,6 +129,10 @@ fn project(trace: TelegramTrace) -> ChatScenario {
         // Traces are replays, not model-graded scenarios; keep them in the
         // default nightly lane.
         nightly_gate: true,
+        // A trace carries its own recorded dates; it does not pin an anchor
+        // unless the projected turns use relative-time language, which the
+        // replay shape does not.
+        current_date: None,
     }
 }
 

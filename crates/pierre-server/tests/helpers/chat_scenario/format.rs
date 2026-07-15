@@ -22,6 +22,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 /// Top-level scenario document.
@@ -66,7 +67,29 @@ pub struct ChatScenario {
     /// not to paper over a real regression.
     #[serde(default = "default_true")]
     pub nightly_gate: bool,
+    /// Freeze the prompt's `{{CURRENT_DATE}}` anchor to a fixed instant,
+    /// as `YYYY-MM-DD HH:MM` (UTC). Unset means "anchor to wall-clock
+    /// now", which is correct only for scenarios whose turns carry no
+    /// relative-time language.
+    ///
+    /// A scenario that seeds absolute `date:` values AND says "ce matin" /
+    /// "cette semaine" has two clocks — the fixture's and the wall's — and
+    /// they drift apart by one day per day. `fragment_dedup_no_hallucination_fr`
+    /// was authored 2026-05-22 against same-day rows; by 2026-07-12 the
+    /// 51-day gap pushed every run down `pierre_system.md`'s stale-data
+    /// branch ("if the freshest activity predates the current date … invoke
+    /// `get_activities`"), so the scenario silently stopped testing fragment
+    /// density and started testing date-anchoring instead. Pinning the anchor
+    /// to the fixture's own date collapses the two clocks back into one and
+    /// keeps the scenario meaning what it meant the day it was written.
+    #[serde(default)]
+    pub current_date: Option<String>,
 }
+
+/// Wire format for [`ChatScenario::current_date`]. Minute precision: the
+/// prompt anchor renders `%Y-%m-%d %H:%M (UTC)`, and no assertion turns
+/// on seconds.
+const CURRENT_DATE_FORMAT: &str = "%Y-%m-%d %H:%M";
 
 fn default_true() -> bool {
     true
@@ -207,10 +230,24 @@ pub fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
         path: path.to_owned(),
         source: e,
     })?;
-    serde_yaml::from_str(&raw).map_err(|e| ScenarioLoadError::Parse {
-        path: path.to_owned(),
-        source: e,
-    })
+    let scenario: ChatScenario =
+        serde_yaml::from_str(&raw).map_err(|e| ScenarioLoadError::Parse {
+            path: path.to_owned(),
+            source: e,
+        })?;
+    // Reject a malformed anchor here rather than interpolating the raw
+    // string into the system prompt, where a typo would reach the model as
+    // the literal "today" and fail as an inscrutable assertion miss.
+    if let Some(raw_date) = scenario.current_date.as_deref() {
+        NaiveDateTime::parse_from_str(raw_date, CURRENT_DATE_FORMAT).map_err(|e| {
+            ScenarioLoadError::InvalidCurrentDate {
+                path: path.to_owned(),
+                value: raw_date.to_owned(),
+                source: e,
+            }
+        })?;
+    }
+    Ok(scenario)
 }
 
 /// Errors surfaced when loading a scenario from YAML.
@@ -224,6 +261,11 @@ pub enum ScenarioLoadError {
         path: PathBuf,
         source: serde_yaml::Error,
     },
+    InvalidCurrentDate {
+        path: PathBuf,
+        value: String,
+        source: chrono::ParseError,
+    },
 }
 
 impl Display for ScenarioLoadError {
@@ -231,6 +273,15 @@ impl Display for ScenarioLoadError {
         match self {
             Self::Io { path, source } => write!(f, "io reading {}: {source}", path.display()),
             Self::Parse { path, source } => write!(f, "yaml parsing {}: {source}", path.display()),
+            Self::InvalidCurrentDate {
+                path,
+                value,
+                source,
+            } => write!(
+                f,
+                "{}: current_date {value:?} is not `{CURRENT_DATE_FORMAT}` (UTC): {source}",
+                path.display()
+            ),
         }
     }
 }
@@ -240,12 +291,15 @@ impl Error for ScenarioLoadError {
         match self {
             Self::Io { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
+            Self::InvalidCurrentDate { source, .. } => Some(source),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use super::*;
 
     #[test]
@@ -261,6 +315,87 @@ turns:
         assert_eq!(s.locales, vec!["en"]);
         assert_eq!(s.turns.len(), 1);
         assert!(s.turns[0].assertions.is_empty());
+        // Unset anchor => wall-clock now, the correct default for a
+        // scenario with no relative-time language.
+        assert_eq!(s.current_date, None);
+    }
+
+    /// The shipped fragment-dedup scenario must keep its anchor pinned to
+    /// its own seeded day. If someone drops `current_date`, turn 1's "ce
+    /// matin" silently starts grading date-anchoring against a fixture that
+    /// ages one day per day — the exact rot this field exists to stop.
+    #[test]
+    fn fragment_dedup_anchor_matches_its_seeded_day() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/scenarios/fragment_dedup_no_hallucination_fr.yaml");
+        let s = load(&path).expect("fragment_dedup scenario loads");
+
+        let anchor = s
+            .current_date
+            .as_deref()
+            .expect("fragment_dedup must pin current_date; see the file header");
+        let anchor_day = anchor
+            .split_whitespace()
+            .next()
+            .expect("anchor has a date part");
+
+        let seeded_days: Vec<&str> = s.provider_state.providers["strava"]
+            .initial_activities
+            .iter()
+            .map(|a| a.date.as_str())
+            .collect();
+        assert_eq!(
+            seeded_days.len(),
+            20,
+            "the 20-row fragment shape is the scenario's subject"
+        );
+        for day in seeded_days {
+            assert_eq!(
+                day, anchor_day,
+                "every seeded row must fall on the anchored day, else turn 1's \
+                 'cette semaine incluant ce matin' drifts off the fixture"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_current_date() {
+        let dir = env::temp_dir().join("pierre_scenario_current_date_test");
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("bad_anchor.yaml");
+        fs::write(
+            &path,
+            "name: \"Bad anchor\"\nlocales: [\"en\"]\ncurrent_date: \"2026-05-22\"\nturns:\n  - user: \"Hello\"\n",
+        )
+        .expect("write");
+
+        let err = load(&path).expect_err("a date-only anchor must be rejected");
+        assert!(
+            matches!(err, ScenarioLoadError::InvalidCurrentDate { .. }),
+            "expected InvalidCurrentDate, got {err:?}"
+        );
+        // The message must name the offending value; a bare parse error
+        // leaves the author guessing which field is wrong.
+        assert!(err.to_string().contains("2026-05-22"), "{err}");
+
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn accepts_well_formed_current_date() {
+        let dir = env::temp_dir().join("pierre_scenario_current_date_ok_test");
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("good_anchor.yaml");
+        fs::write(
+            &path,
+            "name: \"Good anchor\"\nlocales: [\"en\"]\ncurrent_date: \"2026-05-22 12:00\"\nturns:\n  - user: \"Hello\"\n",
+        )
+        .expect("write");
+
+        let s = load(&path).expect("well-formed anchor loads");
+        assert_eq!(s.current_date.as_deref(), Some("2026-05-22 12:00"));
+
+        fs::remove_file(&path).ok();
     }
 
     #[test]

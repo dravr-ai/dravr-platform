@@ -242,6 +242,7 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
         }],
         skip_drift: false,
         nightly_gate: true,
+        current_date: None,
     };
     let mut driver = MockScenarioDriver::new(vec!["pong!".to_owned()], vec![vec![]]);
     let vocab = VocabularyContractRegistry::with_defaults();

@@ -26,6 +26,23 @@
 name: "Fragment density triggers session-vs-row distinction on turn 1; survives pushback"
 locales: ["fr"]
 notes: "Regression pin for 2026-05-22 Telegram fragment-hallucination + capitulation"
+# Turn 1 says "cette semaine incluant ce matin" and the rows below are all
+# 2026-05-22, so the prompt's "today" anchor MUST be that same day —
+# otherwise the two clocks drift one day per day and the scenario slowly
+# stops testing what it pins. It did: by 2026-07-12 the 51-day gap sent
+# every run down pierre_system.md's stale-data branch ("if the freshest
+# activity predates the current date … invoke get_activities"), so turn 1
+# was silently grading date-anchoring — which a local 7b misses ~83% of the
+# time, the same weakness that carved today_anchor out to the on-demand
+# lane — instead of fragment density. Freezing the anchor to the incident's
+# own date restores the scenario to its subject.
+#
+# The stale-data branch is real and already pinned, deliberately, by
+# today_anchor_no_stale_date_drift (which seeds 2025 dates precisely so it
+# is ALWAYS stale, and is on the on-demand lane for that same 7b weakness).
+# These two scenarios are complements — one same-day, one always stale — and
+# the drift here had quietly collapsed them into duplicates.
+current_date: "2026-05-22 12:00"
 provider_state:
   providers:
     strava:
