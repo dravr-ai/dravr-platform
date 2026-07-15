@@ -59,6 +59,12 @@ pub trait ScenarioDriver {
     /// Run one turn: feed `user_message` through the pipeline at
     /// `locale` and return the coach's reply + observed tool calls.
     fn run_turn(&mut self, user_message: &str, locale: &str) -> DriverTurnOutput;
+
+    /// Pin the prompt's "today" anchor to the scenario's
+    /// [`ChatScenario::current_date`]. `None` leaves the driver on
+    /// wall-clock now. Called once per locale run, before turn 1, so a
+    /// scenario's seeded dates and its "ce matin" share one clock.
+    fn set_current_date(&mut self, current_date: Option<&str>);
 }
 
 /// Output of one [`ScenarioDriver::run_turn`].
@@ -144,6 +150,7 @@ fn run_one_locale<D: ScenarioDriver>(
     vocab: &VocabularyContractRegistry,
     locale: &str,
 ) -> ScenarioReport {
+    driver.set_current_date(scenario.current_date.as_deref());
     seed_provider_state(scenario, driver);
 
     let mut turn_failures = Vec::new();
@@ -371,6 +378,9 @@ pub struct MockScenarioDriver {
     pub seeded: BTreeMap<String, Vec<ScenarioActivity>>,
     pub pending_sync: BTreeMap<String, Vec<ScenarioActivity>>,
     pub last_synced_activities: BTreeMap<String, Vec<ScenarioActivity>>,
+    /// Anchor the runner handed down from the scenario. Recorded so a test
+    /// can prove the wiring reaches the driver; the mock builds no prompt.
+    pub current_date: Option<String>,
 }
 
 impl MockScenarioDriver {
@@ -383,11 +393,16 @@ impl MockScenarioDriver {
             seeded: BTreeMap::new(),
             pending_sync: BTreeMap::new(),
             last_synced_activities: BTreeMap::new(),
+            current_date: None,
         }
     }
 }
 
 impl ScenarioDriver for MockScenarioDriver {
+    fn set_current_date(&mut self, current_date: Option<&str>) {
+        self.current_date = current_date.map(ToOwned::to_owned);
+    }
+
     fn seed_initial_state(&mut self, provider: &str, activities: &[ScenarioActivity]) {
         self.seeded.insert(provider.to_owned(), activities.to_vec());
     }
@@ -449,12 +464,47 @@ mod tests {
             provider_state: ProviderState::default(),
             skip_drift: false,
             nightly_gate: true,
+            current_date: None,
             turns: vec![TurnSpec {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
                 assertions: vec![reply_assertion],
             }],
         }
+    }
+
+    /// The anchor is useless if the runner never hands it down. Pin the
+    /// wiring: a scenario that sets `current_date` must reach the driver
+    /// before turn 1, and one that omits it must leave the driver on
+    /// wall-clock now.
+    #[test]
+    fn runner_threads_current_date_to_driver() {
+        let mut scenario = one_turn_scenario(AssertionSpec::ReplyContains {
+            value: "hello".to_owned(),
+        });
+        scenario.current_date = Some("2026-05-22 12:00".to_owned());
+
+        let mut driver = MockScenarioDriver::new(vec!["hello world".to_owned()], vec![vec![]]);
+        let vocab = VocabularyContractRegistry::with_defaults();
+        run_scenario(&scenario, &mut driver, &vocab);
+
+        assert_eq!(
+            driver.current_date.as_deref(),
+            Some("2026-05-22 12:00"),
+            "runner must pin the driver's anchor from the scenario"
+        );
+    }
+
+    #[test]
+    fn runner_leaves_current_date_unset_when_scenario_omits_it() {
+        let scenario = one_turn_scenario(AssertionSpec::ReplyContains {
+            value: "hello".to_owned(),
+        });
+        let mut driver = MockScenarioDriver::new(vec!["hello world".to_owned()], vec![vec![]]);
+        let vocab = VocabularyContractRegistry::with_defaults();
+        run_scenario(&scenario, &mut driver, &vocab);
+
+        assert_eq!(driver.current_date, None);
     }
 
     #[test]
@@ -494,6 +544,7 @@ mod tests {
             provider_state: ProviderState::default(),
             skip_drift: false,
             nightly_gate: true,
+            current_date: None,
             turns: vec![TurnSpec {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
@@ -523,6 +574,7 @@ mod tests {
             provider_state: ProviderState::default(),
             skip_drift: false,
             nightly_gate: true,
+            current_date: None,
             turns: vec![
                 TurnSpec {
                     user: "stats?".to_owned(),
@@ -558,6 +610,7 @@ mod tests {
             provider_state: ProviderState::default(),
             skip_drift: false,
             nightly_gate: true,
+            current_date: None,
             turns: vec![
                 TurnSpec {
                     user: "q1".to_owned(),
