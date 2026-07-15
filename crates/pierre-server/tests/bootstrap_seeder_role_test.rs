@@ -12,9 +12,9 @@ mod common;
 use pierre_core::permissions::UserRole;
 use pierre_seeders::bootstrap::{self, SeedArgs};
 
-/// The bootstrap seeder must create the operator (ADMIN_EMAIL) as `super_admin`, not a
+/// The bootstrap seeder must create the operator (`ADMIN_EMAIL`) as `super_admin`, not a
 /// plain `admin`. The browser device-login approval page gates on `is_super_admin`, and
-/// cookie_admin_middleware derives console permissions from the role column — a plain
+/// `cookie_admin_middleware` derives console permissions from the role column — a plain
 /// `admin` operator cannot approve a CLI sign-in or reach config/user/impersonation.
 /// Demo users stay non-privileged.
 #[tokio::test]
