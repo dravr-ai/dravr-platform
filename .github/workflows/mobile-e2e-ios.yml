@@ -21,7 +21,13 @@ permissions:
 jobs:
   build-server:
     name: Build Server (macOS)
-    runs-on: macos-latest
+    # Pinned, not `macos-latest`: the e2e-tests job below needs an Xcode that
+    # Maestro's XCUITest driver supports, and `macos-latest` rolled to
+    # macos-26-arm64 (which ships no Xcode 16.x) on 2026-07-15, hanging the
+    # suite for 150 minutes. Both jobs stay on one pinned image so the server
+    # binary this job builds and the simulator that runs it never disagree on
+    # architecture. Re-pin deliberately, with a Maestro compatibility check.
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -64,7 +70,10 @@ jobs:
   e2e-tests:
     name: Maestro E2E
     needs: build-server
-    runs-on: macos-latest
+    # macos-15 ships Xcode 16.3 (16E140) + 16.2, which the Select Xcode step
+    # below requires. See the build-server pin for why this is not
+    # `macos-latest`.
+    runs-on: macos-15
     timeout-minutes: 150
 
     steps:
@@ -96,7 +105,22 @@ jobs:
             sudo xcode-select --switch /Applications/Xcode_16.2.app/Contents/Developer
             echo "Selected Xcode 16.2 (fallback)"
           else
-            echo "WARNING: Neither Xcode 16.3 nor 16.2 found, using default"
+            # Do NOT fall through to the default toolchain. The pin above is
+            # load-bearing: on an unpinned Xcode, Maestro's XCUITest driver
+            # does not fail — it HANGS, and the job burns the full
+            # timeout-minutes (150) before reporting as "cancelled", which
+            # reads like an infra blip rather than a broken assumption.
+            # That is exactly what happened on 2026-07-15 (run 29398664447)
+            # when `macos-latest` rolled to macos-26-arm64, which ships no
+            # Xcode 16.x at all. Fail here in seconds instead: a red step
+            # naming the missing pin is worth 2.5 hours of silence.
+            echo "ERROR: neither Xcode 16.3 nor 16.2 is present on this runner." >&2
+            echo "The macos-latest image likely rolled forward. Re-pin this step" >&2
+            echo "to an Xcode that Maestro's XCUITest driver supports, or pin" >&2
+            echo "runs-on to an image that still ships one." >&2
+            echo "=== Xcode installations actually present ===" >&2
+            ls -d /Applications/Xcode*.app 2>/dev/null >&2 || echo "(none)" >&2
+            exit 1
           fi
           xcodebuild -version
           echo "=== Available Xcode installations ==="
