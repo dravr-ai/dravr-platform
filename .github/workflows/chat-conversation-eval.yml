@@ -171,7 +171,27 @@ jobs:
 
       - name: Install Ollama
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          # `curl … | sh` hides curl's exit status behind sh's: the default
+          # step shell is `bash -e` with no pipefail, so a failed download
+          # feeds sh an empty script, sh exits 0, and the step marches on to
+          # die 15 lines below as "Failed to restart ollama.service: Unit
+          # ollama.service not found" (systemctl exit 5) — a network blip
+          # wearing a config error's mask. ollama.com reset the connection
+          # mid-download on 2026-07-14 (run 29309692944) and cost a nightly.
+          # pipefail surfaces the real error; the retry absorbs the blip.
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if curl -fsSL https://ollama.com/install.sh | sh; then
+              echo "ollama install succeeded on attempt $attempt"
+              break
+            fi
+            echo "ollama install failed on attempt $attempt; retrying in 10s..."
+            sleep 10
+            if [ "$attempt" = "3" ]; then
+              echo "ERROR: ollama install exhausted retries" >&2
+              exit 1
+            fi
+          done
           mkdir -p "$RUNNER_TEMP/ollama-logs"
           # The installer auto-starts a systemd unit. Bump the context
           # window (Ollama's 4K default truncates Pierre's ~26K-token
