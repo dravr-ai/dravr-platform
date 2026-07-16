@@ -30,6 +30,7 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }

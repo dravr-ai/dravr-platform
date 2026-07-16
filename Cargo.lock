@@ -3593,6 +3593,7 @@ dependencies = [
  "pierre-evals",
  "pierre-seeders",
  "pierre-services",
+ "pierre-tool-runtime",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
