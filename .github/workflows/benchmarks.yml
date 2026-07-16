@@ -1,9 +1,12 @@
+# ABOUTME: Criterion benchmark CI — runs on backend pushes, compares against the main baseline, gates severe regressions.
+# ABOUTME: Baseline lives in the actions cache (updated on main pushes); on-demand flamegraph job via workflow_dispatch.
+#
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# Performance Benchmarks CI
-# Runs Criterion benchmarks on any branch with bench/src changes
-# Detects performance regressions and stores baseline results
+# Merges land on main via local squash (no PRs), so comparison runs on EVERY
+# push: branch runs compare against the last main baseline without touching it;
+# main pushes compare against the previous baseline, then overwrite it.
 
 name: "CI: Benchmarks"
 
@@ -14,29 +17,26 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/ci/bench-regression-check.py'
       - '.github/workflows/benchmarks.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/benchmarks.yml'
+      - '.github/actions/rust-setup/**'
   workflow_dispatch:
     inputs:
       benchmark_suite:
         description: 'Specific benchmark suite to run (empty for all)'
         required: false
         default: ''
-      compare_baseline:
-        description: 'Compare against baseline'
+      flamegraph:
+        description: 'Generate tool-dispatch flamegraphs instead of measuring'
         required: false
-        default: 'true'
+        default: false
         type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A rapid follow-up push to main must not cancel a run between benching and
+  # the baseline cache save; branch runs are safe to supersede.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Security: Explicit permissions following principle of least privilege
 permissions:
@@ -51,6 +51,7 @@ jobs:
   benchmark:
     name: Run Benchmarks
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.flamegraph != true
 
     steps:
       - name: Checkout repository
@@ -59,166 +60,100 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.96.0
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          components: rustfmt, clippy
+          shared-key: bench
+          cache-save: auto
 
-      # Cache temporarily disabled due to GitHub infrastructure issues
-      # Uncomment when cache service is stable
-      # - name: Cache cargo registry
-      #   continue-on-error: true
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       ~/.cargo/bin/
-      #       ~/.cargo/registry/index/
-      #       ~/.cargo/registry/cache/
-      #       ~/.cargo/git/db/
-      #       target/
-      #     key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-cargo-bench-
-      #       ${{ runner.os }}-cargo-
+      - name: Restore criterion baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-baseline-main-${{ github.sha }}
+          restore-keys: |
+            criterion-baseline-main-
 
-      # - name: Restore baseline from cache
-      #   if: github.event_name == 'pull_request'
-      #   continue-on-error: true
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: target/criterion
-      #     key: criterion-baseline-${{ github.base_ref }}
-      #     restore-keys: |
-      #       criterion-baseline-main
+      - name: Prune stale comparison data
+        # The restored baseline carries main's own change/ comparison dirs;
+        # left in place they surface as phantom results for suites this run
+        # does not execute.
+        run: |
+          if [ -d target/criterion ]; then
+            find target/criterion -type d -name change -prune -exec rm -rf {} +
+          fi
 
       - name: Run benchmarks
         run: |
-          if [ -n "${{ github.event.inputs.benchmark_suite }}" ]; then
-            cargo bench --bench ${{ github.event.inputs.benchmark_suite }}
+          SUITE="${{ inputs.benchmark_suite }}"
+          if [ -n "$SUITE" ]; then
+            TARGET="--bench $SUITE"
           else
-            # Scope to pierre_mcp_server — the only crate with Criterion benches
-            # Running workspace-wide would hit non-Criterion crates that reject Criterion flags
-            cargo bench -p pierre_mcp_server --benches
+            # Scope to pierre_mcp_server — the only crate with Criterion benches.
+            # Running workspace-wide would hit non-Criterion crates that reject Criterion flags.
+            TARGET="--benches"
+          fi
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
+            # Compares against the previous main baseline, then becomes it.
+            cargo bench -p pierre_mcp_server $TARGET -- --save-baseline main
+          else
+            # Compares against main's baseline; lenient = silently skip when absent.
+            cargo bench -p pierre_mcp_server $TARGET -- --baseline-lenient main
           fi
 
-      - name: Compare against baseline (PR only)
-        if: github.event_name == 'pull_request' && github.event.inputs.compare_baseline != 'false'
-        run: |
-          # Check if baseline exists
-          if [ -d "target/criterion" ] && [ "$(ls -A target/criterion)" ]; then
-            echo "Comparing against baseline..."
-            cargo bench -p pierre_mcp_server --benches -- --baseline main 2>&1 | tee benchmark_comparison.txt || true
-
-            # Check for regressions (>10% slower)
-            if grep -E '\+[1-9][0-9]\.[0-9]+%' benchmark_comparison.txt; then
-              echo "::warning::Performance regression detected (>10% slower)"
-            fi
-          else
-            echo "No baseline found, skipping comparison"
-          fi
-
-      - name: Save baseline (main branch only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          cargo bench -p pierre_mcp_server --benches -- --save-baseline main
-
-      - name: Cache baseline for PRs
+      - name: Save criterion baseline (main only)
+        # Placed before the regression gate: the baseline must track what main
+        # actually is, even when the gate fails the job.
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/save@v4
         with:
           path: target/criterion
           key: criterion-baseline-main-${{ github.sha }}
 
+      - name: Check for regressions
+        run: python3 scripts/ci/bench-regression-check.py --criterion-dir target/criterion --warn-pct 10 --fail-pct 50
+
       - name: Upload benchmark results
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ github.sha }}
-          path: |
-            target/criterion/
+          path: target/criterion/
           retention-days: 1
 
       - name: Upload HTML report
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ github.sha }}
           path: target/criterion/report/
           retention-days: 1
 
-  benchmark-comment:
-    name: Comment Benchmark Results
+  flamegraph:
+    name: Tool-Dispatch Flamegraphs
     runs-on: ubuntu-latest
-    needs: benchmark
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
+    if: github.event_name == 'workflow_dispatch' && inputs.flamegraph == true
 
     steps:
-      - name: Download benchmark results
-        uses: actions/download-artifact@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          name: benchmark-results-${{ github.sha }}
-          path: criterion-results
+          shared-key: bench
+          cache-save: 'false'
 
-      - name: Generate summary comment
-        id: summary
-        run: |
-          # Create summary from Criterion estimates
-          echo "## Performance Benchmark Results" > comment.md
-          echo "" >> comment.md
-          echo "Benchmarks completed for commit ${{ github.sha }}" >> comment.md
-          echo "" >> comment.md
+      - name: Profile dispatch benches
+        # --profile-time activates the pprof hook; no analysis, no baselines touched.
+        run: cargo bench -p pierre_mcp_server --bench tool_dispatch_bench -- --profile-time 10
 
-          # List benchmark groups
-          echo "### Benchmark Suites" >> comment.md
-          echo "" >> comment.md
-
-          for dir in criterion-results/*/; do
-            if [ -d "$dir" ]; then
-              suite=$(basename "$dir")
-              echo "- **${suite}**" >> comment.md
-            fi
-          done
-
-          echo "" >> comment.md
-          echo "📊 [View full HTML report in artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> comment.md
-
-          # Set output
-          echo "comment_body<<EOF" >> $GITHUB_OUTPUT
-          cat comment.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Comment on PR
-        uses: actions/github-script@v9
+      - name: Upload flamegraphs
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const body = `${{ steps.summary.outputs.comment_body }}`;
-
-            // Find existing comment
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(c =>
-              c.user.type === 'Bot' &&
-              c.body.includes('Performance Benchmark Results')
-            );
-
-            if (botComment) {
-              // Update existing comment
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body,
-              });
-            } else {
-              // Create new comment
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: body,
-              });
-            }
+          name: flamegraphs-${{ github.sha }}
+          path: target/criterion/**/profile/flamegraph.svg
+          retention-days: 1
