@@ -87,6 +87,31 @@ fi
 pass_validation "No backup files found"
 
 # ============================================================================
+# FAST-FAIL: Untracked migration files (symlink trap)
+# ============================================================================
+# crates/pierre-database/migrations{,_pg} are SYMLINKS to the repo-root
+# migrations{,_pg}/ dirs, so a migration written via the crate path lands at
+# root and `git add crates/` never stages it — the commit ships code without
+# its table (bit 2026-07-16, b3549c6a3: branch CI stayed green because the
+# full test suite runs only on main). An untracked migration at push time is
+# never a legitimate state; fail fast with the explanation.
+
+echo ""
+echo -e "${BLUE}==== Checking for untracked migration files (fast-fail) ====${NC}"
+
+UNTRACKED_MIGRATIONS=$(git ls-files --others --exclude-standard migrations/ migrations_pg/ 2>/dev/null)
+if [ -n "$UNTRACKED_MIGRATIONS" ]; then
+    echo -e "${RED}[FAIL] Untracked migration files found (they will NOT ship with your commit):${NC}"
+    echo "$UNTRACKED_MIGRATIONS"
+    echo -e "${RED}❌ ARCHITECTURAL VALIDATION FAILED${NC}"
+    echo -e "${RED}crates/pierre-database/migrations{,_pg} are symlinks to the repo root —${NC}"
+    echo -e "${RED}stage the files explicitly: git add migrations/ migrations_pg/${NC}"
+    exit 1
+fi
+
+pass_validation "No untracked migration files"
+
+# ============================================================================
 # TABLE FORMATTING HELPERS
 # ============================================================================
 
