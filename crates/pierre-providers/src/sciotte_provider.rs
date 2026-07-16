@@ -42,6 +42,7 @@ use crate::models::{
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_limiter::{global_limiter, LimiterError, ScrapePermit};
+use crate::sciotte_remote::{RemoteActivityQuery, RemoteSciotteClient};
 
 /// Default cap on detail-page enrichment when `PIERRE_SCIOTTE_ENRICH_DETAILS` is
 /// on: enrich only the most recent N activities so the N+1 detail roundtrip stays
@@ -76,6 +77,28 @@ impl SciotteTarget {
         match self {
             Self::Strava => "sciotte",
             Self::Garmin => "sciotte_garmin",
+        }
+    }
+
+    /// Inverse of [`Self::provider_name`]: the target for a Pierre backend
+    /// name (`"sciotte"`, `"sciotte_garmin"`). Unknown values fall back to
+    /// [`Self::Strava`], mirroring [`Self::from_target_param`].
+    #[must_use]
+    pub fn from_backend_name(backend: &str) -> Self {
+        match backend {
+            "sciotte_garmin" => Self::Garmin,
+            _ => Self::Strava,
+        }
+    }
+
+    /// Provider name the dravr-sciotte scraper service uses for this target
+    /// (`"garmin"`, `"strava"`) — sent on remote login/import so the
+    /// multi-provider service routes to the right scraper (ADR-021).
+    #[must_use]
+    pub const fn scraper_provider_name(self) -> &'static str {
+        match self {
+            Self::Strava => "strava",
+            Self::Garmin => "garmin",
         }
     }
 
@@ -525,6 +548,32 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
+        // ADR-021 remote path: scrape on the dedicated service instead of in-pod
+        // Chrome. Import the platform-held session (re-hydrates the service if it
+        // scaled to zero / was redeployed), then fetch — no in-pod profile lock or
+        // Chrome permit, which is the whole point of the split.
+        if let Some(remote) = RemoteSciotteClient::from_env()? {
+            remote
+                .import_session(
+                    session,
+                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+                )
+                .await?;
+            let profile = remote.get_athlete(&session.session_id).await?;
+            let display_name = profile
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "Sciotte User".to_owned());
+            return Ok(Athlete {
+                id: "sciotte".to_owned(),
+                username: display_name,
+                firstname: profile.firstname,
+                lastname: profile.lastname,
+                profile_picture: profile.profile_picture_url,
+                provider: "sciotte".to_owned(),
+            });
+        }
+
         // Profile lock before the global permit: waiting for the profile to
         // free up must not pin a scarce Chrome-concurrency slot.
         let _profile_lock = ProfileLockRegistry::global()
@@ -600,6 +649,34 @@ impl FitnessProvider for SciotteProvider {
             ..Default::default()
         };
 
+        // ADR-021 remote path: fetch on the dedicated service instead of in-pod
+        // Chrome. Import the platform-held session (re-hydrates the service after a
+        // scale-to-zero / redeploy), then scrape over HTTP. Reuses convert_activity
+        // so the returned shape is identical to the in-process path.
+        if let Some(remote) = RemoteSciotteClient::from_env()? {
+            let query = RemoteActivityQuery {
+                limit: Some(limit as u32),
+                after_epoch: params.after,
+                before_epoch: params.before,
+                sport_type: None,
+                enrich_details,
+            };
+            remote
+                .import_session(
+                    session,
+                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+                )
+                .await?;
+            let sciotte_activities = remote.get_activities(&session.session_id, &query).await?;
+            let activities: Vec<Activity> =
+                sciotte_activities.iter().map(convert_activity).collect();
+            info!(
+                count = activities.len(),
+                "Sciotte scrape completed (remote service)"
+            );
+            return Ok(activities);
+        }
+
         debug!(
             limit,
             ?before,
@@ -670,6 +747,18 @@ impl FitnessProvider for SciotteProvider {
         let session = session
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
+
+        // ADR-021 remote path: fetch the single activity on the dedicated service.
+        if let Some(remote) = RemoteSciotteClient::from_env()? {
+            remote
+                .import_session(
+                    session,
+                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+                )
+                .await?;
+            let sciotte_activity = remote.get_activity(&session.session_id, id).await?;
+            return Ok(convert_activity(&sciotte_activity));
+        }
 
         // Profile lock before the global permit: waiting for the profile to
         // free up must not pin a scarce Chrome-concurrency slot.

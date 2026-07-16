@@ -53,6 +53,10 @@ pub mod sciotte_limiter;
 /// Sciotte web scraping provider for browser-based activity data extraction
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
+
+/// HTTP client for the dedicated dravr-sciotte scraper service (ADR-021 remote path)
+#[cfg(feature = "provider-sciotte")]
+pub mod sciotte_remote;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
