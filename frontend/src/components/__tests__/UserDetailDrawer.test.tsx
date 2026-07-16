@@ -68,14 +68,14 @@ const targetUser: User = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
-function renderDrawer() {
+function renderDrawer(user: User = targetUser) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <UserDetailDrawer
-        user={targetUser}
+        user={user}
         isOpen={true}
         onClose={vi.fn()}
         onAction={vi.fn()}
@@ -84,8 +84,8 @@ function renderDrawer() {
   );
 }
 
-async function renderAndSettle() {
-  renderDrawer();
+async function renderAndSettle(user: User = targetUser) {
+  renderDrawer(user);
   // Wait for the rate-limit query so state updates stay inside the test body
   await waitFor(() => {
     expect(screen.getByText('Daily Usage')).toBeInTheDocument();
@@ -163,6 +163,23 @@ describe('UserDetailDrawer tier control', () => {
       expect(clearUserTier).toHaveBeenCalledWith('user-42');
     });
     expect(setUserTier).not.toHaveBeenCalled();
+  });
+
+  it('preselects the current tier even when the API serves the display form', async () => {
+    // The admin users list serves "Professional" (capitalized), while the
+    // select values are lowercase. Regression: the editor used to fall back
+    // to Starter, so a blind Save silently downgraded the user.
+    await renderAndSettle({ ...targetUser, tier: 'Professional' });
+
+    fireEvent.click(screen.getByText('Edit tier'));
+
+    expect((screen.getByLabelText('Tier') as HTMLSelectElement).value).toBe(
+      'professional',
+    );
+    fireEvent.click(screen.getByText('Save tier'));
+    await waitFor(() => {
+      expect(setUserTier).toHaveBeenCalledWith('user-42', 'professional');
+    });
   });
 
   it('hides the tier editor for non-super-admin admins', async () => {
