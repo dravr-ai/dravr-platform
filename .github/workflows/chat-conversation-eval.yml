@@ -215,6 +215,28 @@ jobs:
             exit 1
           fi
 
+      # Runs on EVERY shard, pass or fail. The Ollama journal is only dumped
+      # on failure, so every llama-server segfault so far (2026-07-15: nightly
+      # shard 3, plus two manual runs on shard 1) has been observed on an
+      # Intel Xeon Platinum 8573C with AMX_INT8=1 — while passing shards
+      # reported no CPU at all. That makes the "AMX backend segfaults" theory
+      # untestable: it is equally consistent with every runner being an 8573C
+      # and the crash being probabilistic. One line of lscpu per shard settles
+      # it: if green shards are also AMX, the CPU is not the discriminator.
+      - name: Log runner CPU (segfault evidence)
+        run: |
+          echo "=== CPU model ==="
+          lscpu | grep -iE "^Model name|^Vendor ID|^CPU\(s\):" || true
+          echo "=== AMX / AVX512 flags present? ==="
+          if lscpu | grep -qiE "\bamx_int8\b"; then
+            echo "AMX_INT8: PRESENT"
+          else
+            echo "AMX_INT8: absent"
+          fi
+          lscpu | grep -oE "\bamx_[a-z0-9]+|\bavx512_bf16\b" | sort -u || true
+          echo "=== memory ==="
+          free -g || true
+
       - name: Cache Ollama model store
         uses: actions/cache@v4
         with:
