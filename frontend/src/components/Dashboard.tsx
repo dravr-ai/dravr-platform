@@ -31,6 +31,7 @@ const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
+const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
 const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
 const SystemPromptsTab = lazy(() => import('./SystemPromptsTab'));
 const ClaimVerdictsTab = lazy(() => import('./ClaimVerdictsTab'));
@@ -277,6 +278,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'configuration', name: 'Tool Management', section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+      </svg>
+    ) },
+    { id: 'user-tools', name: 'User Tools', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h9m3-6l2 2 4-4" />
       </svg>
     ) },
     { id: 'prompts', name: 'Prompts', section: 'Configuration', icon: (
@@ -780,6 +786,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'configuration' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <AdminConfiguration />
+          </Suspense>
+        )}
+        {activeTab === 'user-tools' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <UserToolOverrides />
           </Suspense>
         )}
         {activeTab === 'platform-settings' && (

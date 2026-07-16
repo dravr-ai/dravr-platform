@@ -16,6 +16,7 @@ use pierre_core::models::{
     CategorySummary, EffectiveTool, TenantPlan, TenantToolOverride, ToolAvailabilitySummary,
     ToolCatalogEntry, ToolCategory, ToolEnablementSource,
 };
+use pierre_database::repositories::UserToolOverrideRepository;
 use pierre_database::{AuthRepos, RepositoryRegistry, UsageRepos};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -38,9 +39,14 @@ struct CacheEntry {
 ///
 /// The service applies tool enablement in the following precedence order:
 /// 1. **Global Disabled** (`PIERRE_DISABLED_TOOLS`) - Highest priority
-/// 2. **Plan Restriction** - Tools require minimum plan level
-/// 3. **Tenant Override** - Admin-configured per-tenant settings
-/// 4. **Catalog Default** - Default enablement from `tool_catalog` table
+/// 2. **User Override** (`user_tool_overrides`) - Per-user admin allow/deny
+/// 3. **Plan Restriction** - Tools require minimum plan level
+/// 4. **Tenant Override** - Admin-configured per-tenant settings
+/// 5. **Catalog Default** - Default enablement from `tool_catalog` table
+///
+/// Rungs 1, 3, 4, 5 are computed per tenant and cached (5-minute TTL); the
+/// User Override rung is applied as a per-request overlay by the `*_for_user`
+/// methods, so operator changes to a user's tools take effect immediately.
 pub struct ToolSelectionService {
     /// Auth-domain view used by the plan-restriction layer to look up the
     /// tenant's subscription plan via `repos.tenants.get_by_id`.
@@ -48,6 +54,10 @@ pub struct ToolSelectionService {
     /// Usage-domain view used by the tenant-override layer to read
     /// `repos.tool_selection.list_tenant_overrides`.
     usage: UsageRepos,
+    /// Per-user tool override repository (the User Override rung). Fetched per
+    /// request as an overlay on top of the cached tenant computation, so it is
+    /// never stale — it deliberately does NOT enter the tenant cache.
+    user_tool_overrides: Arc<dyn UserToolOverrideRepository>,
     cache: Arc<RwLock<LruCache<TenantId, CacheEntry>>>,
     cache_ttl: Duration,
     /// Global tool selection configuration from environment
@@ -86,6 +96,7 @@ impl ToolSelectionService {
         Self {
             auth: repos.auth_repos(),
             usage: repos.usage_repos(),
+            user_tool_overrides: repos.user_tool_overrides.clone(),
             cache: Arc::new(RwLock::new(LruCache::new(CACHE_SIZE))),
             cache_ttl: Duration::from_mins(5),
             config,
@@ -99,6 +110,7 @@ impl ToolSelectionService {
         Self {
             auth: repos.auth_repos(),
             usage: repos.usage_repos(),
+            user_tool_overrides: repos.user_tool_overrides.clone(),
             cache: Arc::new(RwLock::new(LruCache::new(CACHE_SIZE))),
             cache_ttl,
             config,
@@ -163,6 +175,103 @@ impl ToolSelectionService {
     pub async fn get_enabled_tools(&self, tenant_id: TenantId) -> AppResult<Vec<EffectiveTool>> {
         let all_tools = self.get_effective_tools(tenant_id).await?;
         Ok(all_tools.into_iter().filter(|t| t.is_enabled).collect())
+    }
+
+    /// Get effective tools for a user within a tenant.
+    ///
+    /// Starts from the cached per-tenant computation ([`Self::get_effective_tools`])
+    /// and overlays the user's per-user overrides on top: a user override wins
+    /// over plan restriction, tenant override, and catalog default, but a
+    /// globally-disabled tool stays off. The overlay is fetched fresh per call
+    /// (a small indexed query) so operator changes take effect immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail.
+    pub async fn get_effective_tools_for_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Vec<EffectiveTool>> {
+        let tenant_tools = self.get_effective_tools(tenant_id).await?;
+        let overlay = self.user_override_map(user_id).await?;
+        Ok(Self::apply_user_overrides(tenant_tools, &overlay))
+    }
+
+    /// Get only the enabled tools for a user within a tenant (for `tools/list`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail.
+    pub async fn get_enabled_tools_for_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Vec<EffectiveTool>> {
+        let all = self
+            .get_effective_tools_for_user(tenant_id, user_id)
+            .await?;
+        Ok(all.into_iter().filter(|t| t.is_enabled).collect())
+    }
+
+    /// Check whether a specific tool is enabled for a user within a tenant.
+    ///
+    /// Precedence: global-disabled → per-user override → tenant decision
+    /// (plan / tenant override / catalog default).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail.
+    pub async fn is_tool_enabled_for_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        tool_name: &str,
+    ) -> AppResult<bool> {
+        // Global disabled is immovable and wins over any user override.
+        if self.config.is_globally_disabled(tool_name) {
+            return Ok(false);
+        }
+        // A per-user override wins over the tenant decision.
+        if let Some(ov) = self.user_tool_overrides.get(user_id, tool_name).await? {
+            return Ok(ov.is_enabled);
+        }
+        // No user override — defer to the tenant-level decision.
+        self.is_tool_enabled(tenant_id, tool_name).await
+    }
+
+    /// Load a user's tool overrides as a `tool_name -> is_enabled` overlay map.
+    async fn user_override_map(&self, user_id: Uuid) -> AppResult<HashMap<String, bool>> {
+        let overrides = self.user_tool_overrides.list_for_user(user_id).await?;
+        Ok(overrides
+            .into_iter()
+            .map(|o| (o.tool_name, o.is_enabled))
+            .collect())
+    }
+
+    /// Overlay per-user overrides onto a computed tenant tool list.
+    ///
+    /// A user override replaces the enablement + source of a tool unless the
+    /// tool is [`ToolEnablementSource::GlobalDisabled`], which is immovable.
+    fn apply_user_overrides(
+        tools: Vec<EffectiveTool>,
+        overlay: &HashMap<String, bool>,
+    ) -> Vec<EffectiveTool> {
+        if overlay.is_empty() {
+            return tools;
+        }
+        tools
+            .into_iter()
+            .map(|mut tool| {
+                if tool.source != ToolEnablementSource::GlobalDisabled {
+                    if let Some(&is_enabled) = overlay.get(&tool.tool_name) {
+                        tool.is_enabled = is_enabled;
+                        tool.source = ToolEnablementSource::UserOverride;
+                    }
+                }
+                tool
+            })
+            .collect()
     }
 
     /// Check if a specific tool is enabled for a tenant

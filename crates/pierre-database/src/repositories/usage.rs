@@ -19,6 +19,7 @@ use pierre_core::models::{
     ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
 };
 use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Usage tracking and analytics repository
@@ -308,4 +309,50 @@ pub trait UserTierOverrideRepository: Send + Sync {
     /// Returns `true` when a row was removed, `false` when no override
     /// existed.
     async fn delete(&self, user_id: Uuid) -> AppResult<bool>;
+}
+
+/// Per-user admin tool override.
+///
+/// Records that an operator explicitly enabled or disabled a single MCP tool
+/// for one user, independent of the user's tenant plan or any tenant-level
+/// tool override. `ToolSelectionService` consults it as a per-request overlay
+/// above the (cached) tenant computation: a user override wins over plan
+/// restriction, tenant override, and catalog default. A globally-disabled tool
+/// (`PIERRE_DISABLED_TOOLS`) stays off and is never resurrected here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserToolOverride {
+    /// User the override applies to.
+    pub user_id: Uuid,
+    /// Catalogued MCP tool name being overridden.
+    pub tool_name: String,
+    /// `true` force-enables the tool for this user, `false` force-disables it.
+    pub is_enabled: bool,
+    /// Admin user who set the override (audit trail). `None` for service
+    /// tokens that do not map to a user UUID.
+    pub set_by: Option<Uuid>,
+    /// Operator-facing note explaining why the override exists.
+    pub reason: Option<String>,
+    /// First-set timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Most-recent update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// CRUD for `user_tool_overrides` — the per-user tool allow/deny layer applied
+/// as an overlay on top of the tenant tool-selection computation.
+#[async_trait]
+pub trait UserToolOverrideRepository: Send + Sync {
+    /// Fetch the override for one `(user, tool)`, or `None` if unset.
+    async fn get(&self, user_id: Uuid, tool_name: &str) -> AppResult<Option<UserToolOverride>>;
+
+    /// All overrides for a user (the overlay map). Empty when none are set.
+    async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<UserToolOverride>>;
+
+    /// Insert or update the override for one `(user, tool)`. `created_at` is
+    /// preserved on update; `updated_at` is always bumped to the call time.
+    async fn upsert(&self, row: &UserToolOverride) -> AppResult<()>;
+
+    /// Remove the override so the tool reverts to plan/tenant/default.
+    /// Returns `true` when a row was removed.
+    async fn delete(&self, user_id: Uuid, tool_name: &str) -> AppResult<bool>;
 }

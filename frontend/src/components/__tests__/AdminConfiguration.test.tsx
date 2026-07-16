@@ -14,6 +14,11 @@ vi.mock('../ToolAvailability', () => ({
   default: () => <div data-testid="tool-availability">ToolAvailability</div>,
 }));
 
+// Mock TenantPlanCard — it needs useAuth/adminApi and renders null for non-super-admins
+vi.mock('../TenantPlanCard', () => ({
+  default: () => <div data-testid="tenant-plan-card">TenantPlanCard</div>,
+}));
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -28,5 +33,11 @@ describe('AdminConfiguration', () => {
     renderWithProviders(<AdminConfiguration />);
     const toolAvailability = await screen.findByTestId('tool-availability');
     expect(toolAvailability).toBeDefined();
+  });
+
+  it('renders the TenantPlanCard above the tool list', async () => {
+    renderWithProviders(<AdminConfiguration />);
+    const planCard = await screen.findByTestId('tenant-plan-card');
+    expect(planCard).toBeDefined();
   });
 });

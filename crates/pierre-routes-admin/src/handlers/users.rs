@@ -17,12 +17,10 @@ use serde_json::{json, to_value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use chrono::Utc;
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{UserStatus, UserTier};
 use pierre_database::backends::shared::enums::user_tier_to_str;
-use pierre_database::repositories::UserTierOverride;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::slack_ops_notifier::ops_notifier;
@@ -688,41 +686,24 @@ pub(crate) async fn handle_set_user_tier(
         }
     };
 
-    let updated = context
-        .repos
-        .users
-        .set_tier(user_uuid, new_tier.clone())
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
-
-    // Record the admin override marker so a later Stripe webhook cannot
-    // clobber this manual tier. set_by is None — the admin token is a
-    // service token, not a user UUID.
-    let now = Utc::now();
-    let override_row = UserTierOverride {
-        user_id: user_uuid,
-        tier: new_tier.clone(),
-        note: Some(format!(
-            "admin tier override via {}",
-            admin_token.service_name
-        )),
-        set_by: None,
-        set_at: now,
-        updated_at: now,
-    };
-    context
-        .repos
-        .user_tier_overrides
-        .upsert(&override_row)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to record tier override: {e}")))?;
+    // Shared implementation: writes users.tier AND the anti-clobber marker
+    // (set_by = None — the admin token is a service token, not a user UUID).
+    let note = format!("admin tier override via {}", admin_token.service_name);
+    let updated = admin_ops::set_user_tier(
+        &context.repos,
+        user_uuid,
+        new_tier.clone(),
+        Some(note),
+        None,
+    )
+    .await?;
 
     info!(
         target_user_id = %user_uuid,
         target_user_email = %updated.email,
         new_tier = user_tier_to_str(&new_tier),
         admin_service = %admin_token.service_name,
-        "Admin tier change applied"
+        "Admin tier change applied via token surface"
     );
 
     Ok(json_response(
@@ -770,18 +751,13 @@ pub(crate) async fn handle_clear_user_tier_override(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-    let removed = context
-        .repos
-        .user_tier_overrides
-        .delete(user_uuid)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to clear tier override: {e}")))?;
+    let removed = admin_ops::clear_user_tier_override(&context.repos, user_uuid).await?;
 
     info!(
         target_user_id = %user_uuid,
         admin_service = %admin_token.service_name,
         removed,
-        "Admin tier override cleared"
+        "Admin tier override cleared via token surface"
     );
 
     Ok(json_response(

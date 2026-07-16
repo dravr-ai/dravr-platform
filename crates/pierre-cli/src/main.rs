@@ -146,6 +146,18 @@ enum Command {
         #[command(subcommand)]
         action: StravaPoolCommand,
     },
+
+    /// Tenant administration (set plan)
+    Tenant {
+        #[command(subcommand)]
+        action: TenantCommand,
+    },
+
+    /// Per-user MCP tool allow/deny
+    Tool {
+        #[command(subcommand)]
+        action: ToolCommand,
+    },
 }
 
 #[non_exhaustive]
@@ -286,6 +298,99 @@ enum UserCommand {
 
     /// List all admin users
     ListAdmins,
+
+    /// Set a user's billing/quota tier (Starter / Professional / Enterprise)
+    SetTier {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Tier: starter | professional | enterprise
+        #[arg(long)]
+        tier: String,
+
+        /// Operator note recorded on the override marker
+        #[arg(long)]
+        note: Option<String>,
+    },
+
+    /// Clear a user's tier override so the billing webhook drives the tier again
+    ClearTier {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Subcommand)]
+enum TenantCommand {
+    /// Set a tenant's plan (unlocks plan-gated tools via `tool_catalog.min_plan`)
+    SetPlan {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// Plan: starter | professional | enterprise
+        #[arg(long)]
+        plan: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Subcommand)]
+enum ToolCommand {
+    /// Force-enable an MCP tool for a user (overrides plan + tenant gating)
+    Enable {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Operator note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Force-disable an MCP tool for a user
+    Disable {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Operator note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Remove a per-user tool override (revert to plan/tenant/default)
+    Reset {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name
+        #[arg(long)]
+        tool: String,
+    },
+
+    /// List a user's per-user tool overrides
+    List {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
 }
 
 #[non_exhaustive]
@@ -497,6 +602,43 @@ async fn main() -> Result<()> {
             }
             UserCommand::ListAdmins => {
                 commands::user::list_admins(&repos).await?;
+            }
+            UserCommand::SetTier { email, tier, note } => {
+                commands::user::set_tier(&repos, email, tier, note).await?;
+            }
+            UserCommand::ClearTier { email } => {
+                commands::user::clear_tier(&repos, email).await?;
+            }
+        },
+        Command::Tenant { action } => match action {
+            TenantCommand::SetPlan {
+                email,
+                plan,
+                tenant_id,
+            } => {
+                commands::tenant::set_plan(&repos, email, plan, tenant_id).await?;
+            }
+        },
+        Command::Tool { action } => match action {
+            ToolCommand::Enable {
+                email,
+                tool,
+                reason,
+            } => {
+                commands::tool::enable(&repos, email, tool, reason).await?;
+            }
+            ToolCommand::Disable {
+                email,
+                tool,
+                reason,
+            } => {
+                commands::tool::disable(&repos, email, tool, reason).await?;
+            }
+            ToolCommand::Reset { email, tool } => {
+                commands::tool::reset(&repos, email, tool).await?;
+            }
+            ToolCommand::List { email } => {
+                commands::tool::list(&repos, email).await?;
             }
         },
         Command::Token { action } => match action {

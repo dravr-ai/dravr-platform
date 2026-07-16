@@ -10,9 +10,10 @@ use pierre_config::mcp::AppBehaviorConfig;
 use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_core::models::{User, UserStatus};
+use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
+use pierre_database::repositories::{UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::pricing::calculate_cost;
 use pierre_runtime_context::DataContext;
@@ -297,6 +298,202 @@ pub async fn verify_admin_tenant_access(
             "Admin does not belong to the target tenant",
         ))
     }
+}
+
+// =========================================================================
+// Plan & tier administration (shared by pierre-cli + web admin + token API)
+// =========================================================================
+
+/// Set a user's billing/quota tier and record the admin-override marker.
+///
+/// Writes `users.tier` (the effective tier the running server reads per
+/// request) AND upserts a `user_tier_overrides` row so a later Stripe webhook
+/// cannot clobber the manual tier. Single shared implementation behind the
+/// `pierre-cli user set-tier` command, the cookie `/api/admin` route, and the
+/// super-admin token route.
+///
+/// `set_by` is the acting admin's UUID for the audit trail, or `None` for
+/// service tokens that do not map to a user row.
+///
+/// # Errors
+///
+/// Returns `Internal` if the tier write or the marker upsert fails.
+pub async fn set_user_tier(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tier: UserTier,
+    note: Option<String>,
+    set_by: Option<Uuid>,
+) -> Result<User, AppError> {
+    let updated = repos
+        .users
+        .set_tier(user_id, tier.clone())
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
+
+    let now = Utc::now();
+    let override_row = UserTierOverride {
+        user_id,
+        tier,
+        note,
+        set_by,
+        set_at: now,
+        updated_at: now,
+    };
+    repos
+        .user_tier_overrides
+        .upsert(&override_row)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to record tier override: {e}")))?;
+
+    info!(
+        target_user_id = %user_id,
+        target_user_email = %updated.email,
+        new_tier = %updated.tier,
+        "Admin tier change applied"
+    );
+    Ok(updated)
+}
+
+/// Clear a user's tier-override marker so the Stripe webhook drives the tier
+/// again. Leaves `users.tier` as-is. Returns `true` if a marker was removed.
+///
+/// # Errors
+///
+/// Returns `Internal` if the delete fails.
+pub async fn clear_user_tier_override(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+) -> Result<bool, AppError> {
+    let removed = repos
+        .user_tier_overrides
+        .delete(user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to clear tier override: {e}")))?;
+    info!(target_user_id = %user_id, removed, "Admin tier override cleared");
+    Ok(removed)
+}
+
+/// Set a tenant's plan (`starter` / `professional` / `enterprise`), which gates
+/// plan-restricted tools via `tool_catalog.min_plan`.
+///
+/// Distinct from the Stripe billing webhook — this is the operator backdoor
+/// shared by `pierre-cli tenant set-plan` and the web admin route.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` for an unknown plan string, or `Internal` if the
+/// write fails.
+pub async fn set_tenant_plan(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    plan: &str,
+) -> Result<Tenant, AppError> {
+    let normalized = plan.to_ascii_lowercase();
+    if TenantPlan::parse_str(&normalized).is_none() {
+        return Err(AppError::invalid_input(format!(
+            "Unknown plan '{plan}' — expected starter, professional, or enterprise"
+        )));
+    }
+
+    let updated = repos
+        .tenants
+        .set_plan(tenant_id, &normalized)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set tenant plan: {e}")))?;
+
+    info!(tenant_id = %tenant_id, plan = %normalized, "Admin tenant plan change applied");
+    Ok(updated)
+}
+
+/// Set a per-user tool override (force-enable or force-disable one MCP tool for
+/// one user).
+///
+/// Validates the tool exists in the catalog so an unknown name is a clean
+/// not-found rather than an opaque foreign-key error. Shared write path behind
+/// `pierre-cli tool enable/disable` and the cookie
+/// `/api/admin/tools/user/{id}/override` route. No tool-selection cache
+/// invalidation is needed — the per-user overlay is read fresh per request.
+///
+/// # Errors
+///
+/// Returns `NotFound` if the tool is not in the catalog, or `Internal` if the
+/// database write fails.
+pub async fn set_user_tool_override(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tool_name: &str,
+    is_enabled: bool,
+    set_by: Option<Uuid>,
+    reason: Option<String>,
+) -> Result<UserToolOverride, AppError> {
+    repos
+        .tool_selection
+        .get_tool_catalog_entry(tool_name)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to read tool catalog: {e}")))?
+        .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
+
+    let now = Utc::now();
+    let row = UserToolOverride {
+        user_id,
+        tool_name: tool_name.to_owned(),
+        is_enabled,
+        set_by,
+        reason,
+        created_at: now,
+        updated_at: now,
+    };
+    repos
+        .user_tool_overrides
+        .upsert(&row)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set user tool override: {e}")))?;
+
+    info!(
+        target_user_id = %user_id,
+        tool_name,
+        is_enabled,
+        "Per-user tool override applied"
+    );
+    Ok(row)
+}
+
+/// Remove a per-user tool override so the tool reverts to plan/tenant/default.
+/// Returns `true` if an override row was removed.
+///
+/// # Errors
+///
+/// Returns `Internal` if the delete fails.
+pub async fn remove_user_tool_override(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tool_name: &str,
+) -> Result<bool, AppError> {
+    let removed = repos
+        .user_tool_overrides
+        .delete(user_id, tool_name)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to remove user tool override: {e}")))?;
+    info!(target_user_id = %user_id, tool_name, removed, "Per-user tool override removed");
+    Ok(removed)
+}
+
+/// List a user's explicit per-user tool overrides (for the CLI `tool list` and
+/// the web panel's current-state display).
+///
+/// # Errors
+///
+/// Returns `Internal` if the read fails.
+pub async fn list_user_tool_overrides(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+) -> Result<Vec<UserToolOverride>, AppError> {
+    repos
+        .user_tool_overrides
+        .list_for_user(user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to list user tool overrides: {e}")))
 }
 
 // =========================================================================

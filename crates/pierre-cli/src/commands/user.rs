@@ -12,6 +12,7 @@ use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, U
 use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::RepositoryRegistry;
+use pierre_services::admin_ops;
 
 type Result<T> = AppResult<T>;
 use tracing::{error, info, warn};
@@ -322,6 +323,63 @@ pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
         updated.id,
         updated.role.as_str()
     );
+    Ok(())
+}
+
+/// Set a user's billing/quota tier (Starter / Professional / Enterprise).
+///
+/// Writes `users.tier` (the effective quota tier the server reads per request)
+/// and records the admin-override marker so a later Stripe webhook cannot
+/// clobber it. Delegates to the shared [`admin_ops::set_user_tier`] so the CLI,
+/// the web admin route, and the super-admin token route share one implementation.
+pub async fn set_tier(
+    repos: &RepositoryRegistry,
+    email: String,
+    tier: String,
+    note: Option<String>,
+) -> Result<()> {
+    let user = repos
+        .users
+        .get_by_email(&email)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+
+    let parsed = match tier.to_ascii_lowercase().as_str() {
+        "starter" => UserTier::Starter,
+        "professional" => UserTier::Professional,
+        "enterprise" => UserTier::Enterprise,
+        other => {
+            return Err(AppError::invalid_input(format!(
+                "Unknown tier '{other}' — expected starter, professional, or enterprise"
+            )));
+        }
+    };
+
+    let note = note.unwrap_or_else(|| "set via pierre-cli".to_owned());
+    let updated =
+        admin_ops::set_user_tier(repos, user.id, parsed.clone(), Some(note), None).await?;
+    println!(
+        "Success: {} tier set to {} (quota/rate-limit tier; recorded as admin override)",
+        updated.email, parsed
+    );
+    Ok(())
+}
+
+/// Clear a user's admin tier override so the billing webhook drives the tier
+/// again. Leaves `users.tier` as-is.
+pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = repos
+        .users
+        .get_by_email(&email)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+
+    let removed = admin_ops::clear_user_tier_override(repos, user.id).await?;
+    if removed {
+        println!("Success: cleared tier override for {email}; Stripe will re-drive the tier");
+    } else {
+        println!("No tier override existed for {email} (nothing to clear)");
+    }
     Ok(())
 }
 

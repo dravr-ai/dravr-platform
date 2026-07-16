@@ -234,14 +234,31 @@ impl PierreToolDispatcher {
     ///
     /// Combines the `ToolSelectionService` catalog (enabled, non-admin tools)
     /// with feature-flag tools not tracked by the catalog (coaches, mobility).
-    async fn tenant_filtered_schemas(&self, tenant_id: TenantId) -> Vec<ToolSchema> {
-        match self
-            .resources
-            .mcp
-            .tool_selection
-            .get_effective_tools(tenant_id)
-            .await
-        {
+    /// When `user_id` is present, per-user tool overrides are overlaid on top of
+    /// the tenant computation so a tool disabled for this user is hidden from
+    /// discovery (and a user-enabled tool becomes visible).
+    async fn tenant_filtered_schemas(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<Uuid>,
+    ) -> Vec<ToolSchema> {
+        let effective = match user_id {
+            Some(uid) => {
+                self.resources
+                    .mcp
+                    .tool_selection
+                    .get_effective_tools_for_user(tenant_id, uid)
+                    .await
+            }
+            None => {
+                self.resources
+                    .mcp
+                    .tool_selection
+                    .get_effective_tools(tenant_id)
+                    .await
+            }
+        };
+        match effective {
             Ok(all_effective_tools) => {
                 let enabled_names: Vec<String> = all_effective_tools
                     .iter()
@@ -294,7 +311,8 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         let schemas = if ctx.is_admin {
             self.resources.mcp.tool_registry.all_schemas()
         } else if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
-            self.tenant_filtered_schemas(tenant_id).await
+            let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+            self.tenant_filtered_schemas(tenant_id, user_id).await
         } else {
             self.resources.mcp.tool_registry.user_visible_schemas()
         };
