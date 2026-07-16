@@ -23,7 +23,8 @@ use crate::repositories::{
     ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -147,6 +148,10 @@ pub struct RepositoryRegistry {
     /// webhook skip `set_tier`/`set_plan` so a Stripe event cannot clobber a
     /// manual operator override.
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
+    /// Per-user admin tool override. Row presence force-enables/disables a
+    /// single MCP tool for one user, overlaid above the tenant tool-selection
+    /// computation (below `PIERRE_DISABLED_TOOLS`, above plan + tenant override).
+    pub user_tool_overrides: Arc<dyn UserToolOverrideRepository>,
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
@@ -217,6 +222,7 @@ impl RepositoryRegistry {
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             feature_flags: db,
         }
@@ -280,6 +286,7 @@ impl RepositoryRegistry {
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             feature_flags: db,
         }

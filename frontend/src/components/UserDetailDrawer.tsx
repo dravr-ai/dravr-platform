@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import type { User } from '../types/api';
+import type { User, UserTier } from '../types/api';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
@@ -34,10 +34,14 @@ export default function UserDetailDrawer({
   const [overrideDaily, setOverrideDaily] = useState<string>('');
   const [overrideMonthly, setOverrideMonthly] = useState<string>('');
   const [overrideNote, setOverrideNote] = useState<string>('');
+  const [tierEditing, setTierEditing] = useState(false);
+  const [tierValue, setTierValue] = useState<UserTier>('starter');
   const { user: currentUser, startImpersonation } = useAuth();
   const queryClient = useQueryClient();
 
-  const canImpersonate = currentUser?.role === 'super_admin' &&
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
+  const canImpersonate = isSuperAdmin &&
     user?.role !== 'super_admin' &&
     user?.user_status === 'active';
 
@@ -128,6 +132,25 @@ export default function UserDetailDrawer({
     },
   });
 
+  // Tier changes cascade to the users list and rate limits (limits derive from tier)
+  const refetchAfterTierChange = () => {
+    setTierEditing(false);
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUsers.list() });
+    refetchRateLimit();
+  };
+
+  const setTierMutation = useMutation({
+    mutationFn: (tier: UserTier) =>
+      user ? adminApi.setUserTier(user.id, tier) : Promise.reject(new Error('no user')),
+    onSuccess: refetchAfterTierChange,
+  });
+
+  const clearTierMutation = useMutation({
+    mutationFn: () =>
+      user ? adminApi.clearUserTier(user.id) : Promise.reject(new Error('no user')),
+    onSuccess: refetchAfterTierChange,
+  });
+
   if (!isOpen || !user) return null;
 
   const formatDate = (dateString: string) => {
@@ -202,8 +225,67 @@ export default function UserDetailDrawer({
                 <span className="text-xs text-on-surface capitalize bg-surface-container-high px-2 py-1 rounded border ghost-border">
                   {user.tier}
                 </span>
+                {isSuperAdmin && !tierEditing && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTierValue(user.tier);
+                      setTierEditing(true);
+                    }}
+                    className="text-xs text-pierre-activity hover:underline"
+                  >
+                    Edit tier
+                  </button>
+                )}
               </div>
             </div>
+
+            {isSuperAdmin && tierEditing && (
+              <div className="mb-4 rounded-md bg-surface-container-high p-3 space-y-2 text-xs">
+                <div className="font-semibold text-on-surface">Tier override</div>
+                <p className="text-on-surface-variant">
+                  Sets the billing/quota tier directly. Clearing the override lets the
+                  billing webhook drive the tier again.
+                </p>
+                <label className="block">
+                  <span className="text-on-surface-variant">Tier</span>
+                  <select
+                    value={tierValue}
+                    onChange={(e) => setTierValue(e.target.value as UserTier)}
+                    aria-label="Tier"
+                    className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
+                  >
+                    <option value="starter">Starter</option>
+                    <option value="professional">Professional</option>
+                    <option value="enterprise">Enterprise</option>
+                  </select>
+                </label>
+                {(setTierMutation.isError || clearTierMutation.isError) && (
+                  <p className="text-pierre-red-400">
+                    Failed to update tier. Please try again.
+                  </p>
+                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    onClick={() => setTierMutation.mutate(tierValue)}
+                    disabled={setTierMutation.isPending}
+                    className="bg-pierre-activity text-on-primary"
+                  >
+                    {setTierMutation.isPending ? 'Saving…' : 'Save tier'}
+                  </Button>
+                  <Button
+                    onClick={() => clearTierMutation.mutate()}
+                    disabled={clearTierMutation.isPending}
+                    variant="secondary"
+                  >
+                    {clearTierMutation.isPending ? 'Clearing…' : 'Clear override'}
+                  </Button>
+                  <Button onClick={() => setTierEditing(false)} variant="secondary">
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>

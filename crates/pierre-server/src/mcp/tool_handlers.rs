@@ -291,6 +291,7 @@ impl ToolHandlers {
         if let Some(error_response) = Self::check_tool_enabled(
             resources,
             &tenant_context,
+            user_id,
             tool_name,
             Some(request_id.clone()),
         )
@@ -374,26 +375,27 @@ impl ToolHandlers {
     async fn check_tool_enabled(
         resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
+        user_id: Uuid,
         tool_name: &str,
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
         match resources
             .mcp
             .tool_selection
-            .is_tool_enabled(tenant_context.tenant_id, tool_name)
+            .is_tool_enabled_for_user(tenant_context.tenant_id, user_id, tool_name)
             .await
         {
             Ok(true) => {
                 debug!(
-                    "Tool {} is enabled for tenant {}",
-                    tool_name, tenant_context.tenant_id
+                    "Tool {} is enabled for user {} in tenant {}",
+                    tool_name, user_id, tenant_context.tenant_id
                 );
                 None
             }
             Ok(false) => {
                 warn!(
-                    "Tool {} not enabled for tenant {} - rejecting",
-                    tool_name, tenant_context.tenant_id
+                    "Tool {} not enabled for user {} in tenant {} - rejecting",
+                    tool_name, user_id, tenant_context.tenant_id
                 );
                 Some(McpResponse {
                     jsonrpc: JSONRPC_VERSION.to_owned(),
@@ -478,10 +480,15 @@ impl ToolHandlers {
         // Record tool name in span
         tracing::Span::current().record("tool_name", tool_name.as_str());
 
-        // Check if tool is enabled for this tenant
-        if let Some(error_response) =
-            Self::check_tool_enabled(resources, &tenant_context, tool_name, request.id.clone())
-                .await
+        // Check if tool is enabled for this user in this tenant
+        if let Some(error_response) = Self::check_tool_enabled(
+            resources,
+            &tenant_context,
+            user_id,
+            tool_name,
+            request.id.clone(),
+        )
+        .await
         {
             return error_response;
         }

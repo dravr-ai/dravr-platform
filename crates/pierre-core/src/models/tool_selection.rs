@@ -178,6 +178,9 @@ pub enum ToolEnablementSource {
     Default,
     /// Enabled state from `tenant_tool_overrides`
     TenantOverride,
+    /// Enabled/disabled state from `user_tool_overrides` — a per-user admin
+    /// override applied above plan + tenant, below `GlobalDisabled`.
+    UserOverride,
     /// Disabled because tenant plan doesn't meet `min_plan` requirement
     PlanRestriction,
     /// Disabled globally via `PIERRE_DISABLED_TOOLS` environment variable

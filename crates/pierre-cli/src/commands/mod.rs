@@ -11,5 +11,7 @@ pub mod harness;
 pub mod key;
 pub mod seed;
 pub mod strava_pool;
+pub mod tenant;
 pub mod token;
+pub mod tool;
 pub mod user;

@@ -23,6 +23,36 @@ export interface KnownFeatureFlag {
   default_enabled: boolean;
 }
 
+/// Where a user's effective tool enablement decision came from (snake_case wire format).
+export type UserToolSource =
+  | 'default'
+  | 'tenant_override'
+  | 'user_override'
+  | 'plan_restriction'
+  | 'global_disabled';
+
+/// One effective tool for a user: tenant computation with the per-user overlay applied.
+export interface UserEffectiveTool {
+  tool_name: string;
+  display_name: string;
+  description: string;
+  category: string;
+  is_enabled: boolean;
+  source: UserToolSource;
+  min_plan: string;
+}
+
+/// Stored per-user tool override row returned by the override endpoint.
+export interface UserToolOverrideRow {
+  user_id: string;
+  tool_name: string;
+  is_enabled: boolean;
+  set_by: string | null;
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const adminApi = {
   // ==================== SETUP STATUS ====================
   async getSetupStatus() {
@@ -335,6 +365,19 @@ export const adminApi = {
     tier: string;
   }> {
     const response = await axios.post(`/api/admin/users/${userId}/tier`, { tier });
+    return response.data.data;
+  },
+
+  async clearUserTier(userId: string): Promise<{ removed: boolean }> {
+    const response = await axios.delete(`/api/admin/users/${userId}/tier`);
+    return { removed: Boolean(response.data?.data?.removed) };
+  },
+
+  async setTenantPlan(tenantId: string, plan: 'starter' | 'professional' | 'enterprise'): Promise<{
+    tenant_id: string;
+    plan: string;
+  }> {
+    const response = await axios.put(`/api/admin/tenants/${tenantId}/plan`, { plan });
     return response.data.data;
   },
 
@@ -759,6 +802,41 @@ export const adminApi = {
     };
   }> {
     const response = await axios.get(`/api/admin/tools/tenant/${tenantId}/summary`);
+    return response.data;
+  },
+
+  async getUserTools(userId: string): Promise<{
+    success: boolean;
+    message: string;
+    data: UserEffectiveTool[];
+  }> {
+    const response = await axios.get(`/api/admin/tools/user/${userId}`);
+    return response.data;
+  },
+
+  async setUserToolOverride(
+    userId: string,
+    toolName: string,
+    isEnabled: boolean,
+    reason?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: UserToolOverrideRow;
+  }> {
+    const response = await axios.post(`/api/admin/tools/user/${userId}/override`, {
+      tool_name: toolName,
+      is_enabled: isEnabled,
+      reason,
+    });
+    return response.data;
+  },
+
+  async removeUserToolOverride(userId: string, toolName: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await axios.delete(`/api/admin/tools/user/${userId}/override/${toolName}`);
     return response.data;
   },
 

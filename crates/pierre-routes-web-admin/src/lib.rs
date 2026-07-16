@@ -36,7 +36,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
@@ -53,7 +53,7 @@ use pierre_config::social::SocialInsightsConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, UserTier};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::pricing::calculate_cost;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
@@ -206,6 +206,20 @@ struct SetToolOverrideRequest {
     tool_name: String,
     is_enabled: bool,
     reason: Option<String>,
+}
+
+/// Request to set a user's billing/quota tier
+#[derive(Deserialize)]
+struct SetUserTierRequest {
+    /// `starter` | `professional` | `enterprise`
+    tier: String,
+}
+
+/// Request to set a tenant's plan
+#[derive(Deserialize)]
+struct SetTenantPlanRequest {
+    /// `starter` | `professional` | `enterprise`
+    plan: String,
 }
 
 /// Request to create an admin token via web admin
@@ -466,6 +480,28 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/tools/tenant/{tenant_id}/summary",
                 get(Self::handle_get_tool_summary),
+            )
+            // Per-user tool allow/deny (overlay on top of the tenant computation)
+            .route(
+                "/api/admin/tools/user/{user_id}",
+                get(Self::handle_get_user_tools),
+            )
+            .route(
+                "/api/admin/tools/user/{user_id}/override",
+                post(Self::handle_set_user_tool_override),
+            )
+            .route(
+                "/api/admin/tools/user/{user_id}/override/{tool_name}",
+                delete(Self::handle_remove_user_tool_override),
+            )
+            // Per-user billing/quota tier (super-admin) + per-tenant plan
+            .route(
+                "/api/admin/users/{user_id}/tier",
+                post(Self::handle_set_user_tier).delete(Self::handle_clear_user_tier),
+            )
+            .route(
+                "/api/admin/tenants/{tenant_id}/plan",
+                put(Self::handle_set_tenant_plan),
             )
             .route(
                 "/api/admin/analytics/recent-activity",
@@ -1479,6 +1515,218 @@ impl WebAdminRoutes {
             })),
         )
             .into_response())
+    }
+
+    /// POST `/api/admin/users/{user_id}/tier` - set a user's billing/quota tier.
+    ///
+    /// Super-admin only (billing-sensitive; mirrors the token surface). Writes
+    /// `users.tier` and the anti-clobber override marker via the shared
+    /// [`admin_ops::set_user_tier`].
+    async fn handle_set_user_tier(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+        Json(request): Json<SetUserTierRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let tier = match request.tier.to_ascii_lowercase().as_str() {
+            "starter" => UserTier::Starter,
+            "professional" => UserTier::Professional,
+            "enterprise" => UserTier::Enterprise,
+            other => {
+                return Err(AppError::invalid_input(format!(
+                    "Unknown tier '{other}' — expected starter, professional, or enterprise"
+                )));
+            }
+        };
+
+        let note = format!("admin tier override via web console (by {})", auth.user_id);
+        let updated = admin_ops::set_user_tier(
+            &resources.repos,
+            user_uuid,
+            tier,
+            Some(note),
+            Some(auth.user_id),
+        )
+        .await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("User {} tier set to {}", updated.email, updated.tier),
+                "data": {
+                    "user_id": user_uuid.to_string(),
+                    "email": updated.email,
+                    "tier": updated.tier.as_str(),
+                }
+            })),
+        )
+            .into_response())
+    }
+
+    /// DELETE `/api/admin/users/{user_id}/tier` - clear the tier override so the
+    /// billing webhook drives the tier again. Super-admin only.
+    async fn handle_clear_user_tier(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let removed = admin_ops::clear_user_tier_override(&resources.repos, user_uuid).await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": if removed {
+                    "Tier override cleared; billing webhook will re-drive the tier".to_owned()
+                } else {
+                    "No tier override existed".to_owned()
+                },
+                "data": { "removed": removed }
+            })),
+        )
+            .into_response())
+    }
+
+    /// PUT `/api/admin/tenants/{tenant_id}/plan` - set a tenant's plan (unlocks
+    /// plan-gated tools). Super-admin only (billing-adjacent). Busts the
+    /// in-process tool-selection cache so the change is effective immediately.
+    async fn handle_set_tenant_plan(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(tenant_id): Path<TenantId>,
+        Json(request): Json<SetTenantPlanRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
+
+        let updated =
+            admin_ops::set_tenant_plan(&resources.repos, tenant_id, &request.plan).await?;
+        resources.tool_selection.invalidate_tenant(tenant_id).await;
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Tenant {tenant_id} plan set to {}", updated.plan),
+                "data": { "tenant_id": tenant_id.to_string(), "plan": updated.plan }
+            })),
+        )
+            .into_response())
+    }
+
+    /// GET `/api/admin/tools/user/{user_id}` - effective tools for a user, with
+    /// the per-user overlay applied on top of the tenant computation.
+    async fn handle_get_user_tools(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let tenants = resources.repos.tenants.list_for_user(user_uuid).await?;
+        let tenant_id = tenants
+            .first()
+            .map(|t| t.id)
+            .ok_or_else(|| AppError::not_found(format!("User {user_uuid} belongs to no tenant")))?;
+
+        let tools = resources
+            .tool_selection
+            .get_effective_tools_for_user(tenant_id, user_uuid)
+            .await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Retrieved {} effective tools for user {user_uuid}", tools.len()),
+                "data": tools
+            })),
+        )
+            .into_response())
+    }
+
+    /// POST `/api/admin/tools/user/{user_id}/override` - set a per-user tool
+    /// override (force-enable/disable a tool for this user).
+    async fn handle_set_user_tool_override(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+        Json(request): Json<SetToolOverrideRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let override_entry = admin_ops::set_user_tool_override(
+            &resources.repos,
+            user_uuid,
+            &request.tool_name,
+            request.is_enabled,
+            Some(auth.user_id),
+            request.reason.clone(),
+        )
+        .await?;
+
+        let action = if request.is_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Tool '{}' {} for user {user_uuid}", request.tool_name, action),
+                "data": override_entry
+            })),
+        )
+            .into_response())
+    }
+
+    /// DELETE `/api/admin/tools/user/{user_id}/override/{tool_name}` - remove a
+    /// per-user tool override (revert the tool to plan/tenant/default).
+    async fn handle_remove_user_tool_override(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path((user_id, tool_name)): Path<(String, String)>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        let deleted =
+            admin_ops::remove_user_tool_override(&resources.repos, user_uuid, &tool_name).await?;
+
+        if deleted {
+            Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("Override removed for tool '{tool_name}' on user {user_uuid}")
+                })),
+            )
+                .into_response())
+        } else {
+            Err(AppError::not_found(format!(
+                "No override found for tool '{tool_name}' on user {user_uuid}"
+            )))
+        }
     }
 
     /// GET `/api/admin/analytics/recent-activity` - Real-time activity feed for admin dashboard

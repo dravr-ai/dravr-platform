@@ -7,6 +7,7 @@
 import { lazy, Suspense } from 'react';
 
 const ToolAvailability = lazy(() => import('./ToolAvailability'));
+const TenantPlanCard = lazy(() => import('./TenantPlanCard'));
 
 export default function AdminConfiguration() {
   return (
@@ -18,6 +19,7 @@ export default function AdminConfiguration() {
           </div>
         }
       >
+        <TenantPlanCard />
         <ToolAvailability />
       </Suspense>
     </div>
