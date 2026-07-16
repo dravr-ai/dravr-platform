@@ -20,7 +20,7 @@
 //! runner loop is identical regardless of execution mode.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Display, Formatter, Write as _};
 
 use super::asserters::{evaluate_all, AssertionFailure};
 use super::drift::{AggregateClaim, ClaimTimeline, DriftFinding};
@@ -71,6 +71,13 @@ pub trait ScenarioDriver {
 pub struct DriverTurnOutput {
     pub reply: String,
     pub tools_called: Vec<String>,
+    /// Set when the turn never reached the model — the provider errored or
+    /// timed out after the driver's retries. The reply then holds diagnostic
+    /// text, NOT a coach answer, and must not be graded: assertions applied
+    /// to a dead dispatch report the model's behaviour as the exact opposite
+    /// of what was observed (nothing was observed). See
+    /// [`ScenarioReport::infra_errors`].
+    pub dispatch_error: Option<String>,
 }
 
 /// Final report of a scenario run.
@@ -80,12 +87,48 @@ pub struct ScenarioReport {
     pub locale: String,
     pub turn_failures: Vec<TurnFailure>,
     pub drift_findings: Vec<DriftFinding>,
+    /// Turns whose dispatch never reached the model. Kept apart from
+    /// [`Self::turn_failures`] because the two mean opposite things: an
+    /// assertion failure is a finding ABOUT the model, an infra error is
+    /// the absence of any observation at all. Collapsing them reports a
+    /// crashed llama-server as "the coach didn't call get_activities" —
+    /// which is what the 2026-07-15 AMX segfaults looked like until the
+    /// other scenarios on the shard were seen failing identically.
+    pub infra_errors: Vec<InfraError>,
+}
+
+/// A turn that produced no model output. Not a quality signal.
+#[derive(Debug)]
+pub struct InfraError {
+    pub turn_index: usize,
+    pub user_message: String,
+    pub error: String,
+}
+
+impl Display for InfraError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "turn {}: dispatch never reached the model: {}",
+            self.turn_index, self.error
+        )
+    }
 }
 
 impl ScenarioReport {
     #[must_use]
     pub fn passed(&self) -> bool {
-        self.turn_failures.is_empty() && self.drift_findings.is_empty()
+        self.turn_failures.is_empty()
+            && self.drift_findings.is_empty()
+            && self.infra_errors.is_empty()
+    }
+
+    /// Whether this report is an infrastructure casualty rather than a
+    /// quality finding. Lets a caller separate "the eval says the coach is
+    /// wrong" from "the eval could not run".
+    #[must_use]
+    pub fn is_infra_failure(&self) -> bool {
+        !self.infra_errors.is_empty()
     }
 
     /// Render a multi-line human-readable failure summary. Empty
@@ -95,10 +138,20 @@ impl ScenarioReport {
         if self.passed() {
             return String::new();
         }
-        let mut out = format!(
-            "scenario {:?} [{}] failed:\n",
-            self.scenario_name, self.locale
-        );
+        let mut out = if self.is_infra_failure() {
+            format!(
+                "scenario {:?} [{}] DID NOT RUN (infrastructure, not a model finding):\n",
+                self.scenario_name, self.locale
+            )
+        } else {
+            format!(
+                "scenario {:?} [{}] failed:\n",
+                self.scenario_name, self.locale
+            )
+        };
+        for ie in &self.infra_errors {
+            writeln!(out, "  {ie}").expect("writing to String is infallible");
+        }
         for tf in &self.turn_failures {
             writeln!(
                 out,
@@ -154,6 +207,7 @@ fn run_one_locale<D: ScenarioDriver>(
     seed_provider_state(scenario, driver);
 
     let mut turn_failures = Vec::new();
+    let mut infra_errors = Vec::new();
     let mut timeline = ClaimTimeline::new();
 
     for (idx, turn) in scenario.turns.iter().enumerate() {
@@ -162,6 +216,20 @@ fn run_one_locale<D: ScenarioDriver>(
             driver.trigger_sync();
         }
         let output = driver.run_turn(&turn.user, locale);
+
+        // A turn that never reached the model carries no reply to grade.
+        // Record it as infrastructure and stop: the remaining turns would
+        // dispatch into the same broken provider, and their assertions
+        // would slander the model for output it never produced.
+        if let Some(error) = output.dispatch_error {
+            infra_errors.push(InfraError {
+                turn_index,
+                user_message: turn.user.clone(),
+                error,
+            });
+            break;
+        }
+
         record_aggregate_claims(&mut timeline, turn_index, &output.reply);
 
         let ctx = TurnContext {
@@ -179,7 +247,10 @@ fn run_one_locale<D: ScenarioDriver>(
         }
     }
 
-    let drift_findings = if scenario.skip_drift {
+    // Drift compares figures across turns; a run cut short by an infra
+    // error has an incomplete timeline, so any "drift" it reports is an
+    // artifact of the missing turns rather than a recompute.
+    let drift_findings = if scenario.skip_drift || !infra_errors.is_empty() {
         Vec::new()
     } else {
         timeline.detect_drift(0.5)
@@ -190,6 +261,7 @@ fn run_one_locale<D: ScenarioDriver>(
         locale: locale.to_owned(),
         turn_failures,
         drift_findings,
+        infra_errors,
     }
 }
 
@@ -381,6 +453,11 @@ pub struct MockScenarioDriver {
     /// Anchor the runner handed down from the scenario. Recorded so a test
     /// can prove the wiring reaches the driver; the mock builds no prompt.
     pub current_date: Option<String>,
+    /// Per-turn dispatch errors, parallel to [`Self::canned_replies`]. Lets
+    /// a test simulate a provider that died (the AMX segfault shape) and
+    /// assert the runner reports infrastructure rather than grading the
+    /// corpse. Empty (the default) means every turn reaches the model.
+    pub canned_dispatch_errors: Vec<Option<String>>,
 }
 
 impl MockScenarioDriver {
@@ -394,7 +471,15 @@ impl MockScenarioDriver {
             pending_sync: BTreeMap::new(),
             last_synced_activities: BTreeMap::new(),
             current_date: None,
+            canned_dispatch_errors: Vec::new(),
         }
+    }
+
+    /// Simulate a provider that dies on turn 1 without reaching the model.
+    #[must_use]
+    pub fn with_dispatch_errors(mut self, errors: Vec<Option<String>>) -> Self {
+        self.canned_dispatch_errors = errors;
+        self
     }
 }
 
@@ -433,6 +518,14 @@ impl ScenarioDriver for MockScenarioDriver {
         DriverTurnOutput {
             reply,
             tools_called,
+            // The mock never dispatches, so it can never fail to reach a
+            // model. Tests that need the infra path set this explicitly via
+            // `canned_dispatch_errors`.
+            dispatch_error: self
+                .canned_dispatch_errors
+                .get(self.cursor - 1)
+                .cloned()
+                .flatten(),
         }
     }
 }
@@ -492,6 +585,51 @@ mod tests {
             driver.current_date.as_deref(),
             Some("2026-05-22 12:00"),
             "runner must pin the driver's anchor from the scenario"
+        );
+    }
+
+    /// The 2026-07-15 AMX segfaults surfaced as `ToolCalled { get_activities }
+    /// → called 0 time(s)` — the driver had written the crash text into
+    /// `reply` and the asserters graded it, so a dead llama-server was
+    /// reported as a misbehaving coach. Pin the separation: a dispatch that
+    /// never reached the model is infrastructure, and must NOT produce
+    /// assertion failures that slander the model.
+    #[test]
+    fn dispatch_error_reports_infra_not_assertion_failure() {
+        let scenario = one_turn_scenario(AssertionSpec::ReplyContains {
+            value: "hello".to_owned(),
+        });
+        let mut driver = MockScenarioDriver::new(vec![String::new()], vec![vec![]])
+            .with_dispatch_errors(vec![Some(
+                "llama-server process has terminated: signal: segmentation fault".to_owned(),
+            )]);
+        let vocab = VocabularyContractRegistry::with_defaults();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let report = &reports[0];
+        assert!(!report.passed(), "an infra error must fail the scenario");
+        assert!(
+            report.is_infra_failure(),
+            "must be classified as infrastructure"
+        );
+        assert_eq!(report.infra_errors.len(), 1);
+        assert_eq!(report.infra_errors[0].turn_index, 1);
+        assert!(
+            report.infra_errors[0].error.contains("segmentation fault"),
+            "the real cause must survive into the report: {}",
+            report.infra_errors[0].error
+        );
+        // The crux: zero assertion failures. A reader must never conclude
+        // anything about the coach from a turn the coach never answered.
+        assert!(
+            report.turn_failures.is_empty(),
+            "a dead dispatch must not yield assertion failures, got: {:?}",
+            report.turn_failures
+        );
+        let summary = report.failure_summary();
+        assert!(
+            summary.contains("DID NOT RUN"),
+            "summary must not read as a model finding: {summary}"
         );
     }
 

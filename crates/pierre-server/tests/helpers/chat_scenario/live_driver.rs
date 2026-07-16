@@ -205,6 +205,7 @@ impl LiveScenarioDriver {
 
         let mut tools_called: Vec<String> = Vec::new();
         let mut final_reply = String::new();
+        let mut dispatch_error: Option<String> = None;
 
         // Production-faithful prefetch: messaging-channel turns in
         // `chat_pipeline::run` call `DataRequirements::prefetch_activities`
@@ -239,6 +240,13 @@ impl LiveScenarioDriver {
             let response = match self.dispatch_with_retry(&request).await {
                 Ok(r) => r,
                 Err(e) => {
+                    // Report this as a dispatch error, not a reply. Writing
+                    // it into `final_reply` let the asserters grade the
+                    // error text as if the coach had said it — a crashed
+                    // llama-server then surfaced as "get_activities was
+                    // called 0 time(s)", indistinguishable from a genuine
+                    // model failure.
+                    dispatch_error = Some(format!("after {iteration} tool round(s): {e}"));
                     final_reply =
                         format!("[live-driver error after {iteration} tool round(s): {e}]");
                     break;
@@ -288,6 +296,7 @@ impl LiveScenarioDriver {
         DriverTurnOutput {
             reply: final_reply,
             tools_called,
+            dispatch_error,
         }
     }
 
