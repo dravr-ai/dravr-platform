@@ -1,0 +1,124 @@
+# ABOUTME: Builds the dedicated sciotte scraper service image (ADR-021) from the dravr-sciotte
+# ABOUTME: repo at a chosen ref and publishes it to the central Artifact Registry as images/sciotte
+
+name: "Deploy: Sciotte Image"
+
+# Manual-only: the sciotte service image changes when dravr-sciotte releases,
+# not on platform pushes. Run with the dravr-sciotte ref (tag preferred) to
+# build; the Cloud Run service picks it up via terraform's sciotte_image /
+# a gcloud deploy of the new tag.
+on:
+  workflow_dispatch:
+    inputs:
+      sciotte_ref:
+        description: "dravr-sciotte ref to build (tag, branch, or SHA)"
+        required: true
+        default: "main"
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write # For Trivy SARIF upload
+
+jobs:
+  publish-sciotte:
+    name: Publish Sciotte Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout platform (for .trivyignore)
+        uses: actions/checkout@v6
+        with:
+          path: platform
+
+      - name: Checkout dravr-sciotte
+        uses: actions/checkout@v6
+        with:
+          repository: dravr-ai/dravr-sciotte
+          ref: ${{ inputs.sciotte_ref }}
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          path: sciotte
+
+      - name: Resolve sciotte SHA
+        id: sha
+        run: |
+          cd sciotte
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Configure Docker credential helper
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
+          gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Compute sciotte image tags
+        id: tags
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          SHORT_SHA="${{ steps.sha.outputs.short_sha }}"
+          REF="${{ inputs.sciotte_ref }}"
+
+          SCIOTTE_TAGS="${REGISTRY}/sciotte:${SHORT_SHA},${REGISTRY}/sciotte:latest"
+          # A version-tag ref also gets a version-named image tag
+          if [[ "${REF}" == v*.*.* ]]; then
+            SCIOTTE_TAGS="${SCIOTTE_TAGS},${REGISTRY}/sciotte:${REF}"
+          fi
+
+          echo "sciotte_tags=${SCIOTTE_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push sciotte image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: sciotte
+          file: sciotte/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.sciotte_tags }}
+          # Registry-backed buildx cache, mirroring the server image job (the
+          # GHA cache export flaked and is capped/evicted).
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.70.0
+
+      - name: Scan sciotte image for vulnerabilities
+        # Run trivy directly with an explicit --ignorefile — the trivy-action
+        # wrapper did not apply the allowlist (see publish-images.yml).
+        run: |
+          trivy image \
+            --format sarif --output trivy-sciotte.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/platform/.trivyignore" \
+            --scanners vuln --exit-code 1 \
+            "${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}"
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.build.outcome == 'success'
+        with:
+          sarif_file: "trivy-sciotte.sarif"
+          category: "sciotte-image"
+
+      - name: Output sciotte image digest
+        run: |
+          echo "Published: ${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}"
+          echo "Tags: ${{ steps.tags.outputs.sciotte_tags }}"

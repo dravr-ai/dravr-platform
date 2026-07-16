@@ -417,6 +417,12 @@ module "backend" {
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
+      # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
+      # logins/scrapes route to the dedicated scraper service instead of
+      # in-pod Chrome. Empty string = toggle off (the client treats it as
+      # unset); the in-process path above stays live until Phase 4 deletes it.
+      DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? module.sciotte[0].service_url : ""
+
       # Detail-page enrichment. The all-activities N+1 (navigate to each detail
       # page) ran ~4.5 min and timed out on a real coaching turn, handing the
       # coach 0 activities — so it's OFF by default. The list page already carries
@@ -693,6 +699,97 @@ module "sql_client" {
 # -----------------------------------------------------------------------------
 # Admin Frontend (optional)
 # -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Sciotte scraper service (ADR-021) — the dedicated headless-Chrome service the
+# API routes sciotte logins/scrapes to when DRAVR_SCIOTTE_REMOTE_URL is set.
+# One multi-provider instance (garmin+strava, bare `serve`), scale-to-zero:
+# min=0 + cpu_idle=true make idle cost ~$0 (per-request billing), unlike the
+# API pod's ADR-019 floor. maxInstances=1 until the affinity-cookie scale-out
+# lands (parked 2FA browsers are instance-bound; scrapes re-import and are not).
+# -----------------------------------------------------------------------------
+module "sciotte" {
+  count  = var.enable_sciotte_service ? 1 : 0
+  source = "../../modules/cloud_run"
+
+  project_id            = var.project_id
+  region                = var.region
+  service_name          = "${var.service_name}-sciotte"
+  container_image       = var.sciotte_image
+  service_account_email = module.service_accounts.app_service_account_email
+
+  container_port = 3000
+  # 2 vCPU / 2Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=2 headless Chromes
+  # (~300-500MB each) plus the vision LLM subprocess headroom.
+  cpu               = "2"
+  memory            = "2Gi"
+  cpu_idle          = true
+  startup_cpu_boost = true
+  min_instances     = 0
+  max_instances     = 1
+  # Scrapes are long-lived; keep the per-instance request budget near the
+  # queue depth so overload sheds as app-level 503+Retry-After, not as a
+  # Cloud Run queue pile-up.
+  max_instance_request_concurrency = 10
+  # Must outlast the slowest step the platform client waits on (330s parked
+  # 2FA window; first Strava scrape measured >120s with pagination + N+1).
+  request_timeout = "600s"
+
+  # App-level bearer (DRAVR_SCIOTTE_API_KEY) is the auth boundary: the API pod
+  # egresses PRIVATE_RANGES_ONLY, so an internal-only ingress here would drop
+  # its calls. Revisit to IAM ID-token auth or internal ingress + ALL_TRAFFIC
+  # backend egress if the posture needs tightening.
+  ingress               = "INGRESS_TRAFFIC_ALL"
+  allow_unauthenticated = true
+
+  # Hot-swappable extraction scripts / prompt overrides, same bucket the API
+  # pod mounts today (both keep it until the Phase 4 in-process cutover).
+  gcs_volumes = {
+    sciotte-scripts = {
+      bucket     = google_storage_bucket.sciotte_scripts.name
+      mount_path = "/sciotte-scripts"
+      read_only  = true
+    }
+  }
+
+  env_vars = {
+    # Backpressure limiter — fail-fast required set (no crate defaults).
+    # max_concurrent=2 matches the 2Gi memory sizing above.
+    DRAVR_SCIOTTE_MAX_CONCURRENT          = "2"
+    DRAVR_SCIOTTE_MAX_QUEUE               = "8"
+    DRAVR_SCIOTTE_QUEUE_TIMEOUT_SECS      = "10"
+    DRAVR_SCIOTTE_PARKED_PERMIT_TTL_SECS  = "300"
+    DRAVR_SCIOTTE_WATCHDOG_INTERVAL_SECS  = "15"
+    DRAVR_SCIOTTE_RETRY_AFTER_HINT_SECS   = "5"
+    DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS = "60"
+
+    # Interactive-login windows — one source of truth with the API pod's
+    # in-process path during the migration.
+    DRAVR_SCIOTTE_LOGIN_TIMEOUT         = tostring(var.backend_sciotte_login_timeout_secs)
+    DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
+    DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
+
+    # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
+    # failure — required for the Strava/Google OAuth path (validated live).
+    DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
+    COPILOT_HEADLESS_MODEL    = "claude-opus-4.8"
+    DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
+  }
+
+  secret_env_vars = {
+    # Bearer every REST/MCP request is gated on (the API pod presents it).
+    DRAVR_SCIOTTE_API_KEY = module.secrets.secret_ids["dravr_sciotte_api_key"]
+    # Vision LLM credential (Copilot CLI), same secret the API pod uses.
+    COPILOT_GITHUB_TOKEN = module.secrets.secret_ids["copilot_github_token"]
+  }
+
+  health_check_path           = "/health"
+  startup_probe_initial_delay = 5
+
+  labels = merge(var.labels, { component = "sciotte" })
+
+  depends_on = [module.service_accounts, module.secrets]
+}
 
 module "frontend" {
   count  = var.enable_frontend ? 1 : 0

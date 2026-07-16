@@ -544,6 +544,30 @@ resource "google_secret_manager_secret" "contremaitre_webhook_secret" {
   }
 }
 
+# Bearer the dedicated sciotte scraper service (ADR-021) gates every REST/MCP
+# request on; the API pod presents it as DRAVR_SCIOTTE_API_KEY when routing
+# sciotte logins/scrapes to the service. App-level auth on top of the
+# internal-only ingress.
+resource "google_secret_manager_secret" "dravr_sciotte_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-dravr-sciotte-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "dravr_sciotte_api_key_placeholder" {
+  secret      = google_secret_manager_secret.dravr_sciotte_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 # GCP Monitoring Slack notification channel reuses the existing
 # slack_bot_token secret (above). No separate secret container is
 # created here — operators load one bot token, both Pierre's outbound

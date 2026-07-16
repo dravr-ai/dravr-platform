@@ -136,6 +136,7 @@ print_step 1 "Stopping existing services..."
 "$SCRIPT_DIR/stop-all.sh" 2>/dev/null || {
     # Fallback if stop-all.sh doesn't exist yet
     pkill -f "pierre-mcp-server" 2>/dev/null || true
+    pkill -f "dravr-sciotte-server" 2>/dev/null || true
     pkill -f "pierre-dev-fixture" 2>/dev/null || true
     pkill -f "node_modules/.bin/vite" 2>/dev/null || true
     pkill -f "node_modules/@esbuild" 2>/dev/null || true
@@ -278,6 +279,29 @@ export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
 # the real Garmin code path. Strava creds already come from .envrc.
 export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
 export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
+
+# Step 4c: Start the dedicated sciotte scraper service (ADR-021), but ONLY when
+# the platform is pointed at it. DRAVR_SCIOTTE_REMOTE_URL set => the server
+# routes sciotte login/scrape to this service instead of in-pod Chrome, so it
+# must be up; unset => the in-process path and this block is skipped entirely
+# (dev loop unchanged). Delegates to sciotte-local.sh so the serve invocation
+# has a single source of truth. Never fatal: a missing ../dravr-sciotte checkout
+# or a failed build warns and skips so the core stack always comes up; teardown
+# is handled by stop-all.sh (dravr-sciotte-server + port 8091).
+if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then
+    echo -e "${CYAN}    Starting sciotte scraper service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
+    if [ -d "$PROJECT_ROOT/../dravr-sciotte" ]; then
+        # No provider arg: one instance serving garmin+strava (ADR-021);
+        # set SCIOTTE_PROVIDER to pin a single provider instead.
+        if "$PROJECT_ROOT/scripts/sciotte-local.sh" serve-bg; then
+            echo "    Sciotte service ready"
+        else
+            echo -e "${YELLOW}    Sciotte service failed to start — remote sciotte scrapes will error until it is up (see logs/sciotte-service-*.log)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}    ../dravr-sciotte not found — skipping sciotte service; remote sciotte scrapes will error${NC}"
+    fi
+fi
 
 # Step 5: Start Pierre server
 print_step 5 "Starting Pierre MCP Server (port $SERVER_PORT)..."

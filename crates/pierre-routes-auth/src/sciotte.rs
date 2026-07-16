@@ -32,6 +32,8 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use pierre_providers::sciotte_remote::{RemoteLoginOutcome, RemoteSciotteClient};
+
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::redaction::redact_url;
@@ -57,6 +59,42 @@ struct PendingLogin {
 
 static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingLogin>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+// flow_id of each user's in-flight REMOTE login (ADR-021 path). The heavy
+// state — parked browser + permit — lives on the scraper service; this map
+// only remembers which server-side flow belongs to which user so OTP/2FA
+// continuations name it (the multi-provider service can park several flows).
+// A missing entry is fine: the service falls back to its sole pending flow,
+// so a platform pod restart mid-2FA degrades gracefully instead of failing.
+static PENDING_REMOTE_FLOWS: LazyLock<StdMutex<HashMap<Uuid, String>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+/// Remember the server-side `flow_id` for a user's remote login continuation.
+fn remember_remote_flow(user_id: Uuid, flow_id: Option<String>) {
+    if let Some(flow_id) = flow_id {
+        PENDING_REMOTE_FLOWS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(user_id, flow_id);
+    }
+}
+
+/// The user's remembered remote `flow_id`, if any (kept until a terminal outcome).
+fn recall_remote_flow(user_id: Uuid) -> Option<String> {
+    PENDING_REMOTE_FLOWS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&user_id)
+        .cloned()
+}
+
+/// Drop the user's remembered remote `flow_id` (terminal outcome reached).
+fn forget_remote_flow(user_id: Uuid) {
+    PENDING_REMOTE_FLOWS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&user_id);
+}
 
 // Users whose Sciotte credential login is *actively executing* — Chrome
 // launched and `credential_login` running — but not yet parked for OTP/2FA.
@@ -520,6 +558,70 @@ async fn login_result_to_response(
     }
 }
 
+/// Map a [`RemoteLoginOutcome`] from the dedicated scraper service to an HTTP
+/// response.
+///
+/// Mirrors [`login_result_to_response`] but with **no in-process parking** — the
+/// service holds the interactive browser state across the multi-step 2FA flow. On
+/// success the full session is exported from the service and persisted, so the
+/// platform stays session-of-record (ADR-021). Response shapes are identical to
+/// the in-process path so the connect UI is unchanged.
+async fn remote_login_to_response(
+    outcome: RemoteLoginOutcome,
+    remote: &RemoteSciotteClient,
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    link_context: Option<&LinkContext>,
+) -> Result<Response, AppError> {
+    match outcome {
+        RemoteLoginOutcome::Authenticated {
+            session_id,
+            provider,
+        } => {
+            // The service reports the provider the session authenticates against
+            // ("garmin"/"strava"); map it to the backend name the platform
+            // persists under. The platform never has to remember the provider
+            // across the multi-step 2FA flow — only the flow_id string.
+            forget_remote_flow(user_id);
+            let provider_name = SciotteTarget::from_target_param(&provider).provider_name();
+            info!(user_id = %user_id, provider = %provider_name, "Sciotte remote login successful");
+            let session = remote.export_session(&session_id).await?;
+            if let Some(link) = link_context {
+                emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
+            }
+            store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
+        }
+        RemoteLoginOutcome::OtpRequired { flow_id } => {
+            remember_remote_flow(user_id, flow_id);
+            Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
+        }
+        RemoteLoginOutcome::TwoFactorChoice { options, flow_id } => {
+            remember_remote_flow(user_id, flow_id);
+            Ok(
+                Json(serde_json::json!({"status": "two_factor_choice", "options": options}))
+                    .into_response(),
+            )
+        }
+        RemoteLoginOutcome::NumberMatch { number, flow_id } => {
+            remember_remote_flow(user_id, flow_id);
+            Ok(Json(serde_json::json!({
+                "status": "number_match",
+                "number": number,
+            }))
+            .into_response())
+        }
+        RemoteLoginOutcome::Failed(reason) => {
+            forget_remote_flow(user_id);
+            info!(
+                user_id = %user_id,
+                "Sciotte remote login rejected by provider (user credentials)"
+            );
+            Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
+        }
+    }
+}
+
 /// Move a running login flow (scraper + permit) into the pending map so the
 /// next step in the multi-request exchange can reclaim it.
 async fn park_pending_login(
@@ -832,6 +934,33 @@ pub async fn handle_sciotte_login(
     let target = &request.target;
     let provider = SciotteTarget::from_target_param(target).provider_name();
 
+    // ADR-021 remote path: when DRAVR_SCIOTTE_REMOTE_URL is set the login runs on
+    // the dedicated dravr-sciotte-server instead of an in-process headless Chrome,
+    // isolating the memory-heavy scrape off this multi-tenant pod. The service owns
+    // the Chrome budget and the interactive parking; the platform stays
+    // session-of-record (it exports + persists the session, never leaving it only
+    // server-side). Unset → the in-process path below, unchanged.
+    if let Some(remote) = RemoteSciotteClient::from_env()? {
+        info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
+        let outcome = remote
+            .login_with_credentials(
+                &request.email,
+                &request.password,
+                &request.method,
+                SciotteTarget::from_target_param(target).scraper_provider_name(),
+            )
+            .await?;
+        return remote_login_to_response(
+            outcome,
+            &remote,
+            &resources,
+            user_id,
+            tenant_id,
+            link_context.as_ref(),
+        )
+        .await;
+    }
+
     // Per-user dedup: if this user already has a Sciotte login flow parked
     // (OTP / 2FA continuation), a concurrent login would clobber the parked
     // permit and orphan the first flow's Chrome. Reject with 409 so the
@@ -927,7 +1056,28 @@ pub async fn handle_sciotte_select_2fa(
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+
+    // ADR-021 remote path (mirrors handle_sciotte_submit_otp): the scraper service
+    // holds the parked browser and reports the provider on success; platform stays
+    // stateless.
+    if let Some(remote) = RemoteSciotteClient::from_env()? {
+        info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
+        let flow_id = recall_remote_flow(user_id);
+        let outcome = remote
+            .select_2fa(&request.option_id, flow_id.as_deref())
+            .await?;
+        return remote_login_to_response(
+            outcome,
+            &remote,
+            &resources,
+            user_id,
+            tenant_id,
+            link_context.as_ref(),
+        )
+        .await;
+    }
+
     let pending = take_pending_login(user_id).await?;
     let PendingLogin {
         scraper,
@@ -971,10 +1121,28 @@ pub async fn handle_sciotte_submit_otp(
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
 
     if request.code.is_empty() {
         return Err(AppError::invalid_input("Verification code is required"));
+    }
+
+    // ADR-021 remote path: the parked browser lives on the scraper service, which
+    // continues the login and reports the provider on success. The platform stays
+    // stateless — no PENDING_OTP_SCRAPERS lookup, no parked permit.
+    if let Some(remote) = RemoteSciotteClient::from_env()? {
+        info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
+        let flow_id = recall_remote_flow(user_id);
+        let outcome = remote.submit_otp(&request.code, flow_id.as_deref()).await?;
+        return remote_login_to_response(
+            outcome,
+            &remote,
+            &resources,
+            user_id,
+            tenant_id,
+            link_context.as_ref(),
+        )
+        .await;
     }
 
     let pending = take_pending_login(user_id).await?;

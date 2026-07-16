@@ -39,6 +39,11 @@ kill_by_port() {
 kill_by_pattern "pierre-mcp-server" "Pierre MCP Server"
 kill_by_pattern "cargo.*pierre-mcp-server" "Cargo (server build)"
 
+# Sciotte scraper service (ADR-021 dedicated headless-Chrome service on :8091).
+# Only running locally when DRAVR_SCIOTTE_REMOTE_URL points the platform at it
+# (started via scripts/sciotte-local.sh); a no-op otherwise.
+kill_by_pattern "dravr-sciotte-server" "Sciotte scraper service"
+
 # Dev fixture API (serves seeded Strava/Garmin activities in dev)
 kill_by_pattern "pierre-dev-fixture" "Dev Fixture API"
 
@@ -60,6 +65,7 @@ sleep 1
 
 # Fallback: kill anything still holding our ports
 kill_by_port 8081 "Pierre server (port fallback)"
+kill_by_port 8091 "Sciotte scraper service (port fallback)"
 kill_by_port 5173 "Vite frontend (port fallback)"
 kill_by_port 8082 "Expo/Metro (port fallback)"
 

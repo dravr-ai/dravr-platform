@@ -299,6 +299,29 @@ variable "backend_sciotte_phone_tap_timeout_secs" {
   default     = 240
 }
 
+variable "enable_sciotte_service" {
+  description = "Deploy the dedicated sciotte scraper Cloud Run service (ADR-021). Deploying it does NOT route traffic — backend_sciotte_remote flips the API's client toggle separately."
+  type        = bool
+  default     = false
+}
+
+variable "sciotte_image" {
+  description = "Container image for the dedicated sciotte scraper service (built from dravr-sciotte's Dockerfile with the vision feature)"
+  type        = string
+  default     = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/sciotte:latest"
+}
+
+variable "backend_sciotte_remote" {
+  description = "Point the API's sciotte client at the dedicated scraper service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the in-process Chrome path, unchanged. Requires enable_sciotte_service."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.backend_sciotte_remote || var.enable_sciotte_service
+    error_message = "backend_sciotte_remote requires enable_sciotte_service = true (the URL references the sciotte module)."
+  }
+}
+
 variable "backend_sciotte_watchdog_interval_secs" {
   description = "Interval at which the sciotte watchdog scans for stale parked permits. Used as PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS env var."
   type        = number
