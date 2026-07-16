@@ -91,7 +91,7 @@ pub struct ScenarioReport {
     /// [`Self::turn_failures`] because the two mean opposite things: an
     /// assertion failure is a finding ABOUT the model, an infra error is
     /// the absence of any observation at all. Collapsing them reports a
-    /// crashed llama-server as "the coach didn't call get_activities" —
+    /// crashed llama-server as "the coach didn't call `get_activities`" —
     /// which is what the 2026-07-15 AMX segfaults looked like until the
     /// other scenarios on the shard were seen failing identically.
     pub infra_errors: Vec<InfraError>,
