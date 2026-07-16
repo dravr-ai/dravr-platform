@@ -4,10 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::str::FromStr;
+
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
@@ -379,6 +382,193 @@ pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()>
         println!("Success: cleared tier override for {email}; Stripe will re-drive the tier");
     } else {
         println!("No tier override existed for {email} (nothing to clear)");
+    }
+    Ok(())
+}
+
+/// Resolve the CLI's acting-admin identity for audit columns: the first
+/// admin user's UUID, or `None` on a pre-bootstrap database (audit fields
+/// are nullable for exactly this service-actor case).
+pub async fn admin_actor(repos: &RepositoryRegistry) -> Option<Uuid> {
+    repos
+        .users
+        .get_first_admin_user()
+        .await
+        .ok()
+        .flatten()
+        .map(|u| u.id)
+}
+
+/// Look up a user by email or fail with a uniform not-found error.
+async fn lookup(repos: &RepositoryRegistry, email: &str) -> Result<User> {
+    repos
+        .users
+        .get_by_email(email)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))
+}
+
+/// Approve a pending user (status → active) and provision their default
+/// MCP token. Mirrors the super-admin web approve (global scope, no tenant
+/// attach — tenant assignment is the tenant-scoped web flow's concern).
+pub async fn approve(
+    repos: &RepositoryRegistry,
+    email: String,
+    reason: Option<String>,
+) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let actor = admin_actor(repos).await;
+    let updated =
+        admin_ops::transition_user_status(repos, user.id, UserStatus::Active, actor).await?;
+    admin_ops::create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
+    info!(
+        target_user_id = %user.id,
+        reason = reason.as_deref().unwrap_or("No reason provided"),
+        "User approved via pierre-cli"
+    );
+    println!(
+        "Success: {} approved (status: {})",
+        updated.email, updated.user_status
+    );
+    Ok(())
+}
+
+/// Suspend a user (status → suspended); they can no longer log in.
+pub async fn suspend(
+    repos: &RepositoryRegistry,
+    email: String,
+    reason: Option<String>,
+) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let actor = admin_actor(repos).await;
+    let updated =
+        admin_ops::transition_user_status(repos, user.id, UserStatus::Suspended, actor).await?;
+    info!(
+        target_user_id = %user.id,
+        reason = reason.as_deref().unwrap_or("No reason provided"),
+        "User suspended via pierre-cli"
+    );
+    println!(
+        "Success: {} suspended (status: {})",
+        updated.email, updated.user_status
+    );
+    Ok(())
+}
+
+/// Issue a one-time password reset token for a user and print it for
+/// out-of-band delivery. Only the token's hash is stored server-side.
+pub async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let token = admin_ops::issue_password_reset_token(repos, user.id, "pierre-cli").await?;
+    let minutes = admin_ops::PASSWORD_RESET_TTL_SECONDS / 60;
+    println!("Password reset token for {email} (deliver out-of-band, shown once):");
+    println!("  {token}");
+    println!("Expires in {minutes} minutes.");
+    Ok(())
+}
+
+/// Set a per-user rate-limit override. An omitted dimension means
+/// "unlimited at that dimension" — passing neither cap grants a fully
+/// unlimited override.
+pub async fn set_rate_limit(
+    repos: &RepositoryRegistry,
+    email: String,
+    daily: Option<u32>,
+    monthly: Option<u32>,
+    note: Option<String>,
+) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let actor = admin_actor(repos).await;
+    let note = note.or_else(|| Some("set via pierre-cli".to_owned()));
+    admin_ops::set_user_rate_limit_override(repos, user.id, daily, monthly, note, actor).await?;
+    let fmt = |v: Option<u32>| v.map_or_else(|| "unlimited".to_owned(), |n| n.to_string());
+    println!(
+        "Success: rate-limit override for {email} — daily: {}, monthly: {}",
+        fmt(daily),
+        fmt(monthly)
+    );
+    Ok(())
+}
+
+/// Clear a per-user rate-limit override; the user reverts to tier defaults.
+pub async fn clear_rate_limit(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let removed = admin_ops::clear_user_rate_limit_override(repos, user.id).await?;
+    if removed {
+        println!("Success: cleared rate-limit override for {email}; tier defaults apply");
+    } else {
+        println!("No rate-limit override existed for {email} (nothing to clear)");
+    }
+    Ok(())
+}
+
+/// Parse a feature-flag key or fail listing the valid ones.
+pub fn parse_feature_key(key: &str) -> Result<FeatureKey> {
+    FeatureKey::from_str(key).map_err(|_| {
+        let valid: Vec<&str> = FeatureKey::ALL.iter().map(|k| k.as_str()).collect();
+        AppError::invalid_input(format!(
+            "Unknown feature key '{key}' — expected one of: {}",
+            valid.join(", ")
+        ))
+    })
+}
+
+/// Set a per-user feature-flag override (wins over the tenant default).
+pub async fn set_feature(
+    repos: &RepositoryRegistry,
+    email: String,
+    key: String,
+    enabled: bool,
+) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let feature_key = parse_feature_key(&key)?;
+    let actor = admin_actor(repos).await;
+    repos
+        .feature_flags
+        .set_user_override(user.id, feature_key, enabled, actor)
+        .await?;
+    let verb = if enabled { "enabled" } else { "disabled" };
+    println!(
+        "Success: feature '{}' {verb} for {email} (per-user override)",
+        feature_key.as_str()
+    );
+    Ok(())
+}
+
+/// Clear a per-user feature-flag override; the tenant default applies again.
+pub async fn clear_feature(repos: &RepositoryRegistry, email: String, key: String) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let feature_key = parse_feature_key(&key)?;
+    let removed = repos
+        .feature_flags
+        .clear_user_override(user.id, feature_key)
+        .await?;
+    if removed {
+        println!(
+            "Success: cleared '{}' override for {email}; tenant default applies",
+            feature_key.as_str()
+        );
+    } else {
+        println!(
+            "No '{}' override existed for {email} (nothing to clear)",
+            feature_key.as_str()
+        );
+    }
+    Ok(())
+}
+
+/// List a user's explicit per-user feature-flag overrides.
+pub async fn list_features(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = lookup(repos, &email).await?;
+    let overrides = repos.feature_flags.list_user_overrides(user.id).await?;
+    if overrides.is_empty() {
+        println!("No per-user feature overrides for {email}");
+        return Ok(());
+    }
+    println!("Per-user feature overrides for {email}:");
+    for row in overrides {
+        let state = if row.enabled { "enabled" } else { "disabled" };
+        println!("  {:<16}  {state}", row.feature_key.as_str());
     }
     Ok(())
 }

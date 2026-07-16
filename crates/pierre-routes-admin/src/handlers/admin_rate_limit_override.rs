@@ -1,5 +1,5 @@
 // ABOUTME: HTTP boundary for per-user rate-limit overrides (PUT/DELETE)
-// ABOUTME: Inlined service layer operates directly on RepositoryRegistry
+// ABOUTME: Thin HTTP boundary delegating writes to pierre_services::admin_ops
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,10 +13,10 @@
 //!   user to their tier default.
 //!
 //! Both routes are mounted behind the cookie-admin middleware in
-//! [`crate::AdminRoutes::cookie_admin_routes`]. The service layer that
-//! was `crate::services::admin_ops::{set,clear}_user_rate_limit_override`
-//! in `pierre-server` is inlined here (~50 LOC) because it only touches
-//! `repos.users` and `repos.user_rate_limit_overrides`.
+//! [`crate::AdminRoutes::cookie_admin_routes`]. The write logic lives in
+//! [`pierre_services::admin_ops`] (`{set,clear}_user_rate_limit_override`)
+//! so this HTTP surface and `pierre-cli user set-rate-limit/clear-rate-limit`
+//! share one implementation.
 
 use std::sync::Arc;
 
@@ -26,16 +26,14 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use chrono::Utc;
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_database::repositories::UserRateLimitOverride;
-use pierre_database::{AuthRepos, UsageRepos};
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::context::AdminApiContext;
+use pierre_services::admin_ops;
 
 /// Request body for `PUT /api/admin/users/{user_id}/rate-limit-override`.
 ///
@@ -88,16 +86,13 @@ pub async fn handle_set(
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
-    let auth = context.repos.auth_repos();
-    let usage = context.repos.usage_repos();
-    set_user_rate_limit_override(
-        &auth,
-        &usage,
-        admin_user_id,
+    admin_ops::set_user_rate_limit_override(
+        &context.repos,
         user_uuid,
         body.daily_limit,
         body.monthly_limit,
         body.note,
+        Some(admin_user_id),
     )
     .await?;
     Ok((
@@ -122,92 +117,16 @@ pub async fn handle_clear(
     let admin_user_id = admin_user_id_from_token(&admin_token)?;
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
-    let usage = context.repos.usage_repos();
-    let removed = clear_user_rate_limit_override(&usage, admin_user_id, user_uuid).await?;
+    let removed = admin_ops::clear_user_rate_limit_override(&context.repos, user_uuid).await?;
+    info!(
+        admin_id = %admin_user_id,
+        target_user_id = %user_uuid,
+        removed,
+        "Per-user rate-limit override cleared via web admin"
+    );
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({"success": true, "removed": removed})),
     )
         .into_response())
-}
-
-// =========================================================================
-// Inlined service layer — was in crate::services::admin_ops in pierre-server
-// =========================================================================
-
-/// Set or update a per-user rate-limit override.
-///
-/// Validates that limit values are positive or null; rejects zero. Verifies
-/// the target user exists before persisting. Audit-logs the admin actor.
-async fn set_user_rate_limit_override(
-    auth: &AuthRepos,
-    usage: &UsageRepos,
-    admin_user_id: Uuid,
-    target_user_id: Uuid,
-    daily_limit: Option<u32>,
-    monthly_limit: Option<u32>,
-    note: Option<String>,
-) -> Result<(), AppError> {
-    if matches!(daily_limit, Some(0)) || matches!(monthly_limit, Some(0)) {
-        return Err(AppError::invalid_input(
-            "Rate limit values must be positive integers; use null for unlimited",
-        ));
-    }
-
-    // Verify the target user exists (admin views are global).
-    auth.users
-        .get_global(target_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    let now = Utc::now();
-    let row = UserRateLimitOverride {
-        user_id: target_user_id,
-        daily_limit,
-        monthly_limit,
-        note,
-        set_by: Some(admin_user_id),
-        set_at: now,
-        updated_at: now,
-    };
-
-    usage
-        .user_rate_limit_overrides
-        .upsert(&row)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to persist rate-limit override: {e}")))?;
-
-    info!(
-        admin_id = %admin_user_id,
-        target_user_id = %target_user_id,
-        daily_limit = ?daily_limit,
-        monthly_limit = ?monthly_limit,
-        "Per-user rate-limit override set"
-    );
-
-    Ok(())
-}
-
-/// Remove a per-user rate-limit override; user reverts to the tier default.
-/// Returns `true` when an override row existed and was removed.
-async fn clear_user_rate_limit_override(
-    usage: &UsageRepos,
-    admin_user_id: Uuid,
-    target_user_id: Uuid,
-) -> Result<bool, AppError> {
-    let removed = usage
-        .user_rate_limit_overrides
-        .delete(target_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to clear rate-limit override: {e}")))?;
-
-    info!(
-        admin_id = %admin_user_id,
-        target_user_id = %target_user_id,
-        removed,
-        "Per-user rate-limit override cleared"
-    );
-
-    Ok(removed)
 }

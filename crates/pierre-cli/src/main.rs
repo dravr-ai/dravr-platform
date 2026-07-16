@@ -63,6 +63,7 @@ use pierre_database::backends::{factory::Database, DatabaseProvider};
 
 type Result<T> = AppResult<T>;
 use std::env;
+use std::sync::Arc;
 use tracing::info;
 
 use helpers::jwks::initialize_jwks_manager;
@@ -320,6 +321,94 @@ enum UserCommand {
         #[arg(long)]
         email: String,
     },
+
+    /// Approve a pending user (status → active) and provision their MCP token
+    Approve {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Reason recorded in the audit log
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Suspend a user (status → suspended); they can no longer log in
+    Suspend {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Reason recorded in the audit log
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Issue a one-time password reset token (printed once, deliver out-of-band)
+    ResetPassword {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Set a per-user rate-limit override (omit a cap for unlimited at that dimension)
+    SetRateLimit {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Custom daily request cap (positive; omit for unlimited daily)
+        #[arg(long)]
+        daily: Option<u32>,
+
+        /// Custom monthly request cap (positive; omit for unlimited monthly)
+        #[arg(long)]
+        monthly: Option<u32>,
+
+        /// Operator note recorded on the override
+        #[arg(long)]
+        note: Option<String>,
+    },
+
+    /// Clear a per-user rate-limit override (revert to tier defaults)
+    ClearRateLimit {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Set a per-user feature-flag override (wins over the tenant default)
+    SetFeature {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Feature key (e.g. `api_tokens`, `billing_header`)
+        #[arg(long)]
+        key: String,
+
+        /// true to enable, false to disable
+        #[arg(long)]
+        enabled: bool,
+    },
+
+    /// Clear a per-user feature-flag override (tenant default applies again)
+    ClearFeature {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// Feature key
+        #[arg(long)]
+        key: String,
+    },
+
+    /// List a user's per-user feature-flag overrides
+    ListFeatures {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
 }
 
 #[non_exhaustive]
@@ -334,6 +423,115 @@ enum TenantCommand {
         /// Plan: starter | professional | enterprise
         #[arg(long)]
         plan: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+
+    /// Force-enable an MCP tool for the whole tenant (overrides plan gating)
+    EnableTool {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+
+        /// Operator note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Force-disable an MCP tool for the whole tenant
+    DisableTool {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+
+        /// Operator note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Remove a tenant tool override (revert to plan/catalog default)
+    ResetTool {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name
+        #[arg(long)]
+        tool: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+
+    /// List the tenant's effective tools with each decision's source
+    ListTools {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+
+    /// Set a tenant-default feature flag (per-user overrides still win)
+    SetFeature {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// Feature key (e.g. `api_tokens`, `billing_header`)
+        #[arg(long)]
+        key: String,
+
+        /// true to enable, false to disable
+        #[arg(long)]
+        enabled: bool,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+
+    /// Clear a tenant-default feature flag (built-in default applies again)
+    ClearFeature {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
+
+        /// Feature key
+        #[arg(long)]
+        key: String,
+
+        /// Tenant id (required only if the user belongs to multiple tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+    },
+
+    /// List a tenant's explicit feature-flag defaults
+    ListFeatures {
+        /// Email of a user in the target tenant
+        #[arg(long)]
+        email: String,
 
         /// Tenant id (required only if the user belongs to multiple tenants)
         #[arg(long)]
@@ -568,7 +766,9 @@ async fn main() -> Result<()> {
     database.migrate().await?;
 
     // Build repository registry for trait-object dispatch
-    let repos = database.repositories();
+    // Arc: the tenant tool-override commands construct a ToolSelectionService,
+    // which shares the registry; everything else borrows through the Arc.
+    let repos = Arc::new(database.repositories());
 
     // Initialize JWKS manager - loads RSA keys from database for server compatibility
     let jwks_manager = initialize_jwks_manager(&repos).await?;
@@ -609,6 +809,39 @@ async fn main() -> Result<()> {
             UserCommand::ClearTier { email } => {
                 commands::user::clear_tier(&repos, email).await?;
             }
+            UserCommand::Approve { email, reason } => {
+                commands::user::approve(&repos, email, reason).await?;
+            }
+            UserCommand::Suspend { email, reason } => {
+                commands::user::suspend(&repos, email, reason).await?;
+            }
+            UserCommand::ResetPassword { email } => {
+                commands::user::reset_password(&repos, email).await?;
+            }
+            UserCommand::SetRateLimit {
+                email,
+                daily,
+                monthly,
+                note,
+            } => {
+                commands::user::set_rate_limit(&repos, email, daily, monthly, note).await?;
+            }
+            UserCommand::ClearRateLimit { email } => {
+                commands::user::clear_rate_limit(&repos, email).await?;
+            }
+            UserCommand::SetFeature {
+                email,
+                key,
+                enabled,
+            } => {
+                commands::user::set_feature(&repos, email, key, enabled).await?;
+            }
+            UserCommand::ClearFeature { email, key } => {
+                commands::user::clear_feature(&repos, email, key).await?;
+            }
+            UserCommand::ListFeatures { email } => {
+                commands::user::list_features(&repos, email).await?;
+            }
         },
         Command::Tenant { action } => match action {
             TenantCommand::SetPlan {
@@ -617,6 +850,50 @@ async fn main() -> Result<()> {
                 tenant_id,
             } => {
                 commands::tenant::set_plan(&repos, email, plan, tenant_id).await?;
+            }
+            TenantCommand::EnableTool {
+                email,
+                tool,
+                tenant_id,
+                reason,
+            } => {
+                commands::tenant::set_tool(&repos, email, tool, true, tenant_id, reason).await?;
+            }
+            TenantCommand::DisableTool {
+                email,
+                tool,
+                tenant_id,
+                reason,
+            } => {
+                commands::tenant::set_tool(&repos, email, tool, false, tenant_id, reason).await?;
+            }
+            TenantCommand::ResetTool {
+                email,
+                tool,
+                tenant_id,
+            } => {
+                commands::tenant::reset_tool(&repos, email, tool, tenant_id).await?;
+            }
+            TenantCommand::ListTools { email, tenant_id } => {
+                commands::tenant::list_tools(&repos, email, tenant_id).await?;
+            }
+            TenantCommand::SetFeature {
+                email,
+                key,
+                enabled,
+                tenant_id,
+            } => {
+                commands::tenant::set_feature(&repos, email, key, enabled, tenant_id).await?;
+            }
+            TenantCommand::ClearFeature {
+                email,
+                key,
+                tenant_id,
+            } => {
+                commands::tenant::clear_feature(&repos, email, key, tenant_id).await?;
+            }
+            TenantCommand::ListFeatures { email, tenant_id } => {
+                commands::tenant::list_features(&repos, email, tenant_id).await?;
             }
         },
         Command::Tool { action } => match action {

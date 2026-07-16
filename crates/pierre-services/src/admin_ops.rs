@@ -13,7 +13,7 @@ use pierre_core::models::TenantId;
 use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
-use pierre_database::repositories::{UserTierOverride, UserToolOverride};
+use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::pricing::calculate_cost;
 use pierre_runtime_context::DataContext;
@@ -494,6 +494,93 @@ pub async fn list_user_tool_overrides(
         .list_for_user(user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to list user tool overrides: {e}")))
+}
+
+/// Set or update a per-user rate-limit override.
+///
+/// Validates that limit values are positive or `None` (unlimited at that
+/// dimension); rejects zero. Verifies the target user exists before
+/// persisting. Shared by the cookie `PUT
+/// /api/admin/users/{id}/rate-limit-override` route and
+/// `pierre-cli user set-rate-limit`.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` for a zero limit, `NotFound` for a missing user,
+/// or `Internal` if persistence fails.
+pub async fn set_user_rate_limit_override(
+    repos: &RepositoryRegistry,
+    target_user_id: Uuid,
+    daily_limit: Option<u32>,
+    monthly_limit: Option<u32>,
+    note: Option<String>,
+    set_by: Option<Uuid>,
+) -> Result<(), AppError> {
+    if matches!(daily_limit, Some(0)) || matches!(monthly_limit, Some(0)) {
+        return Err(AppError::invalid_input(
+            "Rate limit values must be positive integers; use null for unlimited",
+        ));
+    }
+
+    // Verify the target user exists (admin views are global).
+    repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+
+    let now = Utc::now();
+    let row = UserRateLimitOverride {
+        user_id: target_user_id,
+        daily_limit,
+        monthly_limit,
+        note,
+        set_by,
+        set_at: now,
+        updated_at: now,
+    };
+
+    repos
+        .user_rate_limit_overrides
+        .upsert(&row)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to persist rate-limit override: {e}")))?;
+
+    info!(
+        set_by = ?set_by,
+        target_user_id = %target_user_id,
+        daily_limit = ?daily_limit,
+        monthly_limit = ?monthly_limit,
+        "Per-user rate-limit override set"
+    );
+
+    Ok(())
+}
+
+/// Remove a per-user rate-limit override; the user reverts to their tier
+/// default. Returns `true` when an override row existed and was removed.
+///
+/// # Errors
+///
+/// Returns `Internal` if the delete fails.
+pub async fn clear_user_rate_limit_override(
+    repos: &RepositoryRegistry,
+    target_user_id: Uuid,
+) -> Result<bool, AppError> {
+    let removed = repos
+        .user_rate_limit_overrides
+        .delete(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to clear rate-limit override: {e}")))?;
+
+    info!(
+        target_user_id = %target_user_id,
+        removed,
+        "Per-user rate-limit override cleared"
+    );
+
+    Ok(removed)
 }
 
 // =========================================================================
