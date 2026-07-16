@@ -324,6 +324,8 @@ embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+# Flamegraph profiler hook for criterion benches (`-- --profile-time N`); linux + macOS only paths we use.
+pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
 # Messaging transport test dependencies (crypto verification)
@@ -365,6 +367,10 @@ harness = false
 
 [[bench]]
 name = "guardian_bench"
+harness = false
+
+[[bench]]
+name = "tool_dispatch_bench"
 harness = false
 
 [lints]

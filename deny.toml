@@ -42,6 +42,22 @@ ignore = [
     # `log::Log` impl, so the preconditions for the unsoundness are not met.
     # Upgrade blocked on upstream crates (jsonwebtoken rand-0.9, rsa 0.10 stable).
     "RUSTSEC-2026-0097",
+
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0194 + RUSTSEC-2026-0195: quick-xml 0.26 parser DoS
+    # -------------------------------------------------------------------------
+    # Severity: DoS only (quadratic duplicate-attribute check; unbounded
+    # namespace-declaration allocation in NsReader). Both are XML *parsing*
+    # paths fed by attacker-controlled input.
+    # Affected in-tree version: quick-xml 0.26.0, dev-dependencies ONLY
+    # (pprof -> inferno flamegraph writer for criterion benches). It never
+    # compiles into the shipped binary, and the bench path only *writes* SVG —
+    # no untrusted XML is ever parsed.
+    # Upgrade blocked on upstream: fix is quick-xml >= 0.41; pprof 0.15 (latest)
+    # still pins inferno 0.11, which requires quick-xml ^0.26.
+    # Remove when pprof ships an inferno with quick-xml >= 0.41.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
 
 # Warn on yanked crates
