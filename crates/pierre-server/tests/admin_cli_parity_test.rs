@@ -130,7 +130,9 @@ async fn test_password_reset_token_issue() {
         .expect("token must be selector.verifier");
     assert!(selector.len() >= 8, "selector too short: {selector}");
     assert!(verifier.len() >= 16, "verifier too short");
-    assert!(admin_ops::PASSWORD_RESET_TTL_SECONDS >= 600);
+    // Compile-time policy pin (clippy::assertions_on_constants forbids the
+    // runtime form): a reset link must live at least 10 minutes.
+    const { assert!(admin_ops::PASSWORD_RESET_TTL_SECONDS >= 600) };
 }
 
 #[tokio::test]
