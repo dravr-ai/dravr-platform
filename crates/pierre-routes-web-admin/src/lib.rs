@@ -36,7 +36,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
@@ -501,7 +501,7 @@ impl WebAdminRoutes {
             )
             .route(
                 "/api/admin/tenants/{tenant_id}/plan",
-                put(Self::handle_set_tenant_plan),
+                get(Self::handle_get_tenant_plan).put(Self::handle_set_tenant_plan),
             )
             .route(
                 "/api/admin/analytics/recent-activity",
@@ -1620,6 +1620,31 @@ impl WebAdminRoutes {
                 "success": true,
                 "message": format!("Tenant {tenant_id} plan set to {}", updated.plan),
                 "data": { "tenant_id": tenant_id.to_string(), "plan": updated.plan }
+            })),
+        )
+            .into_response())
+    }
+
+    /// GET `/api/admin/tenants/{tenant_id}/plan` - read a tenant's current plan.
+    ///
+    /// Tenant-scoped admin (or super-admin) — reading the plan is display-level
+    /// (the Tenant Plan card preselects it); changing it stays super-admin only.
+    async fn handle_get_tenant_plan(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(tenant_id): Path<TenantId>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
+
+        let tenant = resources.repos.tenants.get_by_id(tenant_id).await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Tenant {tenant_id} plan is {}", tenant.plan),
+                "data": { "tenant_id": tenant_id.to_string(), "plan": tenant.plan }
             })),
         )
             .into_response())

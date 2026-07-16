@@ -66,6 +66,15 @@ const sampleTools: UserEffectiveTool[] = [
     source: 'global_disabled',
     min_plan: 'starter',
   },
+  {
+    tool_name: 'admin_assign_coach',
+    display_name: 'Assign Coach',
+    description: 'Assign a system coach to a specific user (admin only)',
+    category: 'admin',
+    is_enabled: true,
+    source: 'default',
+    min_plan: 'starter',
+  },
 ];
 
 function renderPanel() {
@@ -129,6 +138,13 @@ describe('UserToolOverrides', () => {
     expect(screen.getByText('Default')).toBeInTheDocument();
     expect(screen.getByText('User Override')).toBeInTheDocument();
     expect(screen.getByText('Global Block')).toBeInTheDocument();
+
+    // Admin-category tools are role-gated (stripped from a non-admin's
+    // tools/list by the registry), so the per-user panel must not offer
+    // them — showing "Assign Coach: enabled" for a regular user would lie.
+    expect(screen.queryByText('admin')).not.toBeInTheDocument();
+    expect(screen.queryByText('Assign Coach')).not.toBeInTheDocument();
+    expect(screen.queryByText('admin_assign_coach')).not.toBeInTheDocument();
   });
 
   it('toggling a tool calls setUserToolOverride with the flipped enablement', async () => {

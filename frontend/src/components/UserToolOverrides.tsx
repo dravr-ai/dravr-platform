@@ -116,9 +116,16 @@ export default function UserToolOverrides() {
     },
   });
 
-  // Filter by search, then group by category for sectioned rendering
+  // Filter by search, then group by category for sectioned rendering.
+  // Admin-category tools are excluded: they are role-gated (the registry
+  // strips ADMIN_ONLY tools from a non-admin's tools/list regardless of
+  // catalog state), so showing them here as "enabled" for a regular user
+  // would misstate what the user can actually invoke. Tenant-wide admin
+  // tool config lives in the Tool Management tab.
   const toolsByCategory = useMemo(() => {
-    const tools = userToolsData?.data ?? [];
+    const tools = (userToolsData?.data ?? []).filter(
+      (tool) => tool.category !== 'admin'
+    );
     const query = toolSearch.trim().toLowerCase();
     const filtered = query
       ? tools.filter(

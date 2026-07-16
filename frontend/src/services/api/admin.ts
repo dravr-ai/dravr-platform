@@ -373,6 +373,14 @@ export const adminApi = {
     return { removed: Boolean(response.data?.data?.removed) };
   },
 
+  async getTenantPlan(tenantId: string): Promise<{
+    tenant_id: string;
+    plan: 'starter' | 'professional' | 'enterprise';
+  }> {
+    const response = await axios.get(`/api/admin/tenants/${tenantId}/plan`);
+    return response.data.data;
+  },
+
   async setTenantPlan(tenantId: string, plan: 'starter' | 'professional' | 'enterprise'): Promise<{
     tenant_id: string;
     plan: string;

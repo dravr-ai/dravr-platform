@@ -229,7 +229,16 @@ export default function UserDetailDrawer({
                   <button
                     type="button"
                     onClick={() => {
-                      setTierValue(user.tier);
+                      // The users list serves the display form ("Professional");
+                      // the select values (and the API) are lowercase. Without
+                      // normalizing, the select silently falls back to Starter
+                      // and a blind Save would downgrade the user.
+                      const normalized = user.tier.toLowerCase();
+                      setTierValue(
+                        normalized === 'professional' || normalized === 'enterprise'
+                          ? normalized
+                          : 'starter'
+                      );
                       setTierEditing(true);
                     }}
                     className="text-xs text-pierre-activity hover:underline"
