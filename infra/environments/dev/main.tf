@@ -481,9 +481,12 @@ module "backend" {
     COHERE_API_KEY          = module.secrets.secret_ids["cohere_api_key"]
     COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
-    OPENWEATHER_API_KEY     = module.secrets.secret_ids["openweather_api_key"]
-    RESEND_API_KEY          = module.secrets.secret_ids["resend_api_key"]
-    POSTHOG_API_KEY         = module.secrets.secret_ids["posthog_api_key"]
+    # Bearer the sciotte client presents to the dedicated scraper service
+    # (ADR-021); same secret the service itself gates on.
+    DRAVR_SCIOTTE_API_KEY = module.secrets.secret_ids["dravr_sciotte_api_key"]
+    OPENWEATHER_API_KEY   = module.secrets.secret_ids["openweather_api_key"]
+    RESEND_API_KEY        = module.secrets.secret_ids["resend_api_key"]
+    POSTHOG_API_KEY       = module.secrets.secret_ids["posthog_api_key"]
 
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]
