@@ -86,10 +86,11 @@ impl SciotteTarget {
     }
 }
 
-/// Sciotte provider — a thin session-holder that routes every scrape to the
-/// dedicated dravr-sciotte service ([[ADR-021]]). Since the Phase 4 cutover it
-/// holds no in-process Chrome; it keeps the platform-held [`AuthSession`] and
-/// forwards it to the service on each fetch.
+/// Sciotte provider — a thin session-holder over the dedicated scraper service.
+///
+/// Routes every scrape to the dedicated dravr-sciotte service ([[ADR-021]]).
+/// Since the Phase 4 cutover it holds no in-process Chrome; it keeps the
+/// platform-held [`AuthSession`] and forwards it to the service on each fetch.
 pub struct SciotteProvider {
     config: ProviderConfig,
     session: RwLock<Option<AuthSession>>,
@@ -97,14 +98,14 @@ pub struct SciotteProvider {
 }
 
 impl SciotteProvider {
-    fn new(config: ProviderConfig, target: SciotteTarget) -> AppResult<Self> {
+    fn new(config: ProviderConfig, target: SciotteTarget) -> Self {
         let provider_name = target.provider_name();
         info!(target = ?target, "Sciotte provider initialized (remote service)");
-        Ok(Self {
+        Self {
             config,
             session: RwLock::new(None),
             provider_name,
-        })
+        }
     }
 
     /// Build the `provider_auth_required` error used for the "no session at
@@ -448,7 +449,7 @@ impl ProviderFactory for SciotteProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::Strava,
-        )?))
+        )))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {
@@ -464,7 +465,7 @@ impl ProviderFactory for SciotteGarminProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::Garmin,
-        )?))
+        )))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {
