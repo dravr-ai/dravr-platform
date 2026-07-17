@@ -137,6 +137,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.actor"            = "assertion.actor"
     "attribute.repository"       = "assertion.repository"
     "attribute.repository_owner" = "assertion.repository_owner"
+    "attribute.ref"              = "assertion.ref"
   }
 
   attribute_condition = "assertion.repository == '${var.github_org}/${var.github_repo}'"
@@ -164,4 +165,62 @@ resource "google_project_iam_member" "env_app_reader" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${each.value}"
+}
+
+# -----------------------------------------------------------------------------
+# Terraform Runner Service Account
+# -----------------------------------------------------------------------------
+# Impersonated by GitHub Actions (terraform-artifacts.yml) to plan/apply THIS
+# config. Distinct from image-publisher, which only pushes images
+# (artifactregistry.writer) and therefore cannot read state or manage the
+# registry policy — the reason the workflow's Terraform Init 403'd. The runner
+# needs admin on every resource type this config manages, scoped to the
+# single-purpose dravr-artifacts project (blast radius = this one registry
+# project). Its state-bucket access is a bootstrap grant applied out-of-band
+# (see below), deliberately NOT managed here.
+
+resource "google_service_account" "terraform_runner" {
+  account_id   = "terraform-runner"
+  project      = var.project_id
+  display_name = "Terraform Runner"
+  description  = "Runs terraform plan/apply for infra/artifacts from GitHub Actions (terraform-artifacts.yml)"
+}
+
+# One predefined role per resource type this config manages. Kept minimal — no
+# owner/editor. Each entry documents which resource it is required for.
+resource "google_project_iam_member" "terraform_runner_roles" {
+  for_each = toset([
+    "roles/artifactregistry.admin",          # google_artifact_registry_repository.images
+    "roles/iam.serviceAccountAdmin",         # google_service_account.* + their IAM bindings
+    "roles/iam.workloadIdentityPoolAdmin",   # google_iam_workload_identity_pool[_provider].github
+    "roles/resourcemanager.projectIamAdmin", # google_project_iam_member.* project bindings
+    "roles/serviceusage.serviceUsageAdmin",  # google_project_service.* API enablement
+  ])
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.terraform_runner.email}"
+}
+
+# State-bucket access is a BOOTSTRAP grant applied out-of-band by an owner, NOT a
+# resource here: roles/storage.objectAdmin gives storage.objects.* (list
+# workspaces + read/write state) but not storage.buckets.getIamPolicy, so a
+# google_storage_bucket_iam_member owned by this config would 403 when the runner
+# refreshes it — and would be a circular dep (the config owning the grant that
+# unlocks its own state). One-time, run by a project owner:
+#   gcloud storage buckets add-iam-policy-binding gs://dravr-artifacts-terraform-7d896 \
+#     --member="serviceAccount:terraform-runner@dravr-artifacts.iam.gserviceaccount.com" \
+#     --role="roles/storage.objectAdmin"
+
+# Let GitHub Actions impersonate the runner ONLY from refs/heads/main. The runner
+# holds projectIamAdmin (→ can self-grant owner), so repo-wide impersonation would
+# let any feature-branch workflow holding the secrets escalate to project owner —
+# a reach the Environment reviewer gate (a per-job control) does not stop. Branch
+# scoping relies on attribute.ref in the provider mapping above; the provider's
+# attribute_condition still pins the repo. (image-publisher stays repo-scoped: it
+# is writer-only and also runs on v* tags, which are not refs/heads/main.)
+resource "google_service_account_iam_member" "terraform_runner_wif" {
+  service_account_id = google_service_account.terraform_runner.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.ref/refs/heads/main"
 }

@@ -8,17 +8,18 @@ name: "Infra: Artifacts Registry"
 # rather than auto-applying on push, so a destructive cleanup change can't ship
 # unreviewed. A commented push trigger is left below for when auto-apply is wanted.
 #
-# One-time setup required before this workflow can run (mirror of the dev/prod
-# terraform-runner setup):
-#   1. Create a terraform-runner service account in the dravr-artifacts project
-#      with roles/artifactregistry.admin, roles/iam.serviceAccountAdmin,
-#      roles/resourcemanager.projectIamAdmin, and roles/serviceusage.serviceUsageAdmin.
-#   2. Bind it for roles/iam.workloadIdentityUser to the github-pool principalSet
-#      for dravr-ai/dravr-platform (the pool already exists in infra/artifacts/main.tf).
-#   3. Add repo secrets GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name) and
-#      GCP_ARTIFACTS_TF_SA (the runner SA email).
-#   4. Create a GitHub Environment named 'artifacts' with required reviewers so
-#      apply is approval-gated.
+# One-time bootstrap. The terraform-runner SA, its 5 project roles (incl.
+# roles/iam.workloadIdentityPoolAdmin), and its refs/heads/main-scoped WIF binding
+# are managed in infra/artifacts/main.tf — apply that once as a project owner, then:
+#   1. Grant the runner state-bucket access (objectAdmin cannot self-manage bucket
+#      IAM, so it is intentionally not a terraform resource):
+#        gcloud storage buckets add-iam-policy-binding gs://dravr-artifacts-terraform-7d896 \
+#          --member="serviceAccount:terraform-runner@dravr-artifacts.iam.gserviceaccount.com" \
+#          --role="roles/storage.objectAdmin"
+#   2. Add repo secrets GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name) and
+#      GCP_ARTIFACTS_TF_SA (terraform-runner@dravr-artifacts.iam.gserviceaccount.com).
+#   3. Create a GitHub Environment named 'artifacts' with required reviewers so
+#      apply is approval-gated (the WIF binding already restricts impersonation to main).
 on:
   # push:
   #   branches: [main]
