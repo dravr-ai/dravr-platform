@@ -90,3 +90,8 @@ labels = {
 # ~$0 idle). Deploy-only: backend_sciotte_remote stays default-false, so the
 # API keeps its in-process path until the service is validated on dev.
 enable_sciotte_service = true
+
+# ADR-021 traffic flip: dev API routes sciotte logins/scrapes to the dedicated
+# service. Rollback = set false + apply (in-process path stays compiled in
+# until Phase 4).
+backend_sciotte_remote = true
