@@ -47,8 +47,6 @@ use axum::{
 };
 use tokio::sync::broadcast;
 
-#[cfg(feature = "provider-sciotte")]
-use embacle::types::LlmProvider as EmbacleLlmProvider;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -83,22 +81,13 @@ mod sciotte_hosted;
 mod sciotte_hosted_templates;
 mod short_link;
 
-#[cfg(feature = "provider-sciotte")]
-pub use sciotte::init_sciotte_limiter;
 // Re-exported for the sciotte login error-handling regression test
-// (`sciotte_login_error_handling_test`): the `sciotte` module is private and
-// the login handlers need real Chrome to exercise, so these two pure/near-pure
-// helpers are the testable seam guarding the "no raw error to the user" +
-// friendly-copy contract. Doc-hidden — internal-only, no external consumers.
+// (`sciotte_login_error_handling_test`): the `sciotte` module is private, so
+// these two pure/near-pure helpers are the testable seam guarding the "no raw
+// error to the user" + friendly-copy contract. Doc-hidden — internal-only.
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
 pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
-// Re-exported for the active-login dedup regression test
-// (`sciotte_active_login_dedup_test`): the login handler needs real Chrome to
-// exercise, so the per-user dedup guard is the testable seam. Doc-hidden.
-#[cfg(feature = "provider-sciotte")]
-#[doc(hidden)]
-pub use sciotte::{try_begin_active_login, ActiveLoginGuard};
 
 // Re-export the cross-cutting auth DTOs so existing
 // `crate::routes::auth::*` paths in pierre-server tests + callers continue
@@ -173,13 +162,6 @@ pub struct AuthRoutesContext {
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
-    /// Shared Copilot-headless LLM provider for sciotte vision login. `None`
-    /// keeps the scraper on the pure-selector path; `Some` enables the
-    /// `Hybrid`/`Vision` `DRAVR_SCIOTTE_LOGIN_MODE` fallback (screenshot
-    /// reasoning when selectors fail). Built once at startup and reused — the
-    /// underlying `copilot --acp` subprocess only spawns when vision fires.
-    #[cfg(feature = "provider-sciotte")]
-    pub sciotte_vision_llm: Option<Arc<dyn EmbacleLlmProvider>>,
 }
 
 /// Authentication route group entry point.

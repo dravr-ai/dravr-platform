@@ -1,36 +1,26 @@
-// ABOUTME: Sciotte web scraping provider using dravr-sciotte as an in-process library
-// ABOUTME: Launches headless Chrome for login, scrapes activities directly via ActivityScraper trait
+// ABOUTME: Sciotte provider — forwards every scrape to the dedicated dravr-sciotte service over HTTP
+// ABOUTME: Holds the platform's AuthSession and calls the remote scraper; no in-process Chrome (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Sciotte Provider
 //!
-//! Implements `FitnessProvider` using `dravr-sciotte` as an in-process Cargo dependency.
-//! Launches short-lived headless Chrome for credential-based login, then scrapes activity
-//! data directly from fitness platform HTML pages (Strava, Garmin Connect, etc.).
-//!
-//! No HTTP sidecar needed — the scraper runs in Pierre's process.
+//! Implements `FitnessProvider` by delegating to the dedicated `dravr-sciotte`
+//! scraper service over HTTP (ADR-021). Since the Phase 4 cutover the platform
+//! runs no headless Chrome: this provider holds the platform-held [`AuthSession`]
+//! and forwards it to the service on each fetch, which scrapes the fitness
+//! platform (Strava, Garmin Connect, etc.) and returns activities.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use dravr_sciotte::cache::CachedScraper;
-use dravr_sciotte::config::{CacheConfig, ScraperConfig};
-use dravr_sciotte::error::ScraperError;
+use chrono::Utc;
 use dravr_sciotte::models::{
-    Activity as SciotteActivity, ActivityParams, AuthSession, Lap as SciotteLap,
-    Split as SciotteSplit, SportType as SciotteSportType,
+    Activity as SciotteActivity, AuthSession, Lap as SciotteLap, Split as SciotteSplit,
+    SportType as SciotteSportType,
 };
-use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
-use dravr_sciotte::scraper::ChromeScraper;
-use dravr_sciotte::ActivityScraper;
-use embacle::types::LlmProvider;
-use std::collections::HashMap;
 use std::env;
-use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
-use std::time::Instant;
-use tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard, RwLock};
-use tracing::{debug, info, warn};
+use tokio::sync::RwLock;
+use tracing::info;
 
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -41,14 +31,7 @@ use crate::models::{
     Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
-use crate::sciotte_limiter::{global_limiter, LimiterError, ScrapePermit};
 use crate::sciotte_remote::{RemoteActivityQuery, RemoteSciotteClient};
-
-/// Default cap on detail-page enrichment when `PIERRE_SCIOTTE_ENRICH_DETAILS` is
-/// on: enrich only the most recent N activities so the N+1 detail roundtrip stays
-/// bounded and can't stall an interactive coaching turn. Overridable per
-/// deployment via `PIERRE_SCIOTTE_ENRICH_LIMIT`.
-const DEFAULT_SCIOTTE_ENRICH_LIMIT: usize = 5;
 
 /// Target fitness platform for the sciotte scraper
 #[derive(Debug, Clone, Copy)]
@@ -101,274 +84,35 @@ impl SciotteTarget {
             Self::Garmin => "garmin",
         }
     }
-
-    /// Build a fresh [`CachedScraper`] configured for this target. Used by
-    /// the hosted-login route to drive the headless-Chrome flow and by
-    /// [`SciotteProvider::new`] to back the runtime fetch path — both must
-    /// use the same scraper configuration so a cached login from one path
-    /// stays usable by the other.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the embedded provider scraper config fails to parse.
-    /// The TOML is a compile-time constant validated by sciotte's own tests, so
-    /// this is a should-never-happen surfaced as a structured error rather than
-    /// a panic (the workspace denies `expect`/`unwrap`).
-    pub fn build_scraper(self) -> AppResult<CachedScraper<ChromeScraper>> {
-        let provider_config = match self {
-            Self::Strava => SciotteProviderConfig::strava_default(),
-            Self::Garmin => SciotteProviderConfig::garmin_default(),
-        }
-        .map_err(|e| AppError::internal(format!("Failed to build sciotte provider config: {e}")))?;
-        let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
-        Ok(CachedScraper::new(chrome_scraper, &CacheConfig::default()))
-    }
-
-    /// Build a scraper with an LLM provider attached for vision-based login.
-    ///
-    /// Identical to [`Self::build_scraper`] but injects `llm` via
-    /// `ChromeScraper::with_llm`, enabling the vision login path. Under the
-    /// `Hybrid` `DRAVR_SCIOTTE_LOGIN_MODE` the selector path still runs first
-    /// and vision only fires when selectors fail; under `Vision` mode every
-    /// login uses the LLM. The login route supplies the shared Copilot-headless
-    /// provider so a Strava DOM change degrades to screenshot reasoning instead
-    /// of a hard failure.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the embedded provider scraper config fails to parse
-    /// (see [`Self::build_scraper`]).
-    pub fn build_scraper_with_llm(
-        self,
-        llm: Arc<dyn LlmProvider>,
-    ) -> AppResult<CachedScraper<ChromeScraper>> {
-        let provider_config = match self {
-            Self::Strava => SciotteProviderConfig::strava_default(),
-            Self::Garmin => SciotteProviderConfig::garmin_default(),
-        }
-        .map_err(|e| AppError::internal(format!("Failed to build sciotte provider config: {e}")))?;
-        let chrome_scraper = ChromeScraper::new(ScraperConfig::default(), provider_config)
-            .with_llm(Arc::new(EmbacleVisionAdapter(llm)));
-        Ok(CachedScraper::new(chrome_scraper, &CacheConfig::default()))
-    }
 }
 
-/// Adapts an embacle [`LlmProvider`] to sciotte's `VisionModel` trait so the
-/// vision-login path can use the platform's Copilot-headless provider without
-/// sciotte itself depending on embacle. The embacle `ChatRequest` build lives
-/// here, on the consumer side of the boundary.
-struct EmbacleVisionAdapter(Arc<dyn LlmProvider>);
-
-#[async_trait::async_trait]
-impl dravr_sciotte::VisionModel for EmbacleVisionAdapter {
-    async fn analyze_screenshot(
-        &self,
-        prompt: &str,
-        screenshot_png_b64: &str,
-    ) -> Result<String, dravr_sciotte::VisionModelError> {
-        use embacle::types::{ChatMessage, ChatRequest, ImagePart};
-
-        let image = ImagePart::new(screenshot_png_b64.to_owned(), "image/png")
-            .map_err(|e| format!("invalid image part: {e}"))?;
-        let message = ChatMessage::user_with_images(prompt.to_owned(), vec![image]);
-        let request = ChatRequest {
-            messages: vec![message],
-            model: None,
-            temperature: Some(0.0),
-            max_tokens: Some(4096),
-            stream: false,
-            tools: None,
-            tool_choice: None,
-            top_p: None,
-            stop: None,
-            response_format: None,
-            turn_id: None,
-            mcp_servers: Vec::new(),
-        };
-        let response = self
-            .0
-            .complete(&request)
-            .await
-            .map_err(|e| format!("vision LLM call failed: {e}"))?;
-        Ok(response.content)
-    }
-}
-
-/// Sciotte provider that uses the dravr-sciotte library directly (in-process)
+/// Sciotte provider — a thin session-holder that routes every scrape to the
+/// dedicated dravr-sciotte service ([[ADR-021]]). Since the Phase 4 cutover it
+/// holds no in-process Chrome; it keeps the platform-held [`AuthSession`] and
+/// forwards it to the service on each fetch.
 pub struct SciotteProvider {
     config: ProviderConfig,
-    scraper: Arc<CachedScraper<ChromeScraper>>,
     session: RwLock<Option<AuthSession>>,
     provider_name: &'static str,
 }
 
 impl SciotteProvider {
     fn new(config: ProviderConfig, target: SciotteTarget) -> AppResult<Self> {
-        let cached = target.build_scraper()?;
         let provider_name = target.provider_name();
-
-        info!(target = ?target, "Sciotte provider initialized (in-process)");
-
+        info!(target = ?target, "Sciotte provider initialized (remote service)");
         Ok(Self {
             config,
-            scraper: Arc::new(cached),
             session: RwLock::new(None),
             provider_name,
         })
     }
 
-    /// Translate a `dravr_sciotte::ScraperError` into an `AppError`. The
-    /// `SessionExpired` variant maps to `provider_auth_required` so the chat
-    /// pipeline can mint a hosted-login URL and short-circuit the LLM with an
-    /// actionable reply; everything else stays an internal error tagged with
-    /// the call-site context.
-    fn map_scraper_error(&self, err: &ScraperError, context: &str) -> AppError {
-        if matches!(err, ScraperError::SessionExpired { .. }) {
-            return AppError::provider_auth_required(self.provider_name);
-        }
-        AppError::internal(format!("{context}: {err}"))
-    }
-
-    /// Build the same `provider_auth_required` error the runtime emits when a
-    /// scrape lands on the SSO page, used for the "no session at all" branch.
+    /// Build the `provider_auth_required` error used for the "no session at
+    /// all" branch, so the chat pipeline can mint a hosted-login URL and
+    /// short-circuit the LLM with an actionable reply.
     fn auth_required_no_session(&self) -> AppError {
         AppError::provider_auth_required(self.provider_name)
     }
-}
-
-/// Serializes Chrome profile access, keyed by `AuthSession.session_id`.
-///
-/// sciotte derives the on-disk Chrome profile directory from the session id,
-/// and `launch_browser` documents that the *caller* must serialize concurrent
-/// launches against the same id — Chrome holds a `SingletonLock` on its
-/// profile directory and a second launch aborts with "Failed to create
-/// `SingletonLock`: File exists". Each `SciotteProvider` instance launches its
-/// own Chrome, so two overlapping scrapes for the same user (e.g. a background
-/// activity-cache revalidation racing an LLM `get_activities` call) crash
-/// instantly without this serialization.
-///
-/// Production code shares one registry via [`Self::global`]; tests construct
-/// isolated instances. Map entries are never evicted — the map is bounded by
-/// the number of distinct sciotte sessions seen by the process.
-pub struct ProfileLockRegistry {
-    locks: StdMutex<HashMap<String, Arc<TokioMutex<()>>>>,
-}
-
-impl ProfileLockRegistry {
-    /// Create an empty registry.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            locks: StdMutex::new(HashMap::new()),
-        }
-    }
-
-    /// The process-global registry shared by every `SciotteProvider` instance.
-    #[must_use]
-    pub fn global() -> &'static Self {
-        static GLOBAL: LazyLock<ProfileLockRegistry> = LazyLock::new(ProfileLockRegistry::new);
-        &GLOBAL
-    }
-
-    /// Await exclusive use of a session's Chrome profile directory.
-    ///
-    /// The returned guard must be held for the entire scrape (browser launch
-    /// through close) so a concurrent scrape for the same session waits for the
-    /// profile to free up instead of colliding on Chrome's `SingletonLock`.
-    /// Distinct session ids never block each other.
-    pub async fn acquire(&self, session_id: &str) -> OwnedMutexGuard<()> {
-        let lock = {
-            // Recover from poisoning: the inner map stays consistent even if a
-            // holder panicked, and refusing all future scrapes would be worse.
-            let mut map = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(map.entry(session_id.to_owned()).or_default())
-        };
-        lock.lock_owned().await
-    }
-}
-
-impl Default for ProfileLockRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Logs the duration and outcome of a single Chrome scrape, INCLUDING when the
-/// scrape future is dropped before completing.
-///
-/// A scrape runs inside the LLM tool loop, whose caller (e.g. the Copilot ACP
-/// converse) bounds the whole turn with a timeout. When that timeout fires the
-/// scrape future is dropped mid-`get_activities`, so the success log never runs
-/// and the scrape vanishes from the logs — the exact 139-second blackout that
-/// made a timed-out scrape indistinguishable from a hung Copilot. Marking the
-/// outcome on success and logging from `Drop` makes the abandoned case visible:
-/// "scrape ran Xs, then the caller cancelled it" instead of silence.
-struct ScrapeProgress {
-    session_id: String,
-    started: Instant,
-    completed: bool,
-}
-
-impl ScrapeProgress {
-    fn start(session_id: &str) -> Self {
-        Self {
-            session_id: session_id.to_owned(),
-            started: Instant::now(),
-            completed: false,
-        }
-    }
-
-    /// Mark the scrape as finished (success or a returned error) so `Drop` does
-    /// not report it as cancelled.
-    fn finish(&mut self) {
-        self.completed = true;
-    }
-
-    fn elapsed_ms(&self) -> u64 {
-        u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
-    }
-}
-
-impl Drop for ScrapeProgress {
-    fn drop(&mut self) {
-        if !self.completed {
-            warn!(
-                session_id = %self.session_id,
-                elapsed_ms = self.elapsed_ms(),
-                "Sciotte scrape abandoned before completion — caller cancelled it \
-                 (e.g. the LLM tool-loop timeout fired while the scrape was still running)"
-            );
-        }
-    }
-}
-
-/// Acquire a permit from the process-global Sciotte limiter so every
-/// Chrome-backed scrape on the data-fetch path counts against the same pod
-/// concurrency budget the login routes use. Returns `None` when no limiter is
-/// registered — a unit test may construct the provider without the server
-/// bootstrap that calls `set_global_limiter` — in which case the scrape
-/// proceeds ungated rather than failing.
-async fn acquire_scrape_permit() -> AppResult<Option<ScrapePermit>> {
-    match global_limiter() {
-        Some(limiter) => limiter
-            .acquire()
-            .await
-            .map(Some)
-            .map_err(|err| limiter_rejection(&err)),
-        None => Ok(None),
-    }
-}
-
-/// Map a backpressure rejection to a sanitized `ResourceUnavailable` error so
-/// the client sees a generic "temporarily unavailable" message, never the
-/// internal Chrome/queue details.
-fn limiter_rejection(err: &LimiterError) -> AppError {
-    warn!(
-        reason = %err,
-        retry_after_secs = err.retry_after_secs(),
-        "Sciotte scrape shed by backpressure limiter"
-    );
-    AppError::resource_unavailable(format!("Sciotte scrape shed by limiter: {err}"))
 }
 
 /// Direct sciotte → cageux `SportType` conversion. Both enums share variant
@@ -530,11 +274,17 @@ impl FitnessProvider for SciotteProvider {
     }
 
     async fn is_authenticated(&self) -> bool {
-        let session = self.session.read().await;
-        match session.as_ref() {
-            Some(s) => self.scraper.is_authenticated(s).await,
-            None => false,
-        }
+        // A held, non-expired session means "connected". Without an in-pod
+        // scraper (Phase 4 cutover) we can't probe cookies, but a stored expiry
+        // already in the past is certainly dead — report it honestly so callers
+        // never treat an expired session as live. A `None` expiry is "unknown,
+        // assume usable"; the dedicated service re-auths on the next scrape
+        // import if the cookies turn out stale (ADR-021).
+        self.session
+            .read()
+            .await
+            .as_ref()
+            .is_some_and(|s| s.expires_at.is_none_or(|exp| exp > Utc::now()))
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
@@ -548,49 +298,21 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
-        // ADR-021 remote path: scrape on the dedicated service instead of in-pod
-        // Chrome. Import the platform-held session (re-hydrates the service if it
-        // scaled to zero / was redeployed), then fetch — no in-pod profile lock or
-        // Chrome permit, which is the whole point of the split.
-        if let Some(remote) = RemoteSciotteClient::from_env()? {
-            remote
-                .import_session(
-                    session,
-                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
-                )
-                .await?;
-            let profile = remote.get_athlete(&session.session_id).await?;
-            let display_name = profile
-                .display_name
-                .clone()
-                .unwrap_or_else(|| "Sciotte User".to_owned());
-            return Ok(Athlete {
-                id: "sciotte".to_owned(),
-                username: display_name,
-                firstname: profile.firstname,
-                lastname: profile.lastname,
-                profile_picture: profile.profile_picture_url,
-                provider: "sciotte".to_owned(),
-            });
-        }
-
-        // Profile lock before the global permit: waiting for the profile to
-        // free up must not pin a scarce Chrome-concurrency slot.
-        let _profile_lock = ProfileLockRegistry::global()
-            .acquire(&session.session_id)
-            .await;
-        let _permit = acquire_scrape_permit().await?;
-        let profile = self
-            .scraper
-            .get_athlete(session)
-            .await
-            .map_err(|e| self.map_scraper_error(&e, "Failed to scrape athlete profile"))?;
-
+        // ADR-021: scrape on the dedicated service (there is no in-process
+        // fallback since the Phase 4 cutover). Import the platform-held session
+        // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
+        let remote = RemoteSciotteClient::require_from_env()?;
+        remote
+            .import_session(
+                session,
+                SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+            )
+            .await?;
+        let profile = remote.get_athlete(&session.session_id).await?;
         let display_name = profile
             .display_name
             .clone()
             .unwrap_or_else(|| "Sciotte User".to_owned());
-
         Ok(Athlete {
             id: "sciotte".to_owned(),
             username: display_name,
@@ -620,107 +342,32 @@ impl FitnessProvider for SciotteProvider {
         // recent set this fetch returns.
         let enrich_details =
             env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
-        // Cap enrichment to the most recent N (the list is reverse-chronological)
-        // so the N+1 detail roundtrip can't run minutes and stall the coaching
-        // turn; the un-enriched tail keeps its list-page fields (type, distance,
-        // elevation). None when enrichment is off — no detail pages at all.
-        let enrich_limit = enrich_details.then(|| {
-            env::var("PIERRE_SCIOTTE_ENRICH_LIMIT")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(DEFAULT_SCIOTTE_ENRICH_LIMIT)
-        });
-        // Pass the date window through so the scrape can bound the fetch by date,
-        // matching the API providers (Strava/Whoop) — the unified contract is that
-        // every provider honors before/after identically. The dravr-sciotte scrape
-        // uses these to page back to the requested window; epoch seconds -> UTC.
-        let before = params
-            .before
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-        let after = params
-            .after
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-        let sciotte_params = ActivityParams {
+
+        // ADR-021: fetch on the dedicated service (no in-process fallback since
+        // the Phase 4 cutover). Import the platform-held session — re-hydrates
+        // the service after a scale-to-zero / redeploy — then scrape over HTTP;
+        // convert_activity keeps the returned shape identical for every caller.
+        // before/after pass through as epoch seconds so the scrape bounds the
+        // fetch by date, matching the API providers (Strava/Whoop).
+        let remote = RemoteSciotteClient::require_from_env()?;
+        let query = RemoteActivityQuery {
             limit: Some(limit as u32),
-            before,
-            after,
+            after_epoch: params.after,
+            before_epoch: params.before,
+            sport_type: None,
             enrich_details,
-            enrich_limit,
-            ..Default::default()
         };
-
-        // ADR-021 remote path: fetch on the dedicated service instead of in-pod
-        // Chrome. Import the platform-held session (re-hydrates the service after a
-        // scale-to-zero / redeploy), then scrape over HTTP. Reuses convert_activity
-        // so the returned shape is identical to the in-process path.
-        if let Some(remote) = RemoteSciotteClient::from_env()? {
-            let query = RemoteActivityQuery {
-                limit: Some(limit as u32),
-                after_epoch: params.after,
-                before_epoch: params.before,
-                sport_type: None,
-                enrich_details,
-            };
-            remote
-                .import_session(
-                    session,
-                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
-                )
-                .await?;
-            let sciotte_activities = remote.get_activities(&session.session_id, &query).await?;
-            let activities: Vec<Activity> =
-                sciotte_activities.iter().map(convert_activity).collect();
-            info!(
-                count = activities.len(),
-                "Sciotte scrape completed (remote service)"
-            );
-            return Ok(activities);
-        }
-
-        debug!(
-            limit,
-            ?before,
-            ?after,
-            "Fetching activities from sciotte (in-process)"
-        );
-
-        // Profile lock before the global permit: waiting for the profile to
-        // free up must not pin a scarce Chrome-concurrency slot. Time the wait
-        // separately so a contended lock is distinguishable from a slow scrape.
-        let lock_wait = Instant::now();
-        let _profile_lock = ProfileLockRegistry::global()
-            .acquire(&session.session_id)
-            .await;
-        let lock_wait_ms = u64::try_from(lock_wait.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let _permit = acquire_scrape_permit().await?;
-
-        info!(
-            session_id = %session.session_id,
-            limit,
-            enrich_details,
-            lock_wait_ms,
-            "Sciotte scrape starting (Chrome launch + login + extract)"
-        );
-        let mut progress = ScrapeProgress::start(&session.session_id);
-
-        let sciotte_activities = self
-            .scraper
-            .get_activities(session, &sciotte_params)
-            .await
-            .map_err(|e| {
-                // A returned error is a completed (failed) scrape, not a
-                // cancellation — mark it so Drop stays quiet.
-                progress.finish();
-                self.map_scraper_error(&e, "Sciotte scraping failed")
-            })?;
-        progress.finish();
-
+        remote
+            .import_session(
+                session,
+                SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+            )
+            .await?;
+        let sciotte_activities = remote.get_activities(&session.session_id, &query).await?;
         let activities: Vec<Activity> = sciotte_activities.iter().map(convert_activity).collect();
-
         info!(
             count = activities.len(),
-            elapsed_ms = progress.elapsed_ms(),
-            "Sciotte scrape completed"
+            "Sciotte scrape completed (remote service)"
         );
         Ok(activities)
     }
@@ -748,30 +395,15 @@ impl FitnessProvider for SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?;
 
-        // ADR-021 remote path: fetch the single activity on the dedicated service.
-        if let Some(remote) = RemoteSciotteClient::from_env()? {
-            remote
-                .import_session(
-                    session,
-                    SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
-                )
-                .await?;
-            let sciotte_activity = remote.get_activity(&session.session_id, id).await?;
-            return Ok(convert_activity(&sciotte_activity));
-        }
-
-        // Profile lock before the global permit: waiting for the profile to
-        // free up must not pin a scarce Chrome-concurrency slot.
-        let _profile_lock = ProfileLockRegistry::global()
-            .acquire(&session.session_id)
-            .await;
-        let _permit = acquire_scrape_permit().await?;
-        let sciotte_activity = self
-            .scraper
-            .get_activity(session, id)
-            .await
-            .map_err(|e| self.map_scraper_error(&e, "Sciotte activity fetch failed"))?;
-
+        // ADR-021: fetch the single activity's detail on the dedicated service.
+        let remote = RemoteSciotteClient::require_from_env()?;
+        remote
+            .import_session(
+                session,
+                SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
+            )
+            .await?;
+        let sciotte_activity = remote.get_activity(&session.session_id, id).await?;
         Ok(convert_activity(&sciotte_activity))
     }
 

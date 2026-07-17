@@ -1,34 +1,25 @@
 // ABOUTME: Sciotte provider routes for credential-based login and session management
-// ABOUTME: Collects credentials via Pierre's UI, runs in-process Chrome login via dravr-sciotte
+// ABOUTME: Collects credentials via Pierre's UI, drives login on the dedicated dravr-sciotte service
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::sync::{LazyLock, Mutex as StdMutex, PoisonError};
+use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::ScraperConfig;
-use dravr_sciotte::error::LoginResult;
 use dravr_sciotte::models::AuthSession;
-use dravr_sciotte::scraper::ChromeScraper;
-use dravr_sciotte::ActivityScraper;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
-use pierre_providers::sciotte_limiter::{
-    global_limiter, set_global_limiter, LimiterError, SciotteLimiter, ScrapePermit,
-};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -41,46 +32,48 @@ use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
 };
 
-// Pending OTP scraper — holds the Chrome browser and its associated scraper
-// permit between multi-step login calls. Keyed by `user_id` to prevent
-// cross-user interference.
-//
-// The `ScrapePermit` is parked here for the lifetime of the flow so the
-// Cloud Run pod's Chrome budget tracks the real wall-clock duration of the
-// OTP / 2FA exchange, not just the first HTTP request. The watchdog drops
-// entries whose owning flow has gone silent (see `spawn_pending_watchdog`).
-struct PendingLogin {
-    scraper: CachedScraper<ChromeScraper>,
-    provider_name: String,
-    link_context: Option<LinkContext>,
-    permit: ScrapePermit,
-    parked_at: Instant,
+/// The parked remote-login state the platform remembers between the initial
+/// login call and its OTP/2FA continuations. The heavy state — parked browser +
+/// permit — lives on the scraper service; the platform keeps only this so a
+/// continuation can name the right server-side flow *and* alert operators with
+/// the right platform on a system failure.
+#[derive(Clone)]
+struct RemoteFlowState {
+    /// Service-minted id that names the parked browser (the multi-provider
+    /// service can park several flows, so continuations must name theirs). A
+    /// missing entry is fine: the service falls back to its sole pending flow,
+    /// so a platform pod restart mid-2FA degrades gracefully instead of failing.
+    flow_id: String,
+    /// Backend provider name (`sciotte` / `sciotte_garmin`) carried from the
+    /// login request. A *system* failure on an OTP/2FA continuation needs it for
+    /// the operator alert + friendly copy, because the outcome only reports the
+    /// provider on success — never on the intermediate steps or on an `Err`.
+    provider: String,
 }
 
-static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingLogin>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-// flow_id of each user's in-flight REMOTE login (ADR-021 path). The heavy
-// state — parked browser + permit — lives on the scraper service; this map
-// only remembers which server-side flow belongs to which user so OTP/2FA
-// continuations name it (the multi-provider service can park several flows).
-// A missing entry is fine: the service falls back to its sole pending flow,
-// so a platform pod restart mid-2FA degrades gracefully instead of failing.
-static PENDING_REMOTE_FLOWS: LazyLock<StdMutex<HashMap<Uuid, String>>> =
+// Each user's in-flight REMOTE login (ADR-021 path), keyed by user_id.
+static PENDING_REMOTE_FLOWS: LazyLock<StdMutex<HashMap<Uuid, RemoteFlowState>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-/// Remember the server-side `flow_id` for a user's remote login continuation.
-fn remember_remote_flow(user_id: Uuid, flow_id: Option<String>) {
+/// Remember the server-side `flow_id` (with its backend provider) for a user's
+/// remote login continuation. No-op when the outcome carried no `flow_id`.
+fn remember_remote_flow(user_id: Uuid, flow_id: Option<String>, provider: &str) {
     if let Some(flow_id) = flow_id {
         PENDING_REMOTE_FLOWS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(user_id, flow_id);
+            .insert(
+                user_id,
+                RemoteFlowState {
+                    flow_id,
+                    provider: provider.to_owned(),
+                },
+            );
     }
 }
 
-/// The user's remembered remote `flow_id`, if any (kept until a terminal outcome).
-fn recall_remote_flow(user_id: Uuid) -> Option<String> {
+/// The user's remembered remote flow state, if any (kept until a terminal outcome).
+fn recall_remote_flow(user_id: Uuid) -> Option<RemoteFlowState> {
     PENDING_REMOTE_FLOWS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -88,139 +81,12 @@ fn recall_remote_flow(user_id: Uuid) -> Option<String> {
         .cloned()
 }
 
-/// Drop the user's remembered remote `flow_id` (terminal outcome reached).
+/// Drop the user's remembered remote flow state (terminal outcome reached).
 fn forget_remote_flow(user_id: Uuid) {
     PENDING_REMOTE_FLOWS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(&user_id);
-}
-
-// Users whose Sciotte credential login is *actively executing* — Chrome
-// launched and `credential_login` running — but not yet parked for OTP/2FA.
-//
-// `PENDING_OTP_SCRAPERS` dedups a user's login only once it *parks* between
-// requests; this set closes the gap during the active phase. A single slow
-// login (vision-mode grind, or a number-match poll) can hold the pod's
-// one-slot Chrome budget for the full `DRAVR_SCIOTTE_LOGIN_TIMEOUT` while the
-// client re-POSTs `/login` on a retry timer. Without this dedup each retry
-// acquired the saturated limiter, waited the full `PIERRE_SCIOTTE_ACQUIRE_TIMEOUT`,
-// and shed a 503 — turning one stuck login into a self-inflicted 503 storm. A
-// plain sync set (not the async `Mutex` the parked map uses) so the RAII guard
-// can release it from `Drop`.
-static ACTIVE_LOGINS: LazyLock<StdMutex<HashSet<Uuid>>> =
-    LazyLock::new(|| StdMutex::new(HashSet::new()));
-
-/// RAII marker that a user has a credential login actively running.
-///
-/// Registered before the Chrome permit is acquired and released the moment the
-/// active call returns — success, failure, or a park that hands dedup off to
-/// [`PENDING_OTP_SCRAPERS`]. A poisoned lock is recovered in place: the set is a
-/// pure dedup guard, so a lost entry only costs one redundant permit
-/// acquisition, never correctness.
-#[doc(hidden)]
-pub struct ActiveLoginGuard {
-    user_id: Uuid,
-}
-
-impl ActiveLoginGuard {
-    /// Register `user_id` as actively logging in.
-    ///
-    /// Returns `None` when a login is already in flight for that user, so the
-    /// caller can reject the duplicate before it competes for the Chrome budget.
-    fn try_begin(user_id: Uuid) -> Option<Self> {
-        let mut active = ACTIVE_LOGINS.lock().unwrap_or_else(PoisonError::into_inner);
-        if active.insert(user_id) {
-            // Drop the lock *before* building the guard: the guard's `Drop`
-            // re-locks `ACTIVE_LOGINS` to remove the entry, which would
-            // self-deadlock this non-reentrant mutex if the lock were still
-            // held. Building it only on the fresh-insert branch also means a
-            // rejected duplicate never constructs a guard whose drop would
-            // clear the in-flight login's own marker.
-            drop(active);
-            Some(Self { user_id })
-        } else {
-            None
-        }
-    }
-}
-
-impl Drop for ActiveLoginGuard {
-    fn drop(&mut self) {
-        ACTIVE_LOGINS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&self.user_id);
-    }
-}
-
-/// Attempt to register an active credential login for `user_id`.
-///
-/// Returns `Some(guard)` when this is the only in-flight login for the user, or
-/// `None` when one is already running. Re-exported (doc-hidden) so the dedup
-/// invariant can be exercised without launching Chrome.
-#[doc(hidden)]
-#[must_use]
-pub fn try_begin_active_login(user_id: Uuid) -> Option<ActiveLoginGuard> {
-    ActiveLoginGuard::try_begin(user_id)
-}
-
-/// Initialise the Sciotte backpressure limiter.
-///
-/// Reads `PIERRE_SCIOTTE_*` environment variables, constructs a
-/// [`SciotteLimiter`], and spawns its watchdog. Must be called exactly
-/// once during server startup, before any route that uses the limiter
-/// is served.
-///
-/// # Errors
-///
-/// Returns [`AppError::internal`] wrapping a `LimiterConfigError` when
-/// any required `PIERRE_SCIOTTE_*` variable is missing, malformed, or
-/// inconsistent (e.g. `max_queue_depth < max_concurrent`).
-pub fn init_sciotte_limiter() -> Result<(), AppError> {
-    use pierre_providers::sciotte_limiter::LimiterConfig;
-
-    let config = LimiterConfig::from_env()
-        .map_err(|e| AppError::internal(format!("Sciotte limiter config invalid: {e}")))?;
-    info!(
-        max_concurrent = config.max_concurrent,
-        max_queue_depth = config.max_queue_depth,
-        acquire_timeout_secs = config.acquire_timeout.as_secs(),
-        parked_permit_ttl_secs = config.parked_permit_ttl.as_secs(),
-        watchdog_interval_secs = config.watchdog_interval.as_secs(),
-        retry_after_hint_secs = config.retry_after_hint.as_secs(),
-        closed_retry_after_secs = config.closed_retry_after.as_secs(),
-        "Sciotte backpressure limiter initialised from environment"
-    );
-    let limiter = SciotteLimiter::new(config);
-    // Dropping a tokio `JoinHandle` detaches the task rather than aborting
-    // it, which is the behaviour we want: the watchdog runs for the
-    // lifetime of the process.
-    drop(spawn_pending_watchdog(&limiter));
-    // Register the shared instance so both the login routes here and the
-    // provider's data-fetch scrapes draw permits from one Chrome budget.
-    // The setter is idempotent, so repeated test-fixture init is harmless.
-    set_global_limiter(limiter);
-    Ok(())
-}
-
-/// Retrieve the process-global limiter, or return an [`AppError::internal`]
-/// when `init_sciotte_limiter` was not called during bootstrap. That
-/// branch is a programmer error in the startup path, not an operator
-/// error — surfacing it as `AppError` lets the route return 500 cleanly
-/// instead of panicking the worker thread.
-///
-/// # Errors
-///
-/// Returns [`AppError::internal`] when the global limiter has not yet
-/// been initialised (i.e. server startup skipped `init_sciotte_limiter`).
-fn sciotte_limiter() -> Result<&'static Arc<SciotteLimiter>, AppError> {
-    global_limiter().ok_or_else(|| {
-        AppError::internal(
-            "Sciotte backpressure limiter not initialised — \
-             init_sciotte_limiter must be called during bootstrap_server",
-        )
-    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,59 +106,6 @@ fn default_method() -> String {
 
 fn default_target() -> String {
     "strava".to_owned()
-}
-
-/// Build an HTTP 503 response with a `Retry-After` header from a
-/// [`LimiterError`]. Used by every Sciotte login handler when the
-/// backpressure queue is saturated.
-fn busy_response(error: &LimiterError) -> Response {
-    let retry_after_secs = error.retry_after_secs();
-    let reason = error.to_string();
-    warn!(
-        reason = %reason,
-        retry_after_secs,
-        "Sciotte backpressure rejecting request"
-    );
-    let body = Json(serde_json::json!({
-        "error": "sciotte_busy",
-        "reason": reason,
-        "retry_after_secs": retry_after_secs,
-    }));
-    let mut response = (StatusCode::SERVICE_UNAVAILABLE, body).into_response();
-    if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
-        response.headers_mut().insert(header::RETRY_AFTER, value);
-    }
-    response
-}
-
-/// Spawn the background watchdog that evicts pending OTP flows whose parked
-/// permit has exceeded the configured TTL. This guarantees an abandoned 2FA
-/// flow can not permanently hold a Chrome slot. When the `PendingLogin`
-/// entry is removed from the map it goes out of scope, and the
-/// `ScrapePermit` it owned is dropped — returning the Chrome budget slot to
-/// the limiter.
-fn spawn_pending_watchdog(limiter: &Arc<SciotteLimiter>) -> JoinHandle<()> {
-    limiter.spawn_watchdog(move |ttl: Duration| async move {
-        let mut guard = PENDING_OTP_SCRAPERS.lock().await;
-        let stale: Vec<Uuid> = guard
-            .iter()
-            .filter_map(|(user_id, pending)| {
-                (pending.parked_at.elapsed() > ttl).then_some(*user_id)
-            })
-            .collect();
-        let count = stale.len();
-        for user_id in stale {
-            if let Some(pending) = guard.remove(&user_id) {
-                warn!(
-                    %user_id,
-                    provider = %pending.provider_name,
-                    age_secs = pending.parked_at.elapsed().as_secs(),
-                    "Evicting stale pending Sciotte login"
-                );
-            }
-        }
-        count
-    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -363,9 +176,10 @@ async fn store_sciotte_session(
 }
 
 /// Spawn a background task to pre-fetch and cache activities after a
-/// successful sciotte login. Uses non-blocking `try_acquire` on the
-/// backpressure limiter: if the Chrome budget is saturated, the prefetch is
-/// skipped entirely and the user's next interactive request will cold-fetch.
+/// successful sciotte login, so the coach has warm data on the first chat.
+/// Backpressure now lives on the dedicated service (its own concurrency
+/// limiter), so the platform just fires the scrape — no in-pod permit
+/// (ADR-021 Phase 4 cutover).
 fn spawn_activity_prefetch(
     resources: &AuthRoutesContext,
     user_id: Uuid,
@@ -376,45 +190,16 @@ fn spawn_activity_prefetch(
     use pierre_cache::{CacheKey, CacheResource};
     use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
 
-    let limiter = match sciotte_limiter() {
-        Ok(l) => l,
-        Err(err) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_name,
-                error = %err,
-                "Cannot prefetch Sciotte activities — limiter not initialised"
-            );
-            return;
-        }
-    };
-    let permit = match limiter.try_acquire() {
-        Ok(p) => p,
-        Err(err) => {
-            info!(
-                user_id = %user_id,
-                provider = %provider_name,
-                reason = %err,
-                "Skipping Sciotte prefetch — backpressure budget saturated"
-            );
-            return;
-        }
-    };
-
     let registry = resources.provider_registry.clone();
     let cache = resources.cache.clone();
     let provider_name = provider_name.to_owned();
     let session_json = session_json.to_owned();
 
     tokio::spawn(async move {
-        // Keep the permit alive for the full lifetime of the prefetch task.
-        // When the task finishes (success or failure), drop releases the slot.
-        let prefetch_permit = permit;
         info!(
             user_id = %user_id,
             provider = %provider_name,
-            permit_acquired_at = ?prefetch_permit.acquired_at(),
-            "Starting background activity pre-fetch"
+            "Starting background activity pre-fetch (remote scrape)"
         );
 
         let provider = match registry.create_provider(&provider_name) {
@@ -475,103 +260,20 @@ fn spawn_activity_prefetch(
     });
 }
 
-/// Session context bundle for a Sciotte login step — groups user/tenant/provider
-/// identifiers and the optional channel link context. Used to keep the
-/// `login_result_to_response` signature readable.
-struct LoginSessionContext<'a> {
-    user_id: Uuid,
-    tenant_id: Uuid,
-    provider_name: &'a str,
-    log_prefix: &'a str,
-    link_context: Option<LinkContext>,
-}
-
-/// Convert a `LoginResult` into an HTTP response, storing the scraper +
-/// permit for follow-up calls when the flow is still in progress. The
-/// `permit` is moved into `PENDING_OTP_SCRAPERS` on continuation branches
-/// and dropped on terminal outcomes (success or failure).
-async fn login_result_to_response(
-    result: LoginResult,
-    resources: &AuthRoutesContext,
-    scraper: CachedScraper<ChromeScraper>,
-    permit: ScrapePermit,
-    ctx: LoginSessionContext<'_>,
-) -> Result<Response, AppError> {
-    let LoginSessionContext {
-        user_id,
-        tenant_id,
-        provider_name,
-        log_prefix,
-        link_context,
-    } = ctx;
-
-    match result {
-        LoginResult::Success(session) => {
-            info!(user_id = %user_id, "{log_prefix} successful");
-            if let Some(link) = &link_context {
-                emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
-            }
-            let response =
-                store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await;
-            drop(permit);
-            response
-        }
-        LoginResult::OtpRequired => {
-            park_pending_login(user_id, scraper, provider_name, link_context, permit).await;
-            Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
-        }
-        LoginResult::TwoFactorChoice(options) => {
-            park_pending_login(user_id, scraper, provider_name, link_context, permit).await;
-            let options_json: Vec<serde_json::Value> = options
-                .iter()
-                .map(|o| serde_json::json!({"id": o.id, "label": o.label}))
-                .collect();
-            Ok(
-                Json(serde_json::json!({"status": "two_factor_choice", "options": options_json}))
-                    .into_response(),
-            )
-        }
-        LoginResult::NumberMatch(number) => {
-            park_pending_login(user_id, scraper, provider_name, link_context, permit).await;
-            Ok(Json(serde_json::json!({
-                "status": "number_match",
-                "number": number,
-            }))
-            .into_response())
-        }
-        LoginResult::Failed(reason) => {
-            // Provider rejected the user's credentials (wrong password, locked
-            // account, …). This is a *user* failure, not a server fault: log at
-            // `info!` for forensics only — no `error!` alert to
-            // `#dev-dravr-errors` and no `sync.failed` notify, which would be
-            // noise — and surface the provider's own (already user-appropriate)
-            // rejection text. Contrast `report_login_system_failure`, which
-            // alerts operators on an `Err(ScraperError)`.
-            info!(
-                user_id = %user_id,
-                provider = %provider_name,
-                "Sciotte login rejected by provider (user credentials)"
-            );
-            drop(permit);
-            Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
-        }
-    }
-}
-
 /// Map a [`RemoteLoginOutcome`] from the dedicated scraper service to an HTTP
 /// response.
 ///
-/// Mirrors [`login_result_to_response`] but with **no in-process parking** — the
-/// service holds the interactive browser state across the multi-step 2FA flow. On
-/// success the full session is exported from the service and persisted, so the
-/// platform stays session-of-record (ADR-021). Response shapes are identical to
-/// the in-process path so the connect UI is unchanged.
+/// The service holds the interactive browser state across the multi-step 2FA
+/// flow (keyed by `flow_id`), so the platform parks nothing. On success the
+/// full session is exported from the service and persisted, keeping the
+/// platform session-of-record (ADR-021).
 async fn remote_login_to_response(
     outcome: RemoteLoginOutcome,
     remote: &RemoteSciotteClient,
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
+    provider: &str,
     link_context: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
     match outcome {
@@ -593,18 +295,18 @@ async fn remote_login_to_response(
             store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
         }
         RemoteLoginOutcome::OtpRequired { flow_id } => {
-            remember_remote_flow(user_id, flow_id);
+            remember_remote_flow(user_id, flow_id, provider);
             Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
         }
         RemoteLoginOutcome::TwoFactorChoice { options, flow_id } => {
-            remember_remote_flow(user_id, flow_id);
+            remember_remote_flow(user_id, flow_id, provider);
             Ok(
                 Json(serde_json::json!({"status": "two_factor_choice", "options": options}))
                     .into_response(),
             )
         }
         RemoteLoginOutcome::NumberMatch { number, flow_id } => {
-            remember_remote_flow(user_id, flow_id);
+            remember_remote_flow(user_id, flow_id, provider);
             Ok(Json(serde_json::json!({
                 "status": "number_match",
                 "number": number,
@@ -619,33 +321,6 @@ async fn remote_login_to_response(
             );
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
-    }
-}
-
-/// Move a running login flow (scraper + permit) into the pending map so the
-/// next step in the multi-request exchange can reclaim it.
-async fn park_pending_login(
-    user_id: Uuid,
-    scraper: CachedScraper<ChromeScraper>,
-    provider_name: &str,
-    link_context: Option<LinkContext>,
-    permit: ScrapePermit,
-) {
-    let replaced = PENDING_OTP_SCRAPERS.lock().await.insert(
-        user_id,
-        PendingLogin {
-            scraper,
-            provider_name: provider_name.to_owned(),
-            link_context,
-            permit,
-            parked_at: Instant::now(),
-        },
-    );
-    if replaced.is_some() {
-        warn!(
-            %user_id,
-            "Overwriting in-progress Sciotte login flow — previous permit released"
-        );
     }
 }
 
@@ -734,96 +409,76 @@ fn try_verify_link_token_from_headers(
     verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
 }
 
-/// Take the pending login (scraper + provider name + link context + permit)
-/// for a user, or return an error if no flow is in progress.
-async fn take_pending_login(user_id: Uuid) -> Result<PendingLogin, AppError> {
-    PENDING_OTP_SCRAPERS
-        .lock()
-        .await
-        .remove(&user_id)
-        .ok_or_else(|| AppError::invalid_input("No pending login session — please log in again"))
-}
-
-/// Build an HTTP 409 response signalling that the same user already has a
-/// Sciotte login flow in flight. The frontend should either wait for that
-/// flow to complete or cancel it with a disconnect before retrying. Used to
-/// reject double-click and refresh-storm amplification before a Chrome
-/// permit is ever acquired.
-fn login_already_in_progress_response(user_id: Uuid) -> Response {
-    warn!(
-        %user_id,
-        "Rejecting Sciotte login — flow already in progress for this user"
-    );
-    let body = Json(serde_json::json!({
-        "error": "login_already_in_progress",
-        "reason": "A Sciotte login is already in progress for this user. \
-                   Complete or cancel the existing flow before starting a new one."
-    }));
-    (StatusCode::CONFLICT, body).into_response()
-}
-
-/// Check whether the user already has a valid Sciotte session persisted in
-/// `user_oauth_tokens` for this provider. When found, probe the stored
-/// cookies via `is_authenticated` (lightweight, no Chrome) and, if still
-/// valid, short-circuit the login with HTTP 200. This turns every double-tap
-/// or refresh-after-success into a zero-Chrome operation.
+/// Short-circuit the login when the user already has a *usable* stored Sciotte
+/// session for this provider — turns a double-tap / refresh-after-connect into a
+/// zero-work operation. Since the Phase 4 cutover there is no in-pod Chrome to
+/// probe cookies with, so this leans on two cheap local signals: the blob must
+/// deserialise, and any `expires_at` it carries must still be in the future. A
+/// corrupt or known-expired session falls through to a fresh login instead of
+/// handing back a "connected" the next scrape would immediately reject — which
+/// would strand the user in a "connected but keeps asking me to reconnect" loop.
+/// The dedicated service still re-validates the cookies (and triggers re-auth)
+/// when the next scrape imports them.
 ///
-/// Returns `Ok(Some(response))` when the short-circuit fires,
-/// `Ok(None)` when the caller must proceed with a real Chrome login, and
-/// `Err(_)` only for hard DB / deserialisation failures.
+/// Returns `Ok(Some(response))` when the short-circuit fires, `Ok(None)` when
+/// the caller must proceed with a fresh login (no token, an unparseable blob,
+/// or a known-expired session), and `Err(_)` only for a hard DB failure.
 async fn try_reuse_existing_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
-    target: &str,
     provider_name: &str,
 ) -> Result<Option<Response>, AppError> {
     let tenant = TenantId::from(tenant_id);
-    let existing = resources
+    let Some(token) = resources
         .repos
         .oauth_tokens
         .get_token(user_id, tenant, provider_name)
-        .await?;
-    let Some(token) = existing else {
+        .await?
+    else {
         return Ok(None);
     };
 
-    let session: AuthSession = match serde_json::from_str(&token.access_token) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(
+    // Guard on deserializability so a corrupt blob falls through to a fresh
+    // login rather than short-circuiting into an unusable "connected" state.
+    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
+        warn!(
+            %user_id,
+            provider = %provider_name,
+            "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
+        );
+        return Ok(None);
+    };
+
+    // A session whose expiry is already in the past is certainly dead. Without
+    // Chrome we can't probe the cookies, but this cheap local check stops us
+    // returning "connected" for a session the next scrape would reject (the
+    // reconnect-loop trap). A `None` expiry is "unknown, assume usable" — the
+    // service re-auths on import if the cookies turn out stale.
+    if let Some(expires_at) = session.expires_at {
+        if expires_at <= Utc::now() {
+            info!(
                 %user_id,
                 provider = %provider_name,
-                error = %e,
-                "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
+                "Stored Sciotte session is expired — falling through to fresh login"
             );
             return Ok(None);
         }
-    };
-
-    // `is_authenticated` is a cheap cookie-state probe on the scraper; it
-    // never launches Chrome and never holds a backpressure permit.
-    let probe = SciotteTarget::from_target_param(target).build_scraper()?;
-    if probe.is_authenticated(&session).await {
-        info!(
-            %user_id,
-            provider = %provider_name,
-            "Reusing valid Sciotte session — short-circuiting login without Chrome"
-        );
-        let body = Json(serde_json::json!({
-            "status": "connected",
-            "provider": provider_name,
-            "short_circuit": true,
-        }));
-        return Ok(Some(body.into_response()));
     }
 
     info!(
         %user_id,
         provider = %provider_name,
-        "Stored Sciotte session is stale — proceeding with fresh login"
+        "Reusing stored Sciotte session — short-circuiting login"
     );
-    Ok(None)
+    Ok(Some(
+        Json(serde_json::json!({
+            "status": "connected",
+            "provider": provider_name,
+            "short_circuit": true,
+        }))
+        .into_response(),
+    ))
 }
 
 /// Client-facing sciotte login configuration. Lets the login UI size its
@@ -852,11 +507,11 @@ pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
 
 /// Log + alert a sciotte login *system* failure and build the user-facing error.
 ///
-/// A *system* failure is an `Err(ScraperError)` from the scraper (browser
-/// launch, navigation, login timeout, provider misconfiguration), as opposed
-/// to a `LoginResult::Failed` credential rejection (that path is a *user*
-/// failure, handled in `login_result_to_response`). `stage` names where in the
-/// flow it failed (`credential_login` / `two_factor` / `otp`).
+/// A *system* failure is an `Err` from the dedicated scraper service (transport
+/// fault, service 5xx, browser-launch failure), as opposed to a
+/// `RemoteLoginOutcome::Failed` credential rejection (a *user* failure surfaced
+/// in `remote_login_to_response`). `stage` names where in the flow it failed
+/// (`credential_login` / `two_factor` / `otp`).
 ///
 /// Splits the failure between two audiences so neither is served the wrong
 /// thing:
@@ -919,7 +574,7 @@ pub fn friendly_login_failure_message(provider: &str) -> String {
     )
 }
 
-/// Credential-based login via in-process dravr-sciotte
+/// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
@@ -934,120 +589,46 @@ pub async fn handle_sciotte_login(
     let target = &request.target;
     let provider = SciotteTarget::from_target_param(target).provider_name();
 
-    // ADR-021 remote path: when DRAVR_SCIOTTE_REMOTE_URL is set the login runs on
-    // the dedicated dravr-sciotte-server instead of an in-process headless Chrome,
-    // isolating the memory-heavy scrape off this multi-tenant pod. The service owns
-    // the Chrome budget and the interactive parking; the platform stays
-    // session-of-record (it exports + persists the session, never leaving it only
-    // server-side). Unset → the in-process path below, unchanged.
-    if let Some(remote) = RemoteSciotteClient::from_env()? {
-        info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
-        let outcome = remote
-            .login_with_credentials(
-                &request.email,
-                &request.password,
-                &request.method,
-                SciotteTarget::from_target_param(target).scraper_provider_name(),
-            )
-            .await?;
-        return remote_login_to_response(
-            outcome,
-            &remote,
-            &resources,
-            user_id,
-            tenant_id,
-            link_context.as_ref(),
-        )
-        .await;
-    }
-
-    // Per-user dedup: if this user already has a Sciotte login flow parked
-    // (OTP / 2FA continuation), a concurrent login would clobber the parked
-    // permit and orphan the first flow's Chrome. Reject with 409 so the
-    // client can retry after the first flow finishes. This also kills
-    // double-click / refresh-storm amplification before a Chrome permit is
-    // ever acquired.
-    if PENDING_OTP_SCRAPERS.lock().await.contains_key(&user_id) {
-        return Ok(login_already_in_progress_response(user_id));
-    }
-
-    // Session short-circuit: if the user already has a valid Sciotte session
-    // for this provider, return 200 without launching Chrome. Exercises a
-    // cheap cookie probe via `is_authenticated` and bypasses the permit
-    // budget entirely. A stale / missing / unparseable session falls
-    // through to the full login path.
+    // Session short-circuit: if the user already has a stored Sciotte session
+    // for this provider, return 200 without a fresh login. The dedicated
+    // service validates the cookies (and re-auths) on the next scrape, so a
+    // cheap DB-presence check is the right short-circuit for a double-tap or a
+    // refresh-after-connect.
     if let Some(response) =
-        try_reuse_existing_session(&resources, user_id, tenant_id, target, provider).await?
+        try_reuse_existing_session(&resources, user_id, tenant_id, provider).await?
     {
         return Ok(response);
     }
 
-    // Per-user dedup for the *active* login phase. The parked-flow check above
-    // only guards OTP/2FA continuations; this rejects a concurrent login from
-    // the same user before it competes for the single Chrome slot. Held (RAII)
-    // until the active call returns, so a client retrying `/login` while its own
-    // slow login runs gets an immediate 409 instead of piling up permit
-    // acquisitions that each wait `acquire_timeout` and shed a 503. On a park
-    // the guard drops after `PENDING_OTP_SCRAPERS` is populated, so dedup is
-    // continuous across the handoff.
-    let Some(active_login) = ActiveLoginGuard::try_begin(user_id) else {
-        return Ok(login_already_in_progress_response(user_id));
-    };
-
-    // Acquire a permit before launching Chrome. Under overload the limiter
-    // fast-rejects with 503 + Retry-After so the pod doesn't accumulate an
-    // unbounded backlog of pending Chrome processes.
-    let permit = match sciotte_limiter()?.acquire().await {
-        Ok(p) => p,
-        Err(err) => return Ok(busy_response(&err)),
-    };
-
-    info!(user_id = %user_id, target = %target, "Starting sciotte credential login");
-
-    // Attach the shared vision LLM when configured so a selector failure
-    // degrades to screenshot reasoning (Hybrid/Vision DRAVR_SCIOTTE_LOGIN_MODE)
-    // instead of a hard error. None keeps the pure-selector path. The 2FA/OTP
-    // continuation reuses this same scraper from PENDING_OTP_SCRAPERS, so the
-    // fallback persists across the multi-step flow.
-    let target_kind = SciotteTarget::from_target_param(target);
-    let cached = resources.sciotte_vision_llm.as_ref().map_or_else(
-        || target_kind.build_scraper(),
-        |llm| target_kind.build_scraper_with_llm(Arc::clone(llm)),
-    )?;
-
-    let result = match cached
-        .credential_login(&request.email, &request.password, &request.method)
+    // ADR-021: the login runs on the dedicated dravr-sciotte service (there is
+    // no in-process fallback since the Phase 4 cutover). The service owns the
+    // Chrome budget and the interactive 2FA parking; the platform stays
+    // session-of-record (it exports + persists the session, keyed by flow_id).
+    // A transport/service fault (not a credential rejection, which comes back
+    // as `Failed`) is a *system* failure: alert operators + emit `sync.failed`.
+    let remote = RemoteSciotteClient::require_from_env()?;
+    info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
+    let outcome = remote
+        .login_with_credentials(
+            &request.email,
+            &request.password,
+            &request.method,
+            SciotteTarget::from_target_param(target).scraper_provider_name(),
+        )
         .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            let err =
-                report_login_system_failure(user_id, tenant_id, provider, "credential_login", &e);
-            drop(permit);
-            return Err(err);
-        }
-    };
-
-    let response = Box::pin(login_result_to_response(
-        result,
+        .map_err(|e| {
+            report_login_system_failure(user_id, tenant_id, provider, "credential_login", &e)
+        })?;
+    remote_login_to_response(
+        outcome,
+        &remote,
         &resources,
-        cached,
-        permit,
-        LoginSessionContext {
-            user_id,
-            tenant_id,
-            provider_name: provider,
-            log_prefix: "Sciotte credential login",
-            link_context,
-        },
-    ))
-    .await;
-
-    // Release the active-login marker only after `login_result_to_response` has
-    // returned — on a park that call populates `PENDING_OTP_SCRAPERS` first, so
-    // dedup coverage never gaps between the two sets.
-    drop(active_login);
-    response
+        user_id,
+        tenant_id,
+        provider,
+        link_context.as_ref(),
+    )
+    .await
 }
 
 /// Select a 2FA method for a pending login
@@ -1058,60 +639,30 @@ pub async fn handle_sciotte_select_2fa(
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
 
-    // ADR-021 remote path (mirrors handle_sciotte_submit_otp): the scraper service
-    // holds the parked browser and reports the provider on success; platform stays
-    // stateless.
-    if let Some(remote) = RemoteSciotteClient::from_env()? {
-        info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
-        let flow_id = recall_remote_flow(user_id);
-        let outcome = remote
-            .select_2fa(&request.option_id, flow_id.as_deref())
-            .await?;
-        return remote_login_to_response(
-            outcome,
-            &remote,
-            &resources,
-            user_id,
-            tenant_id,
-            link_context.as_ref(),
-        )
-        .await;
-    }
-
-    let pending = take_pending_login(user_id).await?;
-    let PendingLogin {
-        scraper,
-        provider_name,
-        link_context,
-        permit,
-        ..
-    } = pending;
-
-    info!(user_id = %user_id, option = %request.option_id, "Selecting 2FA method");
-
-    let result = match scraper.select_two_factor(&request.option_id).await {
-        Ok(r) => r,
-        Err(e) => {
-            let err =
-                report_login_system_failure(user_id, tenant_id, &provider_name, "two_factor", &e);
-            drop(permit);
-            return Err(err);
-        }
+    // ADR-021: the parked browser lives on the dedicated service; resume the
+    // flow by its server-minted flow_id (or the sole pending flow when absent).
+    // The remembered provider names the platform for a *system* failure alert;
+    // it defaults to Strava-copy when the flow state was lost (pod restart).
+    let remote = RemoteSciotteClient::require_from_env()?;
+    info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
+    let flow = recall_remote_flow(user_id);
+    let (flow_id, provider) = match &flow {
+        Some(f) => (Some(f.flow_id.as_str()), f.provider.as_str()),
+        None => (None, "sciotte"),
     };
-
-    Box::pin(login_result_to_response(
-        result,
+    let outcome = remote
+        .select_2fa(&request.option_id, flow_id)
+        .await
+        .map_err(|e| report_login_system_failure(user_id, tenant_id, provider, "two_factor", &e))?;
+    remote_login_to_response(
+        outcome,
+        &remote,
         &resources,
-        scraper,
-        permit,
-        LoginSessionContext {
-            user_id,
-            tenant_id,
-            provider_name: &provider_name,
-            log_prefix: "Sciotte 2FA login",
-            link_context,
-        },
-    ))
+        user_id,
+        tenant_id,
+        provider,
+        link_context.as_ref(),
+    )
     .await
 }
 
@@ -1127,57 +678,31 @@ pub async fn handle_sciotte_submit_otp(
         return Err(AppError::invalid_input("Verification code is required"));
     }
 
-    // ADR-021 remote path: the parked browser lives on the scraper service, which
-    // continues the login and reports the provider on success. The platform stays
-    // stateless — no PENDING_OTP_SCRAPERS lookup, no parked permit.
-    if let Some(remote) = RemoteSciotteClient::from_env()? {
-        info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
-        let flow_id = recall_remote_flow(user_id);
-        let outcome = remote.submit_otp(&request.code, flow_id.as_deref()).await?;
-        return remote_login_to_response(
-            outcome,
-            &remote,
-            &resources,
-            user_id,
-            tenant_id,
-            link_context.as_ref(),
-        )
-        .await;
-    }
-
-    let pending = take_pending_login(user_id).await?;
-    let PendingLogin {
-        scraper,
-        provider_name,
-        link_context,
-        permit,
-        ..
-    } = pending;
-
-    info!(user_id = %user_id, "Submitting OTP code");
-
-    let result = match scraper.submit_otp(&request.code).await {
-        Ok(r) => r,
-        Err(e) => {
-            let err = report_login_system_failure(user_id, tenant_id, &provider_name, "otp", &e);
-            drop(permit);
-            return Err(err);
-        }
+    // ADR-021: the parked browser lives on the dedicated service, which
+    // continues the login and reports the provider on success. The platform
+    // holds only the flow_id + provider — no parked browser, no permit. The
+    // provider names the platform for a *system* failure alert, defaulting to
+    // Strava-copy when the flow state was lost (pod restart mid-2FA).
+    let remote = RemoteSciotteClient::require_from_env()?;
+    info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
+    let flow = recall_remote_flow(user_id);
+    let (flow_id, provider) = match &flow {
+        Some(f) => (Some(f.flow_id.as_str()), f.provider.as_str()),
+        None => (None, "sciotte"),
     };
-
-    Box::pin(login_result_to_response(
-        result,
+    let outcome = remote
+        .submit_otp(&request.code, flow_id)
+        .await
+        .map_err(|e| report_login_system_failure(user_id, tenant_id, provider, "otp", &e))?;
+    remote_login_to_response(
+        outcome,
+        &remote,
         &resources,
-        scraper,
-        permit,
-        LoginSessionContext {
-            user_id,
-            tenant_id,
-            provider_name: &provider_name,
-            log_prefix: "Sciotte OTP login",
-            link_context,
-        },
-    ))
+        user_id,
+        tenant_id,
+        provider,
+        link_context.as_ref(),
+    )
     .await
 }
 

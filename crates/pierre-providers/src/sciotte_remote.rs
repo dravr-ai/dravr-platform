@@ -1,15 +1,16 @@
 // ABOUTME: HTTP client for the dedicated dravr-sciotte scraper service (ADR-021).
-// ABOUTME: Toggled by DRAVR_SCIOTTE_REMOTE_URL; unset keeps the in-process ChromeScraper path.
+// ABOUTME: Reads DRAVR_SCIOTTE_REMOTE_URL + DRAVR_SCIOTTE_API_KEY; the sole scrape path since the Phase 4 cutover.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Remote sciotte scraper client.
 //!
-//! When `DRAVR_SCIOTTE_REMOTE_URL` is set, the interactive login **and** the
-//! activity/athlete scrape run on a dedicated `dravr-sciotte-server` instead of
-//! an in-process headless Chrome, isolating the memory-heavy scrape off the
-//! multi-tenant API pod (see [[ADR-021]]).
+//! The interactive login **and** the activity/athlete scrape run on a dedicated
+//! `dravr-sciotte-server`, isolating the memory-heavy headless Chrome off the
+//! multi-tenant API pod (see [[ADR-021]]). Since the Phase 4 cutover this is the
+//! only scrape path: `DRAVR_SCIOTTE_REMOTE_URL` must be set or every sciotte call
+//! errors — there is no in-process fallback.
 //!
 //! ## Session-of-record boundary
 //!
@@ -18,8 +19,8 @@
 //! [`export_session`](RemoteSciotteClient::export_session)s the full
 //! `AuthSession` and persists it (KMS-encrypted `oauth_tokens`), then
 //! [`import_session`](RemoteSciotteClient::import_session)s it back before a
-//! scrape when the service has scaled to zero / been redeployed. This preserves
-//! the durability the in-process path had — no re-login churn on redeploy.
+//! scrape when the service has scaled to zero / been redeployed. This keeps the
+//! platform's sessions durable — no re-login churn on redeploy.
 //!
 //! ## Auth
 //!
@@ -36,13 +37,14 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::debug;
 
-/// Environment variable selecting the remote scraper. Unset → in-process path.
+/// Environment variable holding the remote scraper's base URL. Required since
+/// the Phase 4 cutover — unset makes `require_from_env` error (no fallback).
 pub const ENV_REMOTE_URL: &str = "DRAVR_SCIOTTE_REMOTE_URL";
 /// Environment variable holding the bearer the scraper service gates on.
 pub const ENV_API_KEY: &str = "DRAVR_SCIOTTE_API_KEY";
 
 /// Outcome of an interactive-login step, mirroring the scraper service's
-/// `{status, ...}` response and the in-process `LoginResult` states.
+/// `{status, ...}` login response.
 ///
 /// Continuation variants carry the server-minted `flow_id` naming the parked
 /// login flow — echoed back on `submit_otp`/`select_2fa` so a multi-provider,
@@ -104,8 +106,8 @@ pub struct RemoteAthleteProfile {
     pub profile_picture_url: Option<String>,
 }
 
-/// Query knobs for a remote activity fetch. Mirrors the in-process
-/// `ActivityParams` subset the service honours.
+/// Query knobs for a remote activity fetch. Mirrors the `ActivityParams`
+/// subset the scraper service honours.
 #[derive(Debug, Clone, Default)]
 pub struct RemoteActivityQuery {
     /// Max activities to return.
@@ -123,7 +125,8 @@ pub struct RemoteActivityQuery {
 /// Client for the dedicated `dravr-sciotte-server`.
 ///
 /// Cheap to clone (wraps a connection-pooled [`reqwest::Client`]); construct via
-/// [`from_env`](Self::from_env) at the call site when the remote toggle is on.
+/// [`require_from_env`](Self::require_from_env) at the call site — the scrape runs
+/// only on the service since the Phase 4 cutover.
 #[derive(Clone)]
 pub struct RemoteSciotteClient {
     http: Client,
@@ -133,7 +136,10 @@ pub struct RemoteSciotteClient {
 
 impl RemoteSciotteClient {
     /// Build a client from the environment, or `None` when `DRAVR_SCIOTTE_REMOTE_URL`
-    /// is unset (the caller then takes the in-process path).
+    /// is unset or empty. Scrape-path callers use
+    /// [`require_from_env`](Self::require_from_env), which turns the unset case into
+    /// an error — since the Phase 4 cutover the service is the only scrape path, so
+    /// a missing URL is a deployment fault, not a fallback signal.
     ///
     /// # Errors
     ///
@@ -160,6 +166,25 @@ impl RemoteSciotteClient {
             base_url,
             api_key,
         }))
+    }
+
+    /// Build a client, erroring when `DRAVR_SCIOTTE_REMOTE_URL` is unset.
+    ///
+    /// Since the Phase 4 cutover the sciotte scrape runs *only* on the
+    /// dedicated service ([[ADR-021]]) — there is no in-process fallback — so a
+    /// missing URL is a deployment misconfiguration, surfaced as an internal
+    /// error rather than silently doing nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL is unset/empty or the HTTP client can't be built.
+    pub fn require_from_env() -> AppResult<Self> {
+        Self::from_env()?.ok_or_else(|| {
+            AppError::internal(
+                "DRAVR_SCIOTTE_REMOTE_URL must be set — the in-process sciotte \
+                 scrape path was removed in the ADR-021 Phase 4 cutover",
+            )
+        })
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
@@ -313,9 +338,8 @@ impl RemoteSciotteClient {
 
     /// GET `/api/activities` — scrape the activity list for `session_id`.
     ///
-    /// Returns the raw upstream [`SciotteActivity`] rows; the caller reuses the
-    /// same `convert_activity` mapping the in-process path uses, so there is no
-    /// duplicate DTO logic.
+    /// Returns the raw upstream [`SciotteActivity`] rows; the caller maps them
+    /// with `convert_activity`, so there is no duplicate DTO logic.
     ///
     /// # Errors
     ///
