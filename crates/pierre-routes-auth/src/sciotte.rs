@@ -646,10 +646,9 @@ pub async fn handle_sciotte_select_2fa(
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
     let flow = recall_remote_flow(user_id);
-    let (flow_id, provider) = match &flow {
-        Some(f) => (Some(f.flow_id.as_str()), f.provider.as_str()),
-        None => (None, "sciotte"),
-    };
+    let (flow_id, provider) = flow.as_ref().map_or((None, "sciotte"), |f| {
+        (Some(f.flow_id.as_str()), f.provider.as_str())
+    });
     let outcome = remote
         .select_2fa(&request.option_id, flow_id)
         .await
@@ -686,10 +685,9 @@ pub async fn handle_sciotte_submit_otp(
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
     let flow = recall_remote_flow(user_id);
-    let (flow_id, provider) = match &flow {
-        Some(f) => (Some(f.flow_id.as_str()), f.provider.as_str()),
-        None => (None, "sciotte"),
-    };
+    let (flow_id, provider) = flow.as_ref().map_or((None, "sciotte"), |f| {
+        (Some(f.flow_id.as_str()), f.provider.as_str())
+    });
     let outcome = remote
         .submit_otp(&request.code, flow_id)
         .await
