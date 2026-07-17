@@ -94,5 +94,5 @@ async fn lookup_user(repos: &RepositoryRegistry, email: &str) -> Result<Uuid> {
         .get_by_email(email)
         .await?
         .map(|u| u.id)
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))
 }

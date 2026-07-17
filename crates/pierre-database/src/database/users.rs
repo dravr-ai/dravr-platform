@@ -1022,10 +1022,17 @@ impl Database {
     /// # Errors
     /// Returns error if database operation fails
     pub async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
+        // Column list mirrors get_user_by_field — the old hand-rolled SELECT
+        // still referenced the dropped plan_tier column, so this method
+        // errored ("no such column") on every call until pierre-cli became
+        // its first live caller and surfaced it (2026-07-17).
         let row = sqlx::query(
             r"
-            SELECT id, email, password_hash, display_name, tier, plan_tier, is_admin,
-                   is_active, user_status, created_at, last_active, tenant_id
+            SELECT id, email, display_name, password_hash, tier,
+                   is_active, user_status, is_admin, role, approved_by, approved_at,
+                   created_at, last_active, firebase_uid, auth_provider,
+                   analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster, timezone
             FROM users
             WHERE is_admin = 1
             ORDER BY created_at ASC

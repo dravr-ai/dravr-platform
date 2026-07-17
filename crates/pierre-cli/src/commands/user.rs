@@ -284,7 +284,7 @@ pub async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
         .users
         .get_by_email(&email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     if user.is_admin {
         warn!("User {} is already an admin", email);
@@ -311,7 +311,7 @@ pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
         .users
         .get_by_email(&email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     if !user.is_admin {
         warn!("User {} is not an admin", email);
@@ -345,7 +345,7 @@ pub async fn set_tier(
         .users
         .get_by_email(&email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     let parsed = match tier.to_ascii_lowercase().as_str() {
         "starter" => UserTier::Starter,
@@ -375,7 +375,7 @@ pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()>
         .users
         .get_by_email(&email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     let removed = admin_ops::clear_user_tier_override(repos, user.id).await?;
     if removed {
@@ -388,15 +388,17 @@ pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()>
 
 /// Resolve the CLI's acting-admin identity for audit columns: the first
 /// admin user's UUID, or `None` on a pre-bootstrap database (audit fields
-/// are nullable for exactly this service-actor case).
+/// are nullable for exactly this service-actor case). A repository error is
+/// logged instead of silently collapsing to `None` — a silent `.ok()` here
+/// masked the broken `get_first_admin_user` SELECT for a full day.
 pub async fn admin_actor(repos: &RepositoryRegistry) -> Option<Uuid> {
-    repos
-        .users
-        .get_first_admin_user()
-        .await
-        .ok()
-        .flatten()
-        .map(|u| u.id)
+    match repos.users.get_first_admin_user().await {
+        Ok(user) => user.map(|u| u.id),
+        Err(e) => {
+            warn!(error = %e, "admin_actor lookup failed; audit set_by will be NULL");
+            None
+        }
+    }
 }
 
 /// Look up a user by email or fail with a uniform not-found error.
@@ -405,7 +407,7 @@ async fn lookup(repos: &RepositoryRegistry, email: &str) -> Result<User> {
         .users
         .get_by_email(email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))
 }
 
 /// Approve a pending user (status → active) and provision their default
