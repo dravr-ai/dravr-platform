@@ -85,3 +85,8 @@ labels = {
   managed_by  = "terraform"
   environment = "development"
 }
+
+# ADR-021: deploy the dedicated sciotte scraper service (min=0, cpu_idle=true —
+# ~$0 idle). Deploy-only: backend_sciotte_remote stays default-false, so the
+# API keeps its in-process path until the service is validated on dev.
+enable_sciotte_service = true
