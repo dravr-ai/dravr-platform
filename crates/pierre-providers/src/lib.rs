@@ -47,10 +47,7 @@ pub mod garmin_provider;
 /// Intervals.icu pull-only provider (Endurance Phase 4)
 #[cfg(feature = "provider-intervals-icu")]
 pub mod intervals_icu_provider;
-/// FIFO queue + backpressure limiter gating concurrent Sciotte Chrome scrapes
-#[cfg(feature = "provider-sciotte")]
-pub mod sciotte_limiter;
-/// Sciotte web scraping provider for browser-based activity data extraction
+/// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
 

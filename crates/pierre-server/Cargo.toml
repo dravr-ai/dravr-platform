@@ -54,7 +54,7 @@ provider-fitbit = ["pierre-providers/provider-fitbit"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
-provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte", "dep:embacle", "pierre-routes-auth?/provider-sciotte"]
+provider-sciotte = ["pierre-providers/provider-sciotte", "pierre-routes-auth?/provider-sciotte"]
 health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-strava", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
@@ -221,8 +221,6 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.8.0", features = ["vision"], optional = true }
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.6", features = ["copilot-headless"], optional = true }
 # Assets crate: structured-output directive + workout schema consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "4b7feb433113c45e6e106249cfdb4d33c5588fb5" }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.0", features = ["notifications"] }
