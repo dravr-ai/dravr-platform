@@ -33,7 +33,7 @@ pub async fn set_plan(
         .users
         .get_by_email(&email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     let tenant_id = resolve_tenant(repos, user.id, tenant_id.as_deref(), &email).await?;
 
@@ -84,7 +84,7 @@ async fn tenant_for(
         .users
         .get_by_email(email)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+        .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
     resolve_tenant(repos, user.id, tenant_id, email).await
 }
 

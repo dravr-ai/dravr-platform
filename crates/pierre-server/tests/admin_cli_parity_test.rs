@@ -136,6 +136,29 @@ async fn test_password_reset_token_issue() {
 }
 
 #[tokio::test]
+async fn test_get_first_admin_user_returns_seeded_admin() {
+    // Regression: the SQLite SELECT referenced the dropped plan_tier column,
+    // so this method errored on every call ("no such column") — and the CLI's
+    // audit-actor lookup silently degraded to NULL. Content-assert the row.
+    let db = common::create_test_database().await.unwrap();
+    let repos = db.repositories();
+    let (user_id, user) = common::create_test_user_with_email(&db, "first-admin@example.com")
+        .await
+        .unwrap();
+    repos.users.set_admin_status(user_id, true).await.unwrap();
+
+    let admin = repos
+        .users
+        .get_first_admin_user()
+        .await
+        .expect("query must not error (schema drift regression)")
+        .expect("seeded admin must be found");
+    assert_eq!(admin.id, user_id);
+    assert_eq!(admin.email, user.email);
+    assert!(admin.is_admin);
+}
+
+#[tokio::test]
 async fn test_feature_flag_user_and_tenant_round_trip() {
     let db = common::create_test_database().await.unwrap();
     let repos = db.repositories();

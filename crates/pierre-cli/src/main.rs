@@ -387,8 +387,9 @@ enum UserCommand {
         #[arg(long)]
         key: String,
 
-        /// true to enable, false to disable
-        #[arg(long)]
+        /// true to enable, false to disable (explicit value required — a bare
+        /// presence flag would make the omitted case silently mean "disable")
+        #[arg(long, action = clap::ArgAction::Set)]
         enabled: bool,
     },
 
@@ -503,8 +504,9 @@ enum TenantCommand {
         #[arg(long)]
         key: String,
 
-        /// true to enable, false to disable
-        #[arg(long)]
+        /// true to enable, false to disable (explicit value required — a bare
+        /// presence flag would make the omitted case silently mean "disable")
+        #[arg(long, action = clap::ArgAction::Set)]
         enabled: bool,
 
         /// Tenant id (required only if the user belongs to multiple tenants)
