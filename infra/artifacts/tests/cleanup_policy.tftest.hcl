@@ -37,27 +37,28 @@ run "dry_run_mode_is_available" {
   }
 }
 
-# Guards the days -> seconds arithmetic: a unit slip here would silently ship a
-# far-too-short (or too-long) retention that still applies cleanly.
+# Guards the days -> seconds arithmetic against the enforced tfvars values: a
+# unit slip here would silently ship a far-too-short (or too-long) retention
+# that still applies cleanly. terraform.tfvars sets stale=7d, untagged=1d.
 run "stale_retention_days_convert_to_seconds" {
   command = plan
 
   assert {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
-      p.condition[0].older_than == "2592000s"
+      p.condition[0].older_than == "604800s"
       if p.id == "delete-stale-tagged"
     ])
-    error_message = "stale_tag_retention_days=30 must compute to older_than=2592000s"
+    error_message = "stale_tag_retention_days=7 must compute to older_than=604800s"
   }
 
   assert {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
-      p.condition[0].older_than == "259200s"
+      p.condition[0].older_than == "86400s"
       if p.id == "delete-untagged"
     ])
-    error_message = "untagged_retention_days=3 must compute to older_than=259200s"
+    error_message = "untagged_retention_days=1 must compute to older_than=86400s"
   }
 }
 
@@ -90,6 +91,23 @@ run "release_tags_are_kept" {
       if p.id == "keep-release-tags"
     ])
     error_message = "keep-release-tags must KEEP tagged images with the configured release prefix"
+  }
+}
+
+# The recent-versions floor guarantees the live image + one rollback survive
+# even a quiet week with no merges (when the age rule would otherwise reap them).
+# tfvars pins it to 2 for cost — guard against a revert to a large window that
+# would let the registry grow again.
+run "recent_versions_keep_count_is_two" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for p in google_artifact_registry_repository.images.cleanup_policies :
+      p.most_recent_versions[0].keep_count == 2
+      if p.id == "keep-recent-versions"
+    ])
+    error_message = "recent_versions_keep_count must be 2 (live image + one rollback floor)"
   }
 }
 
