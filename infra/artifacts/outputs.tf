@@ -15,3 +15,8 @@ output "image_publisher_sa_email" {
   description = "Image publisher service account email (set as GCP_IMAGE_PUBLISHER_SA GitHub secret)"
   value       = google_service_account.image_publisher.email
 }
+
+output "terraform_runner_sa_email" {
+  description = "Terraform runner service account email (set as GCP_ARTIFACTS_TF_SA GitHub secret so terraform-artifacts.yml impersonates it)"
+  value       = google_service_account.terraform_runner.email
+}
