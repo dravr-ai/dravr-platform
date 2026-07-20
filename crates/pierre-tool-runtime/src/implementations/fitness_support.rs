@@ -1023,6 +1023,7 @@ pub(crate) async fn cache_activities_result(
 /// normalised string compare (separator-insensitive, lowercase) against the
 /// activity's serialised `sport_type` — preserves the previous behaviour for
 /// unknown / custom `Other(...)` values.
+#[must_use]
 pub fn filter_activities_by_sport_type(
     activities: Vec<Activity>,
     sport_type_filter: Option<&str>,
