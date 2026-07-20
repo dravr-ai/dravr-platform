@@ -12,7 +12,7 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_backfill::backfill_covered_floor_ts;
 use pierre_tool_runtime::implementations::data::{
-    historical_depth_covered, response_cache_eligible, sort_activities,
+    historical_depth_covered, historical_head_slice, response_cache_eligible, sort_activities,
 };
 
 // Jan 1 2022 and a few reference points (unix seconds).
@@ -25,6 +25,40 @@ const JAN_2024: i64 = 1_704_067_200; // Jan 1 2024 00:00:00
 fn no_coverage_record_is_not_covered() {
     // Never backfilled — the cached rows (if any) are an unverified slice.
     assert!(!historical_depth_covered(None, JAN_2022));
+}
+
+#[test]
+fn open_before_with_clip_below_now_appends_the_head_slice() {
+    // "Everything since Jan 2022" asked in Jan 2024: the coverage read is
+    // clipped at Jan 2023, so the head slice (Jan 2023, now] must be read too
+    // — the 2026-07-20 regression served a list topping out a year above
+    // `after` and the coach reported "nothing newer" against fresh cache rows.
+    let clip = JAN_2022 + 365 * 24 * 60 * 60;
+    assert_eq!(
+        historical_head_slice(None, Some(clip), JAN_2024),
+        Some(clip)
+    );
+}
+
+#[test]
+fn bounded_before_needs_no_head_slice() {
+    // The caller bounded the window ("my 2022 races") — nothing was clipped.
+    let clip = JAN_2022 + 365 * 24 * 60 * 60;
+    assert_eq!(
+        historical_head_slice(Some(clip), Some(clip), JAN_2024),
+        None
+    );
+}
+
+#[test]
+fn clip_at_or_past_now_needs_no_head_slice() {
+    // `after` is less than a year old: the clip already reaches past `now`,
+    // the coverage read IS the full window.
+    assert_eq!(historical_head_slice(None, Some(JAN_2024), JAN_2024), None);
+    assert_eq!(
+        historical_head_slice(None, Some(JAN_2024 + 1), JAN_2024),
+        None
+    );
 }
 
 #[test]
