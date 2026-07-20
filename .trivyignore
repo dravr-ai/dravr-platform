@@ -12,3 +12,11 @@
 # CVE-2026-49975) were patched at the source by switching the frontend runtime
 # from the official nginx:alpine image (nginx.org's unpatched r1) to alpine's own
 # patched nginx — see docker/images/frontend/Dockerfile. No active allowlist needed.
+
+# sciotte + server images: adm-zip 0.5.17 (HIGH, CVE-2026-39244) is vendored
+# inside the GitHub Copilot CLI npm package, which is deliberately pinned at
+# 1.0.59 (newer CLIs regress the MCP bridge — see memory/copilot CLI
+# regression). Not reachable from the scrape/login path; the CLI only spawns
+# for vision-login LLM calls. Remove when the CLI pin can advance to a version
+# bundling adm-zip >= 0.6.0.
+CVE-2026-39244
