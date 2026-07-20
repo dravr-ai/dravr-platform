@@ -21,7 +21,7 @@
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 
@@ -128,6 +128,29 @@ fn historical_backfill_fetch_limit() -> usize {
 #[must_use]
 pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
     coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
+}
+
+/// Lower bound of the disjoint head slice `(coverage_bound, now]` an
+/// open-`before` historical serve must append to the coverage read.
+///
+/// The coverage read is clipped at `after + 1 year` so recent rows can't mask
+/// a missing season — but rows above the clip are still inside the requested
+/// window. Served without this slice, the list tops out a year above `after`
+/// and the coach falsely reports "nothing newer" while newer rows sit in the
+/// durable cache. `None` when the caller bounded `before` (nothing was
+/// clipped) or the clip already reaches `now`.
+/// `pub` so the slice decision is exercisable by the integration test suite.
+#[must_use]
+pub fn historical_head_slice(
+    before: Option<i64>,
+    coverage_bound: Option<i64>,
+    now_ts: i64,
+) -> Option<i64> {
+    if before.is_some() {
+        return None;
+    }
+    let bound = coverage_bound?;
+    (bound < now_ts).then_some(bound)
 }
 
 /// Whether `provider`'s connection is in an unusable state (`NeedsReauth` /
@@ -820,7 +843,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     "get_activities historical gate decision"
                 );
 
-                if let Some(served) = window.filter(|_| depth_covered) {
+                if let Some(mut served) = window.filter(|_| depth_covered) {
                     // The requested depth is cached AND a backfill confirmed it
                     // reaches `after` (or the feed end). Serve the COMPLETE window;
                     // the user's display limit is applied AFTER the sport filter
@@ -828,6 +851,38 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     // runs" can't have its older runs displaced out of the limit
                     // window by other-sport activities that were never going to be
                     // returned (the "2022 runs stuck at 46" bug).
+                    //
+                    // The year clip serves the coverage decision; it must not clip
+                    // the SERVED list. For an open `before`, append the disjoint
+                    // head slice above the clip — disjoint windows can't
+                    // reintroduce the probe/serve divergence the single bounded
+                    // read prevents. Boundary rows can land in both inclusive
+                    // reads; the id filter keeps the union exact.
+                    if let Some(head_after) = historical_head_slice(
+                        before,
+                        coverage_params.before,
+                        Utc::now().timestamp(),
+                    ) {
+                        let head_params = ActivityQueryParams {
+                            after: Some(head_after),
+                            before: None,
+                            limit: Some(historical_window_read_limit()),
+                            offset: None,
+                        };
+                        if let Some(head) = read_cached_window(
+                            &context.resources,
+                            &provider_name,
+                            context.user_id,
+                            tenant_id,
+                            &head_params,
+                        )
+                        .await
+                        {
+                            let seen: HashSet<String> =
+                                served.iter().map(|a| a.id().to_owned()).collect();
+                            served.extend(head.into_iter().filter(|a| !seen.contains(a.id())));
+                        }
+                    }
                     (served, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's
