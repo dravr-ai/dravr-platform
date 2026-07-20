@@ -17,10 +17,10 @@
 //! filtering.
 
 use chrono::{TimeZone, Utc};
-use pierre_core::models::{ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::fitness_support::filter_activities_by_sport_type;
 
-fn seeded_activities() -> Vec<pierre_core::models::Activity> {
+fn seeded_activities() -> Vec<Activity> {
     let start = Utc.with_ymd_and_hms(2026, 7, 18, 12, 0, 0).unwrap();
     vec![
         ActivityBuilder::new(
