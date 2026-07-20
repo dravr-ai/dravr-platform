@@ -1023,15 +1023,24 @@ pub(crate) async fn cache_activities_result(
 /// normalised string compare (separator-insensitive, lowercase) against the
 /// activity's serialised `sport_type` — preserves the previous behaviour for
 /// unknown / custom `Other(...)` values.
-pub(crate) fn filter_activities_by_sport_type(
+pub fn filter_activities_by_sport_type(
     activities: Vec<Activity>,
     sport_type_filter: Option<&str>,
 ) -> Vec<Activity> {
     let Some(filter) = sport_type_filter else {
         return activities;
     };
-    let canonical_filter = resolve_sport_type(filter);
     let normalised_filter = normalise_sport_string(filter);
+    // Wildcard inputs ("all", "any", French "tous") are how an LLM asks for
+    // every sport — they are not sport names, so matching them literally
+    // would filter out every activity.
+    if matches!(
+        normalised_filter.as_str(),
+        "" | "all" | "any" | "tous" | "toutes" | "tout"
+    ) {
+        return activities;
+    }
+    let canonical_filter = resolve_sport_type(filter);
     activities
         .into_iter()
         .filter(|a| {
