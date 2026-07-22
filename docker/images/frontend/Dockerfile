@@ -55,7 +55,7 @@ FROM alpine:3.23
 # base packages (e.g. openssl libssl3/libcrypto3) stale. Bump this date whenever
 # Trivy flags a fixed Alpine CVE to force a fresh `apk upgrade` that pulls the
 # patched version (e.g. CVE-2026-45447 in libssl3/libcrypto3).
-ARG APK_SECURITY_EPOCH=2026-06-10
+ARG APK_SECURITY_EPOCH=2026-07-22
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
