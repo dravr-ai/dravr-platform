@@ -23,6 +23,7 @@
 //! All helpers are synchronous and do not touch the database.
 
 use pierre_core::models::TenantId;
+use pierre_core::narration;
 use pierre_core::prompt_fingerprint::{
     detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_marker,
     scan_response_for_leaks, LeakVerdict, PromptFingerprint, DEFAULT_LEAK_THRESHOLD,
@@ -52,6 +53,11 @@ pub struct ReplyLeakReport {
     pub shingle_verdict: LeakVerdict,
     /// `true` when the canary token appeared verbatim in the reply.
     pub canary_hit: bool,
+    /// `true` when the reply identifies as the underlying model/provider
+    /// (« I'm GitHub Copilot CLI ») instead of the coach persona — a
+    /// conclusive persona break withheld wholesale at the response
+    /// boundary. Live leak 2026-07-22 (Telegram).
+    pub identity_hit: bool,
 }
 
 impl ReplyLeakReport {
@@ -59,7 +65,9 @@ impl ReplyLeakReport {
     /// whether to redact the reply, escalate, or continue.
     #[must_use]
     pub const fn has_leak(&self) -> bool {
-        self.canary_hit || matches!(self.shingle_verdict, LeakVerdict::Leaked { .. })
+        self.canary_hit
+            || self.identity_hit
+            || matches!(self.shingle_verdict, LeakVerdict::Leaked { .. })
     }
 }
 
@@ -118,6 +126,7 @@ pub fn scan_assistant_reply(
     let shingle_verdict =
         scan_response_for_leaks(&guard.fingerprint, reply_body, DEFAULT_LEAK_THRESHOLD);
     let canary_hit = detect_canary_in_response(&guard.canary, reply_body);
+    let identity_hit = narration::contains_identity_leak(reply_body);
 
     if canary_hit {
         error!(
@@ -140,8 +149,37 @@ pub fn scan_assistant_reply(
         );
     }
 
+    // Orthogonal to the canary/shingle path: a persona break naming the
+    // underlying model/provider is conclusive on its own and must be alertable
+    // even when no canary or shingle fired.
+    if identity_hit {
+        log_identity_leak(
+            tenant_id,
+            coach_id,
+            &guard.fingerprint.sha256_hex,
+            reply_body.len(),
+        );
+    }
+
     ReplyLeakReport {
         shingle_verdict,
         canary_hit,
+        identity_hit,
     }
+}
+
+/// Log a model-identity leak (« I'm GitHub Copilot CLI ») at `error` so it is
+/// alertable in Cloud Logging. Split out of [`scan_assistant_reply`] to keep
+/// that function within the cognitive-complexity budget; the raw reply is
+/// never logged — the detection fields are enough to alert on and content/PII
+/// stays out.
+fn log_identity_leak(tenant_id: TenantId, coach_id: Option<&str>, sha256: &str, reply_len: usize) {
+    error!(
+        tenant_id = %tenant_id,
+        coach_id = %coach_id.unwrap_or("<none>"),
+        sha256 = %sha256,
+        reply_len = reply_len,
+        "model_identity_leak_confirmed: assistant reply identifies as the underlying \
+         model/provider instead of the coach persona — reply withheld at the response boundary"
+    );
 }

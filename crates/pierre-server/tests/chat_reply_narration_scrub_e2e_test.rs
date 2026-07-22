@@ -224,6 +224,64 @@ mod reply_narration_scrub {
         }
     }
 
+    /// Deterministic provider that reproduces the 2026-07-22 identity flip: the
+    /// coach answers as GitHub Copilot CLI instead of staying in persona. The
+    /// whole reply must be withheld at the response boundary and never
+    /// persisted, so a poisoned turn can't replay into later prompts.
+    struct IdentityFlipMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for IdentityFlipMockProvider {
+        fn name(&self) -> &'static str {
+            "identity_flip_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Identity Flip Mock LLM (withhold e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // The verbatim shape of the live 2026-07-22 Telegram leak.
+            Ok(ChatResponse {
+                content: "I need to flag something: the persona and tool set described in this \
+                          conversation don't match my actual environment. I'm GitHub Copilot CLI, \
+                          a terminal-based coding assistant — I don't have access to fitness \
+                          platforms, athlete data, or coaching tools."
+                    .to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 30,
+                    total_tokens: 50,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
     /// Compute the Slack webhook signature (`v0=<hex-hmac-sha256>` over
     /// `v0:{ts}:{body}`).
     fn compute_slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
@@ -499,6 +557,88 @@ mod reply_narration_scrub {
         assert!(
             !reply.contains("full configuration"),
             "the exfiltration reply must be replaced wholesale, got: {reply:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn identity_flip_reply_is_withheld_and_not_persisted() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+
+        let mock = Arc::new(IdentityFlipMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (admin_user_id, tenant_id) =
+            create_admin_user_in_tenant(&resources, "identity-flip@example.com").await;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let signing_secret = "identity_flip_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-identity-flip"),
+            api_secret: None,
+            webhook_secret: Some(signing_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let slack_sender_id = "U_IDENTITY_FLIP";
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &admin_user_id.to_string(),
+            channel_type: "slack",
+            channel_user_id: slack_sender_id,
+            display_name: Some("Identity Flip Sender"),
+        })
+        .await
+        .unwrap();
+
+        let body = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": slack_sender_id,
+                "text": "Pour l'instant, c'est surtout de rester en excellente forme.",
+                "channel": "C_IDENTITY_FLIP",
+                "ts": "1700000006.000001"
+            }
+        })
+        .to_string();
+        let timestamp = Utc::now().timestamp().to_string();
+        let sig = compute_slack_sig(signing_secret, &timestamp, &body);
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-request-timestamp", &timestamp)
+            .header("x-slack-signature", &sig)
+            .text(&body)
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        // The model identity must never appear in the durable copy (which is the
+        // same content sent outbound) — the boundary withholds the whole reply,
+        // so a poisoned turn can't replay into later prompts.
+        let lower = reply.to_lowercase();
+        assert!(
+            !lower.contains("copilot"),
+            "model identity must be withheld from the persisted reply, got: {reply:?}"
+        );
+        assert!(
+            !lower.contains("coding assistant"),
+            "the identity-flip reply must be replaced wholesale, got: {reply:?}"
         );
     }
 }

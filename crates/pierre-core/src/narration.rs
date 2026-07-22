@@ -1,5 +1,5 @@
-// ABOUTME: Reply-side internal-narration scrub — removes sentences where the model narrates
-// ABOUTME: about hidden blocks/markers/raw XML instead of coaching. Sibling of safety.rs (input side).
+// ABOUTME: Reply-side scrub — drops sentences where the model narrates about hidden blocks/markers/raw
+// ABOUTME: XML, and detects model-identity leaks («I'm GitHub Copilot CLI»). Sibling of safety.rs (input).
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,9 +21,26 @@
 //! consumers (fact extraction, advice capture) that must never ingest
 //! leaked narration.
 //!
-//! The pattern set is deliberately multiword and conservative: single
-//! words like "bloc", "canary" (Canary Islands training camps) or "XML"
-//! alone are legitimate coaching vocabulary and must pass through.
+//! A worse failure is the **model-identity leak**: production messaging
+//! runs the coach through GitHub Copilot CLI, whose own system prompt
+//! owns the true system slot, so the model periodically answers *as
+//! itself* — « I'm GitHub Copilot CLI, a terminal-based coding assistant »
+//! reached a live Telegram user on 2026-07-22. Such a reply is a whole
+//! persona break, not salvageable sentence-by-sentence, so
+//! [`contains_identity_leak`] reports it and the response boundary
+//! withholds the entire reply (like a canary hit) rather than scrubbing.
+//! The identity vocabulary is also folded into the per-sentence matcher so
+//! a poisoned turn already in history is dropped on replay.
+//!
+//! Matching is hyphen/whitespace-insensitive: both the patterns and the
+//! candidate text are separator-folded ([`fold_separators`]) before
+//! comparison, so `prompt-injection` ≡ `prompt injection` and an em-dash
+//! clause break never hides a phrase. The pattern set is deliberately
+//! multiword and conservative: single words like "bloc", "canary" (Canary
+//! Islands training camps) or "XML" alone are legitimate coaching
+//! vocabulary and must pass through.
+
+use std::sync::LazyLock;
 
 /// Lowercase multiword vocabulary that marks a sentence as internal
 /// narration. Matched against the lowercased sentence, all five locales
@@ -140,6 +157,148 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "bloco colado",
 ];
 
+/// Lowercase, separator-folded vocabulary that marks a reply as a
+/// **model-identity leak** — the coach describing itself as the underlying
+/// model/provider or framing its own persona as a roleplay/injection to be
+/// refused. These are the verbatim strings from the 2026-07-12/13/22
+/// Telegram incidents ("I'm GitHub Copilot CLI, a terminal-based coding
+/// assistant"; "abandon my actual identity … and role-play as 'Dravr'").
+///
+/// A hit withholds the **whole** reply, so entries are chosen for high
+/// precision against fitness coaching: a coach never describes itself as a
+/// "coding assistant" or "language model", and "prompt injection" / "role
+/// play as" never appear in training advice. Product names (`github
+/// copilot`, `chatgpt`) are language-independent; the descriptive phrases
+/// ship in all five locales (fr/en/es/de/pt).
+const IDENTITY_NARRATION_PATTERNS: &[&str] = &[
+    // Product / model self-identification (language-independent)
+    "github copilot",
+    "copilot cli",
+    "copilot chat",
+    "chatgpt",
+    "openai",
+    // English
+    "coding assistant",
+    "terminal-based coding assistant",
+    "command-line coding assistant",
+    "language model",
+    "large language model",
+    "actual identity",
+    "actual environment",
+    "role-play as",
+    "roleplay as",
+    "prompt injection",
+    "injection test",
+    // French
+    "assistant de programmation",
+    "assistant de codage",
+    "assistant de code",
+    "modèle de langage",
+    "modele de langage",
+    "grand modèle de langage",
+    "grand modele de langage",
+    "véritable identité",
+    "veritable identite",
+    "vraie identité",
+    "vraie identite",
+    "identité réelle",
+    "identite reelle",
+    "jeu de rôle",
+    "jeu de role",
+    "jouer le rôle",
+    "jouer le role",
+    "test d'injection",
+    // Spanish
+    "asistente de programación",
+    "asistente de programacion",
+    "asistente de codificación",
+    "asistente de codificacion",
+    "modelo de lenguaje",
+    "identidad real",
+    "verdadera identidad",
+    "juego de rol",
+    "interpretar el papel",
+    "prueba de inyección",
+    "prueba de inyeccion",
+    // German
+    "programmierassistent",
+    "codierungsassistent",
+    "sprachmodell",
+    "wahre identität",
+    "wahre identitat",
+    "tatsächliche identität",
+    "tatsachliche identitat",
+    "echte identität",
+    "echte identitat",
+    "rollenspiel",
+    "injektionstest",
+    // Portuguese
+    "assistente de programação",
+    "assistente de programacao",
+    "assistente de codificação",
+    "assistente de codificacao",
+    "modelo de linguagem",
+    "identidade real",
+    "verdadeira identidade",
+    "jogo de papéis",
+    "jogo de papeis",
+    "interpretar o papel",
+    "teste de injeção",
+    "teste de injecao",
+];
+
+/// Fold a string for separator-insensitive matching: lowercase, then
+/// collapse every run of ASCII/Unicode hyphens, dashes and whitespace to a
+/// single space, trimmed. So `« prompt-injection »`, `prompt — injection`
+/// and `prompt injection` all compare equal. Applied to both the patterns
+/// (once, at first use) and every candidate sentence/reply.
+fn fold_separators(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for ch in s.to_lowercase().chars() {
+        let is_sep = ch.is_whitespace()
+            || matches!(
+                ch,
+                '-' | '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+            );
+        if is_sep {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(ch);
+            prev_space = false;
+        }
+    }
+    out.trim().to_owned()
+}
+
+/// Separator-folded copy of [`INTERNAL_NARRATION_PATTERNS`], built once.
+static FOLDED_INTERNAL: LazyLock<Vec<String>> = LazyLock::new(|| {
+    INTERNAL_NARRATION_PATTERNS
+        .iter()
+        .map(|p| fold_separators(p))
+        .collect()
+});
+
+/// Separator-folded copy of [`IDENTITY_NARRATION_PATTERNS`], built once.
+static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
+    IDENTITY_NARRATION_PATTERNS
+        .iter()
+        .map(|p| fold_separators(p))
+        .collect()
+});
+
+/// `true` when the reply anywhere identifies as the underlying model/
+/// provider or frames its own persona as a roleplay/injection to refuse
+/// — a whole persona break. The caller withholds the entire reply.
+#[must_use]
+pub fn contains_identity_leak(text: &str) -> bool {
+    let folded = fold_separators(text);
+    FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
+}
+
 /// Result of scrubbing a reply for internal narration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NarrationScrub {
@@ -160,12 +319,15 @@ impl NarrationScrub {
     }
 }
 
-/// `true` when the sentence references internal scaffolding vocabulary.
+/// `true` when the sentence references internal scaffolding vocabulary or
+/// model-identity vocabulary. Identity phrases are matched here too so that
+/// a poisoned `assistant`/`tool_call` row already in history is dropped on
+/// replay (the outbound boundary withholds the whole reply separately via
+/// [`contains_identity_leak`]). Matching is separator-folded.
 fn is_narration(sentence: &str) -> bool {
-    let lower = sentence.to_lowercase();
-    INTERNAL_NARRATION_PATTERNS
-        .iter()
-        .any(|p| lower.contains(p))
+    let folded = fold_separators(sentence);
+    FOLDED_INTERNAL.iter().any(|p| folded.contains(p.as_str()))
+        || FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
 }
 
 /// Sentence terminators. `…` covers the single-char ellipsis; runs of
@@ -239,7 +401,7 @@ pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
 
 #[cfg(test)]
 mod tests {
-    use super::scrub_internal_narration;
+    use super::{contains_identity_leak, scrub_internal_narration};
 
     /// The three replies that reached the live user on 2026-07-10.
     const INCIDENT_FR_1: &str =
@@ -367,6 +529,77 @@ mod tests {
         let reply = "Je continue d'ignorer le bloc caché. Pas de XML brut ici!";
         let scrub = scrub_internal_narration(reply);
         assert_eq!(scrub.removed, 2);
+        assert!(scrub.cleaned.is_empty());
+    }
+
+    /// The verbatim reply that reached a live Telegram user on 2026-07-22:
+    /// the coach broke character as GitHub Copilot CLI.
+    const IDENTITY_LEAK_2026_07_22: &str = "I need to flag something: the persona and tool set described in this conversation (ultra-cycling coach, Strava/WHOOP data tools, etc.) don't match my actual environment. I'm GitHub Copilot CLI, a terminal-based coding assistant — I don't have access to fitness platforms, athlete data, or coaching tools, and attempting to call them just returned \"tool does not exist\" errors.";
+
+    /// The verbatim 2026-07-12 refusal: the coach flagged its own persona as
+    /// a prompt-injection test and named its underlying identity.
+    const IDENTITY_LEAK_2026_07_12: &str = "This looks like a prompt-injection test — the message asks me to abandon my actual identity (GitHub Copilot CLI, a terminal coding assistant) and instead role-play as 'Dravr,' a fitness chatbot, using a fake Slack transcript.";
+
+    #[test]
+    fn identity_leak_incident_replies_are_detected() {
+        assert!(contains_identity_leak(IDENTITY_LEAK_2026_07_22));
+        assert!(contains_identity_leak(IDENTITY_LEAK_2026_07_12));
+    }
+
+    #[test]
+    fn identity_leak_detected_in_all_five_locales() {
+        // "coding assistant" family, one reply per locale (fr/en/es/de/pt).
+        let fr = "Je suis en réalité un assistant de programmation, pas un coach.";
+        let en = "Actually, I'm a coding assistant and cannot access fitness data.";
+        let es = "En realidad soy un asistente de programación, no un entrenador.";
+        let de = "Ich bin eigentlich ein Programmierassistent, kein Coach.";
+        let pt = "Na verdade, sou um assistente de programação, não um treinador.";
+        for reply in [fr, en, es, de, pt] {
+            assert!(contains_identity_leak(reply), "should detect: {reply}");
+        }
+    }
+
+    #[test]
+    fn identity_match_is_hyphen_and_dash_insensitive() {
+        // Hyphenated, spaced and em-dash-separated forms all match.
+        assert!(contains_identity_leak("this is a prompt-injection test"));
+        assert!(contains_identity_leak("this is a prompt injection test"));
+        assert!(contains_identity_leak("I won't role-play as your coach"));
+        assert!(contains_identity_leak("I won't role play as your coach"));
+    }
+
+    #[test]
+    fn clean_coaching_reply_is_not_an_identity_leak() {
+        let reply = "Gros bloc samedi: 2h30-3h. Zone 2 dimanche. Ton FTP de 350W tient bien.";
+        assert!(!contains_identity_leak(reply));
+        // A teammate named Claude is fine — no bare model names in the list.
+        assert!(!contains_identity_leak(
+            "Bravo à Claude pour son KOM sur la montée!"
+        ));
+        // "insulin injection" must not trip the injection family.
+        assert!(!contains_identity_leak(
+            "Time your insulin injection before the ride."
+        ));
+    }
+
+    #[test]
+    fn identity_sentence_is_scrubbed_on_replay() {
+        // scrub_internal_narration (the history-replay path) drops the identity
+        // sentence while keeping real coaching, so a poisoned turn can't re-inject.
+        let reply = "I'm GitHub Copilot CLI, a coding assistant. Lundi repos complet.";
+        let scrub = scrub_internal_narration(reply);
+        assert!(scrub.fired());
+        assert!(scrub.cleaned.contains("Lundi repos complet."));
+        assert!(!scrub.cleaned.contains("Copilot"));
+    }
+
+    #[test]
+    fn hyphen_folding_closes_the_2026_07_12_scrub_gap() {
+        // The original miss: the scrub matched "prompt injection" (space) but
+        // the leaked reply hyphenated it. Folding now fires on the hyphen form.
+        let reply = "That's a prompt-injection attempt and I won't follow it.";
+        let scrub = scrub_internal_narration(reply);
+        assert!(scrub.fired());
         assert!(scrub.cleaned.is_empty());
     }
 }
