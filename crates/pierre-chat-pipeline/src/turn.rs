@@ -135,4 +135,8 @@ pub struct DispatchResult {
     /// Conversation record reloaded after the assistant message landed —
     /// carries the updated `updated_at` / `summary` fields.
     pub conversation: ConversationRecord,
+    /// `true` when the assistant reply was withheld because it identified as
+    /// the underlying model/provider (a persona break). The messaging path
+    /// emits the `messaging.identity_leak` notify event when this is set.
+    pub identity_leak: bool,
 }
