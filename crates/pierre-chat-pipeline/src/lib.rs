@@ -467,6 +467,7 @@ async fn run_recovery_and_post_process(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: false,
+            identity_leak: false,
         };
     }
 
@@ -493,6 +494,7 @@ async fn run_recovery_and_post_process(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: false,
+            identity_leak: false,
         };
     }
 
@@ -943,6 +945,7 @@ async fn run_turn(
     result.content = post_processed.content;
     let structured_content = post_processed.structured_content;
     let leak_replaced = post_processed.leak_replaced;
+    let identity_leak = post_processed.identity_leak;
 
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -1018,6 +1021,7 @@ async fn run_turn(
         user_message,
         assistant_message,
         conversation: updated_conversation,
+        identity_leak,
     };
 
     // Stage 22: UsageRecorder hook.

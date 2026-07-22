@@ -450,6 +450,22 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         "messaging response sent"
     );
 
+    // Security signal: the coach reply identified as the underlying model/
+    // provider and was withheld at the response boundary (the chat pipeline's
+    // identity-leak stage). The user received the canned withheld string, not
+    // the leak; this event surfaces the withhold on #dravr-signal so a
+    // recurrence is visible instead of silent in the logs.
+    if dispatch_result.identity_leak {
+        info!(
+            target: "notify",
+            event = "messaging.identity_leak",
+            tenant_id = %dispatch.channel_tenant_id,
+            channel = %dispatch.channel,
+            model = %dispatch_result.model,
+            "coach reply identified as the underlying model/provider; withheld at the response boundary"
+        );
+    }
+
     // Record LLM usage for cost tracking and quota enforcement
     // Per-LLM-call rows are written inline by the chat pipeline's
     // `LlmCallRecorder`; the turn-summary marker row has been removed
