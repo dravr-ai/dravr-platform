@@ -112,6 +112,27 @@ pub(crate) async fn post_process_assistant_reply(
         };
     }
 
+    // Stage 15.4: Model-identity leak. Production messaging runs the coach
+    // through GitHub Copilot CLI, which owns the true system slot, so the model
+    // periodically answers as itself (« I'm GitHub Copilot CLI, a terminal-based
+    // coding assistant » reached a live Telegram user on 2026-07-22). That is a
+    // whole persona break, not salvageable sentence-by-sentence — withhold the
+    // entire reply like a canary hit. `leak_replaced = true` also gates Tier-2
+    // learning and makes the *persisted* copy the withheld marker rather than
+    // the refusal, so a poisoned turn can't replay into later prompts. The
+    // detection is logged (alertable) inside `scan_assistant_reply`.
+    if leak_report.identity_hit {
+        return PostProcessedReply {
+            content: ctx
+                .messaging_strings_registry
+                .get(KEY_REPLY_WITHHELD, locale),
+            #[cfg(feature = "tools-verification")]
+            pending_verdicts: Vec::new(),
+            structured_content: None,
+            leak_replaced: true,
+        };
+    }
+
     // Stage 15.5: Structured-output extraction. Builder coaches emit a
     // schema-validated JSON plan, not prose — extract and validate it from the
     // RAW reply before the prose stages below (guardrails, acronym expansion,
