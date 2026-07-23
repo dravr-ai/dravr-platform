@@ -26,7 +26,7 @@ use uuid::Uuid;
 #[cfg(feature = "tools-groups")]
 use crate::ChatPipelineContext;
 use pierre_core::models::ConnectionType;
-use pierre_core::narration::scrub_internal_narration;
+use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -201,9 +201,11 @@ pub fn build_llm_messages_with_blocks(
             // summary is authoritative history, so no marker prefix. It is
             // LLM-written from assistant turns, so a leak that predates the
             // narration scrub can be baked into it (observed 2026-07-10:
-            // compaction ran mid-incident) — scrub it like an assistant row
-            // so the leak stops re-entering every subsequent prompt.
-            let summary = scrub_internal_narration(block.summary).cleaned;
+            // compaction ran mid-incident; 2026-07-23: a summary carrying
+            // "can't fetch your data" narrative taught the model to stop
+            // calling get_activities) — scrub it with the replay variant so
+            // neither leak class re-enters every subsequent prompt.
+            let summary = scrub_replayed_narration(block.summary).cleaned;
             if !summary.is_empty() {
                 messages.push(ChatMessage::system(&summary));
                 source_ids.push(None);
@@ -249,14 +251,14 @@ fn push_history_row(
     if stripped.is_empty() {
         return;
     }
-    // Assistant rows additionally get the internal-narration scrub: rows
+    // Assistant rows additionally get the replay-narration scrub: rows
     // persisted before the response-boundary scrub existed (or by an older
     // binary) can hold hidden-block meta-commentary, and replaying it
     // verbatim teaches the model to keep narrating — the « Je continue
     // d'ignorer le bloc caché » loop observed live on 2026-07-10. A row
     // that is pure narration is dropped like pure scaffolding.
     let replayed = match msg.role.as_str() {
-        "assistant" | "tool_call" => Cow::Owned(scrub_internal_narration(&stripped).cleaned),
+        "assistant" | "tool_call" => Cow::Owned(scrub_replayed_narration(&stripped).cleaned),
         _ => Cow::Borrowed(stripped.as_str()),
     };
     if replayed.is_empty() {

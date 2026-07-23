@@ -248,10 +248,13 @@ const IDENTITY_NARRATION_PATTERNS: &[&str] = &[
 ];
 
 /// Fold a string for separator-insensitive matching: lowercase, then
-/// collapse every run of ASCII/Unicode hyphens, dashes and whitespace to a
-/// single space, trimmed. So `« prompt-injection »`, `prompt — injection`
-/// and `prompt injection` all compare equal. Applied to both the patterns
-/// (once, at first use) and every candidate sentence/reply.
+/// collapse every run of ASCII/Unicode hyphens, dashes, apostrophes and
+/// whitespace to a single space, trimmed. So `« prompt-injection »`,
+/// `prompt — injection` and `prompt injection` all compare equal, and the
+/// ASCII apostrophe in a pattern (`test d'injection`) matches the
+/// typographic apostrophe LLMs emit in French (`test d’injection`).
+/// Applied to both the patterns (once, at first use) and every candidate
+/// sentence/reply.
 fn fold_separators(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev_space = false;
@@ -259,7 +262,15 @@ fn fold_separators(s: &str) -> String {
         let is_sep = ch.is_whitespace()
             || matches!(
                 ch,
-                '-' | '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+                '-' | '\''
+                    | '\u{2010}'
+                    | '\u{2011}'
+                    | '\u{2012}'
+                    | '\u{2013}'
+                    | '\u{2014}'
+                    | '\u{2015}'
+                    | '\u{2018}'
+                    | '\u{2019}'
             );
         if is_sep {
             if !prev_space {
@@ -274,9 +285,182 @@ fn fold_separators(s: &str) -> String {
     out.trim().to_owned()
 }
 
+/// Lowercase, separator-folded vocabulary that marks a sentence as
+/// **capability-failure narration** — the coach saying its own tools are
+/// broken or that it cannot fetch the user's data («attempting to call them
+/// just returned "tool does not exist" errors», «Je ne peux pas aller
+/// chercher tes données à l'instant» — live incidents 2026-07-22/23).
+///
+/// Replayed in history (or baked into a compaction summary), such sentences
+/// teach the model learned helplessness: it stops calling `get_activities`
+/// because its own past claims fetching is broken. They are scrubbed on the
+/// REPLAY path only ([`scrub_replayed_narration`]) — an honest outbound
+/// "can't fetch right now" during a real outage still reaches the user
+/// ([`scrub_internal_narration`] does not match these).
+///
+/// Precision philosophy: every failure verb is anchored to the assistant's
+/// own capability ("my tools", "je ne peux pas", first-person negation) or
+/// is an error-string verbatim. Bare "tool"/"outil" (gear), "ne fonctionne
+/// pas" (the user's sensor), empty results ("couldn't find any activities")
+/// and provider-status lines ("sync failed on Garmin's side") must pass
+/// through — those are legitimate coaching content. Accented phrases carry
+/// accent-stripped duplicates (folding handles separators and apostrophes,
+/// not accents). The account-state denial «je n'ai pas accès à tes données
+/// Garmin car tu ne l'as pas connecté» matches by design: connection state
+/// is re-derived live every turn, so scrubbing it from replay costs one
+/// re-explained prompt, while replaying it after the user connects teaches
+/// stale helplessness on every turn.
+const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
+    // Language-independent error strings (quoted verbatim in any locale;
+    // "mcp" entries are multiword so sports-medicine "MCP joint" passes).
+    "tool does not exist",
+    "tool not found",
+    "no such tool",
+    "tool call failed",
+    "tool calls failed",
+    "mcp server",
+    "mcp tool",
+    "mcp error",
+    "json rpc",
+    // English — first-person subject + data/activity/platform object. Both
+    // anchors are load-bearing: "when Strava can't fetch your heart-rate
+    // data, re-pair the sensor" (subject = the app) and "I don't have
+    // access to your Strava password — it stays private" (object = privacy
+    // reassurance) are legitimate coaching and must pass. Apostrophes fold
+    // to a space, so ASCII forms also match curly-apostrophe output.
+    "i don't have access to fitness",
+    "i do not have access to fitness",
+    "i don't have access to your data",
+    "i do not have access to your data",
+    "i don't have access to your activities",
+    "i do not have access to your activities",
+    "i have no access to your data",
+    "i can't access your data",
+    "i cannot access your data",
+    "i can't access your activities",
+    "i cannot access your activities",
+    "i'm unable to access your data",
+    "i am unable to access your data",
+    "i can't fetch your",
+    "i cannot fetch your",
+    "i'm unable to fetch your",
+    "i am unable to fetch your",
+    "i can't retrieve your",
+    "i cannot retrieve your",
+    "i'm unable to retrieve your",
+    "i am unable to retrieve your",
+    "my tools aren't working",
+    "my tools are not working",
+    "my tools are broken",
+    "my tools are unavailable",
+    "my tools are down",
+    // English, third-person summary register — compaction summaries restate
+    // the coach's failure as "the coach was unable to fetch the user's
+    // data", which no first-person pattern sees. Anchored on "the user" so
+    // an assistant reply about the athlete's own apps ("the Strava app was
+    // unable to fetch data") passes.
+    "unable to fetch the user",
+    "unable to access the user",
+    "unable to retrieve the user",
+    "could not fetch the user",
+    "couldn't fetch the user",
+    "could not access the user",
+    "couldn't access the user",
+    "could not retrieve the user",
+    "couldn't retrieve the user",
+    "its tools were unavailable",
+    "its tools were broken",
+    "its tools were not working",
+    "its tools did not work",
+    "its tools failed",
+    // French — first-person + object-anchored for the same reasons («je
+    // n'ai pas accès à tes messages privés» is privacy reassurance; «tu
+    // peux aller chercher tes données dans l'appli» is app help). «peux pas
+    // raller chercher» pins the 2026-07-23 incident's verbatim typo.
+    "je ne peux pas aller chercher",
+    "peux pas raller chercher",
+    "je n'ai pas accès à tes données",
+    "je n'ai pas acces a tes donnees",
+    "je n'ai pas accès à tes activités",
+    "je n'ai pas acces a tes activites",
+    "je n'ai pas accès à tes plateformes",
+    "je n'ai pas acces a tes plateformes",
+    "je ne peux pas accéder à tes données",
+    "je ne peux pas acceder a tes donnees",
+    "je ne peux pas accéder à tes activités",
+    "je ne peux pas acceder a tes activites",
+    "impossible de récupérer tes données",
+    "impossible de recuperer tes donnees",
+    "impossible de récupérer tes activités",
+    "impossible de recuperer tes activites",
+    "impossible d'accéder à tes données",
+    "impossible d'acceder a tes donnees",
+    "mes outils ne fonctionnent pas",
+    "mes outils sont indisponibles",
+    "mes outils sont hors service",
+    "mes outils ne répondent pas",
+    "mes outils ne repondent pas",
+    // Spanish — object-anchored («no tengo acceso a tus mensajes privados»
+    // is privacy reassurance and must pass)
+    "no tengo acceso a tus datos",
+    "no tengo acceso a tus actividades",
+    "no tengo acceso a plataformas",
+    "no puedo acceder a tus datos",
+    "no puedo acceder a tus actividades",
+    "no puedo obtener tus datos",
+    "no puedo recuperar tus datos",
+    "no puedo recuperar tus actividades",
+    "mis herramientas no funcionan",
+    "mis herramientas no responden",
+    "mis herramientas no están disponibles",
+    "mis herramientas no estan disponibles",
+    // German — ich-anchored pairs cover verb-second inversion ("leider kann
+    // ich …"); object-anchored so password/privacy reassurance («ich habe
+    // keinen Zugriff auf dein Garmin-Passwort») and third-party privacy
+    // («Dritte können nicht auf deine Daten zugreifen») pass.
+    "ich habe keinen zugriff auf deine daten",
+    "ich habe keinen zugriff auf deine aktivitäten",
+    "ich habe keinen zugriff auf deine aktivitaten",
+    "ich kann nicht auf deine daten zugreifen",
+    "kann ich nicht auf deine daten zugreifen",
+    "ich kann deine daten nicht abrufen",
+    "kann ich deine daten nicht abrufen",
+    "meine tools funktionieren nicht",
+    "meine werkzeuge funktionieren nicht",
+    "meine tools sind nicht verfügbar",
+    "meine tools sind nicht verfuegbar",
+    // Portuguese — BR acessar + PT aceder, object-anchored («não consigo
+    // aceder aos teus treinos privados — só vejo o que partilhas» is
+    // privacy reassurance and must pass)
+    "não tenho acesso aos teus dados",
+    "nao tenho acesso aos teus dados",
+    "não tenho acesso aos seus dados",
+    "nao tenho acesso aos seus dados",
+    "não tenho acesso a plataformas",
+    "nao tenho acesso a plataformas",
+    "não consigo acessar os teus dados",
+    "nao consigo acessar os teus dados",
+    "não consigo acessar seus dados",
+    "nao consigo acessar seus dados",
+    "não consigo aceder aos teus dados",
+    "nao consigo aceder aos teus dados",
+    "minhas ferramentas não funcionam",
+    "minhas ferramentas nao funcionam",
+    "minhas ferramentas não estão funcionando",
+    "minhas ferramentas nao estao funcionando",
+];
+
 /// Separator-folded copy of [`INTERNAL_NARRATION_PATTERNS`], built once.
 static FOLDED_INTERNAL: LazyLock<Vec<String>> = LazyLock::new(|| {
     INTERNAL_NARRATION_PATTERNS
+        .iter()
+        .map(|p| fold_separators(p))
+        .collect()
+});
+
+/// Separator-folded copy of [`CAPABILITY_FAILURE_PATTERNS`], built once.
+static FOLDED_CAPABILITY: LazyLock<Vec<String>> = LazyLock::new(|| {
+    CAPABILITY_FAILURE_PATTERNS
         .iter()
         .map(|p| fold_separators(p))
         .collect()
@@ -330,15 +514,29 @@ fn is_narration(sentence: &str) -> bool {
         || FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
 }
 
+/// [`is_narration`] plus capability-failure vocabulary. Replay-only: a
+/// persisted "my tools are broken / je ne peux pas aller chercher tes
+/// données" turn (or a compaction summary distilled from one) must not
+/// re-enter the prompt and teach the model that fetching is impossible —
+/// the 2026-07-23 turn where the coach declined to call `get_activities`
+/// against a healthy provider because its own history said fetching fails.
+fn is_replayed_narration(sentence: &str) -> bool {
+    let folded = fold_separators(sentence);
+    is_narration(sentence)
+        || FOLDED_CAPABILITY
+            .iter()
+            .any(|p| folded.contains(p.as_str()))
+}
+
 /// Sentence terminators. `…` covers the single-char ellipsis; runs of
 /// mixed terminators (`?!`, `...`) are consumed as one boundary.
 const fn is_terminator(c: char) -> bool {
     matches!(c, '.' | '!' | '?' | '…')
 }
 
-/// Scrub one line, sentence by sentence. Returns the surviving text and
-/// the number of sentences dropped.
-fn scrub_line(line: &str) -> (String, usize) {
+/// Scrub one line, sentence by sentence, dropping sentences `matches`
+/// flags. Returns the surviving text and the number of sentences dropped.
+fn scrub_line(line: &str, matches: fn(&str) -> bool) -> (String, usize) {
     let mut out = String::with_capacity(line.len());
     let mut removed = 0usize;
     let chars: Vec<(usize, char)> = line.char_indices().collect();
@@ -348,7 +546,7 @@ fn scrub_line(line: &str) -> (String, usize) {
     let emit = |sentence: &str, removed: &mut usize, out: &mut String| {
         if sentence.trim().is_empty() {
             out.push_str(sentence);
-        } else if is_narration(sentence) {
+        } else if matches(sentence) {
             *removed += 1;
         } else {
             out.push_str(sentence);
@@ -376,18 +574,12 @@ fn scrub_line(line: &str) -> (String, usize) {
     (out.trim_start().to_owned(), removed)
 }
 
-/// Remove internal-narration sentences from an assistant reply.
-///
-/// Operates per line so list/plan structure survives; within a line,
-/// sentences are bounded by `.`/`!`/`?`/`…` runs. A line that becomes
-/// empty is dropped from the output entirely, so a scrubbed leading
-/// narration paragraph leaves no blank gap.
-#[must_use]
-pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
+/// Shared line/sentence walk behind the two public scrubs.
+fn scrub_with(text: &str, matches: fn(&str) -> bool) -> NarrationScrub {
     let mut removed = 0usize;
     let mut lines_out: Vec<String> = Vec::new();
     for line in text.lines() {
-        let (clean, r) = scrub_line(line);
+        let (clean, r) = scrub_line(line, matches);
         removed += r;
         // A line fully consumed by narration disappears; blank source
         // lines are kept so paragraph spacing survives untouched runs.
@@ -399,9 +591,33 @@ pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
     NarrationScrub { cleaned, removed }
 }
 
+/// Remove internal-narration sentences from an assistant reply.
+///
+/// Operates per line so list/plan structure survives; within a line,
+/// sentences are bounded by `.`/`!`/`?`/`…` runs. A line that becomes
+/// empty is dropped from the output entirely, so a scrubbed leading
+/// narration paragraph leaves no blank gap. This is the OUTBOUND scrub:
+/// capability-failure sentences (an honest "can't fetch right now") pass
+/// through to the user — only the replay path drops them.
+#[must_use]
+pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
+    scrub_with(text, is_narration)
+}
+
+/// Remove internal-narration AND capability-failure sentences from
+/// REPLAYED text — persisted history rows and compaction summaries being
+/// rebuilt into a prompt. The extra vocabulary keeps the model's own past
+/// "my tools are broken / je ne peux pas aller chercher tes données"
+/// claims from re-entering context and teaching it that fetching is
+/// impossible (learned helplessness, observed live 2026-07-23).
+#[must_use]
+pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
+    scrub_with(text, is_replayed_narration)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{contains_identity_leak, scrub_internal_narration};
+    use super::{contains_identity_leak, scrub_internal_narration, scrub_replayed_narration};
 
     /// The three replies that reached the live user on 2026-07-10.
     const INCIDENT_FR_1: &str =
@@ -601,5 +817,120 @@ mod tests {
         let scrub = scrub_internal_narration(reply);
         assert!(scrub.fired());
         assert!(scrub.cleaned.is_empty());
+    }
+
+    /// Verbatim capability-failure sentences from the 2026-07-22/23 live
+    /// incidents (the 07-23 reply's «raller chercher» typo still contains
+    /// «aller chercher», covered by substring matching).
+    const CAPABILITY_LEAK_2026_07_22: &str = "I don't have access to fitness platforms, athlete \
+         data, or coaching tools, and attempting to call them just returned \"tool does not \
+         exist\" errors.";
+    const CAPABILITY_LEAK_2026_07_23: &str =
+        "Je ne peux pas raller chercher tes données à l'instant, donc je pars sur ce qu'on sait déjà.";
+
+    #[test]
+    fn capability_failure_scrubbed_on_replay_but_kept_outbound() {
+        for incident in [CAPABILITY_LEAK_2026_07_22, CAPABILITY_LEAK_2026_07_23] {
+            let replay = scrub_replayed_narration(incident);
+            assert!(replay.fired(), "replay must drop: {incident}");
+            assert!(replay.cleaned.is_empty());
+            // Outbound: an honest "can't fetch right now" still reaches the
+            // user — only history replay drops it.
+            let outbound = scrub_internal_narration(incident);
+            assert!(!outbound.fired(), "outbound must keep: {incident}");
+        }
+    }
+
+    #[test]
+    fn capability_failure_detected_in_all_five_locales_on_replay() {
+        let fr = "Je n\u{2019}ai pas accès à tes plateformes fitness ni à tes données d'athlète.";
+        let en = "My tools are unavailable so I cannot fetch your data.";
+        let es = "No tengo acceso a plataformas de fitness ni herramientas de coaching.";
+        // German exercises the verb-second inversion pair ("Leider kann ich …").
+        let de = "Leider kann ich deine Daten nicht abrufen — meine Tools funktionieren nicht.";
+        let pt = "Não consigo acessar os teus dados agora.";
+        for reply in [fr, en, es, de, pt] {
+            assert!(
+                scrub_replayed_narration(reply).fired(),
+                "replay should drop: {reply}"
+            );
+        }
+    }
+
+    #[test]
+    fn third_person_summary_failure_is_scrubbed_on_replay() {
+        // Compaction summaries restate the coach in third person; a poisoned
+        // block phrased that way must still be caught at injection time.
+        let summary = "The coach explained it was unable to fetch the user's data \
+                       and gave advice from memory. The user asked about dinner.";
+        let scrub = scrub_replayed_narration(summary);
+        assert_eq!(scrub.removed, 1);
+        assert!(scrub.cleaned.contains("dinner"));
+        assert!(!scrub.cleaned.contains("unable to fetch"));
+    }
+
+    #[test]
+    fn account_state_denial_matches_by_design() {
+        // Adjudicated: broken-tools vs not-connected is indistinguishable by
+        // substring, and connection state is re-derived live every turn — so
+        // scrubbing this from replay costs one re-explained prompt, while
+        // replaying it after the user connects teaches stale helplessness.
+        let reply = "Je n'ai pas accès à tes données Garmin car tu ne l'as pas connecté.";
+        assert!(scrub_replayed_narration(reply).fired());
+    }
+
+    #[test]
+    fn replay_keeps_coaching_and_drops_only_the_failure_sentence() {
+        let reply = "Je ne peux pas aller chercher tes données à l'instant. \
+                     Pour ce soir: glucides + protéines végé + légumes verts.";
+        let scrub = scrub_replayed_narration(reply);
+        assert_eq!(scrub.removed, 1);
+        assert!(scrub.cleaned.contains("glucides"));
+        assert!(!scrub.cleaned.contains("aller chercher"));
+    }
+
+    #[test]
+    fn legitimate_failure_talk_is_not_capability_narration() {
+        // Empty results, user hardware, provider status and gear talk must
+        // pass the replay scrub untouched.
+        for reply in [
+            "I couldn't find any activities for that date.",
+            "Ton capteur ne fonctionne pas, vérifie la pile.",
+            "Garmin's sync seems delayed on their side today.",
+            "L'outil parfait pour mesurer ta FTP, c'est un home trainer.",
+            "Time your insulin injection before the ride.",
+            // Privacy reassurance — the sentence that forced ich-anchoring
+            // (and its em-dash exercises folding on the negative path too).
+            "Dritte können nicht auf deine Daten zugreifen — alles bleibt privat.",
+            "La herramienta perfecta para medir tu FTP es un rodillo inteligente.",
+            "O teu sensor não funciona desde terça — verifica a pilha.",
+            "You can access your data anytime in the Strava app.",
+            // App/gear troubleshooting where the failing subject is the app,
+            // the watch, or the user — the false positives that forced
+            // first-person + object anchoring (adversarial review 2026-07-23).
+            "If you're unable to access your Garmin account, tap 'Forgot password'.",
+            "When Strava can't fetch your heart-rate data from the strap, re-pair the sensor.",
+            "Tu peux aller chercher tes données de sommeil dans l'appli Whoop.",
+            // First-person privacy-scope reassurance: subject is the coach but
+            // the object is credentials/DMs, not fitness data.
+            "I don't have access to your Strava password — you log in on Strava's own page.",
+            "Je n'ai pas accès à tes messages privés Strava — je vois seulement tes activités.",
+            "Tranquilo: no tengo acceso a tus mensajes privados de Strava.",
+            "Keine Sorge: ich habe keinen Zugriff auf dein Garmin-Passwort.",
+            "Não consigo aceder aos teus treinos privados — só vejo o que partilhas.",
+        ] {
+            assert!(
+                !scrub_replayed_narration(reply).fired(),
+                "replay must keep: {reply}"
+            );
+        }
+    }
+
+    #[test]
+    fn identity_match_handles_typographic_apostrophe() {
+        // LLM French uses the curly apostrophe; folding treats it as a
+        // separator so the ASCII-apostrophe pattern still matches.
+        assert!(contains_identity_leak("C'est un test d’injection évident."));
+        assert!(contains_identity_leak("C'est un test d'injection évident."));
     }
 }

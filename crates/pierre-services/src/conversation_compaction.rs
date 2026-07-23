@@ -33,6 +33,7 @@ use core::iter::once;
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::narration::scrub_replayed_narration;
 use pierre_core::tokens::estimate_prompt_tokens;
 use pierre_database::repositories::{HarnessMemoryRepository, InsertCompactionBlockParams};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider, MessageRole};
@@ -224,6 +225,14 @@ impl ConversationCompactor {
                 return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
             }
         };
+        // A summary that scrubbed to empty (pure capability-failure/narration
+        // content) must not persist: an empty block still COVERS its range on
+        // read, silently deleting that history span. Treat it like a failed
+        // summarization instead.
+        if summary.is_empty() {
+            warn!("Summary empty after narration scrub; falling back to sliding window");
+            return Ok(self.run_emergency_sliding(ctx.llm_messages, before));
+        }
 
         self.apply_summary(ctx, plan, &summary, before).await
     }
@@ -560,8 +569,10 @@ const SUMMARIZER_SYSTEM_PROMPT: &str =
     "You are a conversation summarizer for a fitness coaching assistant. \
      Summarize the following coaching exchange in 2–4 plain-English sentences. \
      Preserve: what the user asked, what the coach said, and any concrete plans, \
-     numbers, goals, or commitments mentioned. Do not add new information. \
-     Output only the summary text — no headings, no markdown, no JSON.";
+     numbers, goals, or commitments mentioned. Omit any meta-commentary about \
+     the assistant itself — its tools, data access, capabilities, errors, or \
+     technical failures; summarize only the coaching content. Do not add new \
+     information. Output only the summary text — no headings, no markdown, no JSON.";
 
 async fn summarize_turns(provider: &ChatProvider, turns_text: &str) -> AppResult<String> {
     let messages = vec![
@@ -576,7 +587,11 @@ async fn summarize_turns(provider: &ChatProvider, turns_text: &str) -> AppResult
         .map_err(|e| {
             AppError::external_service("compactor", format!("summarization failed: {e}"))
         })?;
-    Ok(response.content.trim().to_owned())
+    // The summarizer is itself an LLM and can echo capability-failure or
+    // narration content from the turns despite the omit instruction; a block
+    // is re-injected into every later prompt, so it must be born clean, not
+    // only cleaned at injection time.
+    Ok(scrub_replayed_narration(response.content.trim()).cleaned)
 }
 
 // Unit tests live in crates/pierre-server/tests/conversation_compaction_test.rs
