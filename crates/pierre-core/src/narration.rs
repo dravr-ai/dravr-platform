@@ -605,7 +605,9 @@ pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
 }
 
 /// Remove internal-narration AND capability-failure sentences from
-/// REPLAYED text — persisted history rows and compaction summaries being
+/// replayed text.
+///
+/// Applies to persisted history rows and compaction summaries being
 /// rebuilt into a prompt. The extra vocabulary keeps the model's own past
 /// "my tools are broken / je ne peux pas aller chercher tes données"
 /// claims from re-entering context and teaching it that fetching is
