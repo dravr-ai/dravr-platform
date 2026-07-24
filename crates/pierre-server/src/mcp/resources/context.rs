@@ -30,9 +30,7 @@ use crate::services::user_approval_notifier::ApprovalNotifier;
 use dravr_contremaitre::schemas::STRUCTURED_WORKOUT_SCHEMA;
 use dravr_contremaitre::system::STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE;
 #[cfg(feature = "client-chat")]
-use pierre_chat_pipeline::{McpBridgeProvider, ToolPrefilter};
-#[cfg(feature = "client-chat")]
-use pierre_config::tool_intent_prefilter::ToolIntentPrefilterConfig;
+use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::TenantId;
@@ -350,10 +348,6 @@ impl ServerContext {
             &mcp_self_url,
             mcp_bridge_enabled,
         )));
-        // Per-turn tool intent pre-filter. `None` when disabled (the default),
-        // so the unfiltered chat-callable tool set is sent every turn.
-        let tool_intent_prefilter =
-            ToolPrefilter::from_config(&ToolIntentPrefilterConfig::from_env());
         pierre_chat_pipeline::ChatPipelineContext {
             repos: self.common.repos.clone(),
             data: self.data(),
@@ -384,7 +378,6 @@ impl ServerContext {
             structured_output_schema: STRUCTURED_WORKOUT_SCHEMA.to_owned(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
-            tool_intent_prefilter,
         }
     }
 

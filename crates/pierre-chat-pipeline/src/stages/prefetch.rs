@@ -259,9 +259,10 @@ pub async fn inject_startup_context(
 /// the coaching surface is fr-first; matching is case-insensitive containment,
 /// so stems (`analys`, `recommand`, `entraîne`) cover their inflections.
 ///
-/// Kept deliberately separate from the tool-prefilter's `KEYWORD_RULES`: that
-/// map decides which *tools* to expose, a different concern that must not
-/// silently change activity-grounding behavior when its keywords are tuned.
+/// This governs only whether to inject a fresh activity block — it never gates
+/// which tools the model may call. The full chat-callable coaching surface is
+/// sent every turn, so a missing term here degrades grounding at worst, never
+/// removes a tool the coach needs.
 const GROUNDING_INTENT_TERMS: &[&str] = &[
     // Planning / prescription — needs the real training history to be specific.
     "plan",

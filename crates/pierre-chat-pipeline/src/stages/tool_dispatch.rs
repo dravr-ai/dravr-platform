@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -16,7 +15,7 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution::{
-    self as chat_tool_loop, build_mcp_tools, build_mcp_tools_filtered, ToolLoopParams,
+    self as chat_tool_loop, build_mcp_tools, ToolLoopParams,
 };
 use tracing::{info, warn};
 
@@ -198,33 +197,11 @@ pub(crate) async fn dispatch_llm_with_tools(
         Vec::new()
     };
 
-    // Stage 13: optional per-turn tool narrowing (default-off). When enabled,
-    // the selector drops tool categories irrelevant to this message + coach so
-    // the model sees a focused list; it falls back to the full set when the
-    // signal is too weak to narrow safely.
-    let (tools, tool_selection_reason, tools_kept, tools_dropped) =
-        match ctx.tool_intent_prefilter.as_ref() {
-            Some(prefilter) => {
-                let outcome = prefilter
-                    .select(
-                        &ctx.tool_registry,
-                        &input.content,
-                        coach_ctx.map(|c| c.category.as_str()),
-                    )
-                    .await;
-                let reason = outcome.reason;
-                let kept = outcome.keep.len();
-                let dropped = outcome.dropped.len();
-                let keep: HashSet<String> = outcome.keep.into_iter().collect();
-                (
-                    build_mcp_tools_filtered(&ctx.tool_registry, &keep),
-                    Some(reason),
-                    Some(kept),
-                    Some(dropped),
-                )
-            }
-            None => (build_mcp_tools(&ctx.tool_registry), None, None, None),
-        };
+    // Stage 13: the coaching tool surface. Every turn sees the full
+    // chat-callable set (`ToolRegistry::chat_callable_schemas`), so a capable
+    // coach model routes natively over all coaching tools — no per-turn
+    // narrowing that could starve a turn of a tool it needs.
+    let tools = build_mcp_tools(&ctx.tool_registry);
     let tool_params = ToolLoopParams {
         provider,
         executor,
@@ -273,13 +250,6 @@ pub(crate) async fn dispatch_llm_with_tools(
         tools_called = ?result.tools_called,
         dispatch_ms,
         tokens = result.usage.as_ref().map_or(0, |u| u.total_tokens),
-        // Tool-prefilter telemetry: `None` = disabled (full set sent);
-        // otherwise the selector's verdict for this turn (deterministic /
-        // fallback / llm) plus how many chat-callable tools survived vs were
-        // dropped. Lets us quantify the per-turn narrowing without re-running it.
-        tool_selection_reason = ?tool_selection_reason,
-        tools_kept = ?tools_kept,
-        tools_dropped = ?tools_dropped,
         "Chat pipeline dispatch completed"
     );
 

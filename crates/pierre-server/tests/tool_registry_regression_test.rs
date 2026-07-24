@@ -206,6 +206,67 @@ fn test_chat_callable_surface_excludes_admin_and_management_tools() {
 }
 
 #[test]
+fn test_chat_callable_surface_grounds_fr_dinner_incident() {
+    // Regression (2026-07-24): a training-coach turn asking "recommande quoi
+    // comme dîner" fabricated a meal from memory because the (now-deleted)
+    // per-turn keyword prefilter dropped the recipe/nutrition tools when the
+    // FR-CA meal word matched no keyword rule. The fix removed the prefilter
+    // entirely: every coaching turn now sees the full chat-callable surface, so
+    // the tools that turn needed can NEVER be absent because of phrasing.
+    //
+    // This asserts the tools structurally, independent of any keyword: as long
+    // as their categories stay in CHAT_CALLABLE_CATEGORIES, a dinner/activity
+    // ask always has search_recipes (grounded in get_recipe_constraints) and
+    // get_activities available — no keyword table to whack-a-mole.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    let required = [
+        // The recipe suite the "dîner" turn needed — real suggestions grounded
+        // in the user's dietary constraints, not a hand-written meal.
+        "search_recipes",
+        "get_recipe_constraints",
+        // The activity read that grounds any "et une course" clause in the same
+        // turn — the pinned core the deleted prefilter used to guarantee.
+        "get_activities",
+    ];
+
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|name| !chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "chat_callable_schemas() is missing {} tool(s) the FR \"dîner\" turn \
+         depends on: {:?}\n\
+         With the per-turn prefilter deleted, these are absent only if their \
+         category left CHAT_CALLABLE_CATEGORIES — audit that list in \
+         ToolRegistry::chat_callable_schemas().",
+        missing.len(),
+        missing
+    );
+
+    // Consent-gated peer fetch: the deleted prefilter pinned it explicitly; it
+    // now survives only because its "groups" category is chat-callable, so a
+    // future edit dropping "groups" from CHAT_CALLABLE_CATEGORIES is caught here.
+    #[cfg(feature = "tools-groups")]
+    assert!(
+        chat_surface.contains("get_group_member_activities"),
+        "get_group_member_activities (consent-gated peer fetch) left the \
+         chat-callable surface; add its category (\"groups\") back to \
+         CHAT_CALLABLE_CATEGORIES in ToolRegistry::chat_callable_schemas()."
+    );
+}
+
+#[test]
 fn test_five_analytics_tools_are_registered() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);

@@ -15,8 +15,7 @@
 //! identical [`ToolLoopResult`] output.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasher;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -1953,32 +1952,6 @@ pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
     let schemas = tool_registry.chat_callable_schemas();
     let function_declarations = schemas
         .into_iter()
-        .map(|schema| FunctionDeclaration {
-            name: schema.name,
-            description: schema.description,
-            parameters: serde_json::to_value(&schema.input_schema).ok(),
-        })
-        .collect();
-    Tool {
-        function_declarations,
-    }
-}
-
-/// Build LLM tool definitions restricted to a named subset of chat-callable tools.
-///
-/// Used by the per-turn tool intent pre-filter: the selector returns the tool
-/// names relevant to the turn, and only those chat-callable schemas become
-/// function declarations. Names not in `keep` are skipped; a `keep` containing
-/// every chat-callable name yields the same result as [`build_mcp_tools`].
-#[must_use]
-pub fn build_mcp_tools_filtered<S: BuildHasher>(
-    tool_registry: &ToolRegistry,
-    keep: &HashSet<String, S>,
-) -> Tool {
-    let function_declarations = tool_registry
-        .chat_callable_schemas()
-        .into_iter()
-        .filter(|schema| keep.contains(&schema.name))
         .map(|schema| FunctionDeclaration {
             name: schema.name,
             description: schema.description,
