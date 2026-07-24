@@ -144,29 +144,64 @@ fn interpolate_prompt_placeholders(
 /// at 23:30 EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the
 /// server clock has already rolled over to. The wall-clock time lets the coach
 /// reason about time of day (morning/evening) without asking.
-fn format_current_date(user_timezone: Option<&str>) -> String {
-    use chrono::Utc;
+#[must_use]
+pub fn format_current_date(user_timezone: Option<&str>) -> String {
+    use chrono::{Datelike, Duration, TimeZone, Utc};
     let now_utc = Utc::now();
-    let (datetime_str, label) = user_timezone
-        .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
-        .map_or_else(
-            || {
-                (
-                    now_utc.format("%Y-%m-%d %H:%M").to_string(),
-                    "UTC".to_owned(),
-                )
-            },
-            |tz| {
-                (
-                    now_utc
-                        .with_timezone(&tz)
-                        .format("%Y-%m-%d %H:%M")
-                        .to_string(),
-                    tz.name().to_owned(),
-                )
-            },
-        );
-    format!("{datetime_str} ({label})")
+    let tz: chrono_tz::Tz = user_timezone
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(chrono_tz::UTC);
+    let local = now_utc.with_timezone(&tz);
+    let datetime_str = local.format("%Y-%m-%d %H:%M").to_string();
+    let label = tz.name();
+    let now_epoch = now_utc.timestamp();
+
+    // Local-midnight epoch `days_back` days before today, DST-safe (a spring
+    // gap/fold at midnight is vanishingly rare; take the earliest valid
+    // instant). Falls back to `now` if construction ever fails so a boundary
+    // is never silently wrong by years.
+    let midnight_epoch = |days_back: i64| -> i64 {
+        (local - Duration::days(days_back))
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .and_then(|naive| tz.from_local_datetime(&naive).earliest())
+            .map_or(now_epoch, |dt| dt.timestamp())
+    };
+    let today0 = midnight_epoch(0);
+    let yesterday0 = midnight_epoch(1);
+    // Monday-anchored week (the convention pierre_system.md already states).
+    let days_since_monday = i64::from(local.weekday().num_days_from_monday());
+    let week0 = midnight_epoch(days_since_monday);
+    // First of the current month, 00:00 local — the "ce mois" / "this month"
+    // window, which is otherwise a from-scratch date→epoch conversion.
+    let month0 = local
+        .date_naive()
+        .with_day(1)
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .and_then(|naive| tz.from_local_datetime(&naive).earliest())
+        .map_or(now_epoch, |dt| dt.timestamp());
+
+    // A full epoch reference table so the model COPIES every common boundary
+    // instead of converting an absolute date to an epoch — the arithmetic LLMs
+    // get wrong. 2026-07-24: a coach reading the human date still passed
+    // `before=1753362000` (2025-07-24, a year early) and served year-old data;
+    // the same failure lurks on any window bound (`after=<Monday 00:00>` etc.),
+    // so every boundary is precomputed here. Local to the user's tz, not the
+    // server's UTC clock. The guidance is inline so it holds regardless of the
+    // surrounding prompt template.
+    format!(
+        "{datetime_str} ({label}).\n\
+         Unix epochs (seconds) — COPY these; never convert a date to an epoch yourself (it is error-prone):\n\
+         - now = {now_epoch}\n\
+         - start of today (00:00 local) = {today0}\n\
+         - start of yesterday (00:00 local) = {yesterday0}\n\
+         - start of this week (Monday 00:00 local) = {week0}\n\
+         - start of this month (1st, 00:00 local) = {month0}\n\
+         For a freshness/recent fetch pass no `after`/`before` (the server returns your newest \
+         activities first). For a window question (today / hier / cette semaine / ce mois) pass \
+         `after` = the matching start above and `before` = now (count only the rows whose start \
+         falls inside the window)."
+    )
 }
 
 /// Look up the user's selected coaching persona, falling back to the

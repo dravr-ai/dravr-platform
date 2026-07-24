@@ -123,6 +123,19 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
         hint.as_deref().is_some_and(|h| h.contains("sciotte")),
         "the coach hint must warn that sciotte data is stale; got {hint:?}"
     );
+    // Regression (2026-07-24): the freshness fetch must NOT ask the model to
+    // compute `before=<unix-now>` — a coach passed a year-old epoch and served
+    // 2025 data. The hint now tells it to omit dates and let the server return
+    // newest-first.
+    let h = hint.as_deref().unwrap();
+    assert!(
+        !h.contains("before=<unix-now>") && !h.contains("<unix-now>"),
+        "the hint must not ask the model to compute a unix timestamp; got {h:?}"
+    );
+    assert!(
+        h.contains("NO `after`/`before`") && h.contains("newest"),
+        "the hint must tell the model to omit dates and rely on newest-first; got {h:?}"
+    );
 }
 
 #[tokio::test]

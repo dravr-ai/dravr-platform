@@ -476,9 +476,10 @@ impl RefreshService {
         hint.push_str(
             "\nBefore answering any question that depends on recent activities, sleep, recovery, or workouts \
              (e.g. \"today only\", \"this week\", \"aujourd'hui\", \"hier\", \"recent sessions\"), invoke \
-             `get_activities` with `before=<unix-now>` and no `after` to pull the newest records from each \
-             stale provider. Do not rely on data baked into earlier turns when the freshness hint above lists \
-             a stale provider.",
+             `get_activities` with only a `limit` and NO `after`/`before` — the server returns your newest \
+             activities first, so you never have to compute a Unix timestamp for this freshness fetch (a \
+             miscomputed `before` a year in the past returns year-old data). Do not rely on data baked into \
+             earlier turns when the freshness hint above lists a stale provider.",
         );
 
         Some(hint)
