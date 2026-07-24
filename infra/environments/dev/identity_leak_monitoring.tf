@@ -35,12 +35,13 @@ resource "google_logging_metric" "coach_identity_leaks" {
   project = var.project_id
   name    = "dravr-coach-identity-leaks"
 
-  description = "Counts withheld coach model-identity leaks: model_identity_leak_confirmed WARNING lines from the ${var.service_name}-api service, where a coach reply identified as the underlying model/provider and was withheld at the response boundary. Un-deduped, all chat channels (web + messaging + backfill push). Added 2026-07-24 to measure the leak rate before deciding on a prompt-level fix. Measurement-only: intentionally has NO alert policy (cfb2c8af9 stopped this signal from paging)."
+  description = "Counts withheld coach model-identity leaks: model_identity_leak_confirmed WARNING lines from the ${var.service_name}-api service, where a coach reply identified as the underlying model/provider and was withheld at the response boundary. Un-deduped, all chat channels (web + messaging + backfill push), broken down by tenant_id/coach_id and the matched pattern_class/pattern_locale. Added 2026-07-24 to measure the leak rate before deciding on a prompt-level fix. Measurement-only: intentionally has NO alert policy (cfb2c8af9 stopped this signal from paging)."
 
   # Matched against the exact Cloud Logging JSON the GcpFormatter emits
   # (crates/pierre-logging/src/gcp.rs): the tracing target becomes the
   # `rust.target` LogEntry label, the event message becomes jsonPayload.message,
-  # and each event field (tenant_id, coach_id) becomes a jsonPayload.* key.
+  # and each event field (tenant_id, coach_id, pattern_class, pattern_locale)
+  # becomes a jsonPayload.* key.
   # Deliberately NOT pinned to severity=WARNING so the metric keeps counting if
   # the log level is ever re-raised — the target + message are definitive.
   filter = <<-EOT
@@ -66,10 +67,24 @@ resource "google_logging_metric" "coach_identity_leaks" {
       value_type  = "STRING"
       description = "Coach persona whose reply leaked, or the literal <none> when no coach was attached to the conversation."
     }
+
+    labels {
+      key         = "pattern_class"
+      value_type  = "STRING"
+      description = "Which identity-pattern class matched (added in dravr 228c3cf6b): product | coding_assistant | language_model | actual_identity | roleplay | injection. Separates a true 'I'm GitHub Copilot' product flip from roleplay/injection framing."
+    }
+
+    labels {
+      key         = "pattern_locale"
+      value_type  = "STRING"
+      description = "Language the matched pattern belongs to: 'any' (language-independent product names) or en/fr/es/de/pt."
+    }
   }
 
   label_extractors = {
-    "tenant_id" = "EXTRACT(jsonPayload.tenant_id)"
-    "coach_id"  = "EXTRACT(jsonPayload.coach_id)"
+    "tenant_id"      = "EXTRACT(jsonPayload.tenant_id)"
+    "coach_id"       = "EXTRACT(jsonPayload.coach_id)"
+    "pattern_class"  = "EXTRACT(jsonPayload.pattern_class)"
+    "pattern_locale" = "EXTRACT(jsonPayload.pattern_locale)"
   }
 }
