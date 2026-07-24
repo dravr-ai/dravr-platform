@@ -128,6 +128,23 @@ static KEYWORD_RULES: LazyLock<CategoryKeywordRules> = LazyLock::new(|| {
                 "fuelling",
                 "hydration",
                 "hydratation",
+                // Meal words the FR-CA users actually type — a "recommande quoi
+                // comme dîner" question matched none of the above and the
+                // nutrition/recipe tools were filtered out, so the coach
+                // fabricated a meal from memory (2026-07-24).
+                "manger",
+                "mange",
+                "repas",
+                "dîner",
+                "diner",
+                "souper",
+                "déjeuner",
+                "dejeuner",
+                "dinner",
+                "lunch",
+                "breakfast",
+                "snack",
+                "collation",
             ],
         )
         .with_category(
@@ -164,6 +181,23 @@ static KEYWORD_RULES: LazyLock<CategoryKeywordRules> = LazyLock::new(|| {
                 "dish",
                 "plat",
                 "meal prep",
+                // Same meal words as the nutrition category: a dinner question
+                // wants real recipe suggestions (search_recipes, grounded in
+                // get_recipe_constraints — e.g. the user's vegetarian diet),
+                // not a hand-written one.
+                "manger",
+                "mange",
+                "repas",
+                "dîner",
+                "diner",
+                "souper",
+                "déjeuner",
+                "dejeuner",
+                "dinner",
+                "lunch",
+                "breakfast",
+                "snack",
+                "collation",
             ],
         )
         .with_category(

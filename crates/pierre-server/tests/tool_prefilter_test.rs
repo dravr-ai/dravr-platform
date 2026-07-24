@@ -59,6 +59,52 @@ async fn nutrition_turn_drops_mobility_keeps_pinned_and_nutrition() {
     assert!(!outcome.dropped.is_empty());
 }
 
+#[tokio::test]
+async fn french_dinner_ask_keeps_recipe_and_nutrition_tools() {
+    // Regression (2026-07-24): "recommande quoi comme dîner" matched no
+    // nutrition/recipes keyword, so the recipe suite was filtered out and the
+    // coach fabricated a meal from memory. The FR-CA meal words now map to
+    // both categories.
+    let registry = registry();
+    let outcome = enabled_prefilter()
+        .select(
+            &registry,
+            "Tu me recommandes quoi comme dîner et une course en ce 24 juillet?",
+            Some("training"),
+        )
+        .await;
+
+    assert!(
+        contains(&outcome.keep, "search_recipes"),
+        "a dinner ask must keep search_recipes so the coach proposes a real \
+         recipe (grounded in the user's dietary constraints), not a fabricated \
+         one; kept={:?}",
+        outcome.keep
+    );
+    assert!(
+        contains(&outcome.keep, "get_recipe_constraints"),
+        "dietary constraints (e.g. vegetarian) must survive so the recipe fits; \
+         kept={:?}",
+        outcome.keep
+    );
+    // "course" also grounds the turn in activity data → the pinned core stays.
+    assert!(contains(&outcome.keep, "get_activities"));
+}
+
+#[tokio::test]
+async fn souper_ask_keeps_recipe_tools() {
+    // "souper" (Québec French for dinner) is the exact word the live user used.
+    let registry = registry();
+    let outcome = enabled_prefilter()
+        .select(&registry, "c'est quoi mon souper de récup ce soir?", None)
+        .await;
+    assert!(
+        contains(&outcome.keep, "search_recipes"),
+        "souper must map to the recipes category; kept={:?}",
+        outcome.keep
+    );
+}
+
 #[cfg(feature = "tools-groups")]
 #[tokio::test]
 async fn peer_fetch_tool_survives_prefilter_via_pin() {

@@ -304,6 +304,32 @@ const GROUNDING_INTENT_TERMS: &[&str] = &[
     "how am i",
     "comment je m",
     "dois-je",
+    // Temporal + meal + outing words: a "qu'est-ce que je mange/fais
+    // aujourd'hui" or "ma course de ce soir" question must ground in real
+    // recent training (the coach's meal/session advice depends on today's
+    // load). Their absence let the 2026-07-24 coach decline to fetch on a
+    // recommendation turn. Errs toward a wasted fetch, per the contract above.
+    "aujourd'hui",
+    "aujourd hui",
+    "today",
+    "hier",
+    "yesterday",
+    "ce soir",
+    "tonight",
+    "demain",
+    "tomorrow",
+    "cette semaine",
+    "dîner",
+    "diner",
+    "souper",
+    "déjeuner",
+    "dejeuner",
+    "manger",
+    "repas",
+    "course",
+    "sortie",
+    "ravito",
+    "ravitaillement",
 ];
 
 /// True when the latest user message needs grounding in real activities.

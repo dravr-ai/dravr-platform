@@ -59,6 +59,14 @@ fn grounding_intent_matches_plan_analysis_and_recommendation_asks() {
         "how am I doing this week",
         "what should I do tomorrow",
         "give me a training plan",
+        // Temporal / meal / outing asks — the 2026-07-24 incident phrasing,
+        // which previously matched no grounding term so the coach answered a
+        // recommendation from memory (or declined to fetch).
+        "Tu me recommandes quoi comme dîner et course en ce 24 juillet",
+        "qu'est-ce que je mange ce soir?",
+        "je fais quoi comme course aujourd'hui",
+        "ma sortie de demain, ravito ou juste de l'eau?",
+        "c'est quoi mon souper de récup ce soir",
     ] {
         assert!(
             needs_activity_grounding(message),
