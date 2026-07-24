@@ -54,10 +54,11 @@ pub struct SavePlanWeekParams<'a> {
     pub adjustment_reason: &'a str,
 }
 
-/// The outline half of a [`SavePlanBundleParams`]. Mirrors
-/// [`SaveTrainingPlanParams`] minus the identity fields the bundle already
-/// carries — the bundle applies one tenant/user/coach to outline and weeks
-/// alike.
+/// The outline half of a [`SavePlanBundleParams`].
+///
+/// Mirrors [`SaveTrainingPlanParams`] minus the identity fields the bundle
+/// already carries — the bundle applies one tenant/user/coach to outline and
+/// weeks alike.
 pub struct PlanOutlineInput<'a> {
     /// Snapshot of the goal race at plan time.
     pub goal_race: &'a GoalRace,
@@ -71,10 +72,11 @@ pub struct PlanOutlineInput<'a> {
     pub source_conversation_id: Option<&'a str>,
 }
 
-/// One week of a [`SavePlanBundleParams`] — like [`SavePlanWeekParams`] but
-/// without `plan_id`: the bundle resolves the plan (fresh outline insert or
-/// existing active plan) once and attaches every week to it inside the same
-/// transaction.
+/// One week of a [`SavePlanBundleParams`].
+///
+/// Like [`SavePlanWeekParams`] but without `plan_id`: the bundle resolves the
+/// plan (fresh outline insert or existing active plan) once and attaches every
+/// week to it inside the same transaction.
 pub struct PlanWeekInput<'a> {
     /// Civil date of the week's first day, `YYYY-MM-DD`.
     pub week_start: &'a str,
