@@ -120,6 +120,27 @@ async fn test_every_registered_tool_has_security_class() {
     }
 }
 
+/// A stored training plan is coach/LLM/athlete-authored text re-entering the
+/// LLM context, so `get_training_plan` must taint the turn as
+/// `UNTRUSTED_OUTPUT` (like recalled memory); the write tool's small ack is
+/// not untrusted content.
+#[tokio::test]
+async fn test_training_plan_tools_taint_classification() {
+    use pierre_tool_runtime::security::SecurityLabels;
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    assert_eq!(
+        registry.security_class("get_training_plan"),
+        Some(SecurityLabels::UNTRUSTED_OUTPUT),
+        "get_training_plan must taint the turn"
+    );
+    assert_eq!(
+        registry.security_class("save_training_plan"),
+        Some(SecurityLabels::empty()),
+        "save_training_plan output is a plain ack, not untrusted content"
+    );
+}
+
 #[tokio::test]
 async fn test_registry_categories_populated() {
     let mut registry = ToolRegistry::new();

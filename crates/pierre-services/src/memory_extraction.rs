@@ -184,7 +184,11 @@ impl ExtractionOutcome {
 /// replayed for weeks) far exceeds the cost of missing one constraint the
 /// user can restate.
 fn is_coach_prescription(kind: FactKind, stated_by: Option<&str>, source: FactSource) -> bool {
-    source == FactSource::Conversation && kind == FactKind::Schedule && stated_by != Some("user")
+    // Case-insensitive / whitespace-tolerant: the extractor is an LLM and may
+    // emit "User"/"USER". A stricter match would silently drop a genuine
+    // user-stated constraint on that drift.
+    let user_stated = stated_by.is_some_and(|s| s.trim().eq_ignore_ascii_case("user"));
+    source == FactSource::Conversation && kind == FactKind::Schedule && !user_stated
 }
 
 /// Gate one raw fact: confidence floor + coach-prescription filter. Returns
@@ -441,6 +445,13 @@ mod tests {
             Some("user"),
             FactSource::Conversation
         ));
+        // …including when the extractor drifts the casing/spacing of "user".
+        for variant in ["User", "USER", " user ", "User "] {
+            assert!(
+                !is_coach_prescription(FactKind::Schedule, Some(variant), FactSource::Conversation),
+                "user-stated fact dropped on casing variant {variant:?}"
+            );
+        }
         // Other kinds are not gated (goal write-back is the save tool's job,
         // but user-stated goals from chat remain extractable).
         assert!(!is_coach_prescription(

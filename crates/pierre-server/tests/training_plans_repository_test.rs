@@ -12,7 +12,10 @@ use anyhow::Result;
 use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::repositories::{SavePlanWeekParams, SaveTrainingPlanParams};
+use pierre_database::repositories::{
+    PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SavePlanWeekParams,
+    SaveTrainingPlanParams,
+};
 use pierre_memory::training_plans::{
     BlockPhase, GoalRace, PlanBlock, PlanStatus, PlannedDay, RacePriority, WeekStatus,
 };
@@ -360,5 +363,182 @@ async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
         .expect("coach-specific plan");
     assert_eq!(seen.id, specific.id);
     assert_eq!(seen.coach_slug.as_deref(), Some("endurance-coach"));
+    Ok(())
+}
+
+fn outline_input<'a>(race: &'a GoalRace, blocks: &'a [PlanBlock]) -> PlanOutlineInput<'a> {
+    PlanOutlineInput {
+        goal_race: race,
+        races: &[],
+        strategy: "rebuild volume, race-specific tempo, taper into Aug 8",
+        blocks,
+        source_conversation_id: Some("conv-1"),
+    }
+}
+
+#[tokio::test]
+async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = blocks();
+    let days = week_days("2026-07-13");
+
+    let saved = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: Some("fact-goal-1"),
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume back up",
+                days: &days,
+                adjustment_reason: "",
+            }],
+        })
+        .await?;
+    assert_eq!(saved.weeks.len(), 1);
+    assert!(saved.superseded_plan_id.is_none());
+    assert_eq!(saved.plan.goal_race.name, "Big Red");
+
+    // Both the outline and the week are durably present.
+    let got = repos
+        .training_plans
+        .get_active_plan(&tenant, &user, Some("endurance-coach"))
+        .await?
+        .expect("plan present");
+    assert_eq!(got.id, saved.plan.id);
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &got.id, false)
+        .await?;
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(weeks[0].days[1].intensity, "3x8min @ 88-93% FTP");
+    Ok(())
+}
+
+#[tokio::test]
+async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = blocks();
+
+    let plan = repos
+        .training_plans
+        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
+        .await?;
+
+    let days = week_days("2026-07-13");
+    let saved = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume",
+                days: &days,
+                adjustment_reason: "",
+            }],
+        })
+        .await?;
+    assert_eq!(saved.plan.id, plan.id, "weeks attach to the active plan");
+    assert_eq!(saved.weeks.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let days = week_days("2026-07-13");
+
+    let result = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume",
+                days: &days,
+                adjustment_reason: "",
+            }],
+        })
+        .await;
+    assert!(result.is_err(), "weeks with no active plan must error");
+
+    // The transaction rolled back: no plan, no orphan week.
+    assert!(repos
+        .training_plans
+        .get_active_plan(&tenant, &user, Some("endurance-coach"))
+        .await?
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = blocks();
+
+    let first = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[],
+        })
+        .await?;
+
+    let second = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[],
+        })
+        .await?;
+    assert_eq!(
+        second.superseded_plan_id.as_deref(),
+        Some(first.plan.id.as_str()),
+        "the re-save supersedes the first plan"
+    );
+    assert_ne!(second.plan.id, first.plan.id);
+
+    // Exactly one active plan remains.
+    let active = repos
+        .training_plans
+        .get_active_plan(&tenant, &user, Some("endurance-coach"))
+        .await?
+        .expect("active plan");
+    assert_eq!(active.id, second.plan.id);
+    assert_eq!(active.status, PlanStatus::Active);
     Ok(())
 }

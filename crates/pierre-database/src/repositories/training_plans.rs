@@ -54,6 +54,70 @@ pub struct SavePlanWeekParams<'a> {
     pub adjustment_reason: &'a str,
 }
 
+/// The outline half of a [`SavePlanBundleParams`]. Mirrors
+/// [`SaveTrainingPlanParams`] minus the identity fields the bundle already
+/// carries — the bundle applies one tenant/user/coach to outline and weeks
+/// alike.
+pub struct PlanOutlineInput<'a> {
+    /// Snapshot of the goal race at plan time.
+    pub goal_race: &'a GoalRace,
+    /// Secondary races on the calendar.
+    pub races: &'a [GoalRace],
+    /// The coach's strategy in prose.
+    pub strategy: &'a str,
+    /// Ordered mesocycle blocks.
+    pub blocks: &'a [PlanBlock],
+    /// Conversation the plan was agreed in, for provenance.
+    pub source_conversation_id: Option<&'a str>,
+}
+
+/// One week of a [`SavePlanBundleParams`] — like [`SavePlanWeekParams`] but
+/// without `plan_id`: the bundle resolves the plan (fresh outline insert or
+/// existing active plan) once and attaches every week to it inside the same
+/// transaction.
+pub struct PlanWeekInput<'a> {
+    /// Civil date of the week's first day, `YYYY-MM-DD`.
+    pub week_start: &'a str,
+    /// The week's intent in coach voice.
+    pub focus: &'a str,
+    /// The day rows, in date order (at most seven).
+    pub days: &'a [PlannedDay],
+    /// Why the coach re-saved this week; empty on first save.
+    pub adjustment_reason: &'a str,
+}
+
+/// A whole atomic save: an optional outline plus zero or more weeks, all
+/// committed in a single transaction (see
+/// [`TrainingPlanRepository::save_plan_bundle`]).
+pub struct SavePlanBundleParams<'a> {
+    /// Owning tenant.
+    pub tenant_id: &'a str,
+    /// Athlete the plan is for.
+    pub user_id: &'a str,
+    /// Coach persona slug, or `None` for a coach-agnostic plan.
+    pub coach_slug: Option<&'a str>,
+    /// Pillar `Goal` user-fact this plan serves, when linked.
+    pub goal_fact_id: Option<&'a str>,
+    /// New outline to create (superseding the current active one), or `None`
+    /// to attach the weeks to the athlete's existing active plan.
+    pub outline: Option<PlanOutlineInput<'a>>,
+    /// Weeks to save, each superseding the plan's current active row for its
+    /// `week_start`.
+    pub weeks: &'a [PlanWeekInput<'a>],
+}
+
+/// Result of [`TrainingPlanRepository::save_plan_bundle`]: the active plan the
+/// weeks attached to, the weeks saved, and the outline this save superseded
+/// (when an outline was created).
+pub struct SavedPlanBundle {
+    /// The active plan (freshly created, or the existing one weeks attached to).
+    pub plan: TrainingPlan,
+    /// The weeks persisted by this save, in input order.
+    pub weeks: Vec<PlanWeek>,
+    /// The outline this save superseded, if any.
+    pub superseded_plan_id: Option<String>,
+}
+
 /// Persistence for coach-authored training plans.
 ///
 /// Plans are **tenant-scoped**: every query carries `tenant_id` in its
@@ -78,6 +142,19 @@ pub trait TrainingPlanRepository: Send + Sync {
     /// `plan_id` is not an existing plan of this tenant + user — a week must
     /// never attach to another athlete's plan.
     async fn save_plan_week(&self, params: &SavePlanWeekParams<'_>) -> AppResult<PlanWeek>;
+
+    /// Atomically persist an optional outline plus zero or more weeks in a
+    /// **single transaction**, so a mid-payload failure can never leave the
+    /// athlete with a superseded old plan and a half-populated new one.
+    ///
+    /// With an outline: supersedes the current active plan and inserts the new
+    /// one, then attaches every week to it. Without an outline: resolves the
+    /// athlete's existing active plan (erroring if none) and attaches the
+    /// weeks. Either way the whole set commits or none of it does.
+    async fn save_plan_bundle(
+        &self,
+        params: &SavePlanBundleParams<'_>,
+    ) -> AppResult<SavedPlanBundle>;
 
     /// Fetch the athlete's active outline. When `coach_slug` is `Some`,
     /// prefers that coach's plan and falls back to a coach-agnostic (`''`)
@@ -280,5 +357,99 @@ pub(crate) fn week_insert_values(params: &SavePlanWeekParams<'_>) -> AppResult<W
         id: uuid::Uuid::new_v4().to_string(),
         days_json,
         now: Utc::now().timestamp(),
+    })
+}
+
+/// Fields of a freshly persisted outline row, shared so both backends
+/// construct the returned [`TrainingPlan`] identically.
+pub(crate) struct BuiltPlan<'a> {
+    /// New row id.
+    pub id: String,
+    /// Owning tenant.
+    pub tenant_id: &'a str,
+    /// Athlete the plan is for.
+    pub user_id: &'a str,
+    /// Coach slug (`None` = coach-agnostic).
+    pub coach_slug: Option<&'a str>,
+    /// Linked pillar Goal fact, if any.
+    pub goal_fact_id: Option<&'a str>,
+    /// Goal-race snapshot.
+    pub goal_race: &'a GoalRace,
+    /// Secondary races.
+    pub races: &'a [GoalRace],
+    /// Strategy prose.
+    pub strategy: &'a str,
+    /// Mesocycle blocks.
+    pub blocks: &'a [PlanBlock],
+    /// Outline this row superseded, if any.
+    pub superseded: Option<String>,
+    /// Provenance conversation.
+    pub source_conversation_id: Option<&'a str>,
+    /// Insert timestamp (epoch seconds).
+    pub now: i64,
+}
+
+/// Construct the [`TrainingPlan`] returned after an insert. Shared by both
+/// backends and by the bundle path so the mapping lives in one place.
+pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
+    let created = epoch_to_datetime(b.now, "created_at")?;
+    Ok(TrainingPlan {
+        id: b.id,
+        tenant_id: b.tenant_id.to_owned(),
+        user_id: b.user_id.to_owned(),
+        coach_slug: b.coach_slug.map(str::to_owned),
+        goal_fact_id: b.goal_fact_id.map(str::to_owned),
+        goal_race: b.goal_race.clone(),
+        races: b.races.to_vec(),
+        strategy: b.strategy.to_owned(),
+        blocks: b.blocks.to_vec(),
+        status: PlanStatus::Active,
+        supersedes_id: b.superseded,
+        source_conversation_id: b.source_conversation_id.map(str::to_owned),
+        created_at: created,
+        updated_at: created,
+    })
+}
+
+/// Fields of a freshly persisted week row, shared across backends.
+pub(crate) struct BuiltWeek<'a> {
+    /// New row id.
+    pub id: String,
+    /// Owning tenant.
+    pub tenant_id: &'a str,
+    /// Athlete the week is for.
+    pub user_id: &'a str,
+    /// Plan the week belongs to.
+    pub plan_id: &'a str,
+    /// Civil week start.
+    pub week_start: &'a str,
+    /// Week focus.
+    pub focus: &'a str,
+    /// Day rows.
+    pub days: &'a [PlannedDay],
+    /// Week row this one superseded, if any.
+    pub superseded: Option<String>,
+    /// Adjustment reason.
+    pub adjustment_reason: &'a str,
+    /// Insert timestamp (epoch seconds).
+    pub now: i64,
+}
+
+/// Construct the [`PlanWeek`] returned after an insert. Shared by both backends.
+pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
+    let created = epoch_to_datetime(b.now, "created_at")?;
+    Ok(PlanWeek {
+        id: b.id,
+        tenant_id: b.tenant_id.to_owned(),
+        user_id: b.user_id.to_owned(),
+        plan_id: b.plan_id.to_owned(),
+        week_start: b.week_start.to_owned(),
+        focus: b.focus.to_owned(),
+        days: b.days.to_vec(),
+        status: WeekStatus::Active,
+        supersedes_id: b.superseded,
+        adjustment_reason: b.adjustment_reason.to_owned(),
+        created_at: created,
+        updated_at: created,
     })
 }

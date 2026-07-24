@@ -8,7 +8,9 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::models::TenantId;
+use pierre_core::models::{Pillar, TenantId};
+use pierre_database::repositories::UpsertUserFactParams;
+use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -363,5 +365,312 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     )
     .await;
     assert_eq!(during_walk, "BASE PROMPT");
+    Ok(())
+}
+
+/// Count the athlete's coach-agnostic `target race` Goal facts — the row the
+/// pillar loop is supposed to converge on exactly one of.
+async fn agnostic_goal_facts(
+    executor: &UniversalToolExecutor,
+    tenant_id: &str,
+    user_id: Uuid,
+) -> Result<Vec<(String, String)>> {
+    let tenant = TenantId::from(Uuid::parse_str(tenant_id)?);
+    let facts = executor
+        .resources
+        .repos()
+        .memory
+        .list_user_facts(
+            tenant,
+            &user_id.to_string(),
+            None,
+            Some(pierre_memory::FactKind::Goal),
+            200,
+        )
+        .await?;
+    Ok(facts
+        .into_iter()
+        .filter(|f| f.coach_id.is_none() && f.predicate == "target race")
+        .map(|f| (f.id, f.object))
+        .collect())
+}
+
+#[tokio::test]
+async fn resaving_an_outline_does_not_duplicate_the_goal_fact() -> Result<()> {
+    // F3: re-sending the same outline (the documented normal flow) without
+    // echoing goal_fact_id back must NOT mint a second Goal fact.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let first = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let first_fact = first.result.expect("result")["goal_fact_id"]
+        .as_str()
+        .expect("goal fact")
+        .to_owned();
+
+    // Re-save the identical outline — no goal_fact_id supplied.
+    let second = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let second_fact = second.result.expect("result")["goal_fact_id"]
+        .as_str()
+        .expect("goal fact")
+        .to_owned();
+
+    assert_eq!(
+        first_fact, second_fact,
+        "an identical re-save must reuse the same goal fact"
+    );
+    let facts = agnostic_goal_facts(&executor, &tenant_id, user_id).await?;
+    assert_eq!(
+        facts.len(),
+        1,
+        "exactly one coach-agnostic goal fact, got {facts:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn changing_the_goal_race_keeps_one_current_goal_fact() -> Result<()> {
+    // F3: a genuinely different goal race replaces the prior agnostic goal
+    // fact — still exactly one row, now reflecting the new race.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+
+    let mut changed = full_plan_payload();
+    changed["outline"]["goal_race"]["name"] = json!("Autumn Gravel");
+    changed["outline"]["goal_race"]["date"] = json!("2026-09-19");
+    executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            changed,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+
+    let facts = agnostic_goal_facts(&executor, &tenant_id, user_id).await?;
+    assert_eq!(facts.len(), 1, "still exactly one goal fact, got {facts:?}");
+    assert!(
+        facts[0].1.contains("Autumn Gravel"),
+        "goal fact must reflect the new race: {facts:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn oversized_strategy_is_rejected_with_no_write() -> Result<()> {
+    // F6: an unbounded field would inflate every future system prompt.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut payload = full_plan_payload();
+    payload["outline"]["strategy"] = json!("x".repeat(5_000));
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await;
+    let refused = match save {
+        Err(_) => true,
+        Ok(resp) => !resp.success,
+    };
+    assert!(refused, "an oversized strategy must be rejected");
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        get.result.expect("result")["plan"].is_null(),
+        "no plan may survive a rejected oversized save"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn unknown_goal_fact_id_is_dropped_and_replaced() -> Result<()> {
+    // F7: an LLM-supplied goal_fact_id that isn't a real fact of this athlete
+    // must not be persisted as a link; a real one is minted instead.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut payload = full_plan_payload();
+    payload["goal_fact_id"] = json!("00000000-0000-0000-0000-000000000000");
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "save failed: {:?}", save.error);
+    let linked = save.result.expect("result")["goal_fact_id"]
+        .as_str()
+        .expect("goal fact")
+        .to_owned();
+    assert_ne!(
+        linked, "00000000-0000-0000-0000-000000000000",
+        "a bogus goal_fact_id must be dropped, not stored"
+    );
+    let facts = agnostic_goal_facts(&executor, &tenant_id, user_id).await?;
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].0, linked, "the linked fact must be the minted one");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
+    // F7 regression: a plan links only to a Goal fact, and the staleness read
+    // sees only Goal facts. An LLM-supplied goal_fact_id that is a real but
+    // NON-Goal fact of this athlete must be dropped (else the plan would read
+    // stale forever), and a real Goal fact minted in its place.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+
+    // A genuine non-Goal fact the LLM could echo back from recalled memory.
+    let schedule_fact = executor
+        .resources
+        .repos()
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: tenant,
+            user_id: &user_id.to_string(),
+            coach_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Schedule,
+            pillar: Some(Pillar::TrainingAndMovement),
+            subject: "you",
+            predicate: "can train on",
+            object: "Tuesday and Thursday evenings",
+            confidence: 0.9,
+            source: FactSource::Conversation,
+            valid_until: None,
+            source_msg_id: None,
+            embedding: None,
+        })
+        .await?;
+
+    let mut payload = full_plan_payload();
+    payload["goal_fact_id"] = json!(schedule_fact.id);
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "save failed: {:?}", save.error);
+    let linked = save.result.expect("result")["goal_fact_id"]
+        .as_str()
+        .expect("goal fact")
+        .to_owned();
+    assert_ne!(
+        linked, schedule_fact.id,
+        "a non-Goal fact id must not be linked as the plan's goal"
+    );
+
+    // The plan is fresh, so the read must NOT flag it stale.
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert_eq!(
+        get.result.expect("result")["goal_stale"],
+        false,
+        "a plan linked to a real minted Goal fact must not read stale"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
+    // F7: the plan snapshots the goal; when the living goal fact disappears
+    // the read flags the snapshot stale so the coach re-confirms.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let goal_fact_id = save.result.expect("result")["goal_fact_id"]
+        .as_str()
+        .expect("goal fact")
+        .to_owned();
+
+    // A fresh plan is not stale.
+    let fresh = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert_eq!(fresh.result.expect("result")["goal_stale"], false);
+
+    // Remove the living goal fact, then the snapshot reads stale.
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let removed = executor
+        .resources
+        .repos()
+        .memory
+        .delete_user_fact(&goal_fact_id, tenant, &user_id.to_string())
+        .await?;
+    assert!(removed, "goal fact should have been deleted");
+
+    let stale = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert_eq!(
+        stale.result.expect("result")["goal_stale"],
+        true,
+        "a plan whose goal fact is gone must read stale"
+    );
     Ok(())
 }

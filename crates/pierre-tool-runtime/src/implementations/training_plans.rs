@@ -23,14 +23,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{
-    SavePlanWeekParams, SaveTrainingPlanParams, UpsertUserFactParams,
+    PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
+use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanBlock, PlannedDay, MAX_DAYS_PER_WEEK,
+    parse_plan_date, GoalRace, PlanBlock, PlannedDay, RacePriority, MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::warn;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -267,14 +269,53 @@ struct WeekPayload {
     adjustment_reason: String,
 }
 
-/// Validate every date/shape constraint BEFORE any write so a rejected week
-/// can never leave a half-saved plan behind (the repo calls are separate
-/// transactions; validation is the atomicity line).
+/// Upper bounds on free-text and collection sizes in a save payload. A plan is
+/// rendered verbatim into every future system prompt, so an unbounded (or
+/// adversarial) save would inflate token cost on every turn; these caps keep a
+/// single degenerate save from doing that. Generous enough that no real coach
+/// plan hits them.
+const MAX_STRATEGY_LEN: usize = 4_000;
+const MAX_TEXT_LEN: usize = 1_000;
+const MAX_SHORT_TEXT_LEN: usize = 200;
+const MAX_RACES: usize = 12;
+const MAX_BLOCKS: usize = 24;
+const MAX_TARGET_HOURS: f32 = 60.0;
+const MAX_DURATION_MIN: u32 = 24 * 60;
+
+/// Reject a text field longer than `max` Unicode scalar values.
+fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
+    let len = value.chars().count();
+    if len > max {
+        return Err(AppError::invalid_input(format!(
+            "{field} is too long ({len} chars; max {max})"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate every date/shape/size constraint BEFORE any write so a rejected
+/// payload can never begin a partial save.
 fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     if parse_plan_date(&outline.goal_race.date).is_none() {
         return Err(AppError::invalid_input(format!(
             "goal_race.date must be YYYY-MM-DD, got '{}'",
             outline.goal_race.date
+        )));
+    }
+    bounded(
+        "goal_race.name",
+        &outline.goal_race.name,
+        MAX_SHORT_TEXT_LEN,
+    )?;
+    bounded(
+        "goal_race.discipline",
+        &outline.goal_race.discipline,
+        MAX_SHORT_TEXT_LEN,
+    )?;
+    if outline.races.len() > MAX_RACES {
+        return Err(AppError::invalid_input(format!(
+            "too many races ({}; max {MAX_RACES})",
+            outline.races.len()
         )));
     }
     for race in &outline.races {
@@ -284,16 +325,25 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
                 race.name, race.date
             )));
         }
+        bounded("race.name", &race.name, MAX_SHORT_TEXT_LEN)?;
+        bounded("race.discipline", &race.discipline, MAX_SHORT_TEXT_LEN)?;
     }
     if outline.strategy.trim().is_empty() {
         return Err(AppError::invalid_input(
             "outline.strategy must state the coach's plan in prose",
         ));
     }
+    bounded("outline.strategy", &outline.strategy, MAX_STRATEGY_LEN)?;
     if outline.blocks.is_empty() {
         return Err(AppError::invalid_input(
             "outline.blocks must contain at least one block",
         ));
+    }
+    if outline.blocks.len() > MAX_BLOCKS {
+        return Err(AppError::invalid_input(format!(
+            "too many blocks ({}; max {MAX_BLOCKS})",
+            outline.blocks.len()
+        )));
     }
     for block in &outline.blocks {
         if parse_plan_date(&block.start).is_none() {
@@ -304,6 +354,14 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         }
         if block.weeks == 0 {
             return Err(AppError::invalid_input("block weeks must be >= 1"));
+        }
+        bounded("block.intent", &block.intent, MAX_TEXT_LEN)?;
+        if let Some(hours) = block.target_hours {
+            if !(0.0..=MAX_TARGET_HOURS).contains(&hours) {
+                return Err(AppError::invalid_input(format!(
+                    "block target_hours must be between 0 and {MAX_TARGET_HOURS}, got {hours}"
+                )));
+            }
         }
     }
     Ok(())
@@ -330,6 +388,12 @@ fn validate_week(week: &WeekPayload) -> AppResult<()> {
             week.days.len()
         )));
     }
+    bounded("week.focus", &week.focus, MAX_TEXT_LEN)?;
+    bounded(
+        "week.adjustment_reason",
+        &week.adjustment_reason,
+        MAX_TEXT_LEN,
+    )?;
     for day in &week.days {
         let Some(date) = parse_plan_date(&day.date) else {
             return Err(AppError::invalid_input(format!(
@@ -350,8 +414,159 @@ fn validate_week(week: &WeekPayload) -> AppResult<()> {
                 day.date
             )));
         }
+        bounded("day.sport", &day.sport, MAX_SHORT_TEXT_LEN)?;
+        bounded("day.workout", &day.workout, MAX_TEXT_LEN)?;
+        bounded("day.intensity", &day.intensity, MAX_SHORT_TEXT_LEN)?;
+        if let Some(mins) = day.duration_min {
+            if mins > MAX_DURATION_MIN {
+                return Err(AppError::invalid_input(format!(
+                    "day {} duration_min {mins} exceeds {MAX_DURATION_MIN}",
+                    day.date
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+/// Subject/predicate the coach-agnostic goal `user_fact` is written under. The
+/// save converges every outline on a single fact with this identity so
+/// `/pillars` and conversational goal-stating never fork into duplicates.
+const GOAL_SUBJECT: &str = "you";
+const GOAL_PREDICATE: &str = "target race";
+
+/// Render a race priority (`A`/`B`/`C`) as its serialized string.
+fn race_priority_str(priority: RacePriority) -> String {
+    serde_json::to_value(priority)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// The `object` phrase stored for a goal-race `user_fact`.
+fn goal_object(race: &GoalRace) -> String {
+    format!(
+        "{} ({}) on {} — priority {}",
+        race.name,
+        race.discipline,
+        race.date,
+        race_priority_str(race.priority)
+    )
+}
+
+/// Resolve the coach the plan is bound to. The conversation's coach is
+/// authoritative when the call originates in a Pierre conversation — the plan
+/// injection (Stage 7f.2) keys on it, so trusting an LLM-supplied `coach_id`
+/// instead would save a plan under a slug the injection never reads (a plan
+/// "saved but not showing"). Only MCP-direct / A2A calls with no conversation
+/// fall back to the argument.
+async fn resolve_coach_slug(
+    repos: &RepositoryRegistry,
+    conversation_id: Option<&str>,
+    tenant: TenantId,
+    user_id: &str,
+    arg_coach: Option<String>,
+) -> AppResult<Option<String>> {
+    if let Some(conv_id) = conversation_id {
+        if let Some(conv) = repos
+            .chat
+            .get_conversation(conv_id, user_id, tenant)
+            .await?
+        {
+            return Ok(conv.coach_id);
+        }
+    }
+    Ok(arg_coach)
+}
+
+/// `true` when `fact_id` is a real `Goal` fact of this tenant + user. Guards
+/// against an LLM-supplied `goal_fact_id` that never existed, points at another
+/// athlete's fact, or is a non-`Goal` fact — a plan links only to a Goal fact,
+/// and [`plan_goal_is_stale`] can see only Goal facts, so a non-Goal link would
+/// read stale forever. Such a value is dropped rather than persisted.
+async fn fact_belongs_to_user(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    fact_id: &str,
+) -> AppResult<bool> {
+    let facts = repos
+        .memory
+        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 500)
+        .await?;
+    Ok(facts.iter().any(|f| f.id == fact_id))
+}
+
+/// Ensure exactly one current coach-agnostic goal `user_fact` for the outline's
+/// goal race, returning its id. Idempotent: an identical goal already stored is
+/// reused (no churn on a re-save); a changed goal replaces the prior agnostic
+/// goal fact(s) so the pillar view never accumulates duplicates.
+async fn ensure_goal_fact(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    goal_race: &GoalRace,
+) -> AppResult<String> {
+    let object = goal_object(goal_race);
+    let facts = repos
+        .memory
+        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
+        .await?;
+    let agnostic_targets: Vec<&_> = facts
+        .iter()
+        .filter(|f| f.coach_id.is_none() && f.predicate == GOAL_PREDICATE)
+        .collect();
+    if let Some(existing) = agnostic_targets.iter().find(|f| f.object == object) {
+        return Ok(existing.id.clone());
+    }
+    for stale in &agnostic_targets {
+        repos
+            .memory
+            .delete_user_fact(&stale.id, tenant, user_id)
+            .await?;
+    }
+    let fact = repos
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: tenant,
+            user_id,
+            coach_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Goal,
+            pillar: Some(Pillar::TrainingAndMovement),
+            subject: GOAL_SUBJECT,
+            predicate: GOAL_PREDICATE,
+            object: &object,
+            confidence: 0.95,
+            source: FactSource::Coach,
+            valid_until: None,
+            source_msg_id: None,
+            embedding: None,
+        })
+        .await?;
+    Ok(fact.id)
+}
+
+/// `true` when the plan's linked goal fact has expired (its `valid_until` is in
+/// the past), meaning the living goal moved on and the plan snapshot is stale.
+/// Backs the migration's "goal superseded => plan flagged stale on read".
+async fn plan_goal_is_stale(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    goal_fact_id: &str,
+) -> AppResult<bool> {
+    let facts = repos
+        .memory
+        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
+        .await?;
+    let now = chrono::Utc::now();
+    // A missing linked fact (deleted / replaced) means the snapshot no longer
+    // reflects a living goal, so treat it as stale.
+    Ok(facts
+        .iter()
+        .find(|f| f.id == goal_fact_id)
+        .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
 }
 
 // ============================================================================
@@ -406,15 +621,24 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?).to_string();
+            let tenant = TenantId::from(context.require_tenant()?);
+            let tenant_id = tenant.to_string();
             let user_id = ctx_user_id(&context);
-            let coach = optional_string_field(&args, "coach_id");
+            let arg_coach = optional_string_field(&args, "coach_id");
             let include_history = args
                 .get("include_history")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
 
             let repos = context.resources.repos();
+            let coach = resolve_coach_slug(
+                repos,
+                context.conversation_id.as_deref(),
+                tenant,
+                &user_id,
+                arg_coach,
+            )
+            .await?;
             let Some(plan) = repos
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id, coach.as_deref())
@@ -429,10 +653,17 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .training_plans
                 .list_plan_weeks(&tenant_id, &user_id, &plan.id, include_history)
                 .await?;
+            // The plan snapshots the goal at save time; flag it stale if the
+            // living goal fact has since expired so the coach re-confirms.
+            let goal_stale = match plan.goal_fact_id.as_deref() {
+                Some(fid) => plan_goal_is_stale(repos, tenant, &user_id, fid).await?,
+                None => false,
+            };
 
             Ok(ToolResult::ok(json!({
                 "plan": plan,
                 "weeks": weeks,
+                "goal_stale": goal_stale,
             })))
         }
         .await;
@@ -537,7 +768,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             let tenant = TenantId::from(context.require_tenant()?);
             let tenant_id = tenant.to_string();
             let user_id = ctx_user_id(&context);
-            let coach = optional_string_field(&args, "coach_id");
+            let arg_coach = optional_string_field(&args, "coach_id");
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");
 
@@ -576,103 +807,85 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             let repos = context.resources.repos();
 
+            // The conversation's coach — not the LLM's argument — is authoritative
+            // so save and plan injection agree on the coach slug.
+            let coach = resolve_coach_slug(
+                repos,
+                context.conversation_id.as_deref(),
+                tenant,
+                &user_id,
+                arg_coach,
+            )
+            .await?;
+
+            // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
+            // this athlete — drop it and let the outline path mint/reuse one.
+            if let Some(fid) = goal_fact_id.clone() {
+                if !fact_belongs_to_user(repos, tenant, &user_id, &fid).await? {
+                    warn!("save_training_plan: dropping unknown goal_fact_id");
+                    goal_fact_id = None;
+                }
+            }
+
             // Close the pillar loop: an outline whose goal race has no linked
-            // Goal fact writes one, so the living goal and the plan snapshot
-            // stay connected (and /pillars re-screens converge on this row).
+            // Goal fact converges on one coach-agnostic Goal fact (the athlete's
+            // truth, shared across coaches and the /pillars walk) — idempotent
+            // so a re-save never mints a duplicate.
             if let (Some(o), None) = (&outline, &goal_fact_id) {
-                let object = format!(
-                    "{} ({}) on {} — priority {}",
-                    o.goal_race.name,
-                    o.goal_race.discipline,
-                    o.goal_race.date,
-                    serde_json::to_value(o.goal_race.priority)
-                        .ok()
-                        .and_then(|v| v.as_str().map(str::to_owned))
-                        .unwrap_or_default(),
-                );
-                // The goal is the ATHLETE's truth, not coach-scoped: any coach
-                // (and the /pillars walk) must converge on this same fact row,
-                // so it is written coach-agnostic.
-                let fact = repos
-                    .memory
-                    .upsert_user_fact(&UpsertUserFactParams {
-                        tenant_id: tenant,
-                        user_id: &user_id,
-                        coach_id: None,
-                        scope: MemoryScope::User,
-                        kind: FactKind::Goal,
-                        pillar: Some(Pillar::TrainingAndMovement),
-                        subject: "you",
-                        predicate: "target race",
-                        object: &object,
-                        confidence: 0.95,
-                        source: FactSource::Coach,
-                        valid_until: None,
-                        source_msg_id: None,
-                        embedding: None,
-                    })
-                    .await?;
-                goal_fact_id = Some(fact.id);
+                goal_fact_id = Some(ensure_goal_fact(repos, tenant, &user_id, &o.goal_race).await?);
             }
 
-            // Resolve the plan the weeks attach to: a fresh outline save, or
-            // the athlete's existing active plan.
-            let (plan_id, superseded_plan_id, race_summary) = if let Some(o) = &outline {
-                let saved = repos
-                    .training_plans
-                    .save_training_plan(&SaveTrainingPlanParams {
-                        tenant_id: &tenant_id,
-                        user_id: &user_id,
-                        coach_slug: coach.as_deref(),
-                        goal_fact_id: goal_fact_id.as_deref(),
-                        goal_race: &o.goal_race,
-                        races: &o.races,
-                        strategy: &o.strategy,
-                        blocks: &o.blocks,
-                        source_conversation_id: conversation_id.as_deref(),
-                    })
-                    .await?;
-                let summary = format!("{} on {}", saved.goal_race.name, saved.goal_race.date);
-                (saved.id, saved.supersedes_id, summary)
-            } else {
-                let existing = repos
-                    .training_plans
-                    .get_active_plan(&tenant_id, &user_id, coach.as_deref())
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::invalid_input(
-                            "no active plan to attach weeks to — save an outline first",
-                        )
-                    })?;
-                let summary = format!("{} on {}", existing.goal_race.name, existing.goal_race.date);
-                (existing.id, None, summary)
-            };
+            // Persist the outline and every week in ONE transaction so a
+            // mid-payload failure can't strand a superseded plan with a
+            // half-saved successor.
+            let week_inputs: Vec<PlanWeekInput<'_>> = weeks
+                .iter()
+                .map(|w| PlanWeekInput {
+                    week_start: &w.week_start,
+                    focus: &w.focus,
+                    days: &w.days,
+                    adjustment_reason: &w.adjustment_reason,
+                })
+                .collect();
+            let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
+                goal_race: &o.goal_race,
+                races: &o.races,
+                strategy: &o.strategy,
+                blocks: &o.blocks,
+                source_conversation_id: conversation_id.as_deref(),
+            });
+            let bundle = repos
+                .training_plans
+                .save_plan_bundle(&SavePlanBundleParams {
+                    tenant_id: &tenant_id,
+                    user_id: &user_id,
+                    coach_slug: coach.as_deref(),
+                    goal_fact_id: goal_fact_id.as_deref(),
+                    outline: outline_input,
+                    weeks: &week_inputs,
+                })
+                .await?;
 
-            let mut week_ids = Vec::with_capacity(weeks.len());
-            for week in &weeks {
-                let saved = repos
-                    .training_plans
-                    .save_plan_week(&SavePlanWeekParams {
-                        tenant_id: &tenant_id,
-                        user_id: &user_id,
-                        plan_id: &plan_id,
-                        week_start: &week.week_start,
-                        focus: &week.focus,
-                        days: &week.days,
-                        adjustment_reason: &week.adjustment_reason,
+            let race_summary = format!(
+                "{} on {}",
+                bundle.plan.goal_race.name, bundle.plan.goal_race.date
+            );
+            let week_ids: Vec<Value> = bundle
+                .weeks
+                .iter()
+                .map(|saved| {
+                    json!({
+                        "week_start": saved.week_start,
+                        "week_id": saved.id,
+                        "superseded": saved.supersedes_id.is_some(),
                     })
-                    .await?;
-                week_ids.push(json!({
-                    "week_start": saved.week_start,
-                    "week_id": saved.id,
-                    "superseded": saved.supersedes_id.is_some(),
-                }));
-            }
+                })
+                .collect();
 
             Ok(ToolResult::ok(json!({
-                "plan_id": plan_id,
+                "plan_id": bundle.plan.id,
                 "goal_race": race_summary,
-                "superseded_plan_id": superseded_plan_id,
+                "superseded_plan_id": bundle.superseded_plan_id,
                 "goal_fact_id": goal_fact_id,
                 "weeks_saved": week_ids.len(),
                 "weeks": week_ids,
@@ -692,5 +905,8 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-crate::declare_security!(GetTrainingPlanTool => empty);
+// A stored plan is conversation-derived text (coach/LLM-authored strategy,
+// block intents, day workouts) re-entering the LLM context — the same
+// untrusted-content class as recalled memory, so a read taints the turn.
+crate::declare_security!(GetTrainingPlanTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(SaveTrainingPlanTool => empty);
