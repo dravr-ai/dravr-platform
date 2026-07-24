@@ -168,13 +168,21 @@ pub fn scan_assistant_reply(
     }
 }
 
-/// Log a model-identity leak (« I'm GitHub Copilot CLI ») at `error` so it is
-/// alertable in Cloud Logging. Split out of [`scan_assistant_reply`] to keep
-/// that function within the cognitive-complexity budget; the raw reply is
-/// never logged — the detection fields are enough to alert on and content/PII
-/// stays out.
+/// Log a model-identity leak (« I'm GitHub Copilot CLI ») at `warn`. The
+/// operator-facing alert for a withheld identity leak is the curated
+/// `messaging.identity_leak` notify event — emitted from the messaging dispatch
+/// path and deduplicated per tenant on `#dravr-signal`. Logging this line at
+/// `error` as well would double-page: `dravr-tronc`'s `ErrorNotificationLayer`
+/// firehoses every `error!` on the platform to `#pierre-errors`, so an identity
+/// leak surfaced there *and* on `#dravr-signal`. A withheld identity leak is a
+/// handled, expected safety outcome (the reply never reached the user), not an
+/// operational error like a canary exfiltration — `warn` is the honest level
+/// and keeps the detection searchable in Cloud Logging without the duplicate
+/// page. Split out of [`scan_assistant_reply`] to keep that function within the
+/// cognitive-complexity budget; the raw reply is never logged — the detection
+/// fields are enough and content/PII stays out.
 fn log_identity_leak(tenant_id: TenantId, coach_id: Option<&str>, sha256: &str, reply_len: usize) {
-    error!(
+    warn!(
         tenant_id = %tenant_id,
         coach_id = %coach_id.unwrap_or("<none>"),
         sha256 = %sha256,
