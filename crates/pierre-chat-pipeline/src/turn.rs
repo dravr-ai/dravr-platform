@@ -7,6 +7,7 @@
 //! Turn input and output types for [`super::run`].
 
 use pierre_core::models::ConversationTurnId;
+use pierre_core::narration::IdentityLeakMatch;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use pierre_core::models::TenantId;
@@ -135,8 +136,9 @@ pub struct DispatchResult {
     /// Conversation record reloaded after the assistant message landed —
     /// carries the updated `updated_at` / `summary` fields.
     pub conversation: ConversationRecord,
-    /// `true` when the assistant reply was withheld because it identified as
+    /// `Some` when the assistant reply was withheld because it identified as
     /// the underlying model/provider (a persona break). The messaging path
-    /// emits the `messaging.identity_leak` notify event when this is set.
-    pub identity_leak: bool,
+    /// emits the `messaging.identity_leak` notify event when this is set,
+    /// labeled with the matched pattern's class/locale.
+    pub identity_leak: Option<IdentityLeakMatch>,
 }

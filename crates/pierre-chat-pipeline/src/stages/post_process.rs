@@ -13,7 +13,7 @@ use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
 use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
-use pierre_core::narration::scrub_internal_narration;
+use pierre_core::narration::{scrub_internal_narration, IdentityLeakMatch};
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
@@ -49,11 +49,12 @@ pub(crate) struct PostProcessedReply {
     /// playbook advice capture — must skip the turn: a canned string holds
     /// nothing to learn, and the withheld original must never be ingested.
     pub leak_replaced: bool,
-    /// `true` when the reply was withheld specifically because it identified
+    /// `Some` when the reply was withheld specifically because it identified
     /// as the underlying model/provider (a persona break), as opposed to a
     /// canary hit or an emptied scrub. Threaded onto `DispatchResult` so the
-    /// messaging path can emit the `messaging.identity_leak` notify event.
-    pub identity_leak: bool,
+    /// messaging path can emit the `messaging.identity_leak` notify event
+    /// with the matched pattern's class/locale labels.
+    pub identity_leak: Option<IdentityLeakMatch>,
 }
 
 /// Borrowed inputs to [`post_process_assistant_reply`], bundled to stay within
@@ -114,7 +115,7 @@ pub(crate) async fn post_process_assistant_reply(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: true,
-            identity_leak: false,
+            identity_leak: None,
         };
     }
 
@@ -127,7 +128,7 @@ pub(crate) async fn post_process_assistant_reply(
     // learning and makes the *persisted* copy the withheld marker rather than
     // the refusal, so a poisoned turn can't replay into later prompts. The
     // detection is logged (alertable) inside `scan_assistant_reply`.
-    if leak_report.identity_hit {
+    if leak_report.identity_leak.is_some() {
         return PostProcessedReply {
             content: ctx
                 .messaging_strings_registry
@@ -136,7 +137,7 @@ pub(crate) async fn post_process_assistant_reply(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: true,
-            identity_leak: true,
+            identity_leak: leak_report.identity_leak,
         };
     }
 
@@ -162,7 +163,7 @@ pub(crate) async fn post_process_assistant_reply(
                 pending_verdicts: Vec::new(),
                 structured_content: Some(extraction.structured_content),
                 leak_replaced: false,
-                identity_leak: false,
+                identity_leak: None,
             };
         }
     }
@@ -190,7 +191,7 @@ pub(crate) async fn post_process_assistant_reply(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: true,
-            identity_leak: false,
+            identity_leak: None,
         };
     }
     // An untouched reply passes through byte-identical; only a fired scrub
@@ -274,6 +275,6 @@ pub(crate) async fn post_process_assistant_reply(
         pending_verdicts,
         structured_content: None,
         leak_replaced: false,
-        identity_leak: false,
+        identity_leak: None,
     }
 }

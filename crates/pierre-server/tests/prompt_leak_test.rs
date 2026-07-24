@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::models::TenantId;
+use pierre_core::narration::IdentityPatternClass;
 use pierre_services::prompt_leak::{harden_system_prompt, scan_assistant_reply};
 use uuid::Uuid;
 
@@ -44,6 +45,40 @@ fn canary_echo_trips_leak_detection() {
     let report = scan_assistant_reply(&guard, &malicious_reply, tenant(), Some("coach-1"));
     assert!(report.canary_hit);
     assert!(report.has_leak());
+}
+
+#[test]
+fn identity_flip_reply_reports_pattern_labels() {
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "You are a cycling coach.");
+    let report = scan_assistant_reply(
+        &guard,
+        "I'm GitHub Copilot CLI, a terminal-based coding assistant.",
+        tenant(),
+        Some("coach-1"),
+    );
+    let leak = report
+        .identity_leak
+        .expect("identity flip must be detected");
+    assert_eq!(leak.class, IdentityPatternClass::Product);
+    assert_eq!(leak.locale, "any");
+    assert!(report.has_leak());
+    assert!(!report.canary_hit);
+}
+
+#[test]
+fn french_roleplay_framing_reports_fr_locale() {
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "Tu es un coach de vélo.");
+    let report = scan_assistant_reply(
+        &guard,
+        "Je ne vais pas jouer le rôle d'un coach fictif.",
+        tenant(),
+        Some("coach-1"),
+    );
+    let leak = report
+        .identity_leak
+        .expect("french roleplay framing must be detected");
+    assert_eq!(leak.class, IdentityPatternClass::Roleplay);
+    assert_eq!(leak.locale, "fr");
 }
 
 #[test]

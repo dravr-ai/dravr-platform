@@ -157,6 +157,66 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "bloco colado",
 ];
 
+/// Coarse class of an identity-leak pattern.
+///
+/// Threaded into the leak telemetry (log fields / notify event) when a
+/// reply is withheld. The class + locale distinguish a true product flip
+/// (« I'm GitHub Copilot CLI ») from e.g. roleplay-refusal framing
+/// without ever logging the matched text or the reply itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityPatternClass {
+    /// Names the underlying product/model outright ("github copilot").
+    Product,
+    /// Describes itself as a coding assistant.
+    CodingAssistant,
+    /// Describes itself as a (large) language model.
+    LanguageModel,
+    /// Contrasts the persona with its "actual identity/environment".
+    ActualIdentity,
+    /// Frames the persona as a role-play to decline.
+    Roleplay,
+    /// Frames the persona/turn as a prompt-injection test.
+    Injection,
+}
+
+impl IdentityPatternClass {
+    /// Stable `snake_case` label for log/notify fields.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Product => "product",
+            Self::CodingAssistant => "coding_assistant",
+            Self::LanguageModel => "language_model",
+            Self::ActualIdentity => "actual_identity",
+            Self::Roleplay => "roleplay",
+            Self::Injection => "injection",
+        }
+    }
+}
+
+/// One entry of [`IDENTITY_NARRATION_PATTERNS`]: the folded-matchable
+/// phrase plus the coarse telemetry labels reported when it fires.
+/// `locale` is the language the phrase belongs to (`"any"` for
+/// language-independent product names, else `en`/`fr`/`es`/`de`/`pt`).
+struct IdentityPattern {
+    text: &'static str,
+    class: IdentityPatternClass,
+    locale: &'static str,
+}
+
+/// Shorthand constructor keeping the table below one-line-per-pattern.
+const fn ip(
+    text: &'static str,
+    class: IdentityPatternClass,
+    locale: &'static str,
+) -> IdentityPattern {
+    IdentityPattern {
+        text,
+        class,
+        locale,
+    }
+}
+
 /// Lowercase, separator-folded vocabulary that marks a reply as a
 /// **model-identity leak** — the coach describing itself as the underlying
 /// model/provider or framing its own persona as a roleplay/injection to be
@@ -170,81 +230,237 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
 /// play as" never appear in training advice. Product names (`github
 /// copilot`, `chatgpt`) are language-independent; the descriptive phrases
 /// ship in all five locales (fr/en/es/de/pt).
-const IDENTITY_NARRATION_PATTERNS: &[&str] = &[
+///
+/// Ordered by class conclusiveness — product names first — because
+/// [`identity_leak_match`] reports the first hit in table order when a
+/// reply matches several patterns.
+const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
     // Product / model self-identification (language-independent)
-    "github copilot",
-    "copilot cli",
-    "copilot chat",
-    "chatgpt",
-    "openai",
+    ip("github copilot", IdentityPatternClass::Product, "any"),
+    ip("copilot cli", IdentityPatternClass::Product, "any"),
+    ip("copilot chat", IdentityPatternClass::Product, "any"),
+    ip("chatgpt", IdentityPatternClass::Product, "any"),
+    ip("openai", IdentityPatternClass::Product, "any"),
     // English
-    "coding assistant",
-    "terminal-based coding assistant",
-    "command-line coding assistant",
-    "language model",
-    "large language model",
-    "actual identity",
-    "actual environment",
-    "role-play as",
-    "roleplay as",
-    "prompt injection",
-    "injection test",
+    ip(
+        "coding assistant",
+        IdentityPatternClass::CodingAssistant,
+        "en",
+    ),
+    ip(
+        "terminal-based coding assistant",
+        IdentityPatternClass::CodingAssistant,
+        "en",
+    ),
+    ip(
+        "command-line coding assistant",
+        IdentityPatternClass::CodingAssistant,
+        "en",
+    ),
+    ip("language model", IdentityPatternClass::LanguageModel, "en"),
+    ip(
+        "large language model",
+        IdentityPatternClass::LanguageModel,
+        "en",
+    ),
+    ip(
+        "actual identity",
+        IdentityPatternClass::ActualIdentity,
+        "en",
+    ),
+    ip(
+        "actual environment",
+        IdentityPatternClass::ActualIdentity,
+        "en",
+    ),
+    ip("role-play as", IdentityPatternClass::Roleplay, "en"),
+    ip("roleplay as", IdentityPatternClass::Roleplay, "en"),
+    ip("prompt injection", IdentityPatternClass::Injection, "en"),
+    ip("injection test", IdentityPatternClass::Injection, "en"),
     // French
-    "assistant de programmation",
-    "assistant de codage",
-    "assistant de code",
-    "modèle de langage",
-    "modele de langage",
-    "grand modèle de langage",
-    "grand modele de langage",
-    "véritable identité",
-    "veritable identite",
-    "vraie identité",
-    "vraie identite",
-    "identité réelle",
-    "identite reelle",
-    "jeu de rôle",
-    "jeu de role",
-    "jouer le rôle",
-    "jouer le role",
-    "test d'injection",
+    ip(
+        "assistant de programmation",
+        IdentityPatternClass::CodingAssistant,
+        "fr",
+    ),
+    ip(
+        "assistant de codage",
+        IdentityPatternClass::CodingAssistant,
+        "fr",
+    ),
+    ip(
+        "assistant de code",
+        IdentityPatternClass::CodingAssistant,
+        "fr",
+    ),
+    ip(
+        "modèle de langage",
+        IdentityPatternClass::LanguageModel,
+        "fr",
+    ),
+    ip(
+        "modele de langage",
+        IdentityPatternClass::LanguageModel,
+        "fr",
+    ),
+    ip(
+        "grand modèle de langage",
+        IdentityPatternClass::LanguageModel,
+        "fr",
+    ),
+    ip(
+        "grand modele de langage",
+        IdentityPatternClass::LanguageModel,
+        "fr",
+    ),
+    ip(
+        "véritable identité",
+        IdentityPatternClass::ActualIdentity,
+        "fr",
+    ),
+    ip(
+        "veritable identite",
+        IdentityPatternClass::ActualIdentity,
+        "fr",
+    ),
+    ip("vraie identité", IdentityPatternClass::ActualIdentity, "fr"),
+    ip("vraie identite", IdentityPatternClass::ActualIdentity, "fr"),
+    ip(
+        "identité réelle",
+        IdentityPatternClass::ActualIdentity,
+        "fr",
+    ),
+    ip(
+        "identite reelle",
+        IdentityPatternClass::ActualIdentity,
+        "fr",
+    ),
+    ip("jeu de rôle", IdentityPatternClass::Roleplay, "fr"),
+    ip("jeu de role", IdentityPatternClass::Roleplay, "fr"),
+    ip("jouer le rôle", IdentityPatternClass::Roleplay, "fr"),
+    ip("jouer le role", IdentityPatternClass::Roleplay, "fr"),
+    ip("test d'injection", IdentityPatternClass::Injection, "fr"),
     // Spanish
-    "asistente de programación",
-    "asistente de programacion",
-    "asistente de codificación",
-    "asistente de codificacion",
-    "modelo de lenguaje",
-    "identidad real",
-    "verdadera identidad",
-    "juego de rol",
-    "interpretar el papel",
-    "prueba de inyección",
-    "prueba de inyeccion",
+    ip(
+        "asistente de programación",
+        IdentityPatternClass::CodingAssistant,
+        "es",
+    ),
+    ip(
+        "asistente de programacion",
+        IdentityPatternClass::CodingAssistant,
+        "es",
+    ),
+    ip(
+        "asistente de codificación",
+        IdentityPatternClass::CodingAssistant,
+        "es",
+    ),
+    ip(
+        "asistente de codificacion",
+        IdentityPatternClass::CodingAssistant,
+        "es",
+    ),
+    ip(
+        "modelo de lenguaje",
+        IdentityPatternClass::LanguageModel,
+        "es",
+    ),
+    ip("identidad real", IdentityPatternClass::ActualIdentity, "es"),
+    ip(
+        "verdadera identidad",
+        IdentityPatternClass::ActualIdentity,
+        "es",
+    ),
+    ip("juego de rol", IdentityPatternClass::Roleplay, "es"),
+    ip("interpretar el papel", IdentityPatternClass::Roleplay, "es"),
+    ip("prueba de inyección", IdentityPatternClass::Injection, "es"),
+    ip("prueba de inyeccion", IdentityPatternClass::Injection, "es"),
     // German
-    "programmierassistent",
-    "codierungsassistent",
-    "sprachmodell",
-    "wahre identität",
-    "wahre identitat",
-    "tatsächliche identität",
-    "tatsachliche identitat",
-    "echte identität",
-    "echte identitat",
-    "rollenspiel",
-    "injektionstest",
+    ip(
+        "programmierassistent",
+        IdentityPatternClass::CodingAssistant,
+        "de",
+    ),
+    ip(
+        "codierungsassistent",
+        IdentityPatternClass::CodingAssistant,
+        "de",
+    ),
+    ip("sprachmodell", IdentityPatternClass::LanguageModel, "de"),
+    ip(
+        "wahre identität",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip(
+        "wahre identitat",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip(
+        "tatsächliche identität",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip(
+        "tatsachliche identitat",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip(
+        "echte identität",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip(
+        "echte identitat",
+        IdentityPatternClass::ActualIdentity,
+        "de",
+    ),
+    ip("rollenspiel", IdentityPatternClass::Roleplay, "de"),
+    ip("injektionstest", IdentityPatternClass::Injection, "de"),
     // Portuguese
-    "assistente de programação",
-    "assistente de programacao",
-    "assistente de codificação",
-    "assistente de codificacao",
-    "modelo de linguagem",
-    "identidade real",
-    "verdadeira identidade",
-    "jogo de papéis",
-    "jogo de papeis",
-    "interpretar o papel",
-    "teste de injeção",
-    "teste de injecao",
+    ip(
+        "assistente de programação",
+        IdentityPatternClass::CodingAssistant,
+        "pt",
+    ),
+    ip(
+        "assistente de programacao",
+        IdentityPatternClass::CodingAssistant,
+        "pt",
+    ),
+    ip(
+        "assistente de codificação",
+        IdentityPatternClass::CodingAssistant,
+        "pt",
+    ),
+    ip(
+        "assistente de codificacao",
+        IdentityPatternClass::CodingAssistant,
+        "pt",
+    ),
+    ip(
+        "modelo de linguagem",
+        IdentityPatternClass::LanguageModel,
+        "pt",
+    ),
+    ip(
+        "identidade real",
+        IdentityPatternClass::ActualIdentity,
+        "pt",
+    ),
+    ip(
+        "verdadeira identidade",
+        IdentityPatternClass::ActualIdentity,
+        "pt",
+    ),
+    ip("jogo de papéis", IdentityPatternClass::Roleplay, "pt"),
+    ip("jogo de papeis", IdentityPatternClass::Roleplay, "pt"),
+    ip("interpretar o papel", IdentityPatternClass::Roleplay, "pt"),
+    ip("teste de injeção", IdentityPatternClass::Injection, "pt"),
+    ip("teste de injecao", IdentityPatternClass::Injection, "pt"),
 ];
 
 /// Fold a string for separator-insensitive matching: lowercase, then
@@ -467,20 +683,58 @@ static FOLDED_CAPABILITY: LazyLock<Vec<String>> = LazyLock::new(|| {
 });
 
 /// Separator-folded copy of [`IDENTITY_NARRATION_PATTERNS`], built once.
+/// Index-aligned with the pattern table so a folded hit maps back to its
+/// class + locale labels.
 static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
     IDENTITY_NARRATION_PATTERNS
         .iter()
-        .map(|p| fold_separators(p))
+        .map(|p| fold_separators(p.text))
         .collect()
 });
 
+/// Telemetry label for a matched identity-leak pattern.
+///
+/// Says which coarse class fired, in which locale, and the pattern's
+/// index in [`IDENTITY_NARRATION_PATTERNS`]. Deliberately carries no
+/// text — the withheld reply is never logged or persisted, so these
+/// labels are the only per-leak signal that reaches operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdentityLeakMatch {
+    /// Coarse pattern class (product flip vs roleplay framing vs …).
+    pub class: IdentityPatternClass,
+    /// Language of the matched phrase (`"any"` for product names).
+    pub locale: &'static str,
+    /// Index into [`IDENTITY_NARRATION_PATTERNS`], the finest-grained
+    /// content-free label — pins the exact phrase via the source table.
+    pub pattern_index: usize,
+}
+
+/// First identity-leak pattern the reply matches, `None` when clean.
+///
+/// Matches in table order — product names first, so a reply that both
+/// names Copilot and talks about role-play reports the more conclusive
+/// product hit.
+#[must_use]
+pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
+    let folded = fold_separators(text);
+    FOLDED_IDENTITY
+        .iter()
+        .position(|p| folded.contains(p.as_str()))
+        .map(|idx| IdentityLeakMatch {
+            class: IDENTITY_NARRATION_PATTERNS[idx].class,
+            locale: IDENTITY_NARRATION_PATTERNS[idx].locale,
+            pattern_index: idx,
+        })
+}
+
+/// Boolean shorthand for [`identity_leak_match`].
+///
 /// `true` when the reply anywhere identifies as the underlying model/
 /// provider or frames its own persona as a roleplay/injection to refuse
 /// — a whole persona break. The caller withholds the entire reply.
 #[must_use]
 pub fn contains_identity_leak(text: &str) -> bool {
-    let folded = fold_separators(text);
-    FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
+    identity_leak_match(text).is_some()
 }
 
 /// Result of scrubbing a reply for internal narration.
@@ -619,7 +873,10 @@ pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_identity_leak, scrub_internal_narration, scrub_replayed_narration};
+    use super::{
+        contains_identity_leak, identity_leak_match, scrub_internal_narration,
+        scrub_replayed_narration, IdentityLeakMatch, IdentityPatternClass,
+    };
 
     /// The three replies that reached the live user on 2026-07-10.
     const INCIDENT_FR_1: &str =
@@ -762,6 +1019,46 @@ mod tests {
     fn identity_leak_incident_replies_are_detected() {
         assert!(contains_identity_leak(IDENTITY_LEAK_2026_07_22));
         assert!(contains_identity_leak(IDENTITY_LEAK_2026_07_12));
+    }
+
+    #[test]
+    fn identity_leak_match_labels_class_and_locale() {
+        assert_eq!(
+            identity_leak_match(IDENTITY_LEAK_2026_07_22),
+            Some(IdentityLeakMatch {
+                class: IdentityPatternClass::Product,
+                locale: "any",
+                pattern_index: 0,
+            })
+        );
+
+        let roleplay_fr = identity_leak_match("Je ne vais pas jouer le rôle d'un coach fictif.");
+        assert!(matches!(
+            roleplay_fr,
+            Some(m) if m.class == IdentityPatternClass::Roleplay && m.locale == "fr"
+        ));
+
+        let injection_pt = identity_leak_match("Isto parece um teste de injeção de prompt.");
+        assert!(matches!(
+            injection_pt,
+            Some(m) if m.class == IdentityPatternClass::Injection && m.locale == "pt"
+        ));
+
+        assert_eq!(
+            identity_leak_match("Great ride today — Z2 for 90 minutes."),
+            None
+        );
+    }
+
+    #[test]
+    fn identity_leak_match_prefers_product_over_framing() {
+        // The 07-12 reply names the product AND frames roleplay/injection —
+        // the reported class must be the conclusive product hit, not the
+        // framing that happens to appear earlier in the reply text.
+        assert!(matches!(
+            identity_leak_match(IDENTITY_LEAK_2026_07_12),
+            Some(m) if m.class == IdentityPatternClass::Product && m.locale == "any"
+        ));
     }
 
     #[test]

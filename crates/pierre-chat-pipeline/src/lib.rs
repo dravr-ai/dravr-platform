@@ -467,7 +467,7 @@ async fn run_recovery_and_post_process(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: false,
-            identity_leak: false,
+            identity_leak: None,
         };
     }
 
@@ -494,7 +494,7 @@ async fn run_recovery_and_post_process(
             pending_verdicts: Vec::new(),
             structured_content: None,
             leak_replaced: false,
-            identity_leak: false,
+            identity_leak: None,
         };
     }
 

@@ -454,14 +454,19 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // provider and was withheld at the response boundary (the chat pipeline's
     // identity-leak stage). The user received the canned withheld string, not
     // the leak; this event surfaces the withhold on #dravr-signal so a
-    // recurrence is visible instead of silent in the logs.
-    if dispatch_result.identity_leak {
+    // recurrence is visible instead of silent in the logs. The `pattern_*`
+    // labels (extra fields beyond the catalogue's required set) identify which
+    // pattern class fired — never the reply text, which is never persisted.
+    if let Some(leak) = dispatch_result.identity_leak {
         info!(
             target: "notify",
             event = "messaging.identity_leak",
             tenant_id = %dispatch.channel_tenant_id,
             channel = %dispatch.channel,
             model = %dispatch_result.model,
+            pattern_class = leak.class.as_str(),
+            pattern_locale = leak.locale,
+            pattern_index = leak.pattern_index,
             "coach reply identified as the underlying model/provider; withheld at the response boundary"
         );
     }
