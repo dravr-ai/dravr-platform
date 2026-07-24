@@ -48,7 +48,7 @@ const MAX_STRATEGY_LEN: usize = 4_000;
 fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
     let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
     let stripped = collapsed
-        .trim_start_matches(|c: char| matches!(c, '#' | '>' | '*' | '-' | '`'))
+        .trim_start_matches(['#', '>', '*', '-', '`'])
         .trim();
     let cleaned = stripped.replace('`', "'");
     if cleaned.chars().count() > max_len {
