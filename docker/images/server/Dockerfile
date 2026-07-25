@@ -54,7 +54,7 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # Also bump it when a pulled package is itself broken: 150.0.7871.46-1~deb13u1
 # SIGTRAPs on every headless launch (Debian packaging bug), killing sciotte
 # credential login; 150.0.7871.100-1~deb13u1 fixes it.
-ARG APT_SECURITY_EPOCH=2026-07-20
+ARG APT_SECURITY_EPOCH=2026-07-24
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
@@ -95,7 +95,7 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.
 ARG COPILOT_CLI_VERSION=1.0.59
-ARG CLAUDE_CODE_CLI_VERSION=2.1.139
+ARG CLAUDE_CODE_CLI_VERSION=2.1.163
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
