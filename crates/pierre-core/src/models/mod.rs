@@ -114,7 +114,7 @@ pub use user::{
 
 // Endurance zones + dossier + training-history + workout-template domain
 pub use dossier::{Dossier, DossierFact};
-pub use onboarding::{CoverageMap, CoverageTarget, OnboardingState};
+pub use onboarding::{CoverageMap, CoverageTarget, OnboardingState, TopicSlug, MAX_PROBE_ATTEMPTS};
 pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{

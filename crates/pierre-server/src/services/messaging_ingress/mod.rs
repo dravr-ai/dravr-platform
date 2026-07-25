@@ -412,6 +412,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             conversation_id: message.conversation_id.as_deref(),
             thread_id,
             is_direct_message: message.is_direct_message,
+            webhook_tenant_id: tenant_id,
         },
     )
     .await

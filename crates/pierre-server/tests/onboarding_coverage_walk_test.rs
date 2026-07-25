@@ -10,7 +10,9 @@
 use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_config::environment::PostgresPoolConfig;
-use pierre_core::models::{CoverageMap, CoverageTarget, Pillar, TenantId};
+use pierre_core::models::{
+    CoverageMap, CoverageTarget, OnboardingState, Pillar, TenantId, MAX_PROBE_ATTEMPTS,
+};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -89,7 +91,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 0);
     assert!(!cov.is_complete());
-    assert_eq!(cov.next_target(), Some(CoverageTarget::NorthStar));
+    assert_eq!(cov.next_target(&[]), Some(CoverageTarget::NorthStar));
 
     // Answer the North Star → next probe is the first pillar in canonical order.
     capture(
@@ -104,7 +106,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 1);
     assert_eq!(
-        cov.next_target(),
+        cov.next_target(&[]),
         Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
     );
 
@@ -139,7 +141,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
             i + 2
         );
         assert_eq!(
-            cov.next_target(),
+            cov.next_target(&[]),
             expected_next[i],
             "wrong next probe after covering {}",
             pillar.as_str()
@@ -150,7 +152,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let cov = coverage(&repos, tenant, user).await?;
     assert!(cov.is_complete(), "onboarding should be complete");
     assert_eq!(cov.covered_count(), 7);
-    assert_eq!(cov.next_target(), None);
+    assert_eq!(cov.next_target(&[]), None);
 
     Ok(())
 }
@@ -203,9 +205,66 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     );
     assert_eq!(cov.covered_count(), 6);
     assert_eq!(
-        cov.next_target(),
+        cov.next_target(&[]),
         Some(CoverageTarget::Pillar(Pillar::Fuelling))
     );
 
+    Ok(())
+}
+
+/// The delivered-probe history survives the `onboarding_state` column format and
+/// drives the advance against a real Dossier-derived coverage map.
+///
+/// Coverage alone cannot express "already asked": fact extraction is
+/// fire-and-forget, so on the turn right after an answer the Dossier still reads
+/// uncovered. Without a persisted ask history the walk re-asks the question the
+/// athlete just answered — the 2026-07-24 shape. With it, the walk moves on, and
+/// a topic that never yields a fact still terminates after
+/// `MAX_PROBE_ATTEMPTS`.
+#[tokio::test]
+async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = TenantId::from(Uuid::new_v4());
+    let user = Uuid::new_v4();
+
+    // Turn 1 delivered the North Star probe; nothing extracted yet.
+    let state = OnboardingState::start(chrono::Utc::now().to_rfc3339())
+        .with_delivered_probe(CoverageTarget::NorthStar);
+    let reloaded =
+        OnboardingState::from_column(Some(&state.to_column()?)).expect("walk still active");
+    assert_eq!(reloaded.probed.len(), 1);
+    assert_eq!(reloaded.probed[0].as_str(), "north_star");
+
+    // Coverage is still 0/7 — the answer's fact has not landed — yet the walk
+    // advances to the first pillar rather than re-asking the North Star.
+    let cov = coverage(&repos, tenant, user).await?;
+    assert_eq!(cov.covered_count(), 0);
+    assert_eq!(
+        cov.next_target(&reloaded.probed),
+        Some(CoverageTarget::Pillar(Pillar::TrainingAndMovement))
+    );
+
+    // Now burn every topic's attempt budget without a single fact landing: the
+    // walk must terminate instead of looping forever on an unextractable answer.
+    let mut exhausted = reloaded;
+    for _ in 0..MAX_PROBE_ATTEMPTS {
+        exhausted = exhausted.with_delivered_probe(CoverageTarget::NorthStar);
+        for pillar in Pillar::ALL {
+            exhausted = exhausted.with_delivered_probe(CoverageTarget::Pillar(pillar));
+        }
+    }
+    let exhausted =
+        OnboardingState::from_column(Some(&exhausted.to_column()?)).expect("walk still active");
+    assert_eq!(
+        cov.next_target(&exhausted.probed),
+        None,
+        "every topic out of attempts must end the walk"
+    );
+
+    // And the Dossier still tells the truth: nothing was actually captured, so
+    // `/pillars <pillar>` can re-screen any of it later.
+    assert!(!cov.is_complete());
+    assert_eq!(cov.covered_count(), 0);
     Ok(())
 }

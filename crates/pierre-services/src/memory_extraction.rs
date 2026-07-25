@@ -257,6 +257,19 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
 }
 
 /// Call the extraction LLM and parse the response into [`RawFact`] records.
+/// Stand-in for the coach reply on a turn whose reply was withheld by the
+/// identity-leak detector.
+///
+/// The withheld text must never reach the extractor — a leaked narration minted
+/// as a fact re-enters every future prompt bundle. The athlete's own message,
+/// however, is theirs and carries the answer they typed, so extraction still
+/// runs over the user turn with this marker standing in for the reply. Without
+/// it a withheld turn dropped the athlete's answer entirely, which stalls a
+/// guided profile walk on the topic it was withheld from.
+pub const WITHHELD_REPLY_TRANSCRIPT_MARKER: &str =
+    "(withheld — the coach's reply for this turn is unavailable; \
+     extract only from the user turn above)";
+
 async fn run_llm_extraction(
     provider: &ChatProvider,
     system_prompt: &str,

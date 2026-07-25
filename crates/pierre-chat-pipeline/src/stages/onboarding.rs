@@ -23,23 +23,28 @@ use uuid::Uuid;
 
 use crate::ChatPipelineContext;
 
-/// The resolved onboarding context for a turn: the topic being probed.
+/// The resolved onboarding context for a turn: the topic being probed, plus the
+/// walk state it was chosen from (so a delivered probe can be recorded onto it
+/// at the end of the turn).
 pub struct OnboardingTurn {
     /// What this turn is capturing (North Star or a specific pillar).
     pub probed: CoverageTarget,
+    /// The walk state as loaded at the start of the turn.
+    pub state: OnboardingState,
 }
 
 /// Resolve onboarding state for the current turn.
 ///
-/// Returns `None` (run the turn as normal coaching) when the conversation is
-/// not onboarding, when onboarding is already complete (in which case the
-/// active marker is cleared), or when the dossier cannot be composed.
+/// Returns `None` (run the turn as normal coaching) when the conversation is not
+/// onboarding, when the walk has nothing left to probe — every topic covered, or
+/// out of attempts, in which case the active marker is cleared — or when the
+/// dossier cannot be composed.
 pub async fn resolve(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
     tenant_id: TenantId,
 ) -> Option<OnboardingTurn> {
-    OnboardingState::from_column(conv.onboarding_state.as_deref())?;
+    let state = OnboardingState::from_column(conv.onboarding_state.as_deref())?;
     let user_id = Uuid::parse_str(&conv.user_id).ok()?;
 
     let dossier = ctx
@@ -50,28 +55,65 @@ pub async fn resolve(
         .ok()?;
     let coverage = CoverageMap::from_dossier(&dossier);
 
-    if coverage.is_complete() {
-        // All pillars + North Star covered — leave onboarding mode. The last
-        // pillar's answer was captured on the turn that probed it; this turn
-        // resumes normal coaching.
-        if let Err(e) = ctx
-            .repos
-            .chat
-            .set_conversation_onboarding_state(&conv.id, None, tenant_id)
-            .await
-        {
-            tracing::warn!(error = %e, "failed to clear completed onboarding_state");
-        }
-        return None;
+    if let Some(probed) = coverage.next_target(&state.probed) {
+        return Some(OnboardingTurn { probed, state });
     }
 
-    coverage
-        .next_target()
-        .map(|probed| OnboardingTurn { probed })
+    // Nothing left to ask — leave onboarding mode. Either all seven topics are
+    // covered, or the remaining ones burned their probe budget without yielding
+    // a fact; both mean this turn resumes normal coaching.
+    if let Err(e) = ctx
+        .repos
+        .chat
+        .set_conversation_onboarding_state(&conv.id, None, tenant_id)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to clear completed onboarding_state");
+    }
+    None
+}
+
+/// Record that this turn's probe question reached the athlete, so the next turn
+/// advances instead of re-asking while extraction is still in flight.
+///
+/// Called once per turn, after post-processing, and only for a reply that was
+/// actually delivered — a withheld reply means the athlete saw a marker, not the
+/// question. A false positive is self-correcting rather than lossy: the topic
+/// stays uncovered, so it comes back around on the next sweep with an attempt
+/// still in hand.
+pub async fn record_delivered_probe(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    turn: &OnboardingTurn,
+    tenant_id: TenantId,
+) {
+    let state = turn.state.clone().with_delivered_probe(turn.probed);
+    let column = match state.to_column() {
+        Ok(column) => column,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to serialize onboarding probe history");
+            return;
+        }
+    };
+    if let Err(e) = ctx
+        .repos
+        .chat
+        .set_conversation_onboarding_state(&conv.id, Some(&column), tenant_id)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to persist onboarding probe history");
+    }
 }
 
 /// The system-prompt directive steering the coach to probe the current topic
-/// conversationally (appended after the OKF context bundle).
+/// conversationally.
+///
+/// Appended at the very tail of the assembled prompt — after the channel
+/// response constraints and the tool-discipline block — because a coach persona
+/// may carry its own first-turn protocol ("your first reply in any conversation
+/// MUST emit a plan"), and the model resolves that conflict by recency. The
+/// wording therefore states the override explicitly rather than relying on
+/// position alone.
 #[must_use]
 pub fn directive(turn: &OnboardingTurn) -> String {
     let (topic, hint) = match turn.probed {
@@ -85,7 +127,17 @@ pub fn directive(turn: &OnboardingTurn) -> String {
         ),
     };
     format!(
-        "\n\n# Onboarding mode\nYou are helping this user build their fitness profile one topic at a time — keep it warm and conversational, never a questionnaire. This turn, focus on {topic}. Explore {hint}. Acknowledge what they share, then ask ONE natural follow-up about this topic. Do not jump to other topics or deliver a full coaching plan yet."
+        "\n\n# Onboarding mode (overrides every other instruction in this prompt)\n\
+         You are helping this athlete build their fitness profile one topic at a time — keep it \
+         warm and conversational, never a questionnaire.\n\
+         This turn, focus on {topic}. Explore {hint}.\n\
+         Acknowledge what they just shared, then ask ONE natural follow-up about this topic.\n\
+         If their previous message already covered {topic}, acknowledge it and go deeper on the \
+         same topic instead of asking the same question again.\n\
+         This directive supersedes any startup instruction, first-turn protocol, or \
+         output-format contract stated earlier in this prompt, including ones marked mandatory or \
+         non-negotiable. Do not jump to other topics. Do not build, propose, or save a training \
+         plan on this turn, and do not list assumptions in place of one."
     )
 }
 

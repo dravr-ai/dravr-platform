@@ -73,6 +73,11 @@ pub(super) struct SlashCommandContext<'a> {
     pub thread_id: Option<String>,
     /// True when the inbound message is a 1:1 DM (vs. a group room).
     pub is_direct_message: bool,
+    /// Tenant that owns the webhook this message arrived on — the fallback when
+    /// `auth_result.active_tenant_id` is absent. Passed in rather than
+    /// recomputed so this path and `persist_single_message`'s `user_tenant_id`
+    /// cannot disagree about which tenant a command runs under.
+    pub webhook_tenant_id: TenantId,
 }
 
 /// Resolve and execute slash commands against [`pierre_commands::dispatch`].
@@ -99,6 +104,7 @@ pub(super) async fn try_handle_slash_command(
         conversation_id,
         thread_id,
         is_direct_message,
+        webhook_tenant_id,
     } = ctx;
 
     // Fast path: not a command. Avoids any auth/tenant lookups.
@@ -107,10 +113,15 @@ pub(super) async fn try_handle_slash_command(
     }
 
     let user_uuid = auth_result.user_id;
-    // Tenant comes straight from AuthResult — same path as the JWT middleware.
+    // Tenant comes straight from AuthResult — same path as the JWT middleware,
+    // falling back to the webhook tenant exactly as `persist_single_message`
+    // does. It used to fall back to `TenantId::from_uuid(user_uuid)` instead: a
+    // user with no tenant membership then ran commands under a tenant id that
+    // owns no rows, so a conversation-scoped write (e.g. `/pillars` activating
+    // onboarding) matched nothing while the caller saw a success reply.
     let user_tenant = auth_result
         .active_tenant_id
-        .map_or_else(|| TenantId::from_uuid(user_uuid), TenantId::from_uuid);
+        .map_or(webhook_tenant_id, TenantId::from_uuid);
     let locale =
         resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
 

@@ -77,7 +77,9 @@ use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
-use pierre_services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
+use pierre_services::memory_extraction::{
+    spawn_extract_for_turn, SpawnedExtractionRequest, WITHHELD_REPLY_TRANSCRIPT_MARKER,
+};
 use pierre_services::prompt_leak;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -338,12 +340,24 @@ fn spawn_turn_advice_capture(
 }
 
 /// Fire the Tier 2 extraction (stage 21) and playbook advice capture (stage 21b)
-/// for a completed turn — unless the reply was withheld and replaced with a
-/// canned string. A replaced reply carries nothing to learn, and the withheld
+/// for a completed turn.
+///
+/// When the reply was withheld and replaced with a canned string, the withheld
 /// original must never reach the fact store or playbooks: a leaked narration
 /// minted as a fact re-enters every future prompt bundle (reinforcement loop
-/// observed 2026-07-10). Owning the `leak_replaced` gate here keeps `run_turn`
-/// itself branch-free over this concern.
+/// observed 2026-07-10). The athlete's *own* message is not tainted by that,
+/// though — so extraction still runs over the user turn with
+/// [`WITHHELD_REPLY_TRANSCRIPT_MARKER`] standing in for the reply, and only
+/// assistant-side learning (playbook advice capture, which exists to learn from
+/// what the coach said) is skipped.
+///
+/// Dropping the user turn as well is what stalled the guided pillar walk: the
+/// answer was never extracted, the topic never flipped to covered, and the next
+/// turn re-asked the same question. Every recorded withhold to date is on the
+/// coach this flow runs against.
+///
+/// Owning the `leak_replaced` branch here keeps `run_turn` itself branch-free
+/// over this concern.
 fn spawn_turn_background_learning(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -354,6 +368,14 @@ fn spawn_turn_background_learning(
     leak_replaced: bool,
 ) {
     if leak_replaced {
+        spawn_turn_extraction(
+            ctx,
+            input,
+            conv,
+            WITHHELD_REPLY_TRANSCRIPT_MARKER,
+            assistant_message_id,
+            onboarding,
+        );
         return;
     }
     spawn_turn_extraction(
@@ -365,6 +387,101 @@ fn spawn_turn_background_learning(
         onboarding,
     );
     spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
+}
+
+/// Record that this turn's guided-flow probe reached the athlete, so the next
+/// turn advances to the following topic instead of re-asking while fact
+/// extraction is still in flight.
+///
+/// A withheld reply is not recorded: the athlete saw the withhold marker, not
+/// the question. Nothing to do when no guided flow owns the turn.
+async fn record_guided_flow_probe(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+    leak_replaced: bool,
+    tenant_id: TenantId,
+) {
+    let Some(turn) = onboarding else {
+        return;
+    };
+    if leak_replaced {
+        info!("onboarding probe withheld; not recording it as delivered");
+        return;
+    }
+    stages::onboarding::record_delivered_probe(ctx, conv, turn, tenant_id).await;
+}
+
+/// Persist this turn's claim verdicts, now that the assistant message they
+/// reference is durable. No-op when the turn produced none.
+#[cfg(feature = "tools-verification")]
+async fn persist_verdicts_for_turn(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    conv: &ConversationRecord,
+    assistant_message_id: &str,
+    pending_verdicts: &[(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)],
+) {
+    if pending_verdicts.is_empty() {
+        return;
+    }
+    persist_pending_verdicts(
+        &ctx.data,
+        input.conversation_tenant_id,
+        &input.user_id,
+        &input.conversation_id,
+        conv.coach_id.as_deref(),
+        assistant_message_id,
+        pending_verdicts,
+    )
+    .await;
+}
+
+/// Inputs for [`finish_turn_follow_through`].
+struct FinishTurnInputs<'a> {
+    ctx: &'a ChatPipelineContext,
+    input: &'a TurnInput,
+    conv: &'a ConversationRecord,
+    assistant_reply: &'a str,
+    assistant_message_id: &'a str,
+    onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
+    leak_replaced: bool,
+}
+
+/// Everything the turn still owes once its reply is persisted: Tier 2 memory
+/// extraction, playbook advice capture, and the guided-flow probe record.
+///
+/// Grouped because all three answer the same question — did this reply actually
+/// reach the athlete? — and a caller that got that branch half-right is exactly
+/// how a withheld turn used to orphan both the athlete's answer and the walk's
+/// progress.
+async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
+    let FinishTurnInputs {
+        ctx,
+        input,
+        conv,
+        assistant_reply,
+        assistant_message_id,
+        onboarding,
+        leak_replaced,
+    } = inputs;
+    spawn_turn_background_learning(
+        ctx,
+        input,
+        conv,
+        assistant_reply,
+        assistant_message_id,
+        onboarding,
+        leak_replaced,
+    );
+    record_guided_flow_probe(
+        ctx,
+        conv,
+        onboarding,
+        leak_replaced,
+        input.conversation_tenant_id,
+    )
+    .await;
 }
 
 /// Parameters for [`dispatch_stage`].
@@ -389,6 +506,9 @@ struct DispatchStageArgs<'a> {
     /// Per-message history-row ids parallel to `llm_messages` (`None` for the
     /// system prompt), threaded to Tier 1 compaction for id-anchored blocks.
     source_ids: &'a [Option<String>],
+    /// Whether a guided conversational flow owns this turn (see
+    /// `DispatchLlmInputs::guided_flow_active`).
+    guided_flow_active: bool,
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -408,6 +528,7 @@ async fn dispatch_stage(
             coach_ctx: args.coach_ctx,
             history: args.history,
             source_ids: args.source_ids,
+            guided_flow_active: args.guided_flow_active,
         },
         llm_messages,
         max_iterations,
@@ -915,6 +1036,7 @@ async fn run_turn(
             coach_ctx: coach_ctx.as_ref(),
             history: &history,
             source_ids: &source_ids,
+            guided_flow_active: onboarding_turn.is_some(),
         },
         &mut llm_messages,
     )
@@ -967,18 +1089,14 @@ async fn run_turn(
 
     // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]
-    if !post_processed.pending_verdicts.is_empty() {
-        persist_pending_verdicts(
-            &ctx.data,
-            input.conversation_tenant_id,
-            &input.user_id,
-            &input.conversation_id,
-            conv.coach_id.as_deref(),
-            &assistant_message.id,
-            &post_processed.pending_verdicts,
-        )
-        .await;
-    }
+    persist_verdicts_for_turn(
+        ctx,
+        &input,
+        &conv,
+        &assistant_message.id,
+        &post_processed.pending_verdicts,
+    )
+    .await;
 
     // Stage 20: Tier 4 session finalize.
     finalize_session_state(
@@ -989,18 +1107,20 @@ async fn run_turn(
     )
     .await;
 
-    // Stages 21/21b: Tier 2 background memory extraction + playbook advice
-    // capture, gated inside the helper so a withheld/replaced reply is never
-    // learned from (see `spawn_turn_background_learning`).
-    spawn_turn_background_learning(
+    // Stages 21/21b/21c: end-of-turn follow-through — Tier 2 memory extraction,
+    // playbook advice capture, and the guided-flow probe record. All three key on
+    // whether the reply actually reached the athlete, so the branch lives in one
+    // place (see `finish_turn_follow_through`).
+    finish_turn_follow_through(FinishTurnInputs {
         ctx,
-        &input,
-        &conv,
-        &result.content,
-        &assistant_message.id,
-        onboarding_turn.as_ref(),
+        input: &input,
+        conv: &conv,
+        assistant_reply: &result.content,
+        assistant_message_id: &assistant_message.id,
+        onboarding: onboarding_turn.as_ref(),
         leak_replaced,
-    );
+    })
+    .await;
 
     let dispatch_result = DispatchResult {
         content: result.content,

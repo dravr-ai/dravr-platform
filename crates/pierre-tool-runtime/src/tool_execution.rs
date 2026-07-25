@@ -1963,6 +1963,28 @@ pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
     }
 }
 
+/// Tools withheld from the model while a guided conversational flow — today the
+/// `/pillars` profile walk — owns the turn.
+///
+/// A profile interview asks one question and records the answer; writing a
+/// training plan mid-interview is what the 2026-07-24 derail did instead of
+/// moving to the second pillar. Read tools stay available so the athlete can
+/// still ask "what did I ride yesterday?" without leaving the walk.
+///
+/// Single source of truth for three surfaces that must agree: the native
+/// function declarations, the prose "Available Tools" list, and the per-turn
+/// intent prefilter. Advertisement alone is not enforcement — the tools named
+/// here also refuse server-side when their conversation is mid-walk, which is
+/// what covers the native-MCP path where tool visibility comes from the `/mcp`
+/// endpoint rather than from these declarations.
+pub const GUIDED_FLOW_WITHHELD_TOOLS: &[&str] = &["save_training_plan"];
+
+/// Whether `tool_name` is withheld while a guided flow owns the turn.
+#[must_use]
+pub fn is_withheld_during_guided_flow(tool_name: &str) -> bool {
+    GUIDED_FLOW_WITHHELD_TOOLS.contains(&tool_name)
+}
+
 // ============================================================================
 // Content Sanitization
 // ============================================================================

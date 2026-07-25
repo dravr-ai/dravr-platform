@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_core::models::{Pillar, TenantId};
+use pierre_core::models::{ConversationRecord, OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
@@ -460,23 +460,29 @@ fn goal_object(race: &GoalRace) -> String {
 /// instead would save a plan under a slug the injection never reads (a plan
 /// "saved but not showing"). Only MCP-direct / A2A calls with no conversation
 /// fall back to the argument.
-async fn resolve_coach_slug(
+async fn load_conversation(
     repos: &RepositoryRegistry,
     conversation_id: Option<&str>,
     tenant: TenantId,
     user_id: &str,
-    arg_coach: Option<String>,
-) -> AppResult<Option<String>> {
-    if let Some(conv_id) = conversation_id {
-        if let Some(conv) = repos
-            .chat
-            .get_conversation(conv_id, user_id, tenant)
-            .await?
-        {
-            return Ok(conv.coach_id);
-        }
+) -> AppResult<Option<ConversationRecord>> {
+    match conversation_id {
+        Some(conv_id) => repos.chat.get_conversation(conv_id, user_id, tenant).await,
+        None => Ok(None),
     }
-    Ok(arg_coach)
+}
+
+/// The coach slug this plan is saved under.
+///
+/// The conversation's coach is authoritative, so save and the Stage 7f.2 plan
+/// injection agree on the slug; a conversation with no coach yields `None`
+/// rather than falling back. The LLM-supplied argument is used only when there
+/// is no conversation at all (a direct MCP call).
+fn resolve_coach_slug(
+    conv: Option<&ConversationRecord>,
+    arg_coach: Option<String>,
+) -> Option<String> {
+    conv.map_or(arg_coach, |conv| conv.coach_id.clone())
 }
 
 /// `true` when `fact_id` is a real `Goal` fact of this tenant + user. Guards
@@ -631,14 +637,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .unwrap_or(false);
 
             let repos = context.resources.repos();
-            let coach = resolve_coach_slug(
-                repos,
-                context.conversation_id.as_deref(),
-                tenant,
-                &user_id,
-                arg_coach,
-            )
-            .await?;
+            let conv =
+                load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_id)
+                    .await?;
+            let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
             let Some(plan) = repos
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id, coach.as_deref())
@@ -806,17 +808,29 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             }
 
             let repos = context.resources.repos();
+            let conv =
+                load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_id)
+                    .await?;
 
-            // The conversation's coach — not the LLM's argument — is authoritative
-            // so save and plan injection agree on the coach slug.
-            let coach = resolve_coach_slug(
-                repos,
-                context.conversation_id.as_deref(),
-                tenant,
-                &user_id,
-                arg_coach,
-            )
-            .await?;
+            // Enforcement half of the guided-flow tool withhold. The pipeline
+            // already drops this tool from the prompt's tool list and from the
+            // native function declarations while a profile walk is active, but
+            // neither covers the native-MCP path, where an ACP subprocess reads
+            // `tools/list` straight off the `/mcp` endpoint. Refusing here means
+            // the withhold holds on every surface, including a direct MCP call.
+            if conv
+                .as_ref()
+                .and_then(|c| c.onboarding_state.as_deref())
+                .and_then(|raw| OnboardingState::from_column(Some(raw)))
+                .is_some()
+            {
+                return Err(AppError::invalid_input(
+                    "this conversation is building the athlete's profile one topic at a time — \
+                     finish the profile walk before saving a training plan",
+                ));
+            }
+
+            let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.

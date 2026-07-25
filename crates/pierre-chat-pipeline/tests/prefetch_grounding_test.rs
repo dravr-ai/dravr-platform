@@ -21,7 +21,8 @@
 //! window; inject conservatively when the window cannot be parsed).
 
 use pierre_chat_pipeline::stages::prefetch::{
-    inject_activity_refresh, needs_activity_grounding, should_refresh_activity_context,
+    get_startup_context_if_applicable, inject_activity_refresh, needs_activity_grounding,
+    should_refresh_activity_context,
 };
 use pierre_core::models::{CoachCategory, CoachRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
@@ -93,39 +94,88 @@ fn refresh_gate_fires_only_on_a_later_grounding_turn_with_an_activity_window() {
     assert!(should_refresh_activity_context(
         3,
         Some(&with_activities),
-        "fais-moi un plan pour la semaine"
+        "fais-moi un plan pour la semaine",
+        false
     ));
 
     // Turn 1 is owned by inject_startup_context, never this stage.
     assert!(
-        !should_refresh_activity_context(1, Some(&with_activities), "fais-moi un plan"),
+        !should_refresh_activity_context(1, Some(&with_activities), "fais-moi un plan", false),
         "turn 1 must be left to inject_startup_context"
     );
 
     // No coach bound → nothing to ground against.
     assert!(
-        !should_refresh_activity_context(3, None, "fais-moi un plan"),
+        !should_refresh_activity_context(3, None, "fais-moi un plan", false),
         "no coach context → no refresh"
     );
 
     // A grounding ask but no activity window (e.g. a profile-only coach).
     let no_window = coach(Some(r#"{"athlete_profile":true}"#));
     assert!(
-        !should_refresh_activity_context(3, Some(&no_window), "fais-moi un plan"),
+        !should_refresh_activity_context(3, Some(&no_window), "fais-moi un plan", false),
         "a coach without an activity window is left untouched"
     );
 
     // No data_requirements at all.
     let no_reqs = coach(None);
     assert!(
-        !should_refresh_activity_context(3, Some(&no_reqs), "fais-moi un plan"),
+        !should_refresh_activity_context(3, Some(&no_reqs), "fais-moi un plan", false),
         "a coach without data_requirements is left untouched"
     );
 
     // A later turn with an activity window but a non-grounding message.
     assert!(
-        !should_refresh_activity_context(3, Some(&with_activities), "merci beaucoup!"),
+        !should_refresh_activity_context(3, Some(&with_activities), "merci beaucoup!", false),
         "an acknowledgment turn must not re-fetch"
+    );
+}
+
+#[test]
+fn refresh_gate_never_fires_while_a_guided_flow_owns_the_turn() {
+    let with_activities = coach(Some(WITH_ACTIVITIES));
+
+    // Every one of these is a plausible pillar answer that happens to contain a
+    // GROUNDING_INTENT_TERMS word. Mid-walk they must not pull an activity dump
+    // (whose instruction reads "base your analysis and any plan on these
+    // specific activities") into a profile question's turn.
+    for answer in [
+        "je m'entraîne 10h par semaine",
+        "ma course objectif c'est l'Unbound",
+        "je veux progresser en montagne",
+        "la performance compte moins que le plaisir",
+    ] {
+        assert!(
+            needs_activity_grounding(answer),
+            "precondition: {answer:?} must look like a grounding ask"
+        );
+        assert!(
+            !should_refresh_activity_context(2, Some(&with_activities), answer, true),
+            "guided flow active must suppress the refresh for: {answer:?}"
+        );
+        // Same message outside the walk still grounds — the gate is the flow,
+        // not the wording.
+        assert!(
+            should_refresh_activity_context(2, Some(&with_activities), answer, false),
+            "outside a guided flow the same message must still ground: {answer:?}"
+        );
+    }
+}
+
+#[test]
+fn startup_gate_never_fires_while_a_guided_flow_owns_the_turn() {
+    let with_activities = coach(Some(WITH_ACTIVITIES));
+
+    // The 2026-07-24 shape: history_len == 1 on the athlete's first answer with a
+    // builder coach bound. Without the gate this injects the activity dump AND
+    // the coach's own startup query as a synthetic user message.
+    assert!(
+        get_startup_context_if_applicable(1, Some(&with_activities), true).is_none(),
+        "guided flow active must suppress startup grounding"
+    );
+    assert!(
+        get_startup_context_if_applicable(1, Some(&with_activities), false).is_some(),
+        "outside a guided flow the first turn still grounds"
     );
 }
 

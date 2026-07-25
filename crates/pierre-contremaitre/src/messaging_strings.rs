@@ -344,6 +344,25 @@ pub const KEY_TIMEZONE_SET: &str = "commands.timezone.set";
 /// timezone database name.
 pub const KEY_TIMEZONE_INVALID: &str = "commands.timezone.invalid";
 
+// ── /pillars command keys ─────────────────────────────────────────────────
+
+/// Key: `/pillars` opener — the first question of the guided profile walk.
+///
+/// Persisted as the conversation's first assistant message, so the coach sees
+/// the question it is credited with asking when the athlete's answer arrives.
+pub const KEY_PILLARS_OPENER: &str = "commands.pillars.opener";
+/// Key: `/pillars` refusal outside a 1:1 DM.
+///
+/// The walk asks about motivations, sleep, stress and recovery habits; in a
+/// shared room the answers would be stamped under the channel tenant, a fact
+/// space disjoint from the athlete's own dossier.
+pub const KEY_PILLARS_DM_ONLY: &str = "commands.pillars.dm_only";
+/// Key: `/pillars` failure when the walk could not be activated on the
+/// conversation.
+pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
+/// Key: `/reset` note appended when the reset ended an in-progress profile walk.
+pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
+
 // ── /group command keys ───────────────────────────────────────────────────
 
 /// Key: `/group` when the user belongs to zero groups.
@@ -555,6 +574,13 @@ pub(crate) const FR_PRIVACY_OFF_CONFIRMATION: &str = "Le consentement aux statis
 pub(crate) const FR_TIMEZONE_SET: &str = "Fuseau horaire réglé sur <b>{0}</b>. Les heures de départ de tes activités s'afficheront désormais dans ce fuseau.";
 pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un nom IANA, par exemple : <code>/timezone America/Toronto</code>.";
 
+pub(crate) const FR_PILLARS_OPENER: &str = "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
+pub(crate) const FR_PILLARS_DM_ONLY: &str = "Le profil se construit en privé. Écris-moi <code>/pillars</code> en message direct et on commence.";
+pub(crate) const FR_PILLARS_START_FAILED: &str =
+    "Je n'ai pas réussi à démarrer le profil sur cette conversation. Réessaie dans un instant.";
+pub(crate) const FR_RESET_WALK_INTERRUPTED: &str =
+    "\n\nTon profil était en cours — écris <code>/pillars</code> pour reprendre.";
+
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
     "Tu n'es membre d'aucun groupe.\nCrée ou rejoins un groupe via l'app web ou mobile.";
 pub(crate) const FR_GROUP_LIST_HEADER: &str = "Tes groupes ({0}) :\n";
@@ -729,6 +755,13 @@ pub(crate) const EN_TIMEZONE_SET: &str =
 pub(crate) const EN_TIMEZONE_INVALID: &str =
     "Invalid timezone. Provide an IANA name, e.g. <code>/timezone America/Toronto</code>.";
 
+pub(crate) const EN_PILLARS_OPENER: &str = "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?";
+pub(crate) const EN_PILLARS_DM_ONLY: &str = "Profile building happens in private. Send me <code>/pillars</code> in a direct message and we'll start.";
+pub(crate) const EN_PILLARS_START_FAILED: &str =
+    "I couldn't start the profile walk on this conversation. Try again in a moment.";
+pub(crate) const EN_RESET_WALK_INTERRUPTED: &str =
+    "\n\nYour profile walk was in progress — send <code>/pillars</code> to resume.";
+
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
     "You are not a member of any groups.\nCreate or join a group via the web or mobile app.";
 pub(crate) const EN_GROUP_LIST_HEADER: &str = "Your groups ({0}):\n";
@@ -889,6 +922,13 @@ pub(crate) const ES_PRIVACY_ON_CONFIRMATION: &str = "El consentimiento de analí
 pub(crate) const ES_PRIVACY_OFF_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>desactivado</b>. No se recogerán datos de uso anónimos.\n\nUsa <code>/privacy on</code> para volver a activarlo cuando quieras.";
 pub(crate) const ES_TIMEZONE_SET: &str = "Zona horaria establecida en <b>{0}</b>. Las horas de inicio de tus actividades se mostrarán ahora en esta zona horaria.";
 pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un nombre IANA, por ejemplo <code>/timezone America/Toronto</code>.";
+
+pub(crate) const ES_PILLARS_OPENER: &str = "Vamos a construir tu perfil juntos — te haré preguntas sobre algunos temas, uno a uno. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
+pub(crate) const ES_PILLARS_DM_ONLY: &str = "El perfil se construye en privado. Escríbeme <code>/pillars</code> por mensaje directo y empezamos.";
+pub(crate) const ES_PILLARS_START_FAILED: &str =
+    "No pude iniciar el perfil en esta conversación. Vuelve a intentarlo en un momento.";
+pub(crate) const ES_RESET_WALK_INTERRUPTED: &str =
+    "\n\nTu perfil estaba en curso — escribe <code>/pillars</code> para continuar.";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
     "No eres miembro de ningún grupo.\nCrea o únete a un grupo desde la app web o móvil.";
@@ -1053,6 +1093,13 @@ pub(crate) const DE_TIMEZONE_SET: &str = "Zeitzone auf <b>{0}</b> gesetzt. Die S
 pub(crate) const DE_TIMEZONE_INVALID: &str =
     "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. <code>/timezone America/Toronto</code>.";
 
+pub(crate) const DE_PILLARS_OPENER: &str = "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
+pub(crate) const DE_PILLARS_DM_ONLY: &str = "Das Profil entsteht privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann legen wir los.";
+pub(crate) const DE_PILLARS_START_FAILED: &str =
+    "Ich konnte das Profil in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal.";
+pub(crate) const DE_RESET_WALK_INTERRUPTED: &str =
+    "\n\nDein Profil war in Arbeit — schreib <code>/pillars</code>, um weiterzumachen.";
+
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
     "Du bist in keiner Gruppe.\nErstelle oder tritt einer Gruppe über die Web- oder Mobile-App bei.";
 pub(crate) const DE_GROUP_LIST_HEADER: &str = "Deine Gruppen ({0}):\n";
@@ -1215,6 +1262,13 @@ pub(crate) const PT_PRIVACY_OFF_CONFIRMATION: &str = "O consentimento de estatí
 pub(crate) const PT_TIMEZONE_SET: &str = "Fuso horário definido para <b>{0}</b>. As horas de início das tuas atividades passam a aparecer neste fuso horário.";
 pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um nome IANA, por exemplo <code>/timezone America/Toronto</code>.";
 
+pub(crate) const PT_PILLARS_OPENER: &str = "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
+pub(crate) const PT_PILLARS_DM_ONLY: &str = "O perfil constrói-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e começamos.";
+pub(crate) const PT_PILLARS_START_FAILED: &str =
+    "Não consegui iniciar o perfil nesta conversa. Tenta outra vez dentro de um momento.";
+pub(crate) const PT_RESET_WALK_INTERRUPTED: &str =
+    "\n\nO teu perfil estava em curso — escreve <code>/pillars</code> para retomar.";
+
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =
     "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.";
 pub(crate) const PT_GROUP_LIST_HEADER: &str = "Os teus grupos ({0}):\n";
@@ -1354,6 +1408,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_OFF_CONFIRMATION, "fr", FR_PRIVACY_OFF_CONFIRMATION),
     (KEY_TIMEZONE_SET, "fr", FR_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
+    (KEY_PILLARS_OPENER, "fr", FR_PILLARS_OPENER),
+    (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
+    (KEY_PILLARS_START_FAILED, "fr", FR_PILLARS_START_FAILED),
+    (KEY_RESET_WALK_INTERRUPTED, "fr", FR_RESET_WALK_INTERRUPTED),
     (KEY_GROUP_LIST_EMPTY, "fr", FR_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "fr", FR_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "fr", FR_GROUP_LIST_ITEM),
@@ -1477,6 +1535,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_OFF_CONFIRMATION, "en", EN_PRIVACY_OFF_CONFIRMATION),
     (KEY_TIMEZONE_SET, "en", EN_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
+    (KEY_PILLARS_OPENER, "en", EN_PILLARS_OPENER),
+    (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
+    (KEY_PILLARS_START_FAILED, "en", EN_PILLARS_START_FAILED),
+    (KEY_RESET_WALK_INTERRUPTED, "en", EN_RESET_WALK_INTERRUPTED),
     (KEY_GROUP_LIST_EMPTY, "en", EN_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "en", EN_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "en", EN_GROUP_LIST_ITEM),
@@ -1599,6 +1661,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_OFF_CONFIRMATION, "es", ES_PRIVACY_OFF_CONFIRMATION),
     (KEY_TIMEZONE_SET, "es", ES_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
+    (KEY_PILLARS_OPENER, "es", ES_PILLARS_OPENER),
+    (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
+    (KEY_PILLARS_START_FAILED, "es", ES_PILLARS_START_FAILED),
+    (KEY_RESET_WALK_INTERRUPTED, "es", ES_RESET_WALK_INTERRUPTED),
     (KEY_GROUP_LIST_EMPTY, "es", ES_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "es", ES_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "es", ES_GROUP_LIST_ITEM),
@@ -1722,6 +1788,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_OFF_CONFIRMATION, "de", DE_PRIVACY_OFF_CONFIRMATION),
     (KEY_TIMEZONE_SET, "de", DE_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
+    (KEY_PILLARS_OPENER, "de", DE_PILLARS_OPENER),
+    (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
+    (KEY_PILLARS_START_FAILED, "de", DE_PILLARS_START_FAILED),
+    (KEY_RESET_WALK_INTERRUPTED, "de", DE_RESET_WALK_INTERRUPTED),
     (KEY_GROUP_LIST_EMPTY, "de", DE_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "de", DE_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "de", DE_GROUP_LIST_ITEM),
@@ -1845,6 +1915,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PRIVACY_OFF_CONFIRMATION, "pt", PT_PRIVACY_OFF_CONFIRMATION),
     (KEY_TIMEZONE_SET, "pt", PT_TIMEZONE_SET),
     (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
+    (KEY_PILLARS_OPENER, "pt", PT_PILLARS_OPENER),
+    (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
+    (KEY_PILLARS_START_FAILED, "pt", PT_PILLARS_START_FAILED),
+    (KEY_RESET_WALK_INTERRUPTED, "pt", PT_RESET_WALK_INTERRUPTED),
     (KEY_GROUP_LIST_EMPTY, "pt", PT_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "pt", PT_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "pt", PT_GROUP_LIST_ITEM),

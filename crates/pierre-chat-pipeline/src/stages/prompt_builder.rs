@@ -30,7 +30,9 @@ use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
 use pierre_tool_runtime::registry::ToolRegistry;
-use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
+use pierre_tool_runtime::tool_execution::{
+    is_withheld_during_guided_flow, strip_simulation_artifacts,
+};
 
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
@@ -332,9 +334,18 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// capabilities (e.g. "look up Uber Eats menus") when the static list
 /// stopped reflecting reality. Each user-visible tool gets one line:
 /// `` - `name`: description ``. Admin-only tools are excluded.
+///
+/// When `guided_flow_active`, the tools withheld for the duration of a guided
+/// flow ([`GUIDED_FLOW_WITHHELD_TOOLS`]) are dropped from this list too. The
+/// prose list and the native declarations must move together: advertising a tool
+/// in prose that the function-calling surface does not expose is the exact
+/// advertised-vs-callable drift this generated section exists to prevent.
 #[must_use]
-pub fn build_tools_section(tool_registry: &Arc<ToolRegistry>) -> String {
+pub fn build_tools_section(tool_registry: &Arc<ToolRegistry>, guided_flow_active: bool) -> String {
     let schemas = tool_registry.user_visible_schemas();
+    let schemas = schemas
+        .into_iter()
+        .filter(|schema| !guided_flow_active || !is_withheld_during_guided_flow(&schema.name));
 
     let mut out = String::with_capacity(2_048);
     out.push_str("## Available Tools\n\n");

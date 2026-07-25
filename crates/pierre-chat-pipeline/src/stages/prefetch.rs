@@ -76,15 +76,24 @@ fn parse_data_requirements(coach_ctx: &CoachRuntimeContext) -> Option<DataRequir
 /// - This is the first message in the conversation (`history_len == 1`)
 /// - The conversation has a resolved coach context
 /// - The coach has a `startup_query` or `data_requirements` configured
+/// - No guided flow (e.g. the `/pillars` walk) owns the turn
 ///
 /// Returns `None` otherwise. Later turns are handled by
 /// [`maybe_refresh_activity_context`], not this gate.
+///
+/// The guided-flow gate is not cosmetic. Startup grounding injects the coach's
+/// `startup_query` as a synthetic **user** message right before the athlete's
+/// real one, so a builder coach's "Build an ultra-endurance block for my
+/// athlete" arrived as if the athlete had asked for it — on the very turn they
+/// were answering a profile question (2026-07-24). A profile interview is
+/// grounded in the athlete's words, not in 60 prefetched rides.
 #[must_use]
 pub fn get_startup_context_if_applicable(
     history_len: usize,
     coach_ctx: Option<&CoachRuntimeContext>,
+    guided_flow_active: bool,
 ) -> Option<(Option<String>, Option<DataRequirements>)> {
-    if history_len != 1 {
+    if history_len != 1 || guided_flow_active {
         return None;
     }
 
@@ -211,9 +220,10 @@ pub async fn inject_startup_context(
     coach_ctx: Option<&CoachRuntimeContext>,
     user_id: &str,
     tenant_id: TenantId,
+    guided_flow_active: bool,
 ) {
     let Some((startup_query, data_reqs)) =
-        get_startup_context_if_applicable(history.len(), coach_ctx)
+        get_startup_context_if_applicable(history.len(), coach_ctx, guided_flow_active)
     else {
         return;
     };
@@ -350,18 +360,27 @@ pub fn needs_activity_grounding(message: &str) -> bool {
 /// Whether a later turn should re-ground the model in fresh activity data.
 ///
 /// True only when all hold: it is past the first turn (turn 1 is already
-/// grounded by [`inject_startup_context`]); a coach is bound; the coach
-/// declares an activity `data_requirements` window; and the latest user
-/// message [`needs_activity_grounding`]. A nutrition/mobility coach with no
-/// activity window is left untouched. Pure, so the full gate is unit-testable
-/// without an executor.
+/// grounded by [`inject_startup_context`]); no guided flow owns the turn; a
+/// coach is bound; the coach declares an activity `data_requirements` window;
+/// and the latest user message [`needs_activity_grounding`]. A
+/// nutrition/mobility coach with no activity window is left untouched. Pure, so
+/// the full gate is unit-testable without an executor.
+///
+/// The guided-flow gate matters more here than the turn-1 gate suggests:
+/// [`GROUNDING_INTENT_TERMS`] contains `plan`, `semaine`, `entraîne`, `course`,
+/// `performance` — the ordinary vocabulary of an athlete answering a Training &
+/// Movement or Fuelling question. Without the gate, an honest pillar answer
+/// pulls in an activity dump whose instruction reads "base your analysis and any
+/// plan on these specific activities", which is the opposite of what a profile
+/// interview turn should do.
 #[must_use]
 pub fn should_refresh_activity_context(
     history_len: usize,
     coach_ctx: Option<&CoachRuntimeContext>,
     latest_user_message: &str,
+    guided_flow_active: bool,
 ) -> bool {
-    if history_len <= 1 {
+    if history_len <= 1 || guided_flow_active {
         return false;
     }
     let Some(coach) = coach_ctx else {
@@ -433,15 +452,24 @@ pub fn inject_activity_refresh(
 /// block is then safe from summarization, and the insertion cannot desync the
 /// `source_ids`/`llm_messages` parallel vectors that compaction consumes.
 pub async fn maybe_refresh_activity_context(
-    executor: &Arc<UniversalExecutor>,
+    inputs: ActivityRefreshInputs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
-    history: &[MessageRecord],
-    coach_ctx: Option<&CoachRuntimeContext>,
-    user_id: &str,
-    tenant_id: TenantId,
-    latest_user_message: &str,
 ) {
-    if !should_refresh_activity_context(history.len(), coach_ctx, latest_user_message) {
+    let ActivityRefreshInputs {
+        executor,
+        history,
+        coach_ctx,
+        user_id,
+        tenant_id,
+        latest_user_message,
+        guided_flow_active,
+    } = inputs;
+    if !should_refresh_activity_context(
+        history.len(),
+        coach_ctx,
+        latest_user_message,
+        guided_flow_active,
+    ) {
         return;
     }
 
@@ -459,6 +487,26 @@ pub async fn maybe_refresh_activity_context(
     };
 
     inject_activity_refresh(llm_messages, &activity_context);
+}
+
+/// Read-only inputs for [`maybe_refresh_activity_context`], bundled so the
+/// mutable `llm_messages` borrow stays the only positional argument.
+pub struct ActivityRefreshInputs<'a> {
+    /// Tool executor used to re-fetch the coach's activity window.
+    pub executor: &'a Arc<UniversalExecutor>,
+    /// Persisted conversation history — only its length is consulted (turn 1
+    /// belongs to [`inject_startup_context`]).
+    pub history: &'a [MessageRecord],
+    /// Active coach runtime context, when one is bound.
+    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Athlete whose activities are fetched.
+    pub user_id: &'a str,
+    /// Tenant the activity data lives under.
+    pub tenant_id: TenantId,
+    /// This turn's inbound message, matched against [`GROUNDING_INTENT_TERMS`].
+    pub latest_user_message: &'a str,
+    /// Whether a guided conversational flow owns this turn.
+    pub guided_flow_active: bool,
 }
 
 /// Emit `info!` (length) + `trace!` (full body) for a prefetch injection.

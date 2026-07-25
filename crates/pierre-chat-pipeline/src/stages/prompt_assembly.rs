@@ -364,7 +364,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // the actual tool registry. The registry is the single source of
     // truth; if a tool is added, renamed, or removed, the prompt
     // immediately reflects the change without a prompt edit.
-    let tools_section = build_tools_section(&ctx.tool_registry);
+    let tools_section = build_tools_section(&ctx.tool_registry, onboarding.is_some());
     let base_prompt = format!("{base_prompt}\n\n{tools_section}");
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
@@ -442,13 +442,6 @@ pub(crate) async fn assemble_prompt_and_messages(
     )
     .await;
 
-    // Stage 7e.1: Onboarding directive — when this conversation is mid guided
-    // pillar walk, steer the coach to probe the current topic conversationally.
-    let base_prompt = match onboarding {
-        Some(turn) => format!("{base_prompt}{}", super::onboarding::directive(turn)),
-        None => base_prompt,
-    };
-
     // Stage 7f: Render pending coach followups. Surfaced IDs are marked
     // delivered after the turn succeeds.
     let (base_prompt, pending_followup_ids) = inject_pending_followups(
@@ -522,12 +515,32 @@ pub(crate) async fn assemble_prompt_and_messages(
     // (web/mobile) — messaging channels have no plan-card renderer, so the
     // JSON directive (and the matching extraction) is skipped there and the
     // coach falls back to the channel's plain-prose mandate.
+    //
+    // Suppressed while the guided pillar walk is active, for the same reason
+    // Stage 7f.2 suppresses the plan block: a JSON-plan output contract has no
+    // business in a profile-building conversation, and it directly contradicts
+    // the onboarding directive appended below.
     let raw_system_prompt = if coach_ctx.is_some_and(|c| c.output_schema.is_some())
         && !profile.channel.is_messaging()
+        && onboarding.is_none()
     {
         format!("{raw_system_prompt}\n\n{}", ctx.structured_output_prompt)
     } else {
         raw_system_prompt
+    };
+
+    // Stage 7g.3: Onboarding directive — when this conversation is mid guided
+    // pillar walk, steer the coach to probe the current topic conversationally.
+    //
+    // Deliberately the LAST block before the canary. It used to sit mid-prompt
+    // (7e.1) where the channel response constraints, the tool-discipline block
+    // and the structured-output contract all landed after it; a builder coach
+    // whose persona mandates a plan on its first reply won that recency
+    // contest, which is how the 2026-07-24 walk derailed into a 16-week plan on
+    // the athlete's first answer.
+    let raw_system_prompt = match onboarding {
+        Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
+        None => raw_system_prompt,
     };
 
     // Stage 7h: Harden the prompt with a per-turn canary.

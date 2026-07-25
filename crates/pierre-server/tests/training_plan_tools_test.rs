@@ -8,9 +8,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::models::{Pillar, TenantId};
+use pierre_core::models::{OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -671,6 +672,98 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
         stale.result.expect("result")["goal_stale"],
         true,
         "a plan whose goal fact is gone must read stale"
+    );
+    Ok(())
+}
+
+/// A conversation mid guided pillar walk refuses `save_training_plan` outright.
+///
+/// The pipeline already withholds the tool from the prompt's "Available Tools"
+/// list and from the native function declarations for the duration of the walk,
+/// but neither covers the native-MCP path (an ACP subprocess reads `tools/list`
+/// straight off `/mcp`) or a direct MCP call. This is the enforcement half: no
+/// plan is written, and the same call succeeds once the walk ends.
+#[tokio::test]
+async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let repos = executor.resources.repos();
+
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "profile walk",
+            "gemini-2.0-flash",
+            // No coach row is seeded in this fixture; the walk gate keys on the
+            // conversation's onboarding_state, not on which coach is bound.
+            None,
+            None,
+        )
+        .await?;
+
+    let activated = repos
+        .chat
+        .set_conversation_onboarding_state(
+            &conversation.id,
+            Some(&OnboardingState::start_now_column()),
+            tenant,
+        )
+        .await?;
+    assert!(activated, "onboarding state should have been written");
+
+    // Scope the conversation the way the chat pipeline does, so the tool sees it.
+    let scoped = Arc::new(
+        UniversalExecutor::new(Arc::clone(&executor.resources))
+            .with_conversation_id(conversation.id.clone()),
+    );
+    let refused = scoped
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await;
+    let error = refused
+        .expect_err("save_training_plan must be refused during the walk")
+        .to_string();
+    assert!(
+        error.contains("profile walk"),
+        "refusal must tell the model why, got: {error}"
+    );
+    assert!(
+        repos
+            .training_plans
+            .get_active_plan(&tenant_id, &user_id.to_string(), None)
+            .await?
+            .is_none(),
+        "the refused save must not have written a plan"
+    );
+
+    // Walk over → the identical call goes through.
+    repos
+        .chat
+        .set_conversation_onboarding_state(&conversation.id, None, tenant)
+        .await?;
+    let saved = scoped
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        saved.success,
+        "save must succeed once the walk is over, got: {:?}",
+        saved.result
+    );
+    assert_eq!(
+        saved.result.expect("result")["goal_race"],
+        "Big Red on 2026-08-08"
     );
     Ok(())
 }

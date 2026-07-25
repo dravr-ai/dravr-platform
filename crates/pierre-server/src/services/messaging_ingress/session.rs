@@ -8,7 +8,7 @@ use std::env;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
-use pierre_core::models::TenantId;
+use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::backends::{CreateLinkStateParams, CreateSessionParams, MessagingRepository};
 use pierre_database::repositories::ChatRepository;
 use serde_json::Value;
@@ -21,7 +21,7 @@ use crate::services::outgoing::proactive_text;
 use pierre_chat_pipeline::stages::persistence::create_conversation;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_LINK_FALLBACK_PROMPT,
-    KEY_LINK_INITIAL_PROMPT, KEY_RESET_CONFIRM,
+    KEY_LINK_INITIAL_PROMPT, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
 };
 use pierre_core::errors::AppError;
 use pierre_services::messaging_group_bind::resolve_or_create_channel_group;
@@ -128,6 +128,29 @@ pub(super) async fn forge_fresh_session_conversation(
     Ok(new_id)
 }
 
+/// Whether the conversation being rotated away from was mid guided profile walk.
+///
+/// `/reset` forges a conversation whose `onboarding_state` is `NULL`, which ends
+/// an active walk silently — the athlete answered six questions and the seventh
+/// never comes. Read before the rotation so the confirmation can say so. A
+/// lookup failure reports `false`: a missing note is better than a wrong one.
+async fn walk_was_active(
+    resources: &ServerContext,
+    session: &ResolvedSession,
+    session_tenant_id: TenantId,
+) -> bool {
+    resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&session.conversation, &session.user_id, session_tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|conv| OnboardingState::from_column(conv.onboarding_state.as_deref()))
+        .is_some()
+}
+
 /// Handle the `/reset` (`/nouveau`, `/new`) command: rotate the messaging
 /// session onto a fresh conversation so a user can abandon a long or degraded
 /// thread without operator help. The previous conversation row is left intact
@@ -147,6 +170,7 @@ pub(super) async fn handle_reset(
     session: &ResolvedSession,
 ) -> OutgoingMessage {
     let registry = &resources.mcp.messaging_strings_registry;
+    let interrupted_walk = walk_was_active(resources, session, session_tenant_id).await;
     let body = match forge_fresh_session_conversation(
         resources,
         db,
@@ -163,9 +187,18 @@ pub(super) async fn handle_reset(
                 old_conversation_id = %session.conversation,
                 new_conversation_id = %new_id,
                 channel = %channel,
+                interrupted_walk,
                 "Reset command: rotated messaging session onto a fresh conversation"
             );
-            registry.get(KEY_RESET_CONFIRM, DEFAULT_LOCALE)
+            let confirm = registry.get(KEY_RESET_CONFIRM, DEFAULT_LOCALE);
+            if interrupted_walk {
+                format!(
+                    "{confirm}{}",
+                    registry.get(KEY_RESET_WALK_INTERRUPTED, DEFAULT_LOCALE)
+                )
+            } else {
+                confirm
+            }
         }
         Err(e) => {
             warn!(

@@ -15,7 +15,7 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution::{
-    self as chat_tool_loop, build_mcp_tools, ToolLoopParams,
+    self as chat_tool_loop, build_mcp_tools, is_withheld_during_guided_flow, ToolLoopParams,
 };
 use tracing::{info, warn};
 
@@ -26,7 +26,9 @@ use crate::{
 };
 
 use super::compaction::apply_tier1_compaction;
-use super::prefetch::{inject_startup_context, maybe_refresh_activity_context};
+use super::prefetch::{
+    inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs,
+};
 
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
 ///
@@ -61,6 +63,12 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// system prompt), used by Tier 1 compaction to anchor block first/last
     /// message ids to real persisted rows rather than positional guesses.
     pub source_ids: &'a [Option<String>],
+    /// Whether a guided conversational flow (today: the `/pillars` walk) owns
+    /// this turn. Deliberately a flow-agnostic bool rather than the pillar-typed
+    /// turn: everything this stage does with it — suppress activity injection,
+    /// withhold the plan-writing tool — is true of any guided interview, and a
+    /// second flow should not have to re-thread these call sites.
+    pub guided_flow_active: bool,
 }
 
 #[tracing::instrument(
@@ -88,6 +96,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         coach_ctx,
         history,
         source_ids,
+        guided_flow_active,
     } = inputs;
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
@@ -110,6 +119,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         coach_ctx,
         &input.user_id,
         input.tool_tenant_id,
+        guided_flow_active,
     )
     .await;
 
@@ -137,13 +147,16 @@ pub(crate) async fn dispatch_llm_with_tools(
     // the freshly injected block is never summarized away and cannot desync
     // the `source_ids`/`llm_messages` vectors compaction consumed above.
     maybe_refresh_activity_context(
-        &executor,
+        ActivityRefreshInputs {
+            executor: &executor,
+            history,
+            coach_ctx,
+            user_id: &input.user_id,
+            tenant_id: input.tool_tenant_id,
+            latest_user_message: &input.content,
+            guided_flow_active,
+        },
         llm_messages,
-        history,
-        coach_ctx,
-        &input.user_id,
-        input.tool_tenant_id,
-        &input.content,
     )
     .await;
 
@@ -201,7 +214,21 @@ pub(crate) async fn dispatch_llm_with_tools(
     // chat-callable set (`ToolRegistry::chat_callable_schemas`), so a capable
     // coach model routes natively over all coaching tools — no per-turn
     // narrowing that could starve a turn of a tool it needs.
-    let tools = build_mcp_tools(&ctx.tool_registry);
+    //
+    // The one exception is a guided flow: a profile interview withholds the
+    // plan-writing tool for its duration, in lockstep with the Stage 7a.2 prose
+    // list, so the model neither sees it advertised nor finds it callable.
+    let mut tools = build_mcp_tools(&ctx.tool_registry);
+    if guided_flow_active {
+        let before = tools.function_declarations.len();
+        tools
+            .function_declarations
+            .retain(|decl| !is_withheld_during_guided_flow(&decl.name));
+        info!(
+            withheld = before.saturating_sub(tools.function_declarations.len()),
+            "guided flow active: withholding write tools from the turn"
+        );
+    }
     let tool_params = ToolLoopParams {
         provider,
         executor,
