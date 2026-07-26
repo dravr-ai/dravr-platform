@@ -80,8 +80,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      # No "Configure git for private deps" step here, deliberately. This job
+      # builds no Rust (it downloads build-server's binaries) and no
+      # package.json in the bun installs below resolves to a private git
+      # remote, so the global url.insteadOf rewrite had no consumer — while
+      # rewriting https://github.com/ out from under the credentials
+      # actions/checkout injects for the private dravr-contremaitre checkout
+      # further down. That fetch then stalled instead of failing: 25
+      # consecutive nightlies (2026-07-02 .. 2026-07-25) burned the full
+      # timeout-minutes and reported "cancelled" with Maestro never running.
+      # The rewrite stays in build-server, which cargo actually needs.
 
       - name: Download server binaries
         uses: actions/download-artifact@v4
@@ -198,8 +206,18 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "warn"
 
+      # Bounded and non-interactive on purpose. The step's own auth (the token
+      # below) is sound — the action's default-branch lookup succeeds — but the
+      # git fetch that follows it is the step that hung for 150 minutes on
+      # every nightly above. GIT_TERMINAL_PROMPT=0 turns a credential stall
+      # into an immediate error naming the cause, and the step timeout caps
+      # anything else at 5 minutes: a named red beats 2.5 hours of silence
+      # that reads like an infra blip on the dashboard.
       - name: Checkout dravr-contremaitre for coach seed source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        timeout-minutes: 5
+        env:
+          GIT_TERMINAL_PROMPT: "0"
         with:
           repository: dravr-ai/dravr-contremaitre
           token: ${{ secrets.DRAVR_CONTREMAITRE_WRITE_TOKEN }}
