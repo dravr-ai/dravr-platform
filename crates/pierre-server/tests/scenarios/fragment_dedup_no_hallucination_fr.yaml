@@ -89,13 +89,23 @@ turns:
       # These are all genuine fragment/re-recording phrasings, so widening
       # the list recognizes more correct answers without accepting a wrong
       # one (a bare "20 sessions" still matches nothing here).
+      #
+      # any_of matches case-insensitive SUBSTRINGS, so the single-word entries
+      # are stems, not surface forms: an inflection is not a different answer.
+      # The 2026-07-25 nightly proved the plural-only forms brittle — qwen
+      # replied "des auto-dossiers ou l'enregistrement parallèle avec
+      # plusieurs appareils", the exact fragment awareness this pins, and the
+      # list missed it because it carried "enregistrements" and the model
+      # wrote the singular. "fragment" also subsumes "fragmenté", so that
+      # entry is gone rather than duplicated. Multi-word entries stay verbatim:
+      # stemming "sessions distinctes" down to "distinctes" would start
+      # accepting "20 activités distinctes", which is the failure mode itself.
       - kind: any_of
         values:
-          - "fragments"
-          - "fragmenté"
-          - "doublons"
-          - "recordings"
-          - "enregistrements"
+          - "fragment"
+          - "doublon"
+          - "recording"
+          - "enregistrement"
           - "même sortie"
           - "sessions distinctes"
           - "séances distinctes"
