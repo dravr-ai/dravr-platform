@@ -34,6 +34,7 @@
 //! These tests pin the tail contract and the no-product-names rule.
 
 use pierre_chat_pipeline::stages::prompt_assembly::close_with_identity_anchor;
+use pierre_core::narration::contains_identity_leak;
 
 #[test]
 fn coach_prompt_with_no_identity_gains_the_anchor_last() {
@@ -42,10 +43,19 @@ fn coach_prompt_with_no_identity_gains_the_anchor_last() {
                       the athlete's recent training load before prescribing.";
     let out = close_with_identity_anchor(coach_body);
 
+    // Char-safe tail: the anchor contains an em dash, so a byte slice could
+    // split a codepoint if the wording ever changes.
+    let tail: String = out
+        .chars()
+        .rev()
+        .take(60)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     assert!(
         out.trim_end().ends_with("not a competing identity."),
-        "the assembled prompt must CLOSE with the identity anchor (arm C); tail was: {}",
-        &out[out.len().saturating_sub(60)..]
+        "the assembled prompt must CLOSE with the identity anchor (arm C); tail was: {tail}"
     );
     assert!(
         out.starts_with(coach_body),
@@ -79,7 +89,7 @@ fn anchor_itself_never_trips_the_boundary_matcher() {
     // withheld by our own detector — that would turn the fix into an outage.
     let out = close_with_identity_anchor("some coach body");
     assert!(
-        !pierre_core::narration::contains_identity_leak(&out),
+        !contains_identity_leak(&out),
         "the identity anchor's own wording must not match identity_leak_match"
     );
 }
