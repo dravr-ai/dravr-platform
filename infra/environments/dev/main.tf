@@ -326,6 +326,17 @@ module "backend" {
       # -path defects are fixed.
       COPILOT_HEADLESS_MCP_TOOL_CALLING = "false"
 
+      # embacle truncates history to the last N non-system messages before it
+      # serializes the prompt; its default is 20. Tier 1 compaction fires at
+      # max_messages = 40 (contremaitre harness config) and splices the six
+      # oldest turns into one summary, leaving ~36 — so with N=20 the summary
+      # lands at history[0] and is truncated away on the very turn it is
+      # created, and again on every replay. That made compaction a no-op on
+      # this provider regardless of the message role it used. 41 = compaction's
+      # own cap + 1, which makes compaction the single authority on prompt
+      # length instead of two mechanisms trimming the same vector.
+      COPILOT_HEADLESS_MAX_HISTORY_TURNS = "41"
+
       # Copilot runs the MCP tool loop in Autopilot mode (call -> results ->
       # synthesize in one turn), which makes individual ACP messages run longer
       # than the 90s embacle default. Raise the per-message read timeout so the

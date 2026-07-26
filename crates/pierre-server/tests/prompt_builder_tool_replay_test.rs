@@ -13,7 +13,7 @@ use pierre_chat_pipeline::stages::prompt_builder::{
 use pierre_database::database::MessageRecord;
 use pierre_llm::MessageRole;
 use pierre_memory::CompactionBlock;
-use pierre_services::conversation_compaction::COMPACTION_MARKER;
+use pierre_services::conversation_compaction::{COMPACTION_MARKER, REPLAYED_SUMMARY_PREFIX};
 
 /// Build a deterministic `MessageRecord` for a given role + content. The
 /// non-content fields don't influence `build_llm_messages` so they get
@@ -247,10 +247,14 @@ fn block_covering_rows_is_replaced_by_one_summary_message() {
     assert_eq!(messages[1].content, "first question");
     assert_eq!(source_ids[1].as_deref(), Some("m1"));
 
-    // The summary replaces m2..m4: a System message carrying the block summary
-    // verbatim, no UI marker, source_id None.
-    assert_eq!(messages[2].role, MessageRole::System);
-    assert_eq!(messages[2].content, "Summary of the middle exchange");
+    // The summary replaces m2..m4: a User message carrying the block summary
+    // under the shared framing prefix (a System message here would be dropped by
+    // the live provider), no UI marker, source_id None.
+    assert_eq!(messages[2].role, MessageRole::User);
+    assert!(messages[2].content.starts_with(REPLAYED_SUMMARY_PREFIX));
+    assert!(messages[2]
+        .content
+        .ends_with("Summary of the middle exchange"));
     assert!(
         !messages[2].content.contains(COMPACTION_MARKER),
         "injected summary must not carry the UI render marker"

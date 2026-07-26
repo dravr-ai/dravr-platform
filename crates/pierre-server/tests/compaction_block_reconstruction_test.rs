@@ -11,6 +11,7 @@ use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages_with_blocks
 use pierre_database::database::MessageRecord;
 use pierre_llm::MessageRole;
 use pierre_memory::CompactionBlock;
+use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 
 /// Build a `MessageRecord` with an explicit id and role.
 fn record(id: &str, role: &str, content: &str) -> MessageRecord {
@@ -75,9 +76,12 @@ fn single_block_mid_history_splices_one_summary_preserving_order() {
     assert_eq!(messages[1].content, "q one");
     assert_eq!(source_ids[1].as_deref(), Some("m1"));
 
-    // The single spliced summary.
-    assert_eq!(messages[2].role, MessageRole::System);
-    assert_eq!(messages[2].content, "middle summary");
+    // The single spliced summary. It rides as User text under the shared
+    // framing prefix: the live provider keeps only the first system message and
+    // drops the rest, so a System summary never reached the model.
+    assert_eq!(messages[2].role, MessageRole::User);
+    assert!(messages[2].content.ends_with("middle summary"));
+    assert!(messages[2].content.starts_with(REPLAYED_SUMMARY_PREFIX));
     assert_eq!(source_ids[2], None);
 
     // Order preserved: m5 then m6 after the summary, source_ids aligned.
@@ -108,14 +112,18 @@ fn overlapping_blocks_apply_only_the_earlier_created() {
     // Exactly one summary message, carrying the earlier block's text.
     let summaries: Vec<&str> = messages
         .iter()
-        .filter(|m| m.role == MessageRole::System)
-        .skip(1) // skip the leading system prompt
+        .filter(|m| m.content.starts_with(REPLAYED_SUMMARY_PREFIX))
         .map(|m| m.content.as_str())
         .collect();
     assert_eq!(summaries.len(), 1, "no double summary on overlap");
-    assert_eq!(summaries[0], "earlier summary");
+    assert!(summaries[0].ends_with("earlier summary"));
+    // ends_with, not `!=`: every summary now carries the framing prefix, so an
+    // equality check against the bare text would pass even if the overlapping
+    // block WERE spliced, silently retiring the overlap-precedence guarantee.
     assert!(
-        messages.iter().all(|m| m.content != "later summary"),
+        messages
+            .iter()
+            .all(|m| !m.content.ends_with("later summary")),
         "later overlapping block must be skipped"
     );
 

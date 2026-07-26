@@ -193,8 +193,10 @@ fn injection_places_fresh_data_just_before_the_ask() {
     assert_eq!(messages.len(), 3, "injection adds exactly one message");
     // Inserted at index 1 (just before the trailing user ask).
     assert!(
-        messages[1].role == MessageRole::System,
-        "the fresh block is a system message"
+        messages[1].role == MessageRole::User,
+        "the fresh block must be a USER message — the live provider keeps only \
+         the first system message and drops every other one, so a System block \
+         here never reached the model at all"
     );
     assert!(
         messages[1].content.contains("freshly loaded for this turn"),

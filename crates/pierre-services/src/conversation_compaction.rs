@@ -46,6 +46,22 @@ use pierre_llm::ChatProvider;
 /// "earlier conversation summary" callouts.
 pub const COMPACTION_MARKER: &str = "[pierre:compaction]\n";
 
+/// Framing prefix carried by a compaction summary on the wire.
+///
+/// Summaries ride in a `User` message rather than a `System` one — see the
+/// one-system-message invariant in
+/// [`build_llm_messages`](../../pierre_chat_pipeline/stages/prompt_builder/index.html) —
+/// so the model needs to be told the text is recovered history and not
+/// something the athlete just said. Used by both the same-turn splice
+/// ([`ConversationCompactor::apply_summary`]) and the later-turn replay in
+/// `prompt_builder`, so one summary reads identically on the turn it is
+/// created and on every turn after it.
+///
+/// Distinct from [`COMPACTION_MARKER`], which is a UI render artifact and is
+/// deliberately kept off the wire.
+pub const REPLAYED_SUMMARY_PREFIX: &str = "[Earlier conversation summary — recovered context, \
+     not a new message from the athlete]\n";
+
 /// Outcome of a compaction attempt.
 #[derive(Debug, Clone)]
 pub enum CompactionOutcome {
@@ -292,17 +308,20 @@ impl ConversationCompactor {
             })
             .await?;
 
+        // `User`, not `System`: the live provider keeps only the first system
+        // message and filters the rest, so a mid-list system summary never
+        // reached the model at all. Framed with REPLAYED_SUMMARY_PREFIX — not
+        // COMPACTION_MARKER, which is a UI-only render artifact — so the model
+        // reads it as recovered history rather than as an athlete turn, and so
+        // this splice matches the later-turn replay in `prompt_builder` byte
+        // for byte.
         let rendered = format!(
-            "{COMPACTION_MARKER}Earlier conversation summary ({} turns, ~{} → ~{} tokens):\n{summary}",
+            "{REPLAYED_SUMMARY_PREFIX}Earlier conversation summary ({} turns, ~{} → ~{} tokens):\n{summary}",
             plan.range.end - plan.range.start,
             original_tokens,
             summary_tokens,
         );
-        replace_range(
-            ctx.llm_messages,
-            &plan.range,
-            ChatMessage::system(&rendered),
-        );
+        replace_range(ctx.llm_messages, &plan.range, ChatMessage::user(&rendered));
 
         let after = estimate_messages_tokens(ctx.llm_messages);
         info!(

@@ -244,7 +244,14 @@ pub async fn inject_startup_context(
                      {activity_context}"
                 );
                 log_inject("activity context", &context_msg);
-                llm_messages.insert(1, ChatMessage::system(&context_msg));
+                // `User`, not `System`. The live provider (copilot_headless)
+                // keeps only the first system message and filters every other
+                // one out of history, so this pre-load never reached the model
+                // — the coach looked grounded only when it chose to call
+                // `get_activities` itself, which is the non-determinism this
+                // injection exists to remove. Index 1 keeps it directly after
+                // the system prompt and before the athlete's turn.
+                llm_messages.insert(1, ChatMessage::user(&context_msg));
             }
         }
 
@@ -433,8 +440,16 @@ pub fn inject_activity_refresh(
          {activity_context}"
     );
     log_inject("activity refresh", &context_msg);
-    let insert_pos = llm_messages.len().saturating_sub(1);
-    llm_messages.insert(insert_pos, ChatMessage::system(&context_msg));
+    // `User`, not `System` — same reason as the startup pre-load above: a
+    // mid-list system message is dropped wholesale by the live provider, so
+    // this refresh has never reached the model.
+    //
+    // Clamped to >= 1 so a degenerate single-message vector cannot displace the
+    // system prompt from index 0: `non_system_count` and `sliding_window_to_fit`
+    // both infer the system prompt from `messages.first()`, and a `User` there
+    // would make the prompt itself eligible for the sliding window.
+    let insert_pos = llm_messages.len().saturating_sub(1).max(1);
+    llm_messages.insert(insert_pos, ChatMessage::user(&context_msg));
     true
 }
 

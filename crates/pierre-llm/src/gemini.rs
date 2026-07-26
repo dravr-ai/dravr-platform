@@ -570,17 +570,18 @@ impl GeminiProvider {
     /// Convert chat messages to Gemini format
     fn convert_messages(messages: &[ChatMessage]) -> (Vec<GeminiContent>, Option<GeminiContent>) {
         let mut contents = Vec::new();
-        let mut system_instruction = None;
+        // Every system message is concatenated, not overwritten. Assigning here
+        // made the LAST system message win, so any mid-list one silently
+        // destroyed the coach persona + tool catalogue that sits at index 0.
+        // The pipeline now emits a single system message, but Gemini is a
+        // fallback provider reached only when the primary errored — it must not
+        // depend on an invariant held one crate away.
+        let mut system_texts: Vec<String> = Vec::new();
 
         for message in messages {
             if message.role == MessageRole::System {
                 // Gemini uses separate system_instruction field
-                system_instruction = Some(GeminiContent {
-                    role: None,
-                    parts: vec![ContentPart::Text {
-                        text: message.content.clone(),
-                    }],
-                });
+                system_texts.push(message.content.clone());
             } else {
                 contents.push(GeminiContent {
                     role: Some(Self::convert_role(message.role).to_owned()),
@@ -590,6 +591,13 @@ impl GeminiProvider {
                 });
             }
         }
+
+        let system_instruction = (!system_texts.is_empty()).then(|| GeminiContent {
+            role: None,
+            parts: vec![ContentPart::Text {
+                text: system_texts.join("\n\n"),
+            }],
+        });
 
         (contents, system_instruction)
     }

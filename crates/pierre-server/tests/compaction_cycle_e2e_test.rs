@@ -30,6 +30,7 @@ use pierre_chat_pipeline::stages::prompt_builder::{
 };
 use pierre_services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor, COMPACTION_MARKER,
+    REPLAYED_SUMMARY_PREFIX,
 };
 
 /// Fixed summary the stubbed summarizer always returns, so the test can assert
@@ -143,11 +144,11 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
 ///    Summarize path.
 /// 2. `compact_if_needed` summarizes the oldest `summarize_oldest_n` (6) turns
 ///    via the LLM, persists a `CompactionBlock`, and replaces those turns in the
-///    outgoing message vector with a single System message (shrinks by 5).
+///    outgoing message vector with a single User summary message (shrinks by 5).
 /// 3. The persisted block carries the stub's fixed summary and is anchored to the
 ///    first/last of the six oldest real history rows.
 /// 4. On a later turn, `build_llm_messages_with_blocks` reconstructs that block:
-///    the six covered rows are replaced by exactly one System message carrying
+///    the six covered rows are replaced by exactly one User message carrying
 ///    the summary (no UI marker), with rows after the window rendering normally —
 ///    versus `build_llm_messages` (no blocks), which would keep all 51 entries.
 #[tokio::test]
@@ -273,7 +274,9 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     );
 
     // --- Assert: the in-flight prompt vector shrank by 5 — the six oldest turns
-    //     collapsed into a single System summary message. ---
+    //     collapsed into a single User summary message carrying the shared
+    //     framing prefix. (System would be dropped by the live provider, which
+    //     keeps only the first system message.) ---
     assert_eq!(
         llm_messages.len(),
         (MESSAGE_COUNT + 1) - 5,
@@ -289,8 +292,17 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         "exactly one message should carry the summary in the compacted prompt"
     );
     assert!(
-        matches!(summary_msgs[0].role, MessageRole::System),
-        "the spliced summary must be a System message"
+        matches!(summary_msgs[0].role, MessageRole::User),
+        "the spliced summary must be a User message — a mid-list System message \
+         never reaches the model on the live provider"
+    );
+    assert!(
+        summary_msgs[0].content.starts_with(REPLAYED_SUMMARY_PREFIX),
+        "the spliced summary must be framed as recovered history"
+    );
+    assert!(
+        !summary_msgs[0].content.contains(COMPACTION_MARKER),
+        "the UI-only compaction marker must never reach the model"
     );
 
     // --- Assert (3): read-side reconstruction on a later turn. Rebuilding the
@@ -307,11 +319,11 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
             covered.id
         );
     }
-    // Exactly one System message carries the block summary, and it does NOT carry
-    // the UI-only compaction marker — the model reads it as authoritative history.
+    // Exactly one User message carries the block summary, framed as recovered
+    // history, and it does NOT carry the UI-only compaction marker.
     let recon_summary_msgs: Vec<&pierre_llm::ChatMessage> = reconstructed
         .iter()
-        .filter(|m| m.content == block.summary)
+        .filter(|m| m.content.ends_with(&block.summary))
         .collect();
     assert_eq!(
         recon_summary_msgs.len(),
@@ -319,8 +331,14 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         "reconstruction must inject exactly one summary message"
     );
     assert!(
-        matches!(recon_summary_msgs[0].role, MessageRole::System),
-        "the reconstructed summary must be a System message"
+        matches!(recon_summary_msgs[0].role, MessageRole::User),
+        "the reconstructed summary must be a User message"
+    );
+    assert!(
+        recon_summary_msgs[0]
+            .content
+            .starts_with(REPLAYED_SUMMARY_PREFIX),
+        "the reconstructed summary must carry the same framing as the splice"
     );
     assert!(
         !recon_summary_msgs[0].content.contains(COMPACTION_MARKER),

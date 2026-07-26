@@ -29,6 +29,7 @@ use pierre_core::models::ConnectionType;
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
+use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_execution::{
     is_withheld_during_guided_flow, strip_simulation_artifacts,
@@ -199,8 +200,13 @@ pub fn build_llm_messages_with_blocks(
     while i < history.len() {
         if let Some(block) = block_start.get(&i) {
             // Splice the summary in place of the raw rows `[first_index,
-            // last_index]` (inclusive), then skip every covered row. The
-            // summary is authoritative history, so no marker prefix. It is
+            // last_index]` (inclusive), then skip every covered row. It rides
+            // in a `User` message under REPLAYED_SUMMARY_PREFIX: the live
+            // provider keeps only the first system message and drops the rest,
+            // so a mid-list `System` summary never reached the model, and the
+            // prefix tells it the text is recovered history rather than a new
+            // athlete turn. The UI-only COMPACTION_MARKER stays off the wire.
+            // It is
             // LLM-written from assistant turns, so a leak that predates the
             // narration scrub can be baked into it (observed 2026-07-10:
             // compaction ran mid-incident; 2026-07-23: a summary carrying
@@ -209,7 +215,9 @@ pub fn build_llm_messages_with_blocks(
             // neither leak class re-enters every subsequent prompt.
             let summary = scrub_replayed_narration(block.summary).cleaned;
             if !summary.is_empty() {
-                messages.push(ChatMessage::system(&summary));
+                messages.push(ChatMessage::user(&format!(
+                    "{REPLAYED_SUMMARY_PREFIX}{summary}"
+                )));
                 source_ids.push(None);
             }
             i = block.last_index + 1;
