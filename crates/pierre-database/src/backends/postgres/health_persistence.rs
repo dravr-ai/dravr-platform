@@ -234,12 +234,11 @@ impl SleepRepository for PostgresDatabase {
         tenant_id: &TenantId,
         session: &StoredSleepSession,
     ) -> AppResult<String> {
-        // Surrogate id — see `upsert_health_snapshot`. Reusing the provider's id
-        // collides with the primary key whenever that id does not vary with the
-        // ON CONFLICT arbiter's natural key (WHOOP cycles straddle midnight, so a
-        // cycle whose derived date shifts between syncs repeats its id on a new
-        // date). RETURNING reports the id actually stored.
-        let id = Uuid::new_v4().to_string();
+        let id = if session.id.is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            session.id.clone()
+        };
         let now = Utc::now();
         let stages_json = serde_json::to_string(&session.stages)
             .map_err(|e| AppError::database(format!("Failed to serialize sleep stages: {e}")))?;
@@ -252,7 +251,7 @@ impl SleepRepository for PostgresDatabase {
         let hrv_during_sleep = session.avg_hrv;
         let is_nap: i32 = i32::from(session.is_nap);
 
-        let row = sqlx::query(
+        sqlx::query(
             r"
             INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -265,7 +264,6 @@ impl SleepRepository for PostgresDatabase {
                 stages_json = EXCLUDED.stages_json,
                 hrv_during_sleep = EXCLUDED.hrv_during_sleep,
                 is_nap = EXCLUDED.is_nap
-            RETURNING id
             ",
         )
         .bind(&id)
@@ -284,11 +282,11 @@ impl SleepRepository for PostgresDatabase {
         .bind(hrv_during_sleep)
         .bind(is_nap)
         .bind(now)
-        .fetch_one(&self.pool)
+        .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert sleep session: {e}")))?;
 
-        Ok(row.get("id"))
+        Ok(id)
     }
 
     async fn get_sleep_sessions(
@@ -465,12 +463,11 @@ impl RecoveryRepository for PostgresDatabase {
         tenant_id: &TenantId,
         metrics: &StoredRecoveryMetrics,
     ) -> AppResult<String> {
-        // Surrogate id — see `upsert_health_snapshot`. Reusing the provider's id
-        // collides with the primary key whenever that id does not vary with the
-        // ON CONFLICT arbiter's natural key (WHOOP cycles straddle midnight, so a
-        // cycle whose derived date shifts between syncs repeats its id on a new
-        // date). RETURNING reports the id actually stored.
-        let id = Uuid::new_v4().to_string();
+        let id = if metrics.id.is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            metrics.id.clone()
+        };
         let now = Utc::now();
         let recovery_score = metrics.recovery_score.map(f64::from);
         let readiness_score = metrics.readiness_score.map(f64::from);
@@ -479,7 +476,7 @@ impl RecoveryRepository for PostgresDatabase {
         let body_temperature = metrics.skin_temp_deviation;
         let resting_respiratory_rate = metrics.respiratory_rate;
 
-        let row = sqlx::query(
+        sqlx::query(
             r"
             INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_status, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -491,7 +488,6 @@ impl RecoveryRepository for PostgresDatabase {
                 resting_heart_rate = EXCLUDED.resting_heart_rate,
                 body_temperature = EXCLUDED.body_temperature,
                 resting_respiratory_rate = EXCLUDED.resting_respiratory_rate
-            RETURNING id
             ",
         )
         .bind(&id)
@@ -509,11 +505,11 @@ impl RecoveryRepository for PostgresDatabase {
         .bind(body_temperature)
         .bind(resting_respiratory_rate)
         .bind(now)
-        .fetch_one(&self.pool)
+        .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert recovery metrics: {e}")))?;
 
-        Ok(row.get("id"))
+        Ok(id)
     }
 
     async fn get_recovery_metrics(
@@ -668,15 +664,20 @@ impl HealthSnapshotRepository for PostgresDatabase {
         tenant_id: &TenantId,
         snapshot: &StoredHealthMetrics,
     ) -> AppResult<String> {
-        // The row id is a surrogate: nothing references health_snapshots(id) and a
-        // row's identity is the natural key (user, tenant, provider, date) carried by
-        // the ON CONFLICT arbiter below. Provider ids are deliberately NOT reused:
-        // they are not guaranteed to vary with that key — WHOOP issues one constant
-        // `whoop-body-{user}` id for every date — so an id repeated across dates
-        // collides with the primary key on the INSERT path, which the arbiter never
-        // gets to see. RETURNING yields the id actually stored, which on the update
-        // path is the pre-existing row's, so legacy rows keep their provider id and
-        // heal in place without a backfill.
+        // Surrogate id, deliberately ignoring `snapshot.id`. A row's identity is the
+        // natural key (user, tenant, provider, date) carried by the ON CONFLICT
+        // arbiter below, and WHOOP stamps ONE date-invariant id for body metrics
+        // (`whoop-body-{user}`), so reusing it repeats the primary key on a new
+        // date and the INSERT dies before the arbiter is consulted. RETURNING
+        // reports the id actually stored, which on the update path is the
+        // pre-existing row's — so legacy rows keep their id and heal in place.
+        //
+        // Scoped to health snapshots on purpose. `upsert_sleep_session` and
+        // `upsert_recovery_metrics` keep provider-id reuse: their provider ids
+        // vary with their own arbiters (sleep ids are per-session, keyed to
+        // start_time), and the dravr-enforme adapter resolves those rows BY the
+        // provider id through find_*_tenant / delete_*_by_id — a contract
+        // health snapshots do not have.
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let bp_systolic = snapshot.systolic_bp.map(i64::from);
