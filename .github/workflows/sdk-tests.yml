@@ -53,7 +53,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
@@ -144,7 +144,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
