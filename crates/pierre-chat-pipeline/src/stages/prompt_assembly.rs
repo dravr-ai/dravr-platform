@@ -61,12 +61,13 @@ use super::refresh::inject_refresh_context;
 /// It counters the underlying Copilot CLI system prompt at the *category* level
 /// ("terminal/coding assistant", "general-purpose AI/language model") rather
 /// than by naming products. Two deliberate omissions:
-/// - **No product names** (GitHub Copilot / ChatGPT / OpenAI). The evidence
-///   that a generic "You are Dravr" gives 0 leaks says naming isn't needed,
-///   and naming both primes the tokens and risks a "no, I'm not <product>"
-///   reply — which the response-boundary matcher (`identity_leak_match`, a
-///   bare `contains`, no negation handling) would withhold as if it were a
-///   real leak.
+/// - **No product names** (GitHub Copilot / `ChatGPT` / `OpenAI`). Naming them
+///   primes the tokens and invites a `no, I'm not <product>` reply — which
+///   the response-boundary matcher would then withhold as if it were a real
+///   leak. Note this is the reason, *not* "arm C shows a generic anchor
+///   suffices": arm B was equally generic and still disclosed the model 2/12.
+///   Placement is what carried arm C; the omission is about not manufacturing
+///   the false positive.
 /// - **"not even to deny it"** — the coach must assert "I am Dravr" without
 ///   ever emitting the underlying identity's name, so a correct answer can
 ///   never trip that matcher. This is not hypothetical: every one of the 5
