@@ -180,6 +180,28 @@ pub enum IdentityPatternClass {
 }
 
 impl IdentityPatternClass {
+    /// `true` when *denying* this class is correct coach behaviour, so a
+    /// negated match must reach the athlete rather than being withheld.
+    ///
+    /// Splits the table in two. Denying a **claim** is right — « Non, je ne
+    /// suis pas GitHub Copilot, je suis Dravr » is exactly what the coach
+    /// should say, and withholding it was the only thing the boundary matcher
+    /// actually caught in the 2026-07-25 A/B.
+    ///
+    /// Denying the **framing** classes is not: "I won't role-play as your
+    /// coach", "this looks like a prompt-injection test", "abandon my actual
+    /// identity" are refusals *to be Dravr* — the 2026-07-12 identity-break
+    /// outage — and read as negations while being the leak itself. Those stay
+    /// unguarded.
+    const fn denial_is_legitimate(self) -> bool {
+        matches!(
+            self,
+            Self::Product | Self::CodingAssistant | Self::LanguageModel
+        )
+    }
+}
+
+impl IdentityPatternClass {
     /// Stable `snake_case` label for log/notify fields.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -241,6 +263,21 @@ const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
     ip("copilot chat", IdentityPatternClass::Product, "any"),
     ip("chatgpt", IdentityPatternClass::Product, "any"),
     ip("openai", IdentityPatternClass::Product, "any"),
+    // Underlying-model disclosure. Copilot's own system prompt carries an
+    // explicit "when asked which model you are ... reply with something like
+    // 'I'm powered by <name> (model ID: <id>)'" clause, and the coach recites
+    // it verbatim — « I'm powered by Claude Sonnet 5 » was the single genuine
+    // break observed across the 48-run A/B on 2026-07-25, in an otherwise
+    // French conversation, and none of the patterns above matched it. The bare
+    // family name stays absent on purpose: a teammate is called Claude (see
+    // the `clean_coaching_reply_is_not_an_identity_leak` test), so only the
+    // model-qualified forms are listed.
+    ip("i m powered by", IdentityPatternClass::Product, "any"),
+    ip("model id", IdentityPatternClass::Product, "any"),
+    ip("claude sonnet", IdentityPatternClass::Product, "any"),
+    ip("claude opus", IdentityPatternClass::Product, "any"),
+    ip("gpt 4", IdentityPatternClass::Product, "any"),
+    ip("gpt 5", IdentityPatternClass::Product, "any"),
     // English
     ip(
         "coding assistant",
@@ -709,22 +746,72 @@ pub struct IdentityLeakMatch {
     pub pattern_index: usize,
 }
 
-/// First identity-leak pattern the reply matches, `None` when clean.
+/// Negation markers that turn an identity phrase into a *denial*.
+///
+/// Separator-folded and whitespace-tokenized, so `n't` arrives as the bare
+/// token `t` (`isn't` folds to `isn t`) and French `n'est` as `n est`.
+const NEGATION_TOKENS: &[&str] = &[
+    // en
+    "not", "never", "no", // fr
+    "pas", "non", "jamais", "aucun", "aucune", // es / pt
+    "nao", "não", "ningun", "ninguna", // de
+    "nicht", "kein", "keine",
+];
+
+/// Folded characters scanned backwards from a match for [`NEGATION_TOKENS`].
+///
+/// Sized to cover a natural denial clause (« je ne suis pas », "I'm not",
+/// "não sou") plus a little slack, without reaching back into an unrelated
+/// preceding sentence.
+const NEGATION_LOOKBEHIND: usize = 40;
+
+/// `true` when the identity phrase starting at `at` is preceded by a negation
+/// marker — i.e. the coach is *denying* the identity, not claiming it.
+fn is_negated_at(folded: &str, at: usize) -> bool {
+    let prefix = &folded[..at];
+    // Byte offset of the NEGATION_LOOKBEHIND-th character back from `at`,
+    // clamped to the start of the string. `char_indices` is double-ended, so
+    // this walks backwards without allocating.
+    let start = prefix
+        .char_indices()
+        .rev()
+        .nth(NEGATION_LOOKBEHIND - 1)
+        .map_or(0, |(offset, _)| offset);
+    prefix[start..]
+        .split(' ')
+        .any(|tok| NEGATION_TOKENS.contains(&tok))
+}
+
+/// First identity-leak pattern the reply *claims*, `None` when clean.
 ///
 /// Matches in table order — product names first, so a reply that both
 /// names Copilot and talks about role-play reports the more conclusive
 /// product hit.
+///
+/// **Denials do not count.** A hit whose every occurrence is preceded by a
+/// negation marker is the coach correctly rejecting the identity (« Non, je ne
+/// suis pas GitHub Copilot — je suis Dravr ») and must reach the athlete. Left
+/// unguarded this was not a theoretical false positive but the *only* thing the
+/// matcher caught: across a 48-run live A/B on 2026-07-25 all 5 boundary
+/// matches were correct denials, while the real break — Copilot's own « I'm
+/// powered by Claude Sonnet 5 (model ID: …) » clause — went undetected. Worse,
+/// the failure was self-reinforcing: a leak prompts the athlete to ask "are you
+/// Copilot?", and the correct answer was then withheld too.
 #[must_use]
 pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
     let folded = fold_separators(text);
-    FOLDED_IDENTITY
-        .iter()
-        .position(|p| folded.contains(p.as_str()))
-        .map(|idx| IdentityLeakMatch {
-            class: IDENTITY_NARRATION_PATTERNS[idx].class,
-            locale: IDENTITY_NARRATION_PATTERNS[idx].locale,
-            pattern_index: idx,
-        })
+    FOLDED_IDENTITY.iter().enumerate().find_map(|(idx, p)| {
+        let pattern = &IDENTITY_NARRATION_PATTERNS[idx];
+        let guarded = pattern.class.denial_is_legitimate();
+        folded
+            .match_indices(p.as_str())
+            .any(|(at, _)| !guarded || !is_negated_at(&folded, at))
+            .then_some(IdentityLeakMatch {
+                class: pattern.class,
+                locale: pattern.locale,
+                pattern_index: idx,
+            })
+    })
 }
 
 /// Boolean shorthand for [`identity_leak_match`].

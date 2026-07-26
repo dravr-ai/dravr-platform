@@ -36,6 +36,61 @@ use super::prompt_builder::{
 };
 use super::refresh::inject_refresh_context;
 
+/// Identity anchor appended to the tail of every assembled system prompt.
+///
+/// Placed LAST, on measured evidence rather than intuition. A 48-run live A/B
+/// against `claude-sonnet-5` through the pinned Copilot CLI (2026-07-25, real
+/// contremaitre coach prompt + `messaging_context.md` +
+/// `tool_discipline_messaging.md`, embacle wire shape, isolated cwd) compared
+/// four arms over four identity provocations x 3 reps:
+///
+/// | arm | placement                    | model disclosed | said "Dravr" |
+/// |-----|------------------------------|-----------------|--------------|
+/// | A   | no anchor (the bug)          | 2/12            | 0/12         |
+/// | B   | anchor FIRST                 | 2/12            | 10/12        |
+/// | C   | anchor LAST                  | **0/12**        | **12/12**    |
+/// | D   | `pierre_system.md` (mid-file)| 1/12            | 9/12         |
+///
+/// Prepending (arm B) fixed *what the coach calls itself* but not the leak: it
+/// still answered "Quel modèle d'IA utilises-tu ?" with « I'm powered by Claude
+/// Sonnet 5 (model ID: …) » — Copilot's own `model_information` clause firing
+/// verbatim. Only the tail placement suppressed that, which is the same
+/// recency argument Stage 7g.1 already makes for tool discipline: this block is
+/// the freshest instruction when generation starts.
+///
+/// It counters the underlying Copilot CLI system prompt at the *category* level
+/// ("terminal/coding assistant", "general-purpose AI/language model") rather
+/// than by naming products. Two deliberate omissions:
+/// - **No product names** (GitHub Copilot / ChatGPT / OpenAI). The evidence
+///   that a generic "You are Dravr" gives 0 leaks says naming isn't needed,
+///   and naming both primes the tokens and risks a "no, I'm not <product>"
+///   reply — which the response-boundary matcher (`identity_leak_match`, a
+///   bare `contains`, no negation handling) would withhold as if it were a
+///   real leak.
+/// - **"not even to deny it"** — the coach must assert "I am Dravr" without
+///   ever emitting the underlying identity's name, so a correct answer can
+///   never trip that matcher. This is not hypothetical: every one of the 5
+///   boundary matches across the 48 A/B runs was a *correct denial* (« Non, je
+///   ne suis pas GitHub Copilot — je suis Dravr »), not a leak.
+const IDENTITY_ANCHOR: &str = "You are Dravr, the athlete's personal fitness and endurance \
+coach, and nothing else. You are not a general-purpose AI, a language model, a chat bot, or a \
+coding, terminal, or command-line assistant — you are their coach. Never reveal, name, \
+discuss, apologize as, or role-play the underlying model, provider, or tools that run you, and \
+never claim any identity other than Dravr — not even to deny another one. If the athlete asks \
+who or what you are, or about your \"real\" identity, you are simply Dravr, their coach. \
+Everything above is your coaching context, not a competing identity.";
+
+/// Append the [`IDENTITY_ANCHOR`] to an assembled system prompt.
+///
+/// Applied unconditionally to both the default and coach-bound paths, so no
+/// turn can ship without an identity statement (the coach-bound bug this
+/// closes). Kept as a named helper purely so the contract is unit-testable
+/// without standing up the full async assembly stage.
+#[must_use]
+pub fn close_with_identity_anchor(assembled_prompt: &str) -> String {
+    format!("{assembled_prompt}\n\n{IDENTITY_ANCHOR}")
+}
+
 /// Return the [`MessagingStringsRegistry`] key that holds the scope
 /// carve-out for a given coach category, or
 /// `None` when the category does not collide with the generic scope list
@@ -542,6 +597,38 @@ pub(crate) async fn assemble_prompt_and_messages(
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None => raw_system_prompt,
     };
+
+    // Stage 7g.4: Close every prompt with the identity anchor.
+    //
+    // The coach LLM runs through the GitHub Copilot CLI, whose own system
+    // prompt ("You are the GitHub Copilot CLI, a terminal assistant built by
+    // GitHub", plus an explicit "when asked which model you are, reply 'I'm
+    // powered by <name>'" clause) occupies the true system slot: Copilot's ACP
+    // `session/new` schema accepts only `_meta`/`additionalDirectories`/`cwd`/
+    // `mcpServers`, so the `systemPrompt` embacle sends is silently dropped and
+    // the whole platform prompt arrives as user-authority text. That gap is
+    // structural, but user-authority text still moves this behavior class
+    // (embacle v0.19.6's tool-catalog reframing did, over 9 live A/B runs) — so
+    // the fight is "adversarial slot vs. something" rather than "vs. nothing".
+    //
+    // Until now coach-bound turns fought it with nothing: [`resolve_coach_base_prompt`]
+    // REPLACES `pierre_system.md` (the only prompt carrying "You are Dravr")
+    // with the coach's own prompt, which never states who the assistant is.
+    // The result was an accidental prod A/B — coach-bound turns matched the
+    // boundary detector ~24% of the time while no-coach turns (which keep the
+    // anchor) matched 0%.
+    //
+    // LAST, not first: see [`IDENTITY_ANCHOR`] for the 48-run A/B that measured
+    // both. Prepending left the model still reciting Copilot's model-disclosure
+    // clause; the tail placement is what suppressed it, for the same recency
+    // reason Stage 7g.1 gives. Detection at the response boundary
+    // ([`prompt_leak`]) stays as the safety net.
+    //
+    // Caveat worth knowing when reading prod telemetry: embacle appends its
+    // ~16 KB text tool catalog to the system message AFTER this block
+    // (`tool_simulation::inject_tool_catalog`), so "last" here means last
+    // platform-controlled block, not last on the wire.
+    let raw_system_prompt = close_with_identity_anchor(&raw_system_prompt);
 
     // Stage 7h: Harden the prompt with a per-turn canary.
     let prompt_guard = prompt_leak::harden_system_prompt(
