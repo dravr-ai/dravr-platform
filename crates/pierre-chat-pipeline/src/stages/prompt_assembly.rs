@@ -588,7 +588,10 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7g.3: Onboarding directive — when this conversation is mid guided
     // pillar walk, steer the coach to probe the current topic conversationally.
     //
-    // Deliberately the LAST block before the canary. It used to sit mid-prompt
+    // Deliberately below every behavioural block; only the Stage 7g.4 identity
+    // anchor follows it, and that block states who the assistant IS rather than
+    // what to do this turn, so it does not compete for behavioural precedence.
+    // It used to sit mid-prompt
     // (7e.1) where the channel response constraints, the tool-discipline block
     // and the structured-output contract all landed after it; a builder coach
     // whose persona mandates a plan on its first reply won that recency

@@ -1451,6 +1451,29 @@ fn append_plan_results(llm_messages: &mut Vec<ChatMessage>, outputs: &[StepOutpu
     }
 }
 
+/// Build the planner call's message list by folding the planner prompt INTO the
+/// existing system message.
+///
+/// The planner prompt is prepended onto `messages[0]` rather than inserted as a
+/// second `System` message. Index 0 already carries the coach persona and the
+/// tool catalogue, and the live provider keeps only the *first* system message
+/// and drops the rest — a second one would take the slot and silently discard
+/// the persona for the whole plan call. Merging preserves the
+/// one-system-message invariant the rest of the pipeline holds.
+///
+/// Falls back to inserting when index 0 is not a `System` message, which the
+/// chat pipeline never produces but this function does not get to assume.
+fn with_planner_prompt(messages: &[ChatMessage], planner_prompt: &str) -> Vec<ChatMessage> {
+    let mut out = messages.to_vec();
+    match out.first_mut() {
+        Some(first) if first.role == MessageRole::System => {
+            first.content = format!("{planner_prompt}\n\n{}", first.content);
+        }
+        _ => out.insert(0, ChatMessage::system(planner_prompt)),
+    }
+    out
+}
+
 /// Plan-then-verify loop (Phase 3).
 ///
 /// The LLM emits the entire tool plan up front, a static verifier rejects any
@@ -1473,20 +1496,7 @@ pub async fn run_planned_tool_loop(
     };
 
     // 1. Plan call — ask for the whole plan up front (no tool-calling needed).
-    //
-    // The planner prompt is PREPENDED ONTO the existing system message rather
-    // than inserted as a second one. `llm_messages[0]` already carries the
-    // coach persona and tool catalogue, and the live provider keeps only the
-    // first system message — a second one would take the slot and silently
-    // discard the persona for the whole plan call. Merging preserves the
-    // one-system-message invariant the rest of the pipeline now holds.
-    let mut plan_messages = llm_messages.clone();
-    match plan_messages.first_mut() {
-        Some(first) if first.role == MessageRole::System => {
-            first.content = format!("{}\n\n{}", planner_system_prompt(), first.content);
-        }
-        _ => plan_messages.insert(0, ChatMessage::system(planner_system_prompt())),
-    }
+    let plan_messages = with_planner_prompt(llm_messages, &planner_system_prompt());
     let plan_request = ChatRequest::new(plan_messages).with_model(params.model);
     let plan_response = params.provider.complete(&plan_request).await?;
     let plan_json = plan_response.content;

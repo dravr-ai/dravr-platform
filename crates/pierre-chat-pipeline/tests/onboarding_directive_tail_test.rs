@@ -1,4 +1,4 @@
-// ABOUTME: Onboarding directive must be the last prompt block before the canary, and 7g.2 suppressed
+// ABOUTME: Onboarding directive must sit below every behavioural block, with only 7g.4 after it
 // ABOUTME: Content + structural assertions on the wording and the Stage 7g.3 position in prompt_assembly
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -20,8 +20,12 @@
 //! - **Wording** — the directive states its own precedence rather than relying
 //!   on position alone, forbids plan work for the turn, and tells the coach to
 //!   go deeper rather than re-ask when the answer already landed.
-//! - **Position** — Stage 7g.3 (the directive) is appended *after* 7g/7g.1/7g.2
-//!   and is the last mutation before Stage 7h hardens the prompt. This one is
+//! - **Position** — Stage 7g.3 (the directive) is appended *after* 7g/7g.1/7g.2.
+//!   Only Stage 7g.4, the identity anchor, may follow it before Stage 7h hardens
+//!   the prompt: the anchor states who the assistant is and never instructs the
+//!   turn, so it does not compete with the directive for behavioural precedence,
+//!   and a 48-run live A/B (2026-07-25) measured the prompt tail as the only
+//!   position where the anchor suppresses model-identity disclosure. This one is
 //!   structural: a full prompt assembly needs a live pipeline context, whereas
 //!   the ordering regression this guards against is a source edit — someone
 //!   appending a new stage below the directive.
@@ -68,18 +72,31 @@ fn directive_is_appended_after_every_other_prompt_block() {
         "the onboarding directive must be appended before the prompt is hardened"
     );
 
-    // Nothing may append to the system prompt between the directive and the
-    // canary — that gap is the whole point of moving the directive here.
+    // Only the identity anchor may sit between the directive and the canary.
+    //
+    // This assertion previously counted the string `raw_system_prompt}` — a
+    // `format!` interpolation closing brace — as a proxy for "a block was
+    // appended". Stage 7g.4 appends via `close_with_identity_anchor(&raw_..)`
+    // and emits no such literal, so it slipped in below the directive while
+    // this test stayed green. Count real rebindings instead: every block that
+    // mutates the prompt must rebind `raw_system_prompt`, whatever syntax it
+    // uses to build the new value.
     let tail = &source[directive..harden];
     assert!(
         tail.contains("super::onboarding::directive(turn)"),
         "Stage 7g.3 should be the block that appends the directive"
     );
-    let appends = tail.matches("raw_system_prompt}").count();
+    let anchor = sole_offset(&source, "// Stage 7g.4:");
+    assert!(
+        directive < anchor && anchor < harden,
+        "the identity anchor must sit between the onboarding directive and the canary"
+    );
+    let rebinds = tail.matches("let raw_system_prompt =").count();
     assert_eq!(
-        appends, 1,
-        "exactly one append (the directive itself) may sit between Stage 7g.3 and Stage 7h, \
-         found {appends} — a new block was added below the directive"
+        rebinds, 2,
+        "exactly two prompt rebindings may sit between Stage 7g.3 and Stage 7h — the \
+         directive and the identity anchor — found {rebinds}; a new block was added below \
+         the directive"
     );
 }
 
