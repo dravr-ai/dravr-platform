@@ -168,7 +168,15 @@ pub trait RecoveryRepository: Send + Sync {
 /// Health snapshot persistence repository
 #[async_trait]
 pub trait HealthSnapshotRepository: Send + Sync {
-    /// Insert or update a health snapshot for a date
+    /// Insert or update a health snapshot for a date.
+    ///
+    /// A row's identity is the natural key `(user, tenant, provider, date)`; the
+    /// returned `id` is a **store-assigned surrogate**, not the provider's id.
+    /// `snapshot.id` is ignored on insert — provider ids are not guaranteed to
+    /// vary with the natural key (WHOOP issues one constant `whoop-body-{user}`
+    /// for every date), and reusing one collides with the primary key on the
+    /// insert path before the conflict arbiter is consulted. On the update path
+    /// the pre-existing row's id is returned unchanged.
     async fn upsert_health_snapshot(
         &self,
         tenant_id: &TenantId,
@@ -193,6 +201,11 @@ pub trait HealthSnapshotRepository: Send + Sync {
     /// `soft = true` sets `deleted_at = now()` and reads filter the row out;
     /// `soft = false` issues a hard `DELETE`.
     /// Returns `Ok(false)` if no matching row exists for the tenant.
+    ///
+    /// The `id` is the store-assigned surrogate returned by
+    /// [`HealthSnapshotRepository::upsert_health_snapshot`], never a provider
+    /// id — a caller holding only the provider's own identifier cannot resolve
+    /// a row here.
     async fn delete_health_snapshot_by_id(
         &self,
         tenant_id: &TenantId,
@@ -203,6 +216,7 @@ pub trait HealthSnapshotRepository: Send + Sync {
     /// Look up the owning tenant for a health snapshot id.
     ///
     /// See [`SleepRepository::find_sleep_session_tenant`] for the rationale.
+    /// Takes the store-assigned surrogate id, not a provider id.
     async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
 }
 

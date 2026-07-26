@@ -234,11 +234,12 @@ impl SleepRepository for Database {
         tenant_id: &TenantId,
         session: &StoredSleepSession,
     ) -> AppResult<String> {
-        let id = if session.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            session.id.clone()
-        };
+        // Surrogate id — see `upsert_health_snapshot`. Reusing the provider's id
+        // collides with the primary key whenever that id does not vary with the
+        // ON CONFLICT arbiter's natural key (WHOOP cycles straddle midnight, so a
+        // cycle whose derived date shifts between syncs repeats its id on a new
+        // date). RETURNING reports the id actually stored.
+        let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let start_time = session.start_datetime.to_rfc3339();
         let end_time = session.end_datetime.to_rfc3339();
@@ -254,7 +255,7 @@ impl SleepRepository for Database {
         let hrv_during_sleep = session.avg_hrv;
         let is_nap: i32 = i32::from(session.is_nap);
 
-        sqlx::query(
+        let row = sqlx::query(
             r"
             INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -267,6 +268,7 @@ impl SleepRepository for Database {
                 stages_json = excluded.stages_json,
                 hrv_during_sleep = excluded.hrv_during_sleep,
                 is_nap = excluded.is_nap
+            RETURNING id
             ",
         )
         .bind(&id)
@@ -285,11 +287,11 @@ impl SleepRepository for Database {
         .bind(hrv_during_sleep)
         .bind(is_nap)
         .bind(&now)
-        .execute(self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert sleep session: {e}")))?;
 
-        Ok(id)
+        Ok(row.get("id"))
     }
 
     async fn get_sleep_sessions(
@@ -475,11 +477,12 @@ impl RecoveryRepository for Database {
         tenant_id: &TenantId,
         metrics: &StoredRecoveryMetrics,
     ) -> AppResult<String> {
-        let id = if metrics.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            metrics.id.clone()
-        };
+        // Surrogate id — see `upsert_health_snapshot`. Reusing the provider's id
+        // collides with the primary key whenever that id does not vary with the
+        // ON CONFLICT arbiter's natural key (WHOOP cycles straddle midnight, so a
+        // cycle whose derived date shifts between syncs repeats its id on a new
+        // date). RETURNING reports the id actually stored.
+        let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let date_str = metrics.date.to_string();
         let recovery_score = metrics.recovery_score.map(f64::from);
@@ -489,7 +492,7 @@ impl RecoveryRepository for Database {
         let body_temperature = metrics.skin_temp_deviation;
         let resting_respiratory_rate = metrics.respiratory_rate;
 
-        sqlx::query(
+        let row = sqlx::query(
             r"
             INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_status, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -501,6 +504,7 @@ impl RecoveryRepository for Database {
                 resting_heart_rate = excluded.resting_heart_rate,
                 body_temperature = excluded.body_temperature,
                 resting_respiratory_rate = excluded.resting_respiratory_rate
+            RETURNING id
             ",
         )
         .bind(&id)
@@ -518,11 +522,11 @@ impl RecoveryRepository for Database {
         .bind(body_temperature)
         .bind(resting_respiratory_rate)
         .bind(&now)
-        .execute(self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert recovery metrics: {e}")))?;
 
-        Ok(id)
+        Ok(row.get("id"))
     }
 
     async fn get_recovery_metrics(
@@ -682,17 +686,22 @@ impl HealthSnapshotRepository for Database {
         tenant_id: &TenantId,
         snapshot: &StoredHealthMetrics,
     ) -> AppResult<String> {
-        let id = if snapshot.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            snapshot.id.clone()
-        };
+        // The row id is a surrogate: nothing references health_snapshots(id) and a
+        // row's identity is the natural key (user, tenant, provider, date) carried by
+        // the ON CONFLICT arbiter below. Provider ids are deliberately NOT reused:
+        // they are not guaranteed to vary with that key — WHOOP issues one constant
+        // `whoop-body-{user}` id for every date — so an id repeated across dates
+        // collides with the primary key on the INSERT path, which the arbiter never
+        // gets to see. RETURNING yields the id actually stored, which on the update
+        // path is the pre-existing row's, so legacy rows keep their provider id and
+        // heal in place without a backfill.
+        let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let date_str = snapshot.date.to_string();
         let bp_systolic = snapshot.systolic_bp.map(i64::from);
         let bp_diastolic = snapshot.diastolic_bp.map(i64::from);
 
-        sqlx::query(
+        let row = sqlx::query(
             r"
             INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -705,6 +714,7 @@ impl HealthSnapshotRepository for Database {
                 bp_systolic = excluded.bp_systolic,
                 bp_diastolic = excluded.bp_diastolic,
                 blood_glucose = excluded.blood_glucose
+            RETURNING id
             ",
         )
         .bind(&id)
@@ -723,11 +733,11 @@ impl HealthSnapshotRepository for Database {
         .bind(bp_diastolic)
         .bind(snapshot.blood_glucose)
         .bind(&now)
-        .execute(self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert health snapshot: {e}")))?;
 
-        Ok(id)
+        Ok(row.get("id"))
     }
 
     async fn get_health_snapshots(
