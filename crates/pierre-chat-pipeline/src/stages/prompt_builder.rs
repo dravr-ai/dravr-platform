@@ -215,7 +215,7 @@ pub fn build_llm_messages_with_blocks(
             // neither leak class re-enters every subsequent prompt.
             let summary = scrub_replayed_narration(block.summary).cleaned;
             if !summary.is_empty() {
-                messages.push(ChatMessage::user(&format!(
+                messages.push(ChatMessage::user(format!(
                     "{REPLAYED_SUMMARY_PREFIX}{summary}"
                 )));
                 source_ids.push(None);
