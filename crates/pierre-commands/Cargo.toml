@@ -22,13 +22,16 @@ pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 
 async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 serde_yaml = "0.9"
 tracing = "0.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }

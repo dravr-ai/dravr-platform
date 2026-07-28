@@ -35,6 +35,7 @@ use pierre_commands::{
     },
     help::HelpHandler,
     onboarding::PillarsHandler,
+    plan::PlanShowHandler,
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     status::StatusHandler,
     timezone::TimezoneHandler,
@@ -531,6 +532,7 @@ impl ServerContext {
         handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
         handler_reg.register("timezone", Arc::new(TimezoneHandler));
         handler_reg.register("pillars", Arc::new(PillarsHandler));
+        handler_reg.register("plan", Arc::new(PlanShowHandler));
         (Some(registry), Some(Arc::new(handler_reg)))
     }
 

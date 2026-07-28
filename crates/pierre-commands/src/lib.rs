@@ -36,6 +36,8 @@ pub mod help;
 pub mod onboarding;
 /// Markdown command definition loader for messaging slash commands
 pub mod parser;
+/// `/plan` — deterministic display of the athlete's stored training plan.
+pub mod plan;
 /// Privacy consent commands (view, enable, disable analytics)
 pub mod privacy;
 /// Status command showing user and platform state

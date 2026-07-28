@@ -3605,15 +3605,18 @@ name = "pierre-commands"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "chrono-tz",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
  "pierre-groups",
+ "pierre-memory",
  "pierre-messaging",
  "pierre-runtime-context",
  "pierre-services",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tracing",
  "uuid",

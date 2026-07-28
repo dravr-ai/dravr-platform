@@ -363,6 +363,31 @@ pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
 
+// ── /plan command keys ────────────────────────────────────────────────────
+
+/// Key: `/plan` goal header. `{0}` = race name, `{1}` = race date, `{2}` = days out.
+pub const KEY_PLAN_GOAL_LINE: &str = "commands.plan.goal_line";
+/// Key: `/plan` block/phase line. `{0}` = phase, `{1}` = weekly hours note.
+pub const KEY_PLAN_BLOCK_LINE: &str = "commands.plan.block_line";
+/// Key: `/plan` single-day line. `{0}` = day label, `{1}` = the session.
+pub const KEY_PLAN_DAY_LINE: &str = "commands.plan.day_line";
+/// Key: `/plan` rest-day session text.
+pub const KEY_PLAN_REST: &str = "commands.plan.rest";
+/// Key: `/plan` day label for today.
+pub const KEY_PLAN_TODAY: &str = "commands.plan.today";
+/// Key: `/plan` day label for tomorrow.
+pub const KEY_PLAN_TOMORROW: &str = "commands.plan.tomorrow";
+/// Key: `/plan week` header. `{0}` = week start date, `{1}` = the week's focus.
+pub const KEY_PLAN_WEEK_HEADER: &str = "commands.plan.week_header";
+/// Key: `/plan` when no day is scheduled for the requested date.
+pub const KEY_PLAN_NO_SESSION: &str = "commands.plan.no_session";
+/// Key: `/plan` empty state — nothing saved yet.
+pub const KEY_PLAN_EMPTY: &str = "commands.plan.empty";
+/// Key: `/plan` note appended when the plan's goal fact has been superseded.
+pub const KEY_PLAN_STALE_GOAL: &str = "commands.plan.stale_goal";
+/// Key: `/plan` truncation marker when the render exceeds the channel's limit.
+pub const KEY_PLAN_TRUNCATED: &str = "commands.plan.truncated";
+
 // ── /group command keys ───────────────────────────────────────────────────
 
 /// Key: `/group` when the user belongs to zero groups.
@@ -581,6 +606,19 @@ pub(crate) const FR_PILLARS_START_FAILED: &str =
 pub(crate) const FR_RESET_WALK_INTERRUPTED: &str =
     "\n\nTon profil était en cours — écris <code>/pillars</code> pour reprendre.";
 
+pub(crate) const FR_PLAN_GOAL_LINE: &str = "Objectif : {0} — {1} ({2} jours)";
+pub(crate) const FR_PLAN_BLOCK_LINE: &str = "Bloc : {0}{1}";
+pub(crate) const FR_PLAN_DAY_LINE: &str = "{0} : {1}";
+pub(crate) const FR_PLAN_REST: &str = "repos";
+pub(crate) const FR_PLAN_TODAY: &str = "Aujourd'hui";
+pub(crate) const FR_PLAN_TOMORROW: &str = "Demain";
+pub(crate) const FR_PLAN_WEEK_HEADER: &str = "Semaine du {0}{1}";
+pub(crate) const FR_PLAN_NO_SESSION: &str = "rien de prévu";
+pub(crate) const FR_PLAN_EMPTY: &str = "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.";
+pub(crate) const FR_PLAN_STALE_GOAL: &str =
+    "\n\n⚠️ Ton objectif a changé depuis — demande à ton coach de mettre le plan à jour.";
+pub(crate) const FR_PLAN_TRUNCATED: &str = "\n… (tronqué — utilise /plan today pour le détail)";
+
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
     "Tu n'es membre d'aucun groupe.\nCrée ou rejoins un groupe via l'app web ou mobile.";
 pub(crate) const FR_GROUP_LIST_HEADER: &str = "Tes groupes ({0}) :\n";
@@ -762,6 +800,20 @@ pub(crate) const EN_PILLARS_START_FAILED: &str =
 pub(crate) const EN_RESET_WALK_INTERRUPTED: &str =
     "\n\nYour profile walk was in progress — send <code>/pillars</code> to resume.";
 
+pub(crate) const EN_PLAN_GOAL_LINE: &str = "Goal: {0} — {1} ({2} days out)";
+pub(crate) const EN_PLAN_BLOCK_LINE: &str = "Block: {0}{1}";
+pub(crate) const EN_PLAN_DAY_LINE: &str = "{0}: {1}";
+pub(crate) const EN_PLAN_REST: &str = "rest";
+pub(crate) const EN_PLAN_TODAY: &str = "Today";
+pub(crate) const EN_PLAN_TOMORROW: &str = "Tomorrow";
+pub(crate) const EN_PLAN_WEEK_HEADER: &str = "Week of {0}{1}";
+pub(crate) const EN_PLAN_NO_SESSION: &str = "nothing scheduled";
+pub(crate) const EN_PLAN_EMPTY: &str =
+    "No plan saved yet — ask your coach to build one toward your goal.";
+pub(crate) const EN_PLAN_STALE_GOAL: &str =
+    "\n\n⚠️ Your goal has changed since this plan — ask your coach to refresh it.";
+pub(crate) const EN_PLAN_TRUNCATED: &str = "\n… (truncated — use /plan today for detail)";
+
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
     "You are not a member of any groups.\nCreate or join a group via the web or mobile app.";
 pub(crate) const EN_GROUP_LIST_HEADER: &str = "Your groups ({0}):\n";
@@ -929,6 +981,20 @@ pub(crate) const ES_PILLARS_START_FAILED: &str =
     "No pude iniciar el perfil en esta conversación. Vuelve a intentarlo en un momento.";
 pub(crate) const ES_RESET_WALK_INTERRUPTED: &str =
     "\n\nTu perfil estaba en curso — escribe <code>/pillars</code> para continuar.";
+
+pub(crate) const ES_PLAN_GOAL_LINE: &str = "Objetivo: {0} — {1} ({2} días)";
+pub(crate) const ES_PLAN_BLOCK_LINE: &str = "Bloque: {0}{1}";
+pub(crate) const ES_PLAN_DAY_LINE: &str = "{0}: {1}";
+pub(crate) const ES_PLAN_REST: &str = "descanso";
+pub(crate) const ES_PLAN_TODAY: &str = "Hoy";
+pub(crate) const ES_PLAN_TOMORROW: &str = "Mañana";
+pub(crate) const ES_PLAN_WEEK_HEADER: &str = "Semana del {0}{1}";
+pub(crate) const ES_PLAN_NO_SESSION: &str = "nada programado";
+pub(crate) const ES_PLAN_EMPTY: &str =
+    "Aún no hay plan guardado — pide a tu coach que construya uno hacia tu objetivo.";
+pub(crate) const ES_PLAN_STALE_GOAL: &str =
+    "\n\n⚠️ Tu objetivo ha cambiado desde este plan — pide a tu coach que lo actualice.";
+pub(crate) const ES_PLAN_TRUNCATED: &str = "\n… (recortado — usa /plan today para el detalle)";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
     "No eres miembro de ningún grupo.\nCrea o únete a un grupo desde la app web o móvil.";
@@ -1100,6 +1166,20 @@ pub(crate) const DE_PILLARS_START_FAILED: &str =
 pub(crate) const DE_RESET_WALK_INTERRUPTED: &str =
     "\n\nDein Profil war in Arbeit — schreib <code>/pillars</code>, um weiterzumachen.";
 
+pub(crate) const DE_PLAN_GOAL_LINE: &str = "Ziel: {0} — {1} ({2} Tage)";
+pub(crate) const DE_PLAN_BLOCK_LINE: &str = "Block: {0}{1}";
+pub(crate) const DE_PLAN_DAY_LINE: &str = "{0}: {1}";
+pub(crate) const DE_PLAN_REST: &str = "Ruhetag";
+pub(crate) const DE_PLAN_TODAY: &str = "Heute";
+pub(crate) const DE_PLAN_TOMORROW: &str = "Morgen";
+pub(crate) const DE_PLAN_WEEK_HEADER: &str = "Woche ab {0}{1}";
+pub(crate) const DE_PLAN_NO_SESSION: &str = "nichts geplant";
+pub(crate) const DE_PLAN_EMPTY: &str =
+    "Noch kein Plan gespeichert — bitte deinen Coach, einen auf dein Ziel hin zu bauen.";
+pub(crate) const DE_PLAN_STALE_GOAL: &str =
+    "\n\n⚠️ Dein Ziel hat sich seitdem geändert — bitte deinen Coach, den Plan zu aktualisieren.";
+pub(crate) const DE_PLAN_TRUNCATED: &str = "\n… (gekürzt — nutze /plan today für Details)";
+
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
     "Du bist in keiner Gruppe.\nErstelle oder tritt einer Gruppe über die Web- oder Mobile-App bei.";
 pub(crate) const DE_GROUP_LIST_HEADER: &str = "Deine Gruppen ({0}):\n";
@@ -1269,6 +1349,20 @@ pub(crate) const PT_PILLARS_START_FAILED: &str =
 pub(crate) const PT_RESET_WALK_INTERRUPTED: &str =
     "\n\nO teu perfil estava em curso — escreve <code>/pillars</code> para retomar.";
 
+pub(crate) const PT_PLAN_GOAL_LINE: &str = "Objetivo: {0} — {1} ({2} dias)";
+pub(crate) const PT_PLAN_BLOCK_LINE: &str = "Bloco: {0}{1}";
+pub(crate) const PT_PLAN_DAY_LINE: &str = "{0}: {1}";
+pub(crate) const PT_PLAN_REST: &str = "descanso";
+pub(crate) const PT_PLAN_TODAY: &str = "Hoje";
+pub(crate) const PT_PLAN_TOMORROW: &str = "Amanhã";
+pub(crate) const PT_PLAN_WEEK_HEADER: &str = "Semana de {0}{1}";
+pub(crate) const PT_PLAN_NO_SESSION: &str = "nada planeado";
+pub(crate) const PT_PLAN_EMPTY: &str =
+    "Ainda não há plano guardado — pede ao teu coach para construir um até ao teu objetivo.";
+pub(crate) const PT_PLAN_STALE_GOAL: &str =
+    "\n\n⚠️ O teu objetivo mudou desde este plano — pede ao teu coach para o atualizar.";
+pub(crate) const PT_PLAN_TRUNCATED: &str = "\n… (truncado — usa /plan today para o detalhe)";
+
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =
     "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.";
 pub(crate) const PT_GROUP_LIST_HEADER: &str = "Os teus grupos ({0}):\n";
@@ -1412,6 +1506,17 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "fr", FR_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "fr", FR_RESET_WALK_INTERRUPTED),
+    (KEY_PLAN_GOAL_LINE, "fr", FR_PLAN_GOAL_LINE),
+    (KEY_PLAN_BLOCK_LINE, "fr", FR_PLAN_BLOCK_LINE),
+    (KEY_PLAN_DAY_LINE, "fr", FR_PLAN_DAY_LINE),
+    (KEY_PLAN_REST, "fr", FR_PLAN_REST),
+    (KEY_PLAN_TODAY, "fr", FR_PLAN_TODAY),
+    (KEY_PLAN_TOMORROW, "fr", FR_PLAN_TOMORROW),
+    (KEY_PLAN_WEEK_HEADER, "fr", FR_PLAN_WEEK_HEADER),
+    (KEY_PLAN_NO_SESSION, "fr", FR_PLAN_NO_SESSION),
+    (KEY_PLAN_EMPTY, "fr", FR_PLAN_EMPTY),
+    (KEY_PLAN_STALE_GOAL, "fr", FR_PLAN_STALE_GOAL),
+    (KEY_PLAN_TRUNCATED, "fr", FR_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "fr", FR_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "fr", FR_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "fr", FR_GROUP_LIST_ITEM),
@@ -1539,6 +1644,17 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "en", EN_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "en", EN_RESET_WALK_INTERRUPTED),
+    (KEY_PLAN_GOAL_LINE, "en", EN_PLAN_GOAL_LINE),
+    (KEY_PLAN_BLOCK_LINE, "en", EN_PLAN_BLOCK_LINE),
+    (KEY_PLAN_DAY_LINE, "en", EN_PLAN_DAY_LINE),
+    (KEY_PLAN_REST, "en", EN_PLAN_REST),
+    (KEY_PLAN_TODAY, "en", EN_PLAN_TODAY),
+    (KEY_PLAN_TOMORROW, "en", EN_PLAN_TOMORROW),
+    (KEY_PLAN_WEEK_HEADER, "en", EN_PLAN_WEEK_HEADER),
+    (KEY_PLAN_NO_SESSION, "en", EN_PLAN_NO_SESSION),
+    (KEY_PLAN_EMPTY, "en", EN_PLAN_EMPTY),
+    (KEY_PLAN_STALE_GOAL, "en", EN_PLAN_STALE_GOAL),
+    (KEY_PLAN_TRUNCATED, "en", EN_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "en", EN_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "en", EN_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "en", EN_GROUP_LIST_ITEM),
@@ -1665,6 +1781,17 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "es", ES_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "es", ES_RESET_WALK_INTERRUPTED),
+    (KEY_PLAN_GOAL_LINE, "es", ES_PLAN_GOAL_LINE),
+    (KEY_PLAN_BLOCK_LINE, "es", ES_PLAN_BLOCK_LINE),
+    (KEY_PLAN_DAY_LINE, "es", ES_PLAN_DAY_LINE),
+    (KEY_PLAN_REST, "es", ES_PLAN_REST),
+    (KEY_PLAN_TODAY, "es", ES_PLAN_TODAY),
+    (KEY_PLAN_TOMORROW, "es", ES_PLAN_TOMORROW),
+    (KEY_PLAN_WEEK_HEADER, "es", ES_PLAN_WEEK_HEADER),
+    (KEY_PLAN_NO_SESSION, "es", ES_PLAN_NO_SESSION),
+    (KEY_PLAN_EMPTY, "es", ES_PLAN_EMPTY),
+    (KEY_PLAN_STALE_GOAL, "es", ES_PLAN_STALE_GOAL),
+    (KEY_PLAN_TRUNCATED, "es", ES_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "es", ES_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "es", ES_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "es", ES_GROUP_LIST_ITEM),
@@ -1792,6 +1919,17 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "de", DE_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "de", DE_RESET_WALK_INTERRUPTED),
+    (KEY_PLAN_GOAL_LINE, "de", DE_PLAN_GOAL_LINE),
+    (KEY_PLAN_BLOCK_LINE, "de", DE_PLAN_BLOCK_LINE),
+    (KEY_PLAN_DAY_LINE, "de", DE_PLAN_DAY_LINE),
+    (KEY_PLAN_REST, "de", DE_PLAN_REST),
+    (KEY_PLAN_TODAY, "de", DE_PLAN_TODAY),
+    (KEY_PLAN_TOMORROW, "de", DE_PLAN_TOMORROW),
+    (KEY_PLAN_WEEK_HEADER, "de", DE_PLAN_WEEK_HEADER),
+    (KEY_PLAN_NO_SESSION, "de", DE_PLAN_NO_SESSION),
+    (KEY_PLAN_EMPTY, "de", DE_PLAN_EMPTY),
+    (KEY_PLAN_STALE_GOAL, "de", DE_PLAN_STALE_GOAL),
+    (KEY_PLAN_TRUNCATED, "de", DE_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "de", DE_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "de", DE_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "de", DE_GROUP_LIST_ITEM),
@@ -1919,6 +2057,17 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "pt", PT_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "pt", PT_RESET_WALK_INTERRUPTED),
+    (KEY_PLAN_GOAL_LINE, "pt", PT_PLAN_GOAL_LINE),
+    (KEY_PLAN_BLOCK_LINE, "pt", PT_PLAN_BLOCK_LINE),
+    (KEY_PLAN_DAY_LINE, "pt", PT_PLAN_DAY_LINE),
+    (KEY_PLAN_REST, "pt", PT_PLAN_REST),
+    (KEY_PLAN_TODAY, "pt", PT_PLAN_TODAY),
+    (KEY_PLAN_TOMORROW, "pt", PT_PLAN_TOMORROW),
+    (KEY_PLAN_WEEK_HEADER, "pt", PT_PLAN_WEEK_HEADER),
+    (KEY_PLAN_NO_SESSION, "pt", PT_PLAN_NO_SESSION),
+    (KEY_PLAN_EMPTY, "pt", PT_PLAN_EMPTY),
+    (KEY_PLAN_STALE_GOAL, "pt", PT_PLAN_STALE_GOAL),
+    (KEY_PLAN_TRUNCATED, "pt", PT_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "pt", PT_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "pt", PT_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "pt", PT_GROUP_LIST_ITEM),

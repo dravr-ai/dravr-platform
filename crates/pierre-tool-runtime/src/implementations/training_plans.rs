@@ -30,6 +30,7 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanBlock, PlannedDay, RacePriority, MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::warn;
@@ -551,28 +552,6 @@ async fn ensure_goal_fact(
         })
         .await?;
     Ok(fact.id)
-}
-
-/// `true` when the plan's linked goal fact has expired (its `valid_until` is in
-/// the past), meaning the living goal moved on and the plan snapshot is stale.
-/// Backs the migration's "goal superseded => plan flagged stale on read".
-async fn plan_goal_is_stale(
-    repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: &str,
-    goal_fact_id: &str,
-) -> AppResult<bool> {
-    let facts = repos
-        .memory
-        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
-        .await?;
-    let now = chrono::Utc::now();
-    // A missing linked fact (deleted / replaced) means the snapshot no longer
-    // reflects a living goal, so treat it as stale.
-    Ok(facts
-        .iter()
-        .find(|f| f.id == goal_fact_id)
-        .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
 }
 
 // ============================================================================

@@ -17,11 +17,107 @@
 //! summarized as a count with a pointer to `get_training_plan`.
 
 use chrono::NaiveDate;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
+use pierre_core::errors::AppResult;
+use pierre_core::models::TenantId;
+use pierre_database::RepositoryRegistry;
+use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
+use pierre_memory::FactKind;
 use std::fmt::Write as _;
 
 /// Maximum weeks rendered day-by-day (current + next).
 const MAX_WEEKS_RENDERED: usize = 2;
+
+/// One week chosen by [`select_active_weeks`], with the dates it spans.
+pub struct SelectedWeek<'a> {
+    /// The stored week row.
+    pub week: &'a PlanWeek,
+    /// Civil date of the week's first day.
+    pub start: NaiveDate,
+    /// Civil date of the week's last day (`start + 6`).
+    pub end: NaiveDate,
+    /// True when `today` falls inside `start..=end`.
+    pub is_current: bool,
+    /// 0-based position within the selection.
+    pub position: usize,
+}
+
+impl SelectedWeek<'_> {
+    /// Human label for this week relative to today.
+    ///
+    /// "This week" when today falls inside it; otherwise "Upcoming week" for the
+    /// first selected week (the plan starts in the future) and "Next week" for
+    /// the one after the current.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        if self.is_current {
+            "This week"
+        } else if self.position == 0 {
+            "Upcoming week"
+        } else {
+            "Next week"
+        }
+    }
+
+    /// The week's days that fall on `date`.
+    #[must_use]
+    pub fn day_on(&self, date: NaiveDate) -> Option<&PlannedDay> {
+        let wanted = date.format("%Y-%m-%d").to_string();
+        self.week.days.iter().find(|d| d.date == wanted)
+    }
+}
+
+/// Which stored weeks are still live, and how many were held back.
+pub struct WeekSelection<'a> {
+    /// The selected weeks in calendar order, at most `limit` of them.
+    pub weeks: Vec<SelectedWeek<'a>>,
+    /// Count of future weeks beyond `limit` that were not selected.
+    pub deferred: usize,
+}
+
+/// Choose the weeks worth showing for `today`: skip weeks that already ended,
+/// take up to `limit` of what remains, and count the rest.
+///
+/// Single source of the "current and next week" math. The prompt renderer below
+/// and the athlete-facing `/plan` command both consume this, so the week a coach
+/// sees injected and the week the athlete is shown can never disagree — the
+/// selection used to live inline in this renderer's loop, which is exactly how a
+/// second caller would have grown a parallel derivation.
+///
+/// A week whose `week_start` does not parse is skipped rather than guessed at.
+#[must_use]
+pub fn select_active_weeks<'a>(
+    weeks: &'a [PlanWeek],
+    today: NaiveDate,
+    limit: usize,
+) -> WeekSelection<'a> {
+    let mut selected: Vec<SelectedWeek<'a>> = Vec::new();
+    let mut deferred = 0usize;
+    for week in weeks {
+        let Some(start) = parse_plan_date(&week.week_start) else {
+            continue;
+        };
+        let end = start + chrono::Days::new(6);
+        if end < today {
+            continue; // past weeks are done — nothing to show
+        }
+        if selected.len() >= limit {
+            deferred += 1;
+            continue;
+        }
+        let position = selected.len();
+        selected.push(SelectedWeek {
+            week,
+            start,
+            end,
+            is_current: (start..=end).contains(&today),
+            position,
+        });
+    }
+    WeekSelection {
+        weeks: selected,
+        deferred,
+    }
+}
 
 /// Maximum blocks rendered — outlines are short; this only guards a
 /// degenerate LLM save.
@@ -127,28 +223,13 @@ pub fn render_training_plan_block(
     }
 
     // Day-by-day detail for the current and next active weeks only.
-    let mut rendered = 0usize;
-    let mut future_weeks = 0usize;
-    for week in weeks {
-        let Some(start) = parse_plan_date(&week.week_start) else {
-            continue;
-        };
-        let end = start + chrono::Days::new(6);
-        if end < today {
-            continue; // past weeks render nothing — they already happened
-        }
-        if rendered >= MAX_WEEKS_RENDERED {
-            future_weeks += 1;
-            continue;
-        }
-        rendered += 1;
-        let label = if (start..=end).contains(&today) {
-            "This week"
-        } else if rendered == 1 {
-            "Upcoming week"
-        } else {
-            "Next week"
-        };
+    let selection = select_active_weeks(weeks, today, MAX_WEEKS_RENDERED);
+    let future_weeks = selection.deferred;
+    for (position, selected) in selection.weeks.iter().enumerate() {
+        let week = selected.week;
+        let label = selected.label();
+        // `position` is 0-based; the renderer's original numbering was 1-based.
+        debug_assert!(position < MAX_WEEKS_RENDERED);
         let focus = if week.focus.is_empty() {
             String::new()
         } else {
@@ -212,6 +293,36 @@ fn block_marker(start: &str, weeks: u8, today: NaiveDate) -> &'static str {
     } else {
         ""
     }
+}
+
+/// `true` when the plan's linked goal fact has expired (its `valid_until` is in
+/// the past), meaning the living goal moved on and the plan snapshot is stale.
+///
+/// Backs the migration's "goal superseded => plan flagged stale on read". Lives
+/// here rather than in the tool implementation so the `get_training_plan` tool
+/// and the athlete-facing `/plan` command derive staleness the same way — the
+/// alternative was a second copy of this predicate in `pierre-commands`.
+///
+/// A missing linked fact (deleted or replaced) counts as stale: the snapshot no
+/// longer reflects a living goal.
+///
+/// # Errors
+/// Propagates repository errors from the fact lookup.
+pub async fn plan_goal_is_stale(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    goal_fact_id: &str,
+) -> AppResult<bool> {
+    let facts = repos
+        .memory
+        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
+        .await?;
+    let now = chrono::Utc::now();
+    Ok(facts
+        .iter()
+        .find(|f| f.id == goal_fact_id)
+        .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
 }
 
 #[cfg(test)]
