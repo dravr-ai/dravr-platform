@@ -318,7 +318,7 @@ cron = "0.15.0"
 [dev-dependencies]
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.6" }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.7" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }

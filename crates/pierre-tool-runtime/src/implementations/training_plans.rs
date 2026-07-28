@@ -31,6 +31,7 @@ use pierre_memory::training_plans::{
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::training_plan_render::plan_goal_is_stale;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::warn;
@@ -219,6 +220,113 @@ fn day_schema() -> PropertySchema {
     )
 }
 
+/// Schema for the outline half of the save payload.
+///
+/// A named function rather than an inline block so the rejection skeleton in
+/// [`shape_hint`] is generated from the very schema the tool advertises. A
+/// hand-written copy of the expected shape would be free to drift from what
+/// the deserializer actually accepts, which is the whole defect being fixed.
+fn outline_schema() -> PropertySchema {
+    let mut p = HashMap::new();
+    p.insert(
+        "goal_race".to_owned(),
+        race_schema("The goal (A) race this plan builds toward."),
+    );
+    p.insert(
+        "races".to_owned(),
+        array_prop(
+            "Other races on the calendar (B/C priorities).",
+            race_schema("A secondary race."),
+        ),
+    );
+    p.insert(
+        "strategy".to_owned(),
+        string_prop(
+            "The coach's strategy in prose — what the athlete sees as the long-term direction.",
+        ),
+    );
+    p.insert(
+        "blocks".to_owned(),
+        array_prop(
+            "Ordered training blocks from now to the goal race. Omit for a short plan that has no mesocycle structure.",
+            block_schema(),
+        ),
+    );
+    // `blocks` is deliberately absent from the required list: a two-week
+    // "hold form then taper" plan has no mesocycle structure, and demanding
+    // one forced the coach to invent phase/start/weeks/intent before any plan
+    // could be saved at all. The outline still needs a race to aim at and a
+    // stated strategy.
+    object_prop(
+        "The plan outline (goal race + strategy, optionally blocks). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
+        p,
+        vec!["goal_race".to_owned(), "strategy".to_owned()],
+    )
+}
+
+/// Schema for the `weeks` half of the save payload.
+fn weeks_schema() -> PropertySchema {
+    array_prop(
+        "Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes.",
+        week_schema(),
+    )
+}
+
+/// A shape-correct JSON skeleton for `prop`, each leaf carrying its own
+/// description as the placeholder value.
+///
+/// Handed back when a payload fails to deserialize so the model's next
+/// iteration can see the exact field names it got wrong — the tool loop runs
+/// another LLM turn after a tool error, so an actionable rejection can convert
+/// into a successful save within the same turn. Using the description as the
+/// placeholder keeps the format hints ("Race date, YYYY-MM-DD.") in the hint
+/// itself rather than stripping them to an empty string.
+fn shape_hint(prop: &PropertySchema) -> Value {
+    match prop.property_type.as_str() {
+        "object" => {
+            let mut map = serde_json::Map::new();
+            if let Some(props) = prop.properties.as_ref() {
+                for (name, child) in props {
+                    map.insert(name.clone(), shape_hint(child));
+                }
+            }
+            Value::Object(map)
+        }
+        "array" => prop
+            .items
+            .as_ref()
+            .map_or_else(|| json!([]), |item| json!([shape_hint(item)])),
+        "integer" => json!(0),
+        "number" => json!(0.0),
+        "boolean" => json!(false),
+        _ => Value::String(prop.description.clone().unwrap_or_default()),
+    }
+}
+
+/// Deserialize one half of the save payload, turning a shape mismatch into a
+/// message that carries the schema the tool actually accepts.
+///
+/// `Ok(None)` when the field was simply not sent — both halves are optional on
+/// their own, and "nothing to save" is caught separately.
+fn parse_payload_part<T: DeserializeOwned>(
+    raw: Option<&Value>,
+    field: &str,
+    schema: &PropertySchema,
+) -> Result<Option<T>, String> {
+    let Some(value) = raw.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|e| {
+            format!(
+                "`{field}` does not match the schema: {e}. Send exactly this shape \
+                 (each value below describes the field): {}",
+                shape_hint(schema)
+            )
+        })
+}
+
 /// Schema for one week entry in the save payload.
 fn week_schema() -> PropertySchema {
     let mut p = HashMap::new();
@@ -256,6 +364,10 @@ struct OutlinePayload {
     #[serde(default)]
     races: Vec<GoalRace>,
     strategy: String,
+    /// Optional: a short plan ("hold form for two weeks, then taper") has no
+    /// mesocycle structure to describe, and requiring one made every such plan
+    /// unsaveable until the coach invented phase/start/weeks/intent for it.
+    #[serde(default)]
     blocks: Vec<PlanBlock>,
 }
 
@@ -335,11 +447,10 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         ));
     }
     bounded("outline.strategy", &outline.strategy, MAX_STRATEGY_LEN)?;
-    if outline.blocks.is_empty() {
-        return Err(AppError::invalid_input(
-            "outline.blocks must contain at least one block",
-        ));
-    }
+    // No minimum on blocks: a plan can legitimately have no mesocycle
+    // structure ("hold form for two weeks, then taper"), and the previous
+    // at-least-one rule made such a plan unsaveable until the coach invented
+    // one. The upper bound stays — it is the token-cost guard, not a demand.
     if outline.blocks.len() > MAX_BLOCKS {
         return Err(AppError::invalid_input(format!(
             "too many blocks ({}; max {MAX_BLOCKS})",
@@ -663,52 +774,13 @@ pub struct SaveTrainingPlanTool;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
     fn definition(&self) -> Tool {
-        let mut outline_props = HashMap::new();
-        outline_props.insert(
-            "goal_race".to_owned(),
-            race_schema("The goal (A) race this plan builds toward."),
-        );
-        outline_props.insert(
-            "races".to_owned(),
-            array_prop(
-                "Other races on the calendar (B/C priorities).",
-                race_schema("A secondary race."),
-            ),
-        );
-        outline_props.insert(
-            "strategy".to_owned(),
-            string_prop(
-                "The coach's strategy in prose — what the athlete sees as the long-term direction.",
-            ),
-        );
-        outline_props.insert(
-            "blocks".to_owned(),
-            array_prop(
-                "Ordered training blocks from now to the goal race.",
-                block_schema(),
-            ),
-        );
-
         let mut properties = HashMap::new();
         properties.insert(
             "coach_id".to_owned(),
             string_prop("Coach persona slug saving the plan."),
         );
-        properties.insert(
-            "outline".to_owned(),
-            object_prop(
-                "The plan outline (goal race + blocks + strategy). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
-                outline_props,
-                vec!["goal_race".to_owned(), "strategy".to_owned(), "blocks".to_owned()],
-            ),
-        );
-        properties.insert(
-            "weeks".to_owned(),
-            array_prop(
-                "Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes.",
-                week_schema(),
-            ),
-        );
+        properties.insert("outline".to_owned(), outline_schema());
+        properties.insert("weeks".to_owned(), weeks_schema());
         properties.insert(
             "goal_fact_id".to_owned(),
             string_prop("Existing pillar Goal fact this plan serves, when known."),
@@ -753,25 +825,31 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");
 
-            let outline: Option<OutlinePayload> = args
-                .get("outline")
-                .filter(|v| !v.is_null())
-                .map(|v| {
-                    serde_json::from_value(v.clone()).map_err(|e| {
-                        AppError::invalid_input(format!("outline does not match the schema: {e}"))
-                    })
-                })
-                .transpose()?;
-            let weeks: Vec<WeekPayload> = args
-                .get("weeks")
-                .filter(|v| !v.is_null())
-                .map(|v| {
-                    serde_json::from_value(v.clone()).map_err(|e| {
-                        AppError::invalid_input(format!("weeks do not match the schema: {e}"))
-                    })
-                })
-                .transpose()?
-                .unwrap_or_default();
+            // Both halves are parsed before either can reject, so a payload
+            // that got outline *and* weeks wrong — which is what a model
+            // guessing the shape actually does — learns both in one reply
+            // rather than spending a second LLM iteration to discover the
+            // next mismatch.
+            let mut shape_errors: Vec<String> = Vec::new();
+            let outline: Option<OutlinePayload> =
+                match parse_payload_part(args.get("outline"), "outline", &outline_schema()) {
+                    Ok(parsed) => parsed,
+                    Err(message) => {
+                        shape_errors.push(message);
+                        None
+                    }
+                };
+            let weeks: Vec<WeekPayload> =
+                match parse_payload_part(args.get("weeks"), "weeks", &weeks_schema()) {
+                    Ok(parsed) => parsed.unwrap_or_default(),
+                    Err(message) => {
+                        shape_errors.push(message);
+                        Vec::new()
+                    }
+                };
+            if !shape_errors.is_empty() {
+                return Err(AppError::invalid_input(shape_errors.join(" ")));
+            }
 
             if outline.is_none() && weeks.is_empty() {
                 return Err(AppError::invalid_input(

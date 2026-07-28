@@ -1246,11 +1246,11 @@ export interface SaveTrainingPlanParams {
   /** Existing pillar Goal fact this plan serves, when known. */
   goal_fact_id?: string;
 
-  /** The plan outline (goal race + blocks + strategy). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan. */
+  /** The plan outline (goal race + strategy, optionally blocks). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan. */
   outline?: {
 
-  /** Ordered training blocks from now to the goal race. */
-  blocks: {
+  /** Ordered training blocks from now to the goal race. Omit for a short plan that has no mesocycle structure. */
+  blocks?: {
 
   /** What this block is for, in coach voice. */
   intent: string;

@@ -10,9 +10,13 @@
 use anyhow::Result;
 use pierre_core::models::{OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::UpsertUserFactParams;
+use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::tool_execution::generate_tool_catalog;
+use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -766,4 +770,258 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
         "Big Red on 2026-08-08"
     );
     Ok(())
+}
+
+/// The exact payload the coach emitted on 2026-07-28 (conversation
+/// 043fdd88…): `goal_race` as free text, no `blocks`, and weeks keyed by
+/// `week_label` / `day` / `session`. Every field name is invented, because the
+/// text tool catalog rendered only `outline (object)` / `weeks (array)` and
+/// never showed the nested schema.
+fn freeform_payload_from_the_2026_07_28_failure() -> Value {
+    json!({
+        "outline": {
+            "goal_race": "Big Red (140km gravel, 1800m D+) le 8 août",
+            "strategy": "Remontée de forme vélo montagne/gravel + trail"
+        },
+        "weeks": [{
+            "week_label": "Semaine 1 (jusqu'au 4 août)",
+            "days": [
+                {"day": "Lundi", "session": "Vélo Z1 45min facile"},
+                {"day": "Mardi", "session": "Sub-seuil 3x10min @85-90% FTP"}
+            ]
+        }]
+    })
+}
+
+#[tokio::test]
+async fn freeform_shape_is_rejected_with_the_real_shape_attached() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // The rejection has to teach the shape, not just name the failure: the
+    // tool loop runs another LLM turn on the error, so the field names the
+    // model got wrong must be in the message for a retry to land. Both halves
+    // were wrong here, so both skeletons must come back in the one reply.
+    let message = outcome_text(
+        &executor,
+        make_request(
+            "save_training_plan",
+            freeform_payload_from_the_2026_07_28_failure(),
+            user_id,
+            Some(&tenant_id),
+        ),
+    )
+    .await;
+    for field in [
+        "goal_race",
+        "discipline",
+        "priority",
+        "week_start",
+        "sport",
+        "workout",
+    ] {
+        assert!(
+            message.contains(field),
+            "rejection must name `{field}` so the retry can fix it: {message}"
+        );
+    }
+    // Format hints ride along on the leaves — a bare field name is not enough
+    // to know a date is wanted where a French week label was sent.
+    assert!(
+        message.contains("YYYY-MM-DD"),
+        "rejection must carry the date format: {message}"
+    );
+
+    // Nothing was written — a rejected shape must not leave a half-plan.
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        get.result.expect("get result")["plan"].is_null(),
+        "a rejected payload must persist nothing"
+    );
+    Ok(())
+}
+
+/// Text of a tool outcome, however the executor surfaces it — a transport-level
+/// `Err` or an `Ok` carrying `success: false`.
+async fn outcome_text(executor: &UniversalToolExecutor, request: UniversalRequest) -> String {
+    match executor.execute_tool(request).await {
+        Err(e) => e.to_string(),
+        Ok(response) => format!("{:?}{:?}", response.error, response.result),
+    }
+}
+
+#[tokio::test]
+async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
+    // Phil's real case: "two weeks to Big Red, hold form then taper" has no
+    // mesocycle structure. Requiring at least one block made such a plan
+    // unsaveable until the coach invented one.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                "outline": {
+                    "goal_race": {
+                        "name": "Big Red",
+                        "date": "2026-08-08",
+                        "discipline": "gravel",
+                        "priority": "A"
+                    },
+                    "strategy": "Remise en forme gravel/MTB + trail, densité modérée-forte, pas de focus perf"
+                },
+                "weeks": [{
+                    "week_start": "2026-08-03",
+                    "focus": "décharge avant Big Red",
+                    "days": [
+                        {"date": "2026-08-04", "sport": "gravel", "workout": "sub-seuil 2x8min", "duration_min": 60, "intensity": "2x8min @ 85% FTP"},
+                        {"date": "2026-08-07", "sport": "rest", "workout": "repos complet, veille de course"}
+                    ]
+                }]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        saved.success,
+        "a blockless outline must save: {:?}",
+        saved.error
+    );
+
+    let fetched = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?
+        .result
+        .expect("get result");
+    assert_eq!(fetched["plan"]["goal_race"]["name"], "Big Red");
+    assert_eq!(
+        fetched["plan"]["blocks"].as_array().map(Vec::len),
+        Some(0),
+        "no blocks were sent, so none are stored"
+    );
+    // The prescription itself survived — the point of saving at all.
+    assert_eq!(
+        fetched["weeks"][0]["days"][0]["intensity"],
+        "2x8min @ 85% FTP"
+    );
+    assert_eq!(fetched["weeks"][0]["days"][1]["sport"], "rest");
+    Ok(())
+}
+
+#[tokio::test]
+async fn advertised_schema_is_the_schema_the_tool_accepts() -> Result<()> {
+    // The invariant nobody was testing: every field name save_training_plan
+    // advertises is a field its deserializer knows, and every field the
+    // deserializer requires is advertised. Fill the published schema in and
+    // serde must never answer "missing field" or "unknown field".
+    //
+    // Scoped to field *names* on purpose. The generated values are generic
+    // placeholders, so a value-level complaint (a `priority` of "placeholder"
+    // is not one of A/B/C) is expected and is not schema drift; a name-level
+    // complaint always is. Renaming a payload field without updating the
+    // schema — the drift that would silently recreate this whole outage —
+    // reds this test.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let schema = SaveTrainingPlanTool.definition().input_schema;
+    let props = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .expect("advertised properties");
+    let payload = json!({
+        "outline": filled_from_schema(props.get("outline").expect("outline advertised")),
+        "weeks": filled_from_schema(props.get("weeks").expect("weeks advertised")),
+    });
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    for drift in ["missing field", "unknown field"] {
+        assert!(
+            !message.contains(drift),
+            "advertised schema and payload struct disagree on field names ({drift}): {message}"
+        );
+    }
+    Ok(())
+}
+
+/// Build a value matching an advertised JSON-Schema node, so a test can fill
+/// in the schema the tool publishes without hand-copying its field names.
+fn filled_from_schema(node: &Value) -> Value {
+    match node.get("type").and_then(Value::as_str) {
+        Some("object") => {
+            let mut map = serde_json::Map::new();
+            if let Some(props) = node.get("properties").and_then(Value::as_object) {
+                for (name, child) in props {
+                    map.insert(name.clone(), filled_from_schema(child));
+                }
+            }
+            Value::Object(map)
+        }
+        Some("array") => node
+            .get("items")
+            .map_or_else(|| json!([]), |item| json!([filled_from_schema(item)])),
+        Some("integer") => json!(1),
+        Some("number") => json!(1.0),
+        Some("boolean") => json!(false),
+        _ => json!("placeholder"),
+    }
+}
+
+#[tokio::test]
+async fn rendered_tool_catalog_exposes_the_nested_field_names() {
+    // End-to-end guard on the 2026-07-28 root cause. On copilot_headless there
+    // is no native function calling, so this catalog text is the ONLY schema
+    // the model ever sees. It rendered `outline (object)` / `weeks (array)`
+    // and stopped, hiding every inner field — 24 of 24 live saves rejected.
+    let definition = SaveTrainingPlanTool.definition();
+    let catalog = generate_tool_catalog(&[FunctionDeclaration {
+        name: definition.name,
+        description: definition.description,
+        parameters: Some(definition.input_schema),
+    }]);
+
+    for field in [
+        "week_start",
+        "goal_race",
+        "discipline",
+        "priority",
+        "sport",
+        "workout",
+        "duration_min",
+        "intensity",
+        "phase",
+    ] {
+        assert!(
+            catalog.contains(&format!("`{field}`")),
+            "the model must see `{field}` in the catalog:\n{catalog}"
+        );
+    }
+    // The format hints that make those names fillable.
+    assert!(catalog.contains("YYYY-MM-DD"), "catalog:\n{catalog}");
+    assert!(
+        catalog.contains("rest | base | build | peak | taper"),
+        "catalog:\n{catalog}"
+    );
+    // Arrays of objects announce themselves as such, and nesting is legible.
+    assert!(catalog.contains("(array of object)"), "catalog:\n{catalog}");
+    assert!(catalog.contains("  - `"), "catalog:\n{catalog}");
 }
